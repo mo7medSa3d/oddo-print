@@ -167,22 +167,25 @@ Go is absent, so none of the 11 tests have ever been executed.
   `pdf_windows.go`, `registry.go`, `cmd/agent/main.go` service wiring.
 
 ## RESUME HERE
+Sub-task E — pre-push gate COMPLETE. All seven available checks now run and
+pass: typecheck 0 errors; lint 0 errors / 14 warnings; vitest 0 failures
+(93 files passed, 44 skipped); i18n:check OK; i18n:odoo:check OK;
+db:docs:check OK; next build exit 0.
 
-Sub-task B is complete, pushed, and PR #111 is refreshed.
+Three commits on `arena/01a0f87e-oddo-print`, pushed:
+  `62cf541` Gateway made to compile (tsc 39 -> 0) + UpgradeLimitDialog
+            untranslated-title defect
+  `bb7b179` 19 stale test assertions reconciled with the i18n contract
+  `f3c7a35` useSyncExternalStore for the stored locale (only lint error)
 
-Sub-task C has 6 fixes across 2 rounds, all committed and pushed. Before
-continuing:
+Open item deliberately deferred (documented, not fixed):
+`src/app/api/team/invitations/route.ts:114` returns a hard-coded English 503
+error that is absent from `src/lib/api-error-keys.ts`, so it bypasses the
+client-side error-key mapping. Blocked on a decision: should API errors return
+machine codes (current convention) or localised strings?
 
-1. `go build ./...`, `go vet ./...` and `go test -race ./...` on a machine with
-   Go — the first thing to do, because nothing here was ever compiled. The
-   data-race fix (round 2, item 6) is specifically designed to be proven by
-   `-race` and has not been.
-2. Then the files still un-audited: `ipp.go`, `ipp_discovery.go`,
-   `pdf_windows.go`, `registry.go`, `network_discovery.go`,
-   `discovery_extended.go`.
-3. Real-hardware verification for anything touching SetupAPI, SNMP, WSD,
-   discovery accuracy and ESC/POS raster output.
-
-Highest-value remaining work outside sub-task C: a manual visual RTL pass in a
-real browser at 1280px and 390px, EN and AR, since none of the rendering could
-be verified in this sandbox.
+Remaining UNVERIFIED, in priority order for a future session:
+  1. Go agent — no toolchain, unfetchable. Everything Go-side is source-reading.
+  2. `npm run test:odoo:static` (pytest) and any Odoo runtime check.
+  3. Node v22.22.3 vs required >=24.15.0 — rerun the gate on Node 24 to confirm.
+  4. Real Windows/printer/SNMP/WSD hardware validation of sub-tasks C and D.

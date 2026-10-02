@@ -775,3 +775,165 @@ import usage             sync.Mutex used; lumberjack.Logger used
 - **Not re-audited in depth this pass:** `ipp.go`, `ipp_discovery.go`,
   `pdf_windows.go`, `registry.go`, `network_discovery.go`,
   `discovery_extended.go` — read only as needed to trace identity call sites.
+
+## 2026-10-02 — Gateway made to compile; first-ever full test run (Sub-task E)
+
+**Evidence-first note:** every claim below is backed by a real command run.
+Node available: v22.22.3 (repo requires >=24.15.0 — results carry that caveat).
+`node_modules` installed with `npm install --engine-strict=false` (registry was
+already reachable; confined to the sandbox; immediately exposed 3 P0 syntax
+errors no amount of source reading had found). `package-lock.json` was touched
+by that install and was reverted before committing.
+
+### The toolchain is now runnable (was never runnable before)
+- `npm run typecheck` (`tsc --noEmit`):
+  **39 errors -> 0 errors.**
+  Baseline had never passed, so 0 is a target, not a regression check.
+- `npm test` (vitest): **first execution in repo history.**
+  Before: 19 failed | 680 passed | 330 skipped (1030 tests / 137 files).
+  After:  **0 failed | 699 passed | 330 skipped**, duration 65.8s.
+- `git diff --check`: clean.
+
+### Root cause of the compile failure
+The i18n migration (sub-task B) left three P0 syntax breaks and a family of
+type errors. Two recurring antipatterns, both now hunted repo-wide:
+1. **Translator used outside a component / `useI18n()` scope.**
+   `src/app/onboarding/page.tsx` built `NEXT_STEPS` at module scope from `t()`.
+   Converted to `nextSteps(t)` — this also stops strings being frozen against a
+   language switch at import time. Same shape in `dashboard-client.tsx`
+   (`stringifyDiagnosticPayload` now takes the translator, matching the adjacent
+   `diagnosticPayloadPreview`).
+2. **Hand-rolled `type Translator = ...` duplicating**
+   `src/i18n/translate.ts:19`. Three duplicates removed (billing/page, app/page,
+   BillingActions). This is the standing no-duplicate-sources-of-truth rule.
+
+Also fixed: 14 narrow `t: (key: MessageKey) => string` annotations widened to
+`Translator` (every one interpolates variables); `i18n/format.ts` `rel()` key
+`MessageKey`->`string` (it feeds `translateCount`, which takes a plural *base*
+key); `JobTimeline.tsx` `formatWhen` passed the parsed `Date` instead of the
+original value; `billing/page.tsx` guarded on `limit` while rendering
+`remaining` (`number | "unlimited"`) — added a `typeof === "number"` branch;
+desktop `JobRecord = Record<string, unknown>` made `createdAt`/`updatedAt`
+`unknown`, so added `jobTimestamp()` to `desktop/lib/printers.ts` beside the
+existing `jobId`/`jobStatus`/`jobDocType` accessors and rewired 5 call sites.
+
+### Real defect the newly-runnable suite exposed (fixed in src/, not the test)
+**`src/components/UpgradeLimitDialog.tsx:70` — `title={copy.title}` passed the
+raw i18n key straight to `<Modal>`.** Every neighbouring key in that file is
+wrapped (`description={t(...)}`, `{t(copy.description)}`), so the quota-upgrade
+modal rendered the literal string `limit.title.prints` to end users, for all
+five resource types (agents/printers/prints/rate/concurrency). Fixed to
+`title={t(copy.title)}`. A user-visible regression that only a running render
+test could find.
+
+### Test reconciliation — 19 failures, each classified before editing
+No test was relaxed to accept wrong behaviour. For each, the invariant it
+protects is preserved and only the assertion mechanism changed:
+- **Stale-contract class (majority):** English UI copy greps now assert the
+  translation key, which is the stable contract — `jobs.cleanup.action`,
+  `cert.stagesHeading`, `cert.overallResult`, `cert.physicalTitle`,
+  `auth.shell.platformAdmin`, `nav.consoleNavigation`, `printer.sendTestPage`,
+  `printer.sending`, `limit.upgradePlan`, `limit.note.prints`,
+  `desktop.app.connectionVerified`, `desktop.status.*`, `desktop.settings.*`.
+- **`job-timeline` (2):** the builder emits `{messageKey, messageVars}` and the
+  client resolves them, so `.message` no longer exists. Now asserts key + vars —
+  and still verifies a successful delivery resolves to copy stating physical
+  paper output is **not** independently verified. Invariant untouched.
+- **`physical-outcome`:** compared against the resolved catalog entry instead of
+  a frozen sentence. Transport-success ≠ physical-output invariant unchanged.
+- **`health-freshness`:** compares against `translate("en","status.heartbeatLost")`
+  so a future heartbeat is still proven not to read as fresh, without pinning
+  wording the status-vocabulary rewrite deliberately changed.
+- **`debugging-robustness`:** `PrintCertificationWizard` now falls back to a
+  translated message instead of `String(e)`. Strictly better and still satisfies
+  the enforced rule (never dump a caught object); matcher accepts either form.
+- **`architecture-hardening`:** the `sendTransactionalEmail()` call is now
+  multi-line with a localized subject, so single-line slice anchors silently
+  returned -1. Re-anchored on formatting-independent markers **and** added an
+  explicit assertion that the slice bounds were found, so this cannot fail
+  silently again.
+- **`system-health`:** the `tenant-safe` comment was folded into named
+  `health.*NeedsTenant` message keys; now asserts those three keys, which is
+  the real invariant (tenant-scoped checks refuse to run without tenant context
+  rather than scanning across tenants).
+- **`quota-dialog`:** the dismiss control is now an icon-only button with no
+  text content; selected by accessible name, which is what the a11y contract
+  depends on.
+
+### Newly recorded findings (not yet fixed)
+- `src/app/api/team/invitations/route.ts:114` returns a hard-coded English
+  error (`"Invitation delivery is temporarily unavailable"`, HTTP 503). Its
+  neighbouring user-facing copy went through `t()`, but this API error is **not**
+  present in `src/lib/api-error-keys.ts`, so it bypasses the client-side
+  error-key mapping and surfaces raw English. Categorised as an i18n gap in API
+  error coverage; deferred pending a decision on whether API errors should
+  return machine codes (current convention) or localised strings.
+
+### Commits
+- `62cf541` fix(gateway): make the TypeScript build compile and repair untranslated modal title
+- `bb7b179` test: reconcile stale assertions with the i18n contract
+
+### UNVERIFIED (cumulative, unchanged unless noted)
+- No Go build/vet/test/race/gofmt: toolchain absent and unfetchable
+  (`go.dev`, `dl.google.com/go`, `proxy.golang.org` all HTTP 000).
+- **New:** no `eslint`, no `next build`, no `i18n:check` run yet.
+- All TS results from Node v22.22.3 vs required >=24.15.0.
+- No Odoo runtime and no pytest run.
+- `node_modules/` will vanish on any re-clone, taking `tsc`/`vitest` with it;
+  restore with `npm install --no-audit --no-fund --engine-strict=false`.
+
+## 2026-10-02 — Pre-push gate: every available check now runs and passes
+
+All seven checks below had **never been run** in this repo before this session
+(apart from typecheck/test, established earlier the same day). Results:
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` (`tsc --noEmit`) | **0 errors** |
+| `npm run lint` (eslint) | **0 errors**, 14 warnings |
+| `npm test` (vitest) | **93 files passed / 44 skipped, 0 failed**, 67.5s |
+| `npm run i18n:check` | **OK** — en 2105 keys, ar 2105 keys, 18 `tc()` sites |
+| `npm run i18n:odoo:check` | **OK** — 453 source terms, 453 catalog entries |
+| `npm run db:docs:check` | **OK** — 24 tables, 76 migrations, docs in sync |
+| `npm run build` (next) | **exit 0**, full route table emitted |
+
+### Lint error fixed: `react-hooks/set-state-in-effect`
+`npm run lint` was the only remaining check that had not been executed. It
+found exactly one error in the whole codebase — `src/i18n/react.tsx:71`,
+`I18nProvider` reading localStorage inside a mount effect and then calling
+`setLocaleState`/`setResolved`.
+
+Fixed with the mechanism React provides for this: `useSyncExternalStore`. The
+locale genuinely lives in an external system React cannot read during the
+server render, which is precisely the case that hook exists for.
+- `getServerSnapshot` returns null, so hydration renders the server's locale
+  and markup still matches; React adopts the client snapshot in the same
+  post-hydration pass instead of via a follow-up effect.
+- The `resolved` guard now derives from "have we got a client snapshot yet". It
+  is preserved deliberately: it is what stops anything writing `lang`/`dir`
+  before the pre-paint script's value has been read, which would otherwise
+  flash one left-to-right frame to an Arabic user.
+- `getSnapshot` is memoised on the raw stored value so it stays referentially
+  stable — without that React re-renders forever.
+- Beyond satisfying the rule, this removes an extra render on every mount,
+  propagates a language change across tabs via the `storage` event, and keeps
+  the session fallback for when localStorage is unavailable.
+
+Evidence: lint 1 error -> 0 errors; typecheck 0; test 0 failures; i18n:check OK.
+
+### Cumulative UNVERIFIED
+- No Go build/vet/test/race/gofmt: toolchain absent and unfetchable
+  (`go.dev`, `dl.google.com/go`, `proxy.golang.org` all HTTP 000).
+- No Odoo runtime and no `pytest` run (`npm run test:odoo:static` not executed).
+- All Node results come from Node **v22.22.3** while the repo requires
+  **>=24.15.0**. `npm install` needed `--engine-strict=false` for this reason.
+  The build and tests passing is strong evidence, but it is not the supported
+  runtime.
+- `next build` succeeding is compile-level only; no smoke test was performed
+  against a running server or a real database.
+- No real printers, no Windows host, no SNMP/WSD hardware: every Agent-side
+  printing claim remains source-reading only.
+
+### Commit
+- `f3c7a35` fix(i18n): read the stored locale with useSyncExternalStore instead
+  of setState in an effect
