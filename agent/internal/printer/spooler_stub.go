@@ -67,6 +67,10 @@ func (p *SpoolerPrinter) SupportsKind(kind string) bool {
 	}
 }
 
+// LastSpoolerJobID implements SpoolerJobIDReporter. The non-Windows stub
+// never reaches a real spooler, so there is no platform identity to report.
+func (p *SpoolerPrinter) LastSpoolerJobID() string { return "" }
+
 func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error {
 	switch NormalizeKind(doc.Kind) {
 	case KindPDF:

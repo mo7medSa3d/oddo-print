@@ -166,6 +166,16 @@ Go is absent, so none of the 11 tests have ever been executed.
 - Not re-audited in depth: `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`,
   `pdf_windows.go`, `registry.go`, `cmd/agent/main.go` service wiring.
 
+## RESUME HERE (Integration-defect delivery round — in progress 2026-10-02)
+
+Main checkout is FROZEN (foreign UU/stash state, do not touch). Delivery
+proceeds from worktree `audit-fixes-delivery` (base `dc8b7c4b` + patch +
+4 new test files). Fixes 1 (Odoo submission), 2 (5 MiB), 3 (unknown-pin
+test only, no defect), 5 (spoolerJobId, Go) implemented + verified (see
+AUDIT_LOG.md delivery entry for evidence). Fix 4 (Agent 409) BLOCKED on
+conflicted `agent/internal/agent/agent.go` — spec recorded, not applied.
+Next: full gate in worktree → logical commits → push → watch CI.
+
 ## RESUME HERE (Audit Pass 2 — COMPLETE, all CI green 2026-10-02)
 
 5 commits on `main` (`ddf9cc3`, `39e0c51`, `d0c1ffd`, `0ca3238`, `8091994`),

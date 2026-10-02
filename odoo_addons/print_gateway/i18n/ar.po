@@ -868,8 +868,8 @@ msgstr "لا يمكن تحويل حمولة الطباعة إلى JSON."
 
 #. module: print_gateway
 #: models/print_job.py
-msgid "Print payload exceeds the 8 MiB safety limit."
-msgstr "حمولة الطباعة تتجاوز حد الأمان البالغ 8 MiB."
+msgid "Print payload exceeds the 5 MiB Gateway/Agent safety limit."
+msgstr "حمولة الطباعة تتجاوز حد الأمان البالغ 5 MiB لبوابة الطباعة والوكيل."
 
 #. module: print_gateway
 #: models/print_job.py
@@ -2287,3 +2287,23 @@ msgstr "عام"
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js
 msgid "offline"
 msgstr "غير متصل"
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The API key is rotating. The job was safely re-queued and will retry automatically."
+msgstr "مفتاح API قيد التدوير. أُعيدت المهمة إلى قائمة الانتظار بأمان وستُعاد محاولتها تلقائيًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "The Gateway rejected authentication. The job was safely re-queued; check the API key and integration state, then it will retry automatically."
+msgstr "رفضت البوابة المصادقة. أُعيدت المهمة إلى قائمة الانتظار بأمان؛ تحقّق من مفتاح API وحالة التكامل، ثم ستُعاد المحاولة تلقائيًا."
+
+#. module: print_gateway
+#: models/print_job.py
+msgid "Printing is disabled for this company. Re-enable the printing service to submit queued jobs."
+msgstr "الطباعة معطّلة لهذه الشركة. أعد تفعيل خدمة الطباعة لإرسال المهام المنتظرة."
+
+#. module: print_gateway
+#: models/gateway_config.py
+msgid "The API key is in its rotation grace period and is read-only. Finish key rotation, then try again."
+msgstr "مفتاح API في فترة السماح للتدوير وهو للقراءة فقط. أنهِ تدوير المفتاح، ثم أعد المحاولة."

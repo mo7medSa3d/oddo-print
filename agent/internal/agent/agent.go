@@ -779,7 +779,7 @@ func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken); err != nil {
+		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken, ""); err != nil {
 			log.Printf("Job %s: pending terminal status report failed: %v", report.ID, err)
 		}
 	}
@@ -819,7 +819,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 				log.Printf("Job %s: cannot request crash requeue without the preserved claim token; leaving the local unknown outcome terminal", job.ID)
 				continue
 			}
-			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken, "agent_reprint_after_crash"); err != nil {
+			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken, "", "agent_reprint_after_crash"); err != nil {
 				log.Printf("Job %s: Gateway rejected crash-requeue request; lease/recovery remains authoritative: %v", job.ID, err)
 				continue
 			}
@@ -837,7 +837,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 			job.ID, job.PrinterID, reprint,
 		)
 		a.updateJobStatus(ctx, job.ID, "failed", queue.InterruptedMarker+
-			": the agent stopped while this job was printing; the physical output is unknown (full, partial or none)", job.ClaimToken)
+			": the agent stopped while this job was printing; the physical output is unknown (full, partial or none)", job.ClaimToken, "")
 	}
 	if len(interrupted) > 0 {
 		log.Printf("Crash recovery: %d job(s) were interrupted mid-print (reprint_after_crash=%v)", len(interrupted), reprint)
@@ -1291,7 +1291,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s already has a process-local terminal physical result; refusing duplicate dispatch and re-reporting", jobID)
-		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken); err != nil {
+		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken, ""); err != nil {
 			log.Printf("Job %s: failed to re-report process-local terminal result: %v", jobID, err)
 		}
 		return false
@@ -1379,7 +1379,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 					status = "success"
 					panicMsg = ""
 				}
-				a.updateJobStatus(executionCtx, jobID, status, panicMsg, fields.ClaimToken)
+				a.updateJobStatus(executionCtx, jobID, status, panicMsg, fields.ClaimToken, "")
 			}
 		}()
 
@@ -1478,7 +1478,7 @@ func (a *Agent) deliveryReceivedAt(jobID string) time.Time {
 // executor (waiting for an execution slot, running, or at the printer).
 // Used for the heartbeat keep-alive (gateway print-lease extension).
 // Each entry carries the delivery attempt's claim token: the gateway
-// refreshes a lease ONLY when (jobId, claimToken) still matches the live
+// refreshes a lease ONLY when (jobId, claimToken, "") still matches the live
 // claim, so a stale worker's heartbeat can never extend a reclaimed lease.
 func (a *Agent) inFlightJobIDs(limit int) []map[string]string {
 	if limit <= 0 {
@@ -2376,7 +2376,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	} else if found && localStatus == "success" {
 		log.Printf("Job %s already completed locally (success). Re-reporting terminal result instead of printing again.", jobID)
-		a.updateJobStatus(ctx, jobID, "success", "", claimToken)
+		a.updateJobStatus(ctx, jobID, "success", "", claimToken, "")
 		return
 	} else if found && a.queue.WasOutcomeUnknown(jobID) && !a.cfg.ReprintAfterCrashEnabled() {
 		// This job already reached the printer in a previous attempt, so it
@@ -2391,14 +2391,14 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		}
 		reason := marker + ": refusing to reprint a job whose previous attempt had an unknown outcome (agent.reprint_after_crash=false); the earlier delivery may have produced output"
 		log.Printf("Job %s: %s", jobID, reason)
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 		return
 	}
 
 	pl, err := payload.Parse(job["payload"])
 	if err != nil {
 		log.Printf("Job %s has an invalid payload: %v", jobID, err)
-		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("invalid payload: %v", err), claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("invalid payload: %v", err), claimToken, "")
 		return
 	}
 
@@ -2423,13 +2423,13 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 				found = false
 			}
 			if found && storedStatus == "success" {
-				a.updateJobStatus(ctx, jobID, "success", "", claimToken)
+				a.updateJobStatus(ctx, jobID, "success", "", claimToken, "")
 			} else {
 				marker := "UNKNOWN_PARTIAL_DELIVERY"
 				if a.queue.WasInterrupted(jobID) {
 					marker = queue.InterruptedMarker
 				}
-				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken)
+				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken, "")
 			}
 			return
 		}
@@ -2444,7 +2444,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// after this report, then the desired-state/backend/capability checks are
 	// repeated under that fence immediately before any physical dispatch.
 	reportStart := time.Now()
-	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken); err != nil {
+	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken, ""); err != nil {
 		// Context cancellation is an authoritative local lifecycle signal, not
 		// a generic gateway transport failure. Never use the stale-claim
 		// freshness heuristic to proceed to hardware after shutdown/session
@@ -2484,26 +2484,26 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	p, ok := a.getPrinter(printerID)
 	if !ok {
 		a.queue.AbortPrint(jobID, "printer_not_configured")
-		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", fmt.Sprintf("printer %s is not configured on this agent", printerID), claimToken, "")
 		return
 	}
 	if !printer.SupportsKind(p, kind) {
 		a.queue.AbortPrint(jobID, "capability_kind_mismatch")
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s cannot print %s payloads", printerID, kind)
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 		return
 	}
 	facts, factsOK := a.deviceFacts(printerID)
 	if !factsOK {
 		a.queue.AbortPrint(jobID, "device_facts_missing")
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: printer %s has no declared device facts on this agent", printerID)
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 		return
 	}
 	if compatible, why := printer.PayloadCompatibleForDevice(kind, pl.Protocol, facts); !compatible {
 		a.queue.AbortPrint(jobID, "payload_incompatible")
 		reason := fmt.Sprintf("CAPABILITY_MISMATCH: %s", why)
-		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 		return
 	}
 
@@ -2573,11 +2573,11 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 				if printer.OutcomeUnknown(drawerErr) {
 					reason := "UNKNOWN_PARTIAL_DELIVERY: cash-drawer kick outcome is ambiguous; automatic retry is unsafe: " + drawerErr.Error()
 					a.queue.UpdateStatusWithError(jobID, "failed", reason)
-					a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+					a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 					return
 				}
 				a.queue.UpdateStatusWithError(jobID, "failed", drawerErr.Error())
-				a.updateJobStatus(ctx, jobID, "failed", drawerErr.Error(), claimToken)
+				a.updateJobStatus(ctx, jobID, "failed", drawerErr.Error(), claimToken, "")
 				return
 			}
 			// A successful drawer kick is already a physical side effect. Any
@@ -2588,7 +2588,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			case <-printCtx.Done():
 				reason := "UNKNOWN_PARTIAL_DELIVERY: cash-drawer kick succeeded but the print attempt was cancelled before the main document dispatch"
 				a.queue.UpdateStatusWithError(jobID, "failed", reason)
-				a.updateJobStatus(ctx, jobID, "failed", reason, claimToken)
+				a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 				return
 			case <-time.After(150 * time.Millisecond):
 			}
@@ -2634,12 +2634,15 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken)
+		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, "")
 		return
 	}
 
 	log.Printf("Job %s: payload transmitted successfully to printer %s", jobID, printerID)
-	a.updateJobStatus(ctx, jobID, "success", "", claimToken)
+	// Surface the platform job identity (Windows spooler) when the backend
+	// reports one. SpoolerJobIDOf returns "" for every other backend, so
+	// this stays a no-op off Windows and the Gateway contract is unchanged.
+	a.updateJobStatus(ctx, jobID, "success", "", claimToken, printer.SpoolerJobIDOf(p))
 }
 
 // ErrStaleClaim is returned by updateJobStatus when the gateway rejects a
@@ -2672,7 +2675,7 @@ func redactClaimTokenForLog(token string) string {
 	return fmt.Sprintf("claim_%x", digest[:6])
 }
 
-func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken string, reason ...string) error {
+func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
 	if live := a.currentClaimToken(jobID); live != "" {
 		if claimToken != "" && claimToken != live {
 			log.Printf("Job %s: claim token override (passed %s, using live %s)", jobID, redactClaimTokenForLog(claimToken), redactClaimTokenForLog(live))
@@ -2687,6 +2690,12 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	if claimToken != "" {
 		body["claimToken"] = claimToken
+	}
+	// Spooler evidence is additive and optional: older Gateway versions
+	// ignore unknown fields, and printers without a platform identity
+	// (network/USB/IPP, non-Windows stub) report "" and omit it.
+	if spoolerJobID != "" {
+		body["spoolerJobId"] = spoolerJobID
 	}
 	if len(reason) > 0 && reason[0] != "" {
 		body["reason"] = reason[0]
