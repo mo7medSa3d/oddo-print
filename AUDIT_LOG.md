@@ -1097,3 +1097,57 @@ every `CODE_KEYS` entry resolves to a real catalog key.
   9 (integration) and 10 (runtime smoke) are Go- and/or hardware-dependent and
   were not executed.
 - No smoke test against a live server or database; `next build` is compile-only.
+
+---
+
+## 2026-10-02Txx:Z — P0 CI/CD review + fixes (Audit Pass 2)
+
+- **Component:** CI/CD · **File:** `.github/workflows/ci.yml`, `build-windows.yml`, `docker.yml`, `security-supply-chain.yml`, `static-security.yml`
+- **Change:** (1) Added three missing steps to the `ci` job after Lint: `npm run i18n:check`, `npm run i18n:odoo:check`, `npm run db:docs:check`. (2) Added `timeout-minutes` to every job that lacked one: build-windows 120, docker-build-runtime 30, supply-chain 30, postgres-failure-injection 20, codeql 30, dependency-review 10, gitleaks 10.
+- **Reason:** The three drift checkers existed as npm scripts but ran in NO workflow, so translation-catalog drift and schema/migration/doc drift would reach main undetected. Jobs without timeouts can burn runner minutes indefinitely on a hung step.
+- **Review findings (no change needed):** triggers push/PR/merge_group on main everywhere; concurrency cancel-in-progress everywhere; least-privilege `permissions: contents: read` at top level (codeql adds required `security-events: write`; gitleaks `pull-requests: write` for findings comments); all third-party actions SHA-pinned with version comments (machine-enforced by the supply-chain gate); no `pull_request_target`; no secrets echoed (only an ephemeral `credential_key` generated inline, never printed; production secrets travel via env/files); dependency caching (npm via setup-node, Go via setup-go, Rust/Tauri via actions/cache); Postgres service + `db:migrate` on empty DB + runtime-schema assertion in `ci`; Go build/vet/race on windows-latest + gofmt gate in `ci` (covers Windows-tagged files — gofmt scans all .go files regardless of build tags); pytest static contract tests in `ci`; cargo check/build/test on windows; Docker compose build + migrate-before-gateway (`service_completed_successfully`) + health + authenticated WS smoke in `docker.yml`. Dockerfile is multi-stage, non-root (`USER node`), digest-pinned base, HEALTHCHECK, no secrets baked (file-mounted secrets). Caddy `reverse_proxy` upgrades WebSocket automatically in v2 — no extra config needed. Not added: CODEOWNERS (no known owners; a wrong CODEOWNERS blocks PRs) and issue/PR templates (process, not correctness).
+- **Evidence:** `python3 -c yaml.safe_load` over all 5 workflow files => every job has `timeout-minutes`; job lists printed. Full CI verification left to the push (P5).
+
+---
+
+## 2026-10-02 — P1 Go agent deep audit + fixes (Audit Pass 2, first local execution)
+
+- **Component:** Agent · **File:** `agent/cmd/agent/main.go`, `agent/internal/printer/wsd_discovery.go`, `agent/internal/printer/pdf_windows.go`
+- **Change:**
+  1. `main.go`: `ctx`/`cancel`/`runDone` now published under the existing `program.mu` and consumed via locals in both the Start goroutine and `Stop`. Previously only `p.agent` was guarded; the lifecycle fields crossed the same Start→SCM goroutine boundary unsynchronised.
+  2. `main.go`: corrupt-config path no longer `log.Fatalf` (os.Exit) from the Start-owned goroutine — it now logs loudly and idles on `ctx.Done()`. Fatal skipped `defer close(runDone)`, hanging `Stop` on its 27s bound and denying SCM a clean stop.
+  3. `wsd_discovery.go`: result set capped at `maxWSDResults = 512` distinct IPs.
+  4. `pdf_windows.go`: `embeddedPDFPrintMu sync.Mutex` → capacity-1 channel slot with ctx-aware acquisition, so a cancelled job (or SCM stop) fails fast instead of blocking behind a long render; cancel path of `renderPageWithContext` now drains a just-completed render and calls its `Cleanup()` instead of orphaning the WASM bitmap (initial version compared method-value `!= nil`; windows `go vet` correctly flagged it as always-true — fixed to an unconditional call after a nil-receiver guard).
+- **Reason:** Deep audit of the files the earlier pass skipped (subagent-assisted, every claim re-verified in source and in the zeroconf/go-pdfium module sources before editing).
+- **Refuted claims (no change, with proof):** (a) "registry + empty discovery wipes production set" — `UpsertRegistry` is merge-only, no deletion path exists; empty discovery preserves the registry. (b) "IPPPrinter.Print missing size guard" — `Print` routes through `ValidatePDF`, which enforces empty + 5MB cap (`pdf.go:41-47`). (c) "mDNS discovery hangs on `<-doneCh`" — zeroconf v1.0.0 `mainloop` calls `params.done()` → `close(Entries)` on ctx expiry (`service.go:84`), so the range terminates; sockets closed via `c.shutdown()`. Verified against `/home/mo7amed_saad/go/pkg/mod/github.com/grandcat/zeroconf@v1.0.0/`.
+- **Evidence:** `go build ./...` exit 0; `go vet ./...` exit 0; `GOOS=windows GOARCH=amd64 go build ./...` exit 0; `GOOS=windows go vet ./...` exit 0 (after the Cleanup fix); `gofmt -l` clean; `go test -count=1 ./...` 9 packages ok, 0 FAIL; `go test -race ./internal/printer/` ok (earlier this pass).
+- **UNVERIFIED:** Windows-only behavior (PDF render path, service Start/Stop under real SCM) — compile/vet-verified via cross-build, covered at runtime only by the windows-latest CI job.
+
+---
+
+## 2026-10-02 — P2 Gateway (Audit Pass 2)
+
+- **Component:** Gateway · **File:** 10 TSX/TS files (dep arrays), `src/i18n/messages/{en,ar}.ts`, `src/app/billing/page.tsx`, `src/app/dashboard/dashboard-client.tsx`, `src/i18n/index.ts`
+- **Change:**
+  1. All 14 `react-hooks/exhaustive-deps` warnings fixed → `npm run lint` now 0 errors / 0 warnings. Each site uses the locale-stable `t` (rebuilt only on locale change), so added deps are safe; data-fetch effects now correctly re-resolve on language switch. `api-keys` `loadKeys` and `team` `load` promoted to `useCallback([t])` (bare functions in dep arrays would refetch every render); `react.tsx` dropped the redundant `context` dep.
+  2. Two leftover hard-coded English bodies keyed: billing page callout → `billing.usageUnavailableBody`, dashboard callout → `billing.usageUnavailableDashboardBody` (en + ar, same catalog position; `i18n:check` OK).
+  3. `src/i18n/index.ts` doc comment contained the literal `@/i18n` — the CI "relative imports only" grep gate matches comments too, so the `ci` job failed on main at its first step. Reworded to a relative-path example. **This was the reason CI was red on main.**
+- **Error-code scan (no change):** 20+ route files send machine `code:`; `CODE_KEYS` + `statusMessageKey` fallback covers every status generically. The only actively-misleading case (invitation 503) was already fixed on main. Convention verified consistent.
+- **Billing pass (no change, verified clean):** webhook verifies HMAC (`timingSafeEqual`, 300s tolerance on the DB-calibrated clock) before parsing; idempotency via `billing_events` ON CONFLICT + `FOR UPDATE` fence + processedAt fast path; all state changes in one transaction with row locks, stale-event fencing, identity-conflict quarantine. Entitlements enforced server-side (`enforceTenantResourceEntitlement`, `reserveTenantPrintCredit`, `requireTenantBillingAccess`).
+- **Evidence:** `npm run lint` → no issues; `tsc --noEmit` → 0; `vitest` → 96 files / 722 tests passed, 0 failed; `next build` → route table emitted; `i18n:check` / `i18n:odoo:check` / `db:docs:check` → OK. (Node v22.23.1 vs required ≥24.15.0; CI re-verifies on 24.21.0.)
+
+## 2026-10-02 — P3 Odoo + red-CI diagnosis (Audit Pass 2)
+
+- **Component:** Odoo addon + CI · **File:** `odoo_addons/print_gateway/controllers/runtime_printers.py`, `models/print_policy.py`, `i18n/ar.po`, `tests/test_security_contracts.py`, `tests/test_final_security_hardening.py`
+- **Change:**
+  1. **CI was red on main** (`gh run 37014129056`: both `ci` and `odoo19` failed). The `ci` failure was the `@/` comment above. The `odoo19` failure was 1 failed + 2 errors of 199 tests, all three caused by earlier audit passes and all diagnosed from the CI log (no Odoo image cached locally; `docker pull` barred):
+     - 2 ERRORs (`test_controller_rejects_root_company_as_branch`, `test_runtime_printer_scope_rejects_root_company_branch_parameter`): `AttributeError: 'NoneType' object has no attribute 'uid'` from Odoo 19 `tools/translate.py:520 _get_uid`. The i18n commit wrapped the controller's `_scope` ValidationErrors in `_()`; Odoo 19 resolves `_()` by walking the stack for `self.env`, and a directly-instantiated controller carries `env=None`, so `_()` raises instead of the intended ValidationError. Verified against the 19.0 source (fetched `odoo/tools/translate.py` @19.0: `_get_uid` does `local_self.env.uid` after a bare `hasattr`). Fix: the 3 `_scope` raises are plain strings again, with a comment citing the CI run; model code keeps `_()` (recordsets always carry a real env — proven by the other 190+ passing tests). `ar.po` unchanged (both msgids still extracted from models; `i18n:odoo:check` OK).
+     - 1 FAIL (`test_09_policy_template_format_error_raises`): the `print_policy` i18n commit swallowed the sanitizer's "strictly forbidden in raw print templates" ValueError into a generic "Could not build…" message. Fix (source, not test): new `except ValueError` branch raising "uses a forbidden construct: <detail>" — refusal invariant preserved, operator told why, pinned wording restored. New msgid added to `ar.po` (Arabic hand-written, placeholders intact).
+  2. Reconciled 5 stale Python source-assertion tests with the i18n contract (same class as `bb7b179`: assert keys, never relax invariants): billing page, ui-dependency, branding (keys + catalog values), reprint refusal key, invitation block re-anchored on the `sendTransactionalEmail({` call + `mail.invite.subject` + delivery code.
+- **Evidence:** `py_compile` 47 files / 0 failures; XML 9 / 0; `pytest` (the 5 CI files) **136 passed, 0 failed** (was 5 failed / 131 passed; failures reproduced on clean-main stash first to prove pre-existing). `i18n:odoo:check` OK. The 2 ERROR + 1 FAIL Odoo-runtime fixes are source-reasoned + locally compile/catalog-checked; runtime proof left to CI (P5) since no Odoo image is available offline.
+
+## 2026-10-02 — P4 cleanup triage (Audit Pass 2)
+
+- **Component:** all · **File:** —
+- **Change:** No change — verified nothing to do. Root `*.md` are one topical doc each (ADR/ARCHITECTURE/DEPLOYMENT/…); stale audit reports already live in `archive/`. Open PRs are all fresh dependabot bumps (2026-09-30, codeql/vite/vitest/ws/tauri/drizzle/types/eslint) — none stale or superseded. No dead code introduced this pass (`embeddedPDFPrintMu` fully removed, 0 references; controller `_` import removed with its last use).
+- **Evidence:** `ls archive/`, `ls *.md`, `gh pr list` output recorded above.

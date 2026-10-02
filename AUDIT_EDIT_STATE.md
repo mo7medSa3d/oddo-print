@@ -166,26 +166,52 @@ Go is absent, so none of the 11 tests have ever been executed.
 - Not re-audited in depth: `snmp_discovery.go`, `wsd_discovery.go`, `ipp*.go`,
   `pdf_windows.go`, `registry.go`, `cmd/agent/main.go` service wiring.
 
-## RESUME HERE
-Sub-task E — pre-push gate COMPLETE. All seven available checks now run and
-pass: typecheck 0 errors; lint 0 errors / 14 warnings; vitest 0 failures
-(93 files passed, 44 skipped); i18n:check OK; i18n:odoo:check OK;
-db:docs:check OK; next build exit 0.
+## RESUME HERE (Audit Pass 2 — in progress)
+P0 CI review underway. New environment facts: Go 1.26.8, cargo 1.98.1,
+pytest 8.3.3, gh, docker all present; node v22.23.1 with node_modules
+installed. Prior "UNVERIFIED: no Go toolchain" is now lifted for
+Linux-side checks (real Windows hardware still UNVERIFIED).
+Prior deferred item `team/invitations 503` is NOT deferred — it was fixed
+on main (`INVITATION_DELIVERY_UNAVAILABLE`, commit 6318efd); verified in
+current source 2026-10-02.
+Next: P0 CI fixes (missing i18n/db-docs jobs, missing timeouts), then P1
+deep audit of remaining Go files, then P2/P3/P4, then push protocol.
 
-Three commits on `arena/01a0f87e-oddo-print`, pushed:
-  `62cf541` Gateway made to compile (tsc 39 -> 0) + UpgradeLimitDialog
-            untranslated-title defect
-  `bb7b179` 19 stale test assertions reconciled with the i18n contract
-  `f3c7a35` useSyncExternalStore for the stored locale (only lint error)
+---
 
-Open item deliberately deferred (documented, not fixed):
-`src/app/api/team/invitations/route.ts:114` returns a hard-coded English 503
-error that is absent from `src/lib/api-error-keys.ts`, so it bypasses the
-client-side error-key mapping. Blocked on a decision: should API errors return
-machine codes (current convention) or localised strings?
+## Audit Pass 2 (2026-10-02, branch `main` @ `df64881`)
 
-Remaining UNVERIFIED, in priority order for a future session:
-  1. Go agent — no toolchain, unfetchable. Everything Go-side is source-reading.
-  2. `npm run test:odoo:static` (pytest) and any Odoo runtime check.
-  3. Node v22.22.3 vs required >=24.15.0 — rerun the gate on Node 24 to confirm.
-  4. Real Windows/printer/SNMP/WSD hardware validation of sub-tasks C and D.
+Environment probe result:
+`node v22.23.1 / npm 10.9.8 / go 1.26.8 / cargo 1.98.1 /
+python 3.14.7 / pytest 8.3.3 / docker 29.7.2 / gh 2.97.0`,
+`git status` clean, branch `main`. Node is below the required
+`>=24.15.0` (CI runs 24.21.0 via .nvmrc); local Node results carry that
+caveat. Nothing installed (all tools pre-existing).
+
+| # | Task | Status |
+|---|------|--------|
+| P0-1 | CI triggers/permissions/pinning/secrets review | **DONE** — least-privilege, SHA-pinned, no leaks |
+| P0-2 | Add missing CI jobs (i18n:check, i18n:odoo:check, db:docs:check) | **DONE** |
+| P0-3 | Add missing job timeouts | **DONE** — all 9 jobs |
+| P0-4 | CD review (Dockerfile/compose/Caddy/migrate ordering) | **DONE** — verified sound |
+| P1-1 | Go build/vet/gofmt/test/race/GOOS=windows | **DONE** — all green, first local run ever |
+| P1-2 | Deep audit: snmp/wsd/ipp/pdf/registry/service wiring | **DONE** — 4 fixes, 3 refutations (see log) |
+| P2-1 | Gateway gate (typecheck/lint/test/build) | **DONE** — lint 0/0, tsc 0, vitest 722/0, build ok |
+| P2-2 | 14 lint warnings | **DONE** — 0 warnings |
+| P2-3 | Hard-coded API error strings scan | **DONE** — convention consistent, no change |
+| P2-4 | Security/billing/DB passes | **DONE** — verified clean, no change |
+| P3 | Odoo addon (py_compile/XML/pytest) | **DONE** — 136/136 pytest; 3 CI-red fixes |
+| P4 | Cleanup (dead code, md collapse, PR triage) | **DONE** — verified nothing to do |
+| P5 | Push + watch CI to green | **DOING** |
+
+### Pass 2 evidence so far (Go — FIRST local execution ever)
+- `go build ./...` (linux): exit 0
+- `go vet ./...`: exit 0
+- `GOOS=windows GOARCH=amd64 go build ./...`: exit 0
+- `go test -count=1 ./...`: 9 packages ok, 0 failures
+  (cmd/agent has no test files — 10th package)
+- `go test -race -count=1 ./internal/printer/`: ok (39s)
+- `gofmt -l`: 1 hit (`stable_id_unicode_test.go` comment-indent,
+  new-gofmt style) — fixed with `gofmt -w`, now clean.
+- This executes the 11 previously-NEVER-RUN tests, including the NFC
+  folding, SNMP identity pinning, WSD watchdog, and mutex-guard code.
