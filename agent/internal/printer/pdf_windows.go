@@ -84,7 +84,11 @@ var (
 	// PDFium is limited to one live worker. This both bounds memory and keeps
 	// GDI page submission serialized so independent PDF jobs cannot overlap
 	// on the same renderer/print pipeline.
-	embeddedPDFPrintMu sync.Mutex
+	//
+	// The slot is a channel, not a sync.Mutex, so a cancelled job refuses to
+	// wait behind the holder: Lock would block past the SCM stop bound even
+	// when ctx is already done, while the select below fails fast.
+	embeddedPDFPrintSlot = make(chan struct{}, 1)
 
 	modGDI32              = windows.NewLazySystemDLL("gdi32.dll")
 	procCreateDCW         = modGDI32.NewProc("CreateDCW")
@@ -286,6 +290,16 @@ func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request 
 		// worker. The caller decides whether the physical outcome is already
 		// ambiguous based on whether StartDocW has occurred.
 		_ = instance.Kill()
+		// If the render completed in the same instant as the cancellation,
+		// its Cleanup would otherwise be orphaned in the buffered channel:
+		// the bitmap was never handed out, so release it here.
+		select {
+		case result := <-done:
+			if result.rendered != nil {
+				result.rendered.Cleanup()
+			}
+		default:
+		}
 		return nil, nil, ctx.Err()
 	}
 }
@@ -301,8 +315,16 @@ func platformPrintPDF(ctx context.Context, printerName, pdfPath string) error {
 }
 
 func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data []byte) (retErr error) {
-	embeddedPDFPrintMu.Lock()
-	defer embeddedPDFPrintMu.Unlock()
+	// Ctx-aware acquisition: a job that is already cancelled (or a service
+	// stop racing a long first render) must not block on the holder past
+	// the SCM stop bound. The holder checks ctx per page, so the wait is
+	// still bounded by one in-flight job, never indefinite.
+	select {
+	case embeddedPDFPrintSlot <- struct{}{}:
+		defer func() { <-embeddedPDFPrintSlot }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	if err := ValidatePDFPrinterName(printerName); err != nil {
 		return err

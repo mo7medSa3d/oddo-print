@@ -13,6 +13,12 @@ import (
 )
 
 // discoverWSDPrinters performs WS-Discovery multicast probe for network print devices.
+//
+// maxWSDResults bounds the result set: replies are keyed by source IP and a
+// hostile or misconfigured network could otherwise grow the slice without
+// limit during the 2.5s listen window.
+const maxWSDResults = 512
+
 func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
@@ -79,10 +85,16 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
 		devs := parseWSDProbeMatches(buf[:n], remoteAddr)
 		for _, d := range devs {
+			if len(allFound) >= maxWSDResults {
+				break
+			}
 			if !seenIP[d.NetworkAddress] {
 				seenIP[d.NetworkAddress] = true
 				allFound = append(allFound, d)
 			}
+		}
+		if len(allFound) >= maxWSDResults {
+			break
 		}
 	}
 

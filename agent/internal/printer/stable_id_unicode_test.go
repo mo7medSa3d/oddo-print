@@ -29,8 +29,8 @@ import (
 // mark, and a combining mark is invisible in source. Escapes keep the fixture
 // exact and reviewable.
 //
-//   nfcName: ... U+0631 (reh) U+0626 (yeh WITH hamza above, precomposed) U+064A U+0633 U+064A
-//   nfdName: ... U+0631 (reh) U+064A (yeh) U+0654 (combining hamza above) U+064A U+0633 U+064A
+//	nfcName: ... U+0631 (reh) U+0626 (yeh WITH hamza above, precomposed) U+064A U+0633 U+064A
+//	nfdName: ... U+0631 (reh) U+064A (yeh) U+0654 (combining hamza above) U+064A U+0633 U+064A
 const (
 	arQueuePrefix = "طابعة الفرع "
 	nfcName       = arQueuePrefix + "\u0627\u0644\u0631\u0626\u064a\u0633\u064a"

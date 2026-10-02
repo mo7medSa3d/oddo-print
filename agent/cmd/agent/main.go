@@ -24,14 +24,16 @@ import (
 type program struct {
 	configPath string
 
-	// mu guards agent.
+	// mu guards agent and the Start/Stop lifecycle fields below.
 	//
 	// The agent instance is written by the Start-owned runtime goroutine (on
 	// every restart-loop iteration) and read by Stop, which the service manager
-	// invokes on a different goroutine. Without a mutex those accesses are
-	// unsynchronised: Stop could observe a stale nil and skip closing the
-	// SQLite queue, or observe a half-published pointer. go test -race would
-	// flag it.
+	// invokes on a different goroutine. ctx/cancel/runDone are published by
+	// Start and read by Stop on the same cross-goroutine boundary, so they
+	// are published under mu and consumed via locals — never touched
+	// unsynchronised. Without this, Stop could observe a stale nil and skip
+	// closing the SQLite queue, or observe a half-published pointer.
+	// go test -race would flag it.
 	mu    sync.Mutex
 	agent *agent.Agent
 
@@ -55,14 +57,17 @@ func (p *program) getAgent() *agent.Agent {
 }
 
 func (p *program) Start(s service.Service) error {
-	p.ctx, p.cancel = context.WithCancel(context.Background())
-	p.runDone = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	p.mu.Lock()
+	p.ctx, p.cancel, p.runDone = ctx, cancel, runDone
+	p.mu.Unlock()
 	go func() {
-		defer close(p.runDone)
+		defer close(runDone)
 
 		if err := config.Ensure(p.configPath); err != nil {
 			log.Printf("Failed to prepare canonical config path %s: %v — waiting for resolution...", p.configPath, err)
-			<-p.ctx.Done()
+			<-ctx.Done()
 			return
 		}
 
@@ -87,9 +92,11 @@ func (p *program) Start(s service.Service) error {
 		// instead, log and wait quietly in an Idle / Unpaired state with
 		// exponential backoff (5s doubling, capped at 60s) so a wedged
 		// setup does not burn CPU or flood rotating logs. A file that
-		// EXISTS but fails parsing is corruption, not absence: log a fatal
-		// error and exit immediately so the failure is visible instead of
-		// spinning forever.
+		// EXISTS but fails parsing is corruption, not absence: log it loudly
+		// and idle (without spinning) until the operator fixes or deletes
+		// the file or the service stops. Exiting here (e.g. log.Fatalf)
+		// would terminate the process from this goroutine, skipping
+		// `defer close(runDone)` and hanging Stop on its 27s bound.
 		var cfg *config.Config
 		backoff := 5 * time.Second
 		const maxBackoff = 60 * time.Second
@@ -98,7 +105,9 @@ func (p *program) Start(s service.Service) error {
 			cfg, err = config.Load(p.configPath)
 			if err != nil {
 				if _, statErr := os.Stat(p.configPath); statErr == nil {
-					log.Fatalf("Agent configuration at %s is corrupt and cannot be parsed (%v) — refusing to run; fix or delete the file and restart", p.configPath, err)
+					log.Printf("ERROR: Agent configuration at %s is corrupt and cannot be parsed (%v) — idling without running; fix or delete the file and restart", p.configPath, err)
+					<-ctx.Done()
+					return
 				}
 				log.Printf("Agent unconfigured at %s (%v) — retrying in %s...", p.configPath, err, backoff)
 			} else if cfg == nil || cfg.Agent.ID == "" || cfg.Agent.Secret == "" {
@@ -109,7 +118,7 @@ func (p *program) Start(s service.Service) error {
 				break
 			}
 			select {
-			case <-p.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-time.After(backoff):
 			}
@@ -129,7 +138,7 @@ func (p *program) Start(s service.Service) error {
 			if err != nil {
 				log.Printf("Failed to initialize agent: %v — retrying in %s...", err, restartBackoff)
 				select {
-				case <-p.ctx.Done():
+				case <-ctx.Done():
 					return
 				case <-time.After(restartBackoff):
 				}
@@ -141,7 +150,7 @@ func (p *program) Start(s service.Service) error {
 			}
 			p.setAgent(app)
 
-			if err := app.Run(p.ctx); err != nil {
+			if err := app.Run(ctx); err != nil {
 				log.Printf("Agent error: %v — restarting in %s...", err, restartBackoff)
 			} else {
 				log.Printf("Agent exited cleanly")
@@ -149,7 +158,7 @@ func (p *program) Start(s service.Service) error {
 			}
 
 			select {
-			case <-p.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-time.After(restartBackoff):
 			}
@@ -166,18 +175,21 @@ func (p *program) Start(s service.Service) error {
 // It cancels the agent, waits for Run() to complete its bounded shutdown, and
 // only then closes the SQLite queue so the database is never closed mid-write.
 func (p *program) Stop(s service.Service) error {
-	if p.cancel != nil {
-		p.cancel()
+	p.mu.Lock()
+	cancel, runDone := p.cancel, p.runDone
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	// SCM control handling is time-bounded. Keep SQLite open until Run()
 	// has returned; otherwise a late worker can touch a closed WAL-backed
 	// database. runDone is closed by the Start-owned goroutine itself, so Stop
 	// needs no additional waiter goroutine that could outlive the 27s boundary.
-	if p.runDone == nil {
+	if runDone == nil {
 		return nil
 	}
 	select {
-	case <-p.runDone:
+	case <-runDone:
 		if ag := p.getAgent(); ag != nil {
 			if err := ag.Close(); err != nil {
 				return fmt.Errorf("close local queue: %w", err)
