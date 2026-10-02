@@ -1172,3 +1172,84 @@ every `CODE_KEYS` entry resolves to a real catalog key.
 - **Change:** "revokes legacy platform session and invalidates legacy claims" now derives token `iat`/`exp` from the single stored `platform_sessions.expires_at` instead of a second independent `clock_timestamp()` read. Test-only change; revocation invariant untouched.
 - **Reason:** CI run 37024331707 (docs-only commit) failed `ci` in integration tests: `expected null not to be null` at the pre-revocation assertion. Mechanism: the test wrote `expires_at = T0 + 8h` (INSERT) then read `createdAt = floor(clock at T1)`; when a second boundary falls between T0 and T1, `claims.exp = floor(T0)+1+8h` while `floor(expires_at) = floor(T0)+8h`, so `validatePlatformClaims`' exact-equality fence (`platform-auth.ts`, legacy path) returns null. Proved causally unrelated to Pass 2 code: the failing commit changed only `AUDIT_*.md`, and the prior code-identical run 37021271916 was green. Sibling legacy tests (`session-legacy-fallback`, `manager-auth`) use one clock read for both write and assert — self-consistent, no race; verified by reading.
 - **Evidence:** first failure log (`FAIL tests/platform-control-plane.test.ts ... expected null not to be null`); rerun of the failed run triggered to corroborate flakiness; deterministic fix committed as `de161f4`; `tsc --noEmit` clean. Runtime proof left to the new CI run.
+
+---
+
+## 2026-10-02 — Integration-defect fixes, delivery round (main checkout frozen)
+
+Foreign session state (8 UU files, 2 stashes, 5 foreign untracked paths)
+left untouched per instruction. All fixes below were developed in the main
+worktree (clean files only) and verified in scratch worktrees at HEAD;
+delivery proceeds from an isolated worktree so no foreign state is read,
+merged, or discarded.
+
+### Fix 1 — Odoo submission semantics (`print_job.py`, `gateway_config.py`, `ar.po`)
+- 409 `API_KEY_READ_ONLY` during rotation grace re-queues (60s,
+  `GATEWAY_KEY_ROTATION_GRACE`) instead of terminal `failed`. Key is
+  re-resolved from config per attempt, so the next try uses the new key.
+- Every Gateway 401 (revoked key / disabled integration / suspended
+  tenant — all operator-recoverable, no permanent 401 exists) re-queues
+  (300s, `GATEWAY_AUTH_RECOVERABLE_401`); `401` removed from the terminal
+  tuple. `IDEMPOTENCY_CONFLICT` stays terminal (`retryable:false`, same
+  bytes can never succeed).
+- 403 requeue set completed to all four `isTenantBillingError` codes
+  (`TENANT_SUBSCRIPTION_REQUIRED`, `TENANT_ENTITLEMENT_UNAVAILABLE`,
+  `TENANT_SUSPENDED`, `TENANT_DELETED`).
+- Disabled integration freezes the outbox (`gateway_config.enabled`
+  gate at the top of `_action_submit_trusted`: cron skips with
+  `next_retry_at+300` and no POST; interactive raises immediately).
+- Activation sync names rotation grace instead of misreporting a revision
+  conflict; `_disable_gateway_for_unlink` converges on 409 `current`
+  (already-disabled returns True, else one fenced send at
+  `current.revision + 1`).
+- Evidence: `py_compile` clean; static pytest 143/143 (7 new);
+  `i18n:odoo:check` OK (4 msgids added, stale 8 MiB msgid removed).
+  5 Odoo runtime tests added (`test_control_plane.py::test_11-15`,
+  mocked 409/401/403/disabled/unlink-tie) — CI-bound, not executed here.
+
+### Fix 2 — 5 MiB unified (`print_job.py`, `ar.po`)
+- Creation gate measured serialized JSON ≤ 8 MiB while the wire (contract
+  5242880, Gateway `payload.ts`, agent `payload.go`, Odoo submit
+  validator) enforces decoded bytes ≤ 5 MiB. Creation now enforces the
+  same decoded-content bytes (5 MiB serialized fallback for dataless
+  rows, which are invalid regardless). Gateway `MAX_BODY` 8 MiB is
+  transport framing for ~6.8 MiB base64+JSON and is correct — unchanged.
+- Evidence: runtime `test_16` (6 MiB rejected) + static pin (no
+  `8 * 1024 * 1024` in `print_job.py`); same 143/143 run.
+
+### Fix 3 — `protocol:"unknown"`: investigated, NO DEFECT on HEAD
+- Agent reports honestly; Gateway `sanitizePrinter` accepts (enum member,
+  explicit `return null` in `validatePrinterTransportProtocol`,
+  protocol-agnostic port validation); console/Odoo list unfiltered; Odoo
+  binds `unknown` as "Not declared (not routable)". Non-executability
+  fenced at claim predicate + capability exact-match + binding
+  selection. No production change (would have been churn, not a fix).
+- Regression pin added instead: DB-gated heartbeat test asserting an
+  unknown-protocol heartbeat returns 200 and persists
+  `protocol='unknown'`/`lifecycle='active'`. `tsc`/`eslint` clean;
+  execution CI-bound.
+
+### Fix 4 — Agent 409 handling: BLOCKED (spec complete)
+- `agent/internal/agent/agent.go` is conflicted in this checkout; no edit
+  made. Spec: on heartbeat 409 parse `Agent is ${lifecycle}`, set atomic
+  fenced flag + 5-min backoff, skip poll/discovery while fenced, refuse
+  new local dispatch in `dispatchJobWithContexts`, clear on next 200;
+  same backoff for 401 re-pair path. Tests: httptest 409 → no dispatch +
+  backoff; 200 recovery.
+
+### Fix 5 — `spoolerJobId` end-to-end (Go, additive)
+- `StartDocPrinterW` return → recorded on success into
+  `SpoolerPrinter.lastJobID` (`atomic.Uint64`; failures never overwrite)
+  → `LastSpoolerJobID()` via new optional `SpoolerJobIDReporter`
+  interface + `SpoolerJobIDOf()` helper → dispatch success path threads
+  it into `updateJobStatus(..., spoolerJobID, ...)` (new positional
+  param; 15 call sites + 3 test sites, compiler-audited) → PATCH body
+  `spoolerJobId` (omitted when empty) → Gateway persists/echoes (no
+  Gateway change; already accepted). Test-only session indirection var
+  (`currentExecuteSpoolerSession`) follows the file's hook pattern.
+  `attemptId` deliberately NOT propagated: agent attempts are already
+  identified by `(jobId, deliveryAttempts, claimToken)`; Gateway mints
+  `attemptId` only for certify flow.
+- Evidence: `go build` linux+windows, `go vet` both, `gofmt` clean,
+  `go test -race ./...` all 10 pkgs ok; 6 new Linux tests PASS; 2
+  windows-tagged session tests compile-verified, CI-bound.
