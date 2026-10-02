@@ -111,7 +111,16 @@ export async function POST(req: Request) {
     logError("team.invitation_email_delivery_ambiguous", {
       error: error instanceof Error ? error.message : "unknown",
     });
-    return NextResponse.json({ error: "Invitation delivery is temporarily unavailable" }, { status: 503 });
+    // The `code` is the contract: the client maps it to a translated message
+    // rather than rendering this English string, which is written for logs.
+    // Semantically this is NOT "the invitation failed" — the durable row was
+    // created above and is deliberately not revoked. Saying "failed" here
+    // would tell the operator to send a second invitation when the first
+    // link may already be in the invitee's inbox.
+    return NextResponse.json(
+      { error: "Invitation delivery is temporarily unavailable", code: "INVITATION_DELIVERY_UNAVAILABLE" },
+      { status: 503 },
+    );
   }
   return NextResponse.json({ ok: true, id });
 }

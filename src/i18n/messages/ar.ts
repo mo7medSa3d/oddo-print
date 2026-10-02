@@ -2123,6 +2123,7 @@ export const ar: Catalog = {
   "errors.idempotencyConflict": "تم إرسال هذا الطلب مسبقًا ببيانات مختلفة. أعد إرساله بمفتاح تكرار آمن جديد.",
   "errors.unsupportedDiscoveryTransport": "لا يمكن لهذا الـ Agent تنفيذ اكتشاف الطابعات. حدّث الـ Agent ثم حاول مرة أخرى.",
   "errors.internalError": "حدث خطأ من جانبنا. حاول مرة أخرى بعد قليل.",
+  "errors.invitationDeliveryUnavailable": "تم إنشاء الدعوة، لكن تعذّر تأكيد إرسال البريد. الرابط مُفعّل بالفعل — لا تُرسِل دعوة ثانية.",
   "job.payloadTruncated": "… تم اختصار المعاينة عند {size}. انسخ البيانات لعرضها كاملة.",
   "success.testPageSubmitted": "تم إرسال الصفحة التجريبية إلى {printer}. تابع حالتها في «مهام الطباعة الأخيرة».",
   "success.reprintQueued": "تم إدراج إعادة الطباعة لـ {printer} في قائمة الانتظار.",

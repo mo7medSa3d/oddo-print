@@ -51,6 +51,10 @@ const CODE_KEYS: Record<string, MessageKey> = {
   INVALID_PAYLOAD: "errors.requestRejected",
   INVALID_PRINTER: "errors.requestRejected",
   IDEMPOTENCY_CONFLICT: "errors.idempotencyConflict",
+  // The invitation row was created and deliberately NOT revoked; the only
+  // thing unknown is email delivery. Distinct from a generic failure so the
+  // operator is never told to re-send.
+  INVITATION_DELIVERY_UNAVAILABLE: "errors.invitationDeliveryUnavailable",
   API_KEY_READ_ONLY: "errors.apiKeyReadOnly",
   INTERNAL_ERROR: "errors.internalError",
 };

@@ -2118,6 +2118,7 @@ export const en = {
   "errors.idempotencyConflict": "That request was already sent with a different payload. Send it again with a new idempotency key.",
   "errors.unsupportedDiscoveryTransport": "This agent cannot run printer discovery. Update the Agent, then try again.",
   "errors.internalError": "Something went wrong on our side. Try again in a moment.",
+  "errors.invitationDeliveryUnavailable": "Invitation created, but we couldn’t confirm the email was sent. The link is already active — don’t send a second one.",
   "job.payloadTruncated": "… Preview truncated at {size}. Copy the payload to read it in full.",
   "success.testPageSubmitted": "Test page submitted for {printer}. Track its delivery in Recent Print Jobs.",
   "success.reprintQueued": "Reprint queued for {printer}.",
