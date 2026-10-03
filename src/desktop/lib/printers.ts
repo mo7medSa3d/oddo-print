@@ -57,8 +57,8 @@ export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
   if (anyP.isVirtual === true || anyP.is_virtual === true) return true;
   return isVirtualPrinterRecord({
     name: p.name,
-    printerType: p.printer_type,
-    connectionType: p.connection_type,
+    printerType: p.printer_type || p.printerType,
+    connectionType: p.connection_type || p.connectionType,
     protocol: p.protocol,
     capabilities: p.capabilities,
   });
@@ -111,9 +111,12 @@ export function humanConnection(p: PrinterInfo, locale: Locale = DEFAULT_LOCALE)
 }
 
 export function printerEndpoint(p: PrinterInfo): string {
-  if (p.network_address) return `${p.network_address}${p.port ? `:${p.port}` : ""}`;
+  // Accept both wire casings (Tauri camelCase / Gateway camelCase), matching
+  // humanType()/humanConnection() in this same module.
+  const network = p.network_address || p.networkAddress;
+  if (network) return `${network}${p.port ? `:${p.port}` : ""}`;
   if (p.endpoint) return p.endpoint;
-  return p.spooler_name || "—";
+  return p.spooler_name || p.spoolerName || "—";
 }
 
 /* ---------- Errors ---------- */

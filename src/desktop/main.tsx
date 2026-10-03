@@ -607,8 +607,8 @@ export default function App() {
       list = list.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          (p.connection_type || "").toLowerCase().includes(q) ||
-          (p.printer_type || "").toLowerCase().includes(q) ||
+          ((p.connection_type || p.connectionType) || "").toLowerCase().includes(q) ||
+          ((p.printer_type || p.printerType) || "").toLowerCase().includes(q) ||
           printerEndpoint(p).toLowerCase().includes(q)
       );
     }
@@ -642,7 +642,13 @@ export default function App() {
           return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
         }
         if (jobTab === "delivered") return st === "success";
-        if (jobTab === "unknown") return outcome === "unknown";
+        // "Unknown outcome" must exclude success rows. deriveOutcome() reports
+        // "unknown" for success by design (transport success is not proof of
+        // paper), so a bare outcome check makes this tab a superset of
+        // "Delivered" and inflates the counter. This mirrors the Gateway's own
+        // marker-based status=unknown filter (src/app/api/jobs/route.ts) and
+        // the guard inside jobTone (src/shared/job-vocabulary.ts).
+        if (jobTab === "unknown") return st !== "success" && outcome === "unknown";
         if (jobTab === "failed") return st === "failed" && outcome === "not_printed";
         if (jobTab === "expired") return st === "expired" && outcome !== "unknown";
         return true;
@@ -671,7 +677,9 @@ export default function App() {
         return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
       }).length,
       delivered: jobs.filter((j) => jobStatus(j) === "success").length,
-      unknown: jobs.filter((j) => deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown").length,
+      unknown: jobs.filter(
+        (j) => jobStatus(j) !== "success" && deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown"
+      ).length,
       failed: failedJobs,
       expired: jobs.filter((j) => jobStatus(j) === "expired" && deriveOutcome("expired", String(j.error ?? "")) !== "unknown").length,
     }),
@@ -978,10 +986,10 @@ export default function App() {
                   next step, not the state-machine numbers. */}
               <MetaRow label={t("desktop.drawer.setup")}>
                 {selectedPrinter.managementSource !== "manager"
-                  ? t("desktop.drawers.agentOwned")
+                  ? t("desktop.drawer.agentOwned")
                   : selectedPrinter.configurationConverged
-                    ? t("desktop.drawers.applied")
-                    : t("desktop.drawers.pending")}
+                    ? t("desktop.drawer.applied")
+                    : t("desktop.drawer.pending")}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
                 {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
@@ -1083,7 +1091,11 @@ export default function App() {
               <div className="rounded-xl border border-bad-edge bg-bad-bg p-5">
                 {(() => {
                   const outcome = deriveOutcome(jobStatus(selectedJob), String(selectedJob.error));
-                  const unknown = outcome === "unknown";
+                  // A success row can still carry a residual error (for example
+                  // the Gateway's "LATE_SUCCESS: ..." note). Its physical outcome
+                  // is still unverified, but it is NOT an ambiguous failure, so
+                  // it must not render the "outcome unknown" banner.
+                  const unknown = jobStatus(selectedJob) !== "success" && outcome === "unknown";
                   return (
                     <>
                       <div className={`flex items-center gap-2 text-md font-semibold ${unknown ? "text-warn" : "text-bad"}`}>

@@ -2088,8 +2088,8 @@ msgstr "تم بلوغ حد الـ Agents"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Your organization's Gateway plan has reached its Agent limit."
-msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لعدد الـ Agents."
+msgid "You've reached the computer limit on your plan."
+msgstr "بلغت الحد الأقصى لعدد الـ Agents في خطتك."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2098,8 +2098,8 @@ msgstr "تم بلوغ حد الطابعات"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Your organization's Gateway plan has reached its Printer limit."
-msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لعدد الطابعات."
+msgid "You've reached the printer limit on your plan."
+msgstr "بلغت الحد الأقصى لعدد الطابعات في خطتك."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2108,8 +2108,8 @@ msgstr "تم بلوغ حد معدل الطباعة"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Your organization's Gateway plan has reached its print throughput limit."
-msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لمعدل إنتاجية الطباعة."
+msgid "Too many prints at once. Try again shortly."
+msgstr "عدد كبير من عمليات الطباعة في وقت واحد. حاول بعد قليل."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2118,8 +2118,8 @@ msgstr "تم بلوغ حد مهام الطباعة المتزامنة"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Your organization's Gateway plan has reached its active print-job capacity."
-msgstr "بلغت خطة الـ Gateway لمؤسستك الحد الأقصى لسعة مهام الطباعة النشطة."
+msgid "Too many jobs printing now. Wait a moment."
+msgstr "عدد كبير من المهام قيد الطباعة الآن. انتظر لحظة."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2128,8 +2128,8 @@ msgstr "تم استنفاد رصيد الطباعة"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Your organization's Gateway plan has used all included print jobs for this billing period."
-msgstr "استهلكت خطة الـ Gateway لمؤسستك جميع مهام الطباعة المضمّنة في فترة الفوترة هذه."
+msgid "You've used all prints for this period."
+msgstr "استهلكت كل عمليات الطباعة الخاصة بهذه الفترة."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2153,18 +2153,18 @@ msgstr "تنتهي فترة الفوترة: %s"
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "No new print was sent to the printer."
-msgstr "لم يتم إرسال طباعة جديدة إلى الطابعة."
+msgid "Nothing was printed."
+msgstr "لم تُطبع أي صفحة."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Upgrade the Gateway plan to continue printing before the next billing period."
-msgstr "رقِّ خطة الـ Gateway لمتابعة الطباعة قبل فترة الفوترة التالية."
+msgid "Upgrade your plan to keep printing."
+msgstr "رقِّ خطتك لمتابعة الطباعة."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
-msgid "Upgrade the Gateway plan or wait for capacity to become available."
-msgstr "رقِّ خطة الـ Gateway أو انتظر حتى تتوفر سعة."
+msgid "Upgrade your plan or try again shortly."
+msgstr "رقِّ خطتك أو حاول بعد قليل."
 
 #. module: print_gateway
 #: static/src/js/gateway_limit_dialog.js
@@ -2188,13 +2188,13 @@ msgstr "حالة الطباعة غير معروفة. تحقّق من الطاب�
 
 #. module: print_gateway
 #: static/src/js/pos_print_router.js
-msgid "The receipt could not be accepted for printing. Check Print Activity for details."
-msgstr "تعذّر قبول الإيصال للطباعة. تحقّق من نشاط الطباعة للتفاصيل."
+msgid "Couldn't print the receipt. See Print Activity."
+msgstr "تعذّر طباعة الإيصال. راجع نشاط الطباعة."
 
 #. module: print_gateway
 #: static/src/js/pos_print_router.js
-msgid "Receipt sent to the printing service. Check Print Activity for the final status."
-msgstr "تم إرسال الإيصال إلى خدمة الطباعة. تحقّق من نشاط الطباعة لمعرفة الحالة النهائية."
+msgid "Receipt sent. Check Print Activity for the result."
+msgstr "تم إرسال الإيصال. راجع نشاط الطباعة لمعرفة النتيجة."
 
 #. module: print_gateway
 #: static/src/js/pos_print_router.js

@@ -57,7 +57,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   // Language badges derive ONLY from the declared protocol
                   // and connection type (printer-capability.ts) — device
                   // class must never invent a language.
-                  const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", p.connection_type ?? "unknown").join(" · ") || t("desktop.status.unknown");
+                  const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", (p.connection_type || p.connectionType) ?? "unknown").join(" · ") || t("desktop.status.unknown");
                   return (
                     <div key={p.id} className="flex w-full items-center justify-between gap-4 rounded-sg border border-edge bg-surface px-4 py-3 transition-colors hover:border-edge-accent">
                       <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-start focus:outline-none">
@@ -111,9 +111,12 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       </Card>
 
       {shownPrinters.length > 0 && (() => {
-        const thermal = shownPrinters.find((p) => { const t = (p.printer_type || "").toLowerCase(); const d = (p.device_class || "").toLowerCase(); return t === "thermal" || d === "thermal"; });
-        const label = shownPrinters.find((p) => { const t = (p.printer_type || "").toLowerCase(); const d = (p.device_class || "").toLowerCase(); return t === "label" || d === "label"; });
-        const spooler = shownPrinters.find((p) => p.connection_type === "spooler" || (p.device_class || "").toLowerCase() === "laser");
+        // Both wire casings are accepted (Tauri serializes camelCase; the Gateway
+        // /api/printers rows are camelCase too), so the hardware-profile cards
+        // can actually resolve a thermal / label / spooler device.
+        const thermal = shownPrinters.find((p) => { const t = ((p.printer_type || p.printerType) || "").toLowerCase(); const d = (p.device_class || p.deviceClass || "").toLowerCase(); return t === "thermal" || d === "thermal"; });
+        const label = shownPrinters.find((p) => { const t = ((p.printer_type || p.printerType) || "").toLowerCase(); const d = (p.device_class || p.deviceClass || "").toLowerCase(); return t === "label" || d === "label"; });
+        const spooler = shownPrinters.find((p) => (p.connection_type || p.connectionType) === "spooler" || (p.device_class || p.deviceClass || "").toLowerCase() === "laser");
         return (
           <Card className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

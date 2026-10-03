@@ -76,14 +76,20 @@ export function AddPrinterDialog({
   }
 
   // Only physical printers may be picked for a production binding.
+  // Both wire casings must be accepted: the Tauri `discover_printers` command
+  // serializes camelCase (`spoolerName`, `connectionType`) while the Gateway
+  // `/api/printers` rows are camelCase too, so reading only snake_case made
+  // these two lists permanently empty.
   const physicalSpoolers = useMemo(
-    () => printers.filter((p) => isProductionPrinter(p) && p.spooler_name),
+    () => printers.filter((p) => isProductionPrinter(p) && (p.spooler_name || p.spoolerName)),
     [printers]
   );
   const usbPrinters = useMemo(
     () =>
       printers.filter(
-        (p) => (p.connection_type || "").toLowerCase() === "usb" && isProductionPrinter(p)
+        (p) =>
+          ((p.connection_type || p.connectionType) || "").toLowerCase() === "usb" &&
+          isProductionPrinter(p)
       ),
     [printers]
   );
@@ -287,7 +293,7 @@ export function AddPrinterDialog({
             >
               <option value="">{t("desktop.add.selectEllipsis")}</option>
               {physicalSpoolers.map((p) => (
-                <option key={p.id} value={p.spooler_name || p.name}>
+                <option key={p.id} value={p.spooler_name || p.spoolerName || p.name}>
                   {p.name}
                 </option>
               ))}

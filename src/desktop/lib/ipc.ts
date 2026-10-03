@@ -415,12 +415,26 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
       typeof value === "number" && Number.isFinite(value) ? value : null;
     const stringOrUndefined = (value: unknown): string | undefined =>
       typeof value === "string" && value.trim() ? value : undefined;
+    // The Gateway /api/printers rows are camelCase (Drizzle column names) and the
+    // Tauri discover_printers command is camelCase too, so the snake_case keys
+    // below are synthesized from config and, for the row-level fields, from the
+    // camelCase row as well. Reading only snake_case left connectionType /
+    // printerType / deviceClass / spoolerName undefined for every real printer.
+    const rowString = (...keys: string[]): string | undefined => {
+      for (const key of keys) {
+        const v = stringOrUndefined(row[key]);
+        if (v) return v;
+      }
+      return undefined;
+    };
     return {
       ...row,
       enabled: row.lifecycle === "active",
-      endpoint: stringOrUndefined(row.endpoint) ?? stringOrUndefined(config.address),
-      spooler_name: stringOrUndefined(row.spooler_name) ?? stringOrUndefined(config.spooler_name),
-      network_address: stringOrUndefined(row.network_address) ?? stringOrUndefined(config.ip),
+      endpoint: rowString("endpoint") ?? stringOrUndefined(config.address),
+      spooler_name:
+        rowString("spooler_name", "spoolerName") ?? stringOrUndefined(config.spooler_name),
+      network_address:
+        rowString("network_address", "networkAddress") ?? stringOrUndefined(config.ip),
       port: numberOrNull(row.port) ?? numberOrNull(config.port),
       usbVid: row.usbVid != null ? String(row.usbVid) : config.vid != null ? String(config.vid) : undefined,
       usbPid: row.usbPid != null ? String(row.usbPid) : config.pid != null ? String(config.pid) : undefined,
