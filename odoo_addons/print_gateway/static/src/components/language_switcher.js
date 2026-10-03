@@ -58,7 +58,9 @@ export class PrintGatewayLanguageSwitcher extends Component {
 
                 this.state.languages = Array.from(byFamily.values());
             } catch {
-                this.state.languages = [];
+                this.state.languages = user.lang
+                    ? [{ code: user.lang, label: user.lang }]
+                    : [];
             }
         });
     }
