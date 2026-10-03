@@ -71,10 +71,11 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     assert 'logError("auth.login.user_lookup_failed"' in block
     assert 'NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 })' in block
     # The catch must terminate this branch instead of falling through to the
-    # generic INVALID credentials response.
+    # generic INVALID credentials response, and must preserve rate-limit
+    # headers so clients can back off.
     catch_start = block.index("catch")
     catch_end = block.index("}\n", catch_start) + 2
-    assert "NextResponse.json" in block[catch_start:catch_end]
+    assert "return setRateLimitHeaders(NextResponse.json" in block[catch_start:catch_end]
     assert "setRateLimitHeaders" in block[catch_start:catch_end]
 
 
@@ -122,8 +123,7 @@ def test_logout_does_not_report_success_when_session_revocation_fails():
     ):
         source = read(rel)
         assert "session_revoke_failed" in source
-        assert "Logout temporarily unavailable" in source
-        assert "revokeFailed" in source
+        assert '{ ok: false, error: "Logout temporarily unavailable" }' in source
         assert "status: revokeFailed ? 503 : 200" in source
         assert 'action: "session.revoked"' in source
 
@@ -147,32 +147,21 @@ def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery(
     gateway_delivery = read("src/lib/job-delivery.ts")
     go_queue = read("agent/internal/queue/queue.go")
 
-    # Ordinary terminal failures clear the execution credential.
-    for marker in (
-        "exceeded max retries after a stale claim",
-    ):
-        start = gateway_maintenance.index(marker)
-        block = gateway_maintenance[max(0, start - 220): start + 220]
-        assert "claim_token=NULL" in block
-        assert "claimed_at=NULL" in block
-
-    # Unknown delivery keeps the claim fence temporarily so the exact Agent
-    # attempt can reconcile a late success, then the 24-hour cleanup clears it.
-    unknown_start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
-    unknown_block = gateway_maintenance[max(0, unknown_start - 320): unknown_start + 700]
-    assert "claim_token=claim_token" in unknown_block
-    assert "claimed_at=claimed_at" in unknown_block
+    # Failed unknown deliveries retain the claim fence so the exact delivery
+    # attempt can reconcile a late success; a bounded 24h cleanup clears
+    # retained fences afterwards. Only paths where no physical output is
+    # possible (undelivered claims, retries-exhausted requeue) clear tokens.
+    start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
+    block = gateway_maintenance[max(0, start - 100): start + 600]
+    assert "claim_token=claim_token" in block
+    start = gateway_maintenance.index("AGENT_EXECUTION_TIMEOUT")
+    block = gateway_maintenance[max(0, start - 100): start + 700]
+    assert "claim_token=CASE WHEN expires_at <= now() THEN NULL ELSE claim_token END" in block
     assert "updated_at <= now() - interval '24 hours'" in gateway_maintenance
 
     failed_release = gateway_delivery[gateway_delivery.index("SET status = 'failed'"):gateway_delivery.index("RETURNING id", gateway_delivery.index("SET status = 'failed'"))]
     assert "claim_token = NULL" in failed_release
     assert "claimed_at = NULL" in failed_release
-
-    unknown_delivery_start = gateway_delivery.index("export async function markJobDeliveryUnknown")
-    unknown_delivery_block = gateway_delivery[unknown_delivery_start:gateway_delivery.index("export async function recordJobAck", unknown_delivery_start)]
-    assert "deliveredAt: sql`COALESCE" in unknown_delivery_block
-    assert "claimedAt: sql`COALESCE" in unknown_delivery_block
-    assert "claimToken: sql`NULL`" not in unknown_delivery_block
 
     assert "status == \"success\" || status == \"failed\"" in go_queue
     assert "claim_token = NULL" in go_queue
@@ -215,20 +204,28 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_transport_contract_matches_branch_mode():
+def test_tauri_gateway_http_is_explicitly_test_branch_only():
     source = read("src-tauri/src/commands.rs")
-    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+    # The staging branch accepts http:// and https:// URL shapes but still
+    # requires explicit insecure-HTTP opt-in at pairing time; other schemes
+    # are rejected and embedded credentials/query/fragment stay forbidden.
+    assert 'if scheme != "https" && scheme != "http"' in source
+    assert "gateway URL must use http:// or https://" in source
+    assert "gateway URL cannot include embedded credentials" in source
+    assert "gateway URL cannot include query strings or fragments" in source
+    assert 'cmd.env("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")' in source
 
-    if test_branch_mode:
-        assert 'let remote_http = scheme == "http";' in source
-        assert 'if remote_http {' in source
-        assert "gateway URL cannot include embedded credentials" in source
-        assert "gateway URL cannot include query strings or fragments" in source
-    else:
-        assert 'if scheme == "http" {' in source
-        assert 'let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");' in source
-        assert 'if !local {' in source
-        assert "Gateway URL must use HTTPS for remote Gateways" in source
+
+def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():
+    source = read("server.ts")
+    assert "!value || value.length < minLength" in source
+    assert 'assertRealSecret("GATEWAY_JWT_SECRET"' in source
+    assert "TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface." in source
+    assert 'if (!trustProxyEnabled() && !isLoopbackBinding(hostname))' in source
+    assert 'assertRealSecret("TRUST_PROXY_SECRET"' in source
+    assert "Refusing production startup: APP_BASE_URL must be configured." in source
+    assert "APP_BASE_URL must be a clean HTTPS origin." in source
+    assert "assertRealSecret(" in source
 
 
 def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():

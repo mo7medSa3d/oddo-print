@@ -467,7 +467,6 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding_root._compute_effective_company_id()
         self.assertEqual(binding_root.effective_company_id, self.company)
 
-
     def test_binding_rejects_agent_assigned_to_another_branch(self):
         second_branch = self.env["res.company"].create({"name": "Gateway Branch 2", "parent_id": self.company.id})
         self.env["print_gateway.runtime_agent_assignment"].create({

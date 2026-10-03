@@ -20,7 +20,8 @@ const secretStoreKey = "agent_secret"
 
 type Config struct {
 	Server struct {
-		URL string `yaml:"url"`
+		URL               string `yaml:"url"`
+		AllowInsecureHTTP bool   `yaml:"allow_insecure_http,omitempty"`
 	} `yaml:"server"`
 	Agent struct {
 		ID                string `yaml:"id"`
@@ -55,18 +56,7 @@ func (c *Config) ReprintAfterCrashEnabled() bool {
 	return *c.Agent.ReprintAfterCrash
 }
 
-// insecureHTTPAllowed reports whether plain HTTP is explicitly opted into.
-// Canonical variable is YASEIR_AGENT_ALLOW_INSECURE_HTTP; the legacy
-// YASSER_AGENT_ALLOW_INSECURE_HTTP is honored as a fallback so existing
-// development environments keep working after the brand migration.
-func insecureHTTPAllowed() bool {
-	if os.Getenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP") == "1" {
-		return true
-	}
-	return os.Getenv("YASSER_AGENT_ALLOW_INSECURE_HTTP") == "1"
-}
-
-func ValidateServerURL(raw string) error {
+func validateServerURLWithOptIn(raw string, allowInsecureHTTP bool) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
 		return fmt.Errorf("server.url invalid: %w", err)
@@ -77,19 +67,23 @@ func ValidateServerURL(raw string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
 	}
-	// HTTPS is the production/default transport. Plain HTTP is only permitted
-	// when explicitly opted into for isolated development or test environments.
+	// Isolated staging branch: both transports are accepted directly by the
+	// shared validator (no process env needed), because the Windows service
+	// does not inherit the Manager shell environment. Production/main
+	// retains the HTTPS-only validator contract. The persisted
+	// allow_insecure_http flag is retained for config compatibility.
 	switch strings.ToLower(u.Scheme) {
-	case "https":
+	case "https", "http":
 		return nil
-	case "http":
-		if insecureHTTPAllowed() {
-			return nil
-		}
-		return fmt.Errorf("server.url must use HTTPS; plain HTTP requires YASEIR_AGENT_ALLOW_INSECURE_HTTP=1 for isolated development/test environments")
 	default:
 		return fmt.Errorf("server.url scheme must be http or https, got %q", u.Scheme)
 	}
+}
+
+// ValidateServerURL is the exported entry point for CLI and pairing flows.
+// Isolated staging branch: accepts http and https URL shapes directly.
+func ValidateServerURL(raw string) error {
+	return validateServerURLWithOptIn(raw, false)
 }
 
 func defaultConfig() *Config {
@@ -328,7 +322,7 @@ func DefaultConfigPath() string {
 
 func (c *Config) Validate() error {
 	if c.Server.URL != "" {
-		if err := ValidateServerURL(c.Server.URL); err != nil {
+		if err := validateServerURLWithOptIn(c.Server.URL, c.Server.AllowInsecureHTTP); err != nil {
 			return err
 		}
 	}

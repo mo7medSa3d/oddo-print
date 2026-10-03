@@ -160,15 +160,9 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
     }
-    // Production Gateways must use HTTPS. Localhost HTTP remains available for
-    // development without weakening the remote transport policy.
-    if scheme == "http" {
-        let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-        if !local {
-            return Err("Gateway URL must use HTTPS for remote Gateways".into());
-        }
-    }
+    // test/http-server-ready intentionally accepts HTTP or HTTPS for direct
+    // staging by IP:port. Credential, query, and fragment validation remains
+    // mandatory below. Production main is unchanged by this branch.
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
     }
@@ -217,6 +211,11 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         .arg("-config")
         .arg(&config)
         .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
+    // The isolated HTTP-test branch requires explicit insecure-HTTP opt-in in
+    // the bundled CLI as well as at Agent runtime. Never set this for HTTPS.
+    if gateway_url.starts_with("http://") {
+        cmd.env("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1401,10 +1400,13 @@ mod security_tests {
     }
 
     #[test]
-    fn remote_http_gateway_is_rejected() {
-        assert!(normalize_gateway_url("http://gateway.example.com").is_err());
+    fn staging_gateway_accepts_http_and_https() {
+        assert!(normalize_gateway_url("http://gateway.example.com").is_ok());
         assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
+        assert!(normalize_gateway_url("http://gateway.example.com:3000").is_ok());
+        assert!(normalize_gateway_url("http://192.168.1.50:3000").is_ok());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+        assert!(normalize_gateway_url("https://192.168.1.50:3443").is_ok());
     }
 
     #[test]

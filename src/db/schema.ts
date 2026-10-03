@@ -550,4 +550,3 @@ export const printUsagePeriods = pgTable("print_usage_periods", {
   usedCheck: check("print_usage_periods_used_check", sql`${table.usedPrints} >= 0`),
   periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
 }));
-

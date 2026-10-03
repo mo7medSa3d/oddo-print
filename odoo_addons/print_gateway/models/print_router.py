@@ -790,12 +790,6 @@ class PrintGatewayRouter(models.AbstractModel):
                 _("No canned diagnostic ticket exists for protocol '%s'. Declare an escpos/zpl/tspl/raw/spooler/ipp protocol on the printer, or print a real report through the Gateway.")
                 % (proto or "unknown")
             )
-        # Raw byte protocols: sanitize operator-controlled text per language
-        # so names cannot inject printer-language commands.
-        sanitize = {"zpl": _zpl_text, "tspl": _tspl_text}.get(proto, _escpos_text)
-        company_name = sanitize(company_name)
-        branch_name = sanitize(branch_name)
-        printer_name = sanitize(printer_name)
         # User-controlled metadata is sanitized per printer language before it
         # is embedded into the command stream: a company named e.g.
         # 'A^XZ\n^XA...' must not inject ZPL commands, and a '"' must not

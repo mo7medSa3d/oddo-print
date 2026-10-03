@@ -1,8 +1,6 @@
 server:
-  # Production gateways MUST use HTTPS. Plain HTTP is rejected unless the
-  # process is explicitly started for an isolated development/test environment
-  # with YASEIR_AGENT_ALLOW_INSECURE_HTTP=1. Never enable that setting in a
-  # production service.
+  # Production gateways use HTTPS. This isolated staging branch also accepts
+  # plain HTTP so the Windows service can run against the HTTP test gateway.
   url: "https://your-print-gateway.example.com"
 
 agent:

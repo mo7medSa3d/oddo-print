@@ -2,6 +2,7 @@ import { IncomingMessage, type ServerResponse } from "http";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { parseStrictContentLength } from "../lib/request-limits";
 import { runtimeSecret } from "../lib/runtime-secret";
+import { trustProxyEnabled } from "./trusted-proxy";
 
 /**
  * API body limit. The custom Next server must never consume the IncomingMessage
@@ -22,73 +23,14 @@ export interface ApiBodyGuardOptions {
   maxBytes?: number;
 }
 
-/**
- * Rejected requests are answered with JSON and then released without feeding
- * the abandoned body to Next. Destroying the request socket synchronously
- * right after `res.end()` resets the TCP connection while the rejection
- * response may still be in flight, so well-behaved keep-alive clients observe
- * ECONNRESET instead of the documented 4xx/503 status. Instead we drain the
- * abandoned request body up to a bounded budget (lingering close, the same
- * trade-off Go's net/http `maxPostHandlerReadBytes` and nginx's
- * `lingering_close` make). The socket is torn down only on bounded-drain
- * overflow, request error, or timeout; destroying it on normal request `end`
- * or `close` can race the rejection response and turn a documented 413/411/403
- * into an ECONNRESET on Windows clients.
- */
-const REJECT_DRAIN_MAX_BYTES = 16 * 1024 * 1024;
-const REJECT_DRAIN_TIMEOUT_MS = 5_000;
-
-function rejectRequest(req: IncomingMessage, res: ServerResponse, status: number, code: string): void {
+function rejectRequest(res: ServerResponse, status: number, code: string): void {
   if (res.headersSent || res.writableEnded) return;
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("connection", "close");
-
-  const payload = JSON.stringify({ success: false, error: code });
-  let finalized = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let drained = 0;
-
-  const finishResponse = () => {
-    if (finalized) return;
-    finalized = true;
-    if (timer) clearTimeout(timer);
-    if (!res.writableEnded) res.end();
-  };
-
-  const teardownAfterResponse = () => {
-    if (!res.writableEnded && !res.headersSent) return;
-    // Only tear down after Node has finished handing the rejection response to
-    // the socket. Destroying the IncomingMessage before that point can race
-    // the response on Windows and surface ECONNRESET instead of the 4xx.
-    if (!req.destroyed) req.destroy();
-  };
-
-  res.writeHead(status);
-  // Flush the status line/headers immediately. The response body remains
-  // buffered until the bounded request drain finishes, allowing the client to
-  // observe the rejection even while it is still uploading.
-  if (typeof res.flushHeaders === "function") res.flushHeaders();
-  res.write(payload);
-
-  req.on("data", (chunk: Buffer) => {
-    drained += chunk.length;
-    if (drained >= REJECT_DRAIN_MAX_BYTES) {
-      res.once("finish", teardownAfterResponse);
-      finishResponse();
-    }
-  });
-  req.once("end", finishResponse);
-  req.once("error", () => {
-    finishResponse();
-  });
-
-  timer = setTimeout(() => {
-    res.once("finish", teardownAfterResponse);
-    finishResponse();
-  }, REJECT_DRAIN_TIMEOUT_MS);
-  if (typeof timer.unref === "function") timer.unref();
+  res.end(JSON.stringify({ success: false, error: code }));
 }
+
 function verifyJwtQuick(token: string): boolean {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return false;
   const parts = token.split(".");
@@ -142,13 +84,17 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (fetchSite === "cross-site") return false;
 
   const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
-  if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
+  const forwardedHost = trustProxyEnabled()
+    ? headerValue(req, "x-forwarded-host").toLowerCase().replace(/\.$/, "")
+    : "";
+  const allowedHosts = new Set([host, forwardedHost].filter(Boolean));
+  if (allowedHosts.size === 0 || [...allowedHosts].some((value) => value.length > 255 || value.includes("/") || value.includes("@"))) return false;
 
   const origin = headerValue(req, "origin");
   if (origin) {
     try {
       const parsed = new URL(origin);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
@@ -158,12 +104,16 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   if (referer) {
     try {
       const parsed = new URL(referer);
-      return parsed.host.toLowerCase() === host;
+      return allowedHosts.has(parsed.host.toLowerCase());
     } catch {
       return false;
     }
   }
 
+  // When TRUST_PROXY is enabled, the outer proxy must already have been
+  // authenticated by server.ts before this guard runs. That makes the
+  // forwarded host trustworthy for same-origin comparison while preserving
+  // strict Host matching for direct/non-proxied traffic.
   // A browser carrying ambient cookies without the modern fetch-metadata or
   // standard origin signals is ambiguous; fail closed rather than treating
   // SameSite as the sole CSRF boundary.
@@ -267,7 +217,8 @@ export async function guardApiRequest(
   const authenticated = isLikelyAuthenticated(req);
 
   if (!isCookieMutationSameOrigin(req)) {
-    rejectRequest(req, res, 403, "CSRF_VALIDATION_FAILED");
+    rejectRequest(res, 403, "CSRF_VALIDATION_FAILED");
+    req.destroy();
     return null;
   }
 
@@ -286,13 +237,15 @@ export async function guardApiRequest(
     // safe contract is therefore: every mutating API request carrying a
     // transfer-encoded body must declare Content-Length. Bodyless mutating
     // requests with neither header remain valid.
-    rejectRequest(req, res, 411, "CONTENT_LENGTH_REQUIRED");
+    rejectRequest(res, 411, "CONTENT_LENGTH_REQUIRED");
+    req.destroy();
     return null;
   }
 
   const length = parseStrictContentLength(rawLength);
   if (length === null || length > maxBytes) {
-    rejectRequest(req, res, 413, "REQUEST_BODY_TOO_LARGE");
+    rejectRequest(res, 413, "REQUEST_BODY_TOO_LARGE");
+    req.destroy();
     return null;
   }
 
@@ -301,7 +254,8 @@ export async function guardApiRequest(
   if (!payloadBearing) return req;
 
   if (!reserve(length, authenticated)) {
-    rejectRequest(req, res, 503, "REQUEST_BODY_CAPACITY_EXCEEDED");
+    rejectRequest(res, 503, "REQUEST_BODY_CAPACITY_EXCEEDED");
+    req.destroy();
     return null;
   }
 

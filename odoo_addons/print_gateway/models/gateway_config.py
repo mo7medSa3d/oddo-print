@@ -37,17 +37,19 @@ def _friendly_gateway_request_error(exc, gateway_url):
     url = gateway_url or "the configured Gateway URL"
     detail = str(exc).strip()[:1500] or exc.__class__.__name__
     if isinstance(exc, requests.exceptions.ConnectionError):
-        return (
-            "Could not reach the Gateway at %s: %s "
-            "Verify the URL host and port match the Gateway deployment "
-            "(scheme, host and explicit port, without an API path) and that the Gateway is running."
-        ) % (url, detail)
+        return str(_(
+            "Could not reach the Gateway at %(url)s. Verify the URL host and port "
+            "match the Gateway deployment (scheme, host and explicit port, without an API path) "
+            "and that the Gateway is running."
+        )) % {"url": url}
     if isinstance(exc, requests.exceptions.Timeout):
-        return (
-            "The Gateway at %s did not respond within 10 seconds: %s "
-            "Verify the host/port and the network path between Odoo and the Gateway."
-        ) % (url, detail)
-    return "Gateway request to %s failed: %s" % (url, detail)
+        return str(_(
+            "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port "
+            "and the network path between Odoo and the Gateway."
+        )) % {"url": url}
+    return str(_(
+        "Gateway request to %(url)s failed: %(error)s"
+    )) % {"url": url, "error": str(exc)[:1500]}
 
 
 def _same_gateway_endpoint(url_a, url_b):
@@ -245,8 +247,9 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http":
-            raise ValidationError(_("Gateway URL must use HTTPS."))
+        # test/http-server-ready intentionally accepts both HTTP and HTTPS so
+        # staging can run by IP:port without a DNS name or certificate.
+        # Credentials, query strings, fragments, and API paths remain forbidden.
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):

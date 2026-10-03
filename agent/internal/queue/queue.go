@@ -152,10 +152,9 @@ func (q *Queue) UpdateStatus(id, status string) error {
 	return err
 }
 
-// UpdateStatusWithError also records last_error. Terminal local outcomes no
-// longer need the Gateway execution credential: clear it at the same durable
-// state transition. MarkInterrupted reads the token before calling this
-// helper, so crash recovery can still report the preserved token to Gateway.
+// UpdateStatusWithError also records last_error. The terminal state is a
+// durable outbox record for the Gateway status report. Preserve claim_token
+// until that report receives a 2xx response (see ClearClaimToken).
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	if status == "success" || status == "failed" {
 		// The terminal state is a durable outbox record for the Gateway status

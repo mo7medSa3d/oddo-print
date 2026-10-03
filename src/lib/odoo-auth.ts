@@ -1,10 +1,9 @@
 import { db } from "../db";
 import { apiKeys } from "../db/schema";
 import { and, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 import { logWarn } from "./log";
-
 
 function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");

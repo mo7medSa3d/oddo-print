@@ -1,29 +1,25 @@
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { runtimeSecret } from "./runtime-secret";
 
 export type TransactionalEmail = { to: string; subject: string; html: string; text: string };
 
-export function appBaseUrl(req: Request): string {
-  const configured = runtimeSecret("APP_BASE_URL")?.trim().replace(/\/$/, "");
-  if (configured) {
-    let parsed: URL;
-    try {
-      parsed = new URL(configured);
-    } catch {
-      throw new Error("APP_BASE_URL must be an absolute URL");
-    }
-    if (parsed.protocol !== "https:" && process.env.NODE_ENV === "production") {
-      throw new Error("APP_BASE_URL must use HTTPS in production");
-    }
-    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-      throw new Error("APP_BASE_URL must not contain credentials, query parameters, or a fragment");
-    }
-    return parsed.toString().replace(/\/$/, "");
-  }
-  if (process.env.NODE_ENV === "production") throw new Error("APP_BASE_URL is required in production");
-  return new URL(req.url).origin;
+function captureHttpTestEmail(message: TransactionalEmail): boolean {
+  if (process.env.YASEIR_HTTP_TEST_MODE !== "1") return false;
+  const captureFile = process.env.YASEIR_TEST_EMAIL_CAPTURE_FILE?.trim();
+  if (!captureFile) return false;
+  mkdirSync(dirname(captureFile), { recursive: true });
+  appendFileSync(
+    captureFile,
+    `TO: ${message.to}\nSUBJECT: ${message.subject}\n${message.text}\n---\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return true;
 }
 
 export async function sendTransactionalEmail(message: TransactionalEmail): Promise<void> {
+  if (captureHttpTestEmail(message)) return;
+
   const apiKey = runtimeSecret("RESEND_API_KEY");
   const from = runtimeSecret("EMAIL_FROM");
   if (!apiKey || !from) {
@@ -39,9 +35,8 @@ export async function sendTransactionalEmail(message: TransactionalEmail): Promi
       signal: AbortSignal.timeout(10_000),
     });
     if (res.ok) return;
-    const text = await res.text().catch(() => "");
-    lastError = new Error(`Transactional email provider rejected the request (${res.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
-    // Retry only on transient failures (5xx or 429 rate-limit).
+    const responseText = await res.text().catch(() => "");
+    lastError = new Error(`Transactional email provider rejected the request (${res.status})${responseText ? `: ${responseText.slice(0, 200)}` : ""}`);
     if (res.status !== 429 && res.status < 500) throw lastError;
     if (attempt < maxAttempts) {
       const delay = Math.min(1000 * 2 ** (attempt - 1), 8000);
@@ -49,4 +44,26 @@ export async function sendTransactionalEmail(message: TransactionalEmail): Promi
     }
   }
   throw lastError;
+}
+
+export function appBaseUrl(req: Request): string {
+  const configured = runtimeSecret("APP_BASE_URL")?.trim().replace(/\/$/, "");
+  if (configured) {
+    let parsed: URL;
+    try {
+      parsed = new URL(configured);
+    } catch {
+      throw new Error("APP_BASE_URL must be an absolute URL");
+    }
+    const httpTestMode = process.env.NODE_ENV === "production" && process.env.YASEIR_HTTP_TEST_MODE === "1";
+    if (parsed.protocol !== "https:" && process.env.NODE_ENV === "production" && !httpTestMode) {
+      throw new Error("APP_BASE_URL must use HTTPS in production");
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error("APP_BASE_URL must not contain credentials, query parameters, or a fragment");
+    }
+    return parsed.toString().replace(/\/$/, "");
+  }
+  if (process.env.NODE_ENV === "production") throw new Error("APP_BASE_URL is required in production");
+  return new URL(req.url).origin;
 }

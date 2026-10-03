@@ -92,17 +92,20 @@ describe("Odoo API-key authentication ignores the database name", () => {
     await expect(validateOdooKey(req)).resolves.toBeNull();
   });
 
-  it("accepts a rotated API key that the database query marks inside the grace window", async () => {
+  it("accepts a rotated API key as read-only during the grace window", async () => {
     apiKeyFindFirst.mockResolvedValue({
       ...liveRow,
-      revokedAt: new Date("2026-09-24T00:59:59.000Z"),
-      readOnlyUntil: new Date("2026-09-24T01:00:01.000Z"),
+      revokedAt: new Date(Date.now() - 1000),
+      readOnlyUntil: new Date(Date.now() + 60_000),
     });
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toMatchObject({ id: "key_a", readOnly: true });
   });
 
-  it("rejects a rotated API key after the database grace window", async () => {
+  it("rejects a rotated API key after the grace window", async () => {
+    // The production query filters expired grace rows at the database level
+    // (readOnlyUntil > clock_timestamp()); the mock must emulate that
+    // predicate instead of returning a row the database would never return.
     apiKeyFindFirst.mockResolvedValue(null);
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toBeNull();
@@ -111,7 +114,7 @@ describe("Odoo API-key authentication ignores the database name", () => {
   it("fails closed for an active key with an invalid read-only marker", async () => {
     apiKeyFindFirst.mockResolvedValue({
       ...liveRow,
-      readOnlyUntil: new Date("2026-09-24T01:00:01.000Z"),
+      readOnlyUntil: new Date(Date.now() + 60_000),
     });
     const req = post({ authorization: "Bearer odoo_testkey" });
     await expect(validateOdooKey(req)).resolves.toBeNull();

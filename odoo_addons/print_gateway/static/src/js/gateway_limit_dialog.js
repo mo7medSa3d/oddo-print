@@ -99,7 +99,8 @@ export function gatewayServerMessage(error) {
     return "";
 }
 
-export function parseGatewayBillingLimit(error) {    for (const candidate of candidateMessages(error)) {
+export function parseGatewayBillingLimit(error) {
+    for (const candidate of candidateMessages(error)) {
         const markerIndex = candidate.indexOf(PREFIX);
         if (markerIndex < 0) continue;
         const raw = candidate.slice(markerIndex + PREFIX.length).trim();

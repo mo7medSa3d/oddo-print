@@ -288,7 +288,7 @@ func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
 		Name:         "YaseirAgent",
 		DisplayName:  "Yaseir Agent",
-		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound HTTPS/WSS only, no inbound ports.",
+		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
 		Arguments:    []string{"-config", configPath},
 		Dependencies: []string{"Tcpip"},
 	}
@@ -377,7 +377,7 @@ func main() {
 	svcConfig := &service.Config{
 		Name:         "YaseirAgent",
 		DisplayName:  "Yaseir Agent",
-		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound HTTPS/WSS only, no inbound ports.",
+		Description:  "Local print gateway agent for Yaseir Cloud Printing Platform — outbound Gateway HTTP/HTTPS and WebSocket transport only, no inbound ports. This isolated test build supports HTTP/WS; production remains HTTPS/WSS.",
 		Arguments:    []string{"-config", *configPath},
 		Dependencies: []string{"Tcpip"},
 	}

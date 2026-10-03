@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { agents } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 
 /**
@@ -72,6 +72,7 @@ export async function validateAgent(authHeader: string | null) {
 
   const providedHash = hashSecret(secret);
   if (!timingSafeStringEqual(agent.secret, providedHash)) return null;
+  // Tenant lifecycle gate: agents of suspended/deleted tenants cannot connect.
   const tenantLifecycle = await requireActiveTenantOrNull(agent.tenantId);
   if (!tenantLifecycle) return null;
   return agent;

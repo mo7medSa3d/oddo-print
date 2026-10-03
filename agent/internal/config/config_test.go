@@ -151,36 +151,22 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
-	// Production/default behavior is fail-closed: HTTP is rejected unless
-	// explicitly opted into for isolated development/test environments.
+func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
+	// The isolated staging branch accepts both transports directly, including
+	// when the Agent runs as a Windows service without inherited shell env.
 	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
 		"http://10.0.0.5:3000",
-		"http://gateway.example.com",
-	} {
-		c := &Config{}
-		c.Server.URL = raw
-		if err := c.Validate(); err == nil {
-			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
-		}
-	}
-}
-
-func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
-	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
-	for _, raw := range []string{
-		"http://127.0.0.1:3000",
-		"http://192.168.1.50:3000",
-		"http://10.0.0.5:3000",
-		"http://gateway.example.com",
+		"http://gateway.example.com:3000",
+		"https://gateway.example.com",
+		"https://192.168.1.50:3443",
 	} {
 		c := &Config{}
 		c.Server.URL = raw
 		if err := c.Validate(); err != nil {
-			t.Fatalf("expected explicit development opt-in to permit %q, got %v", raw, err)
+			t.Fatalf("expected staging transport URL %q to validate without an opt-in flag, got %v", raw, err)
 		}
 	}
 }
@@ -260,5 +246,40 @@ func TestConfigLoadMigratesLegacyPlaintextSecret(t *testing.T) {
 	}
 	if again.Agent.Secret != "legacy-plaintext" {
 		t.Fatalf("secret not restored after migration: %q", again.Agent.Secret)
+	}
+}
+
+func TestConfigValidateAcceptsHTTPDirectlyOnStaging(t *testing.T) {
+	// Isolated staging branch: stored configs accept HTTP without an
+	// explicit opt-in flag, because the Windows service does not inherit
+	// shell environment. Production/main retains the HTTPS-only contract.
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
+	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
+
+	cfg := defaultConfig()
+	cfg.Server.URL = "http://192.0.2.10:8080"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected HTTP staging URL to validate without an opt-in flag, got %v", err)
+	}
+}
+
+func TestConfigSaveLoadPreservesHTTPOptIn(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Server.URL = "http://192.0.2.10:8080"
+	cfg.Server.AllowInsecureHTTP = true
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.Server.URL != cfg.Server.URL {
+		t.Fatalf("server URL mismatch after round-trip: got %q want %q", loaded.Server.URL, cfg.Server.URL)
+	}
+	if !loaded.Server.AllowInsecureHTTP {
+		t.Fatal("HTTP opt-in must survive config round-trip for service restarts")
 	}
 }

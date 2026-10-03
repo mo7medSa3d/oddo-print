@@ -45,18 +45,9 @@ export function normalizeGatewayUrl(raw: string): string {
     if (parsed.username || parsed.password) {
       throw new Error("Gateway URL cannot include embedded credentials");
     }
-    // Match the packaged Tauri transport policy (commands.rs
-    // normalize_gateway_url): remote Gateways must use HTTPS; plain HTTP is
-    // accepted only for local development hosts. The browser preview path
-    // uses credentials:"include", so allowing remote HTTP here would send the
-    // manager session cookie over plain HTTP.
-    if (parsed.protocol.toLowerCase() === "http:") {
-      const host = parsed.hostname.toLowerCase();
-      const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
-      if (!local) {
-        throw new Error("Gateway URL must use HTTPS for remote Gateways");
-      }
-    }
+    // The packaged Tauri app and Rust backend accept both HTTP and HTTPS on
+    // test/http-server-ready so the staging Gateway can be addressed directly
+    // by IP:port. URL structure validation remains mandatory.
     if (parsed.search || parsed.hash) {
       throw new Error("Gateway URL cannot include query strings or fragments");
     }
