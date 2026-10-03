@@ -768,11 +768,16 @@ export async function revokeRefreshTokenFamily(
 ): Promise<boolean> {
   const tokenHash = hashRefreshToken(token);
   const result = await db.transaction(async (tx) => {
+    // Read the family id WITHOUT locking the row: lock order must stay
+    // advisory-family-lock → row locks (as in rotateRefreshToken). Taking a
+    // row lock here first inverts that order and deadlocks (40P01) against a
+    // concurrent rotation of the same token. family_id is immutable for a
+    // row, so an unlocked read is sufficient; revokeSessionFamilyInTransaction
+    // takes the family advisory lock before its UPDATE takes row locks.
     const found = await tx.execute(sql`
       SELECT family_id AS "familyId"
       FROM refresh_tokens
       WHERE token_hash = ${tokenHash} AND kind = ${kind}
-      FOR UPDATE
     `);
     const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
     if (!familyId) return false;

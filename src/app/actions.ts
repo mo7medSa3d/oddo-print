@@ -210,6 +210,11 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       }
     }
 
+    // Tenant lifecycle write fence — the same linearization point the HTTP
+    // twin (api/printers/[id]) applies at the equivalent point: after the
+    // optional owner-agent lock, before the printer row is locked/updated.
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
+
     const locked = await tx.execute(sql`
       SELECT id, agent_id, lifecycle
       FROM printers

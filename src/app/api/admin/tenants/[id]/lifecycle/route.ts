@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { validateManager } from "../../../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../../../lib/authorization";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
+import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { runtimeSecret } from "../../../../../../lib/runtime-secret";
 
 /**
@@ -40,6 +41,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "The platform tenant cannot be suspended or deleted.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
   }
 
+  // Same per-route body ceiling + reason bound as the platform suspend route:
+  // the global request guard alone would still allow an ~8MB `reason` to be
+  // persisted into the tenant row and its audit metadata.
+  if (hasBodyOverLimit(req, 16 * 1024)) {
+    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
+  }
+
   let body: { lifecycle?: string; reason?: string };
   try {
     body = await req.json();
@@ -51,8 +59,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!lifecycle || typeof lifecycle !== "string") {
     return NextResponse.json({ error: "lifecycle field is required" }, { status: 400 });
   }
-  if (!reason || typeof reason !== "string" || reason.trim().length === 0) {
-    return NextResponse.json({ error: "reason field is required" }, { status: 400 });
+  if (!reason || typeof reason !== "string" || reason.trim().length === 0 || reason.trim().length > 500) {
+    return NextResponse.json({ error: "A valid lifecycle reason (1-500 characters) is required" }, { status: 400 });
   }
 
   try {
