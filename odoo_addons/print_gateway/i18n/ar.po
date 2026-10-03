@@ -2318,3 +2318,7 @@ msgstr "اللغة"
 #: print_gateway/static/src/components/language_switcher.js
 msgid "Could not change language. Make sure the language is installed."
 msgstr "تعذر تغيير اللغة. تأكد من تثبيت اللغة."
+
+#. module: print_gateway
+msgid "label"
+msgstr "التسمية"
