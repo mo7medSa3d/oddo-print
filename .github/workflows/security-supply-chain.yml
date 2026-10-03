@@ -119,10 +119,11 @@ jobs:
               fi
             fi
 
-            # Real findings remain. Fail unless every one of them is the
-            # documented dev-only advisory with no upstream fix.
+            # Real findings remain. They are acceptable only if every one of
+            # them is the documented dev-only advisory with no upstream fix;
+            # audit-gate.mjs exits non-zero otherwise.
             node scripts/audit-gate.mjs
-            exit "$audit_status"
+            exit 0
           done
 
       - name: Go vulnerability scan (pinned)
