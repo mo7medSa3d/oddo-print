@@ -138,7 +138,16 @@ def test_odoo_dynamic_table_identifiers_are_composed_safely():
 def test_ci_carries_failing_supply_chain_gates():
     workflow = read(".github/workflows/ci.yml")
     assert "- name: npm supply-chain audit" in workflow
-    assert "          npm audit" in workflow
+    # The audit step runs scripts/audit-gate.mjs, which keeps the full `high`
+    # threshold and fails on any advisory that is not on its explicit allowlist.
+    assert "          node scripts/audit-gate.mjs" in workflow
+    # The gate itself must still enforce the threshold and refuse to excuse a
+    # runtime dependency, so a weakened or allowlist-everything gate is caught.
+    gate = read("scripts/audit-gate.mjs")
+    assert '"--audit-level=high"' in gate
+    assert "const ALLOWED = [" in gate
+    assert "packageIsDevOnly" in gate
+    assert "is NOT dev-only" in gate
     assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
     assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
     assert "- name: Rust supply-chain audit" in workflow

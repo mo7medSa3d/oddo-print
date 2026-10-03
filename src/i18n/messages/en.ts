@@ -213,7 +213,7 @@ export const en = {
   "job.queued": "Queued",
   "job.claimed": "Sent to printer",
   "job.printing": "Printing",
-  "job.success": "Printed",
+  "job.success": "Delivered to printer",
   "job.failed": "Didn't print",
   "job.failedUnknown": "Unknown outcome",
   "job.expired": "Expired",

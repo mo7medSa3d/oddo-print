@@ -70,8 +70,8 @@ describe("quota-exhausted upgrade dialog", () => {
 
     const text = body.textContent ?? "";
     expect(text).toContain("Print limit reached");
-    expect(text).toContain("used its included print jobs for this billing period");
-    expect(text).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
+    expect(text).toContain("You've used all prints for this period");
+    expect(text).toContain("1 print = 1 credit.");
     // Usage must reflect the signal, not a guess.
     expect(text).toContain("500");
     expect(text).toContain("Used");
@@ -84,11 +84,6 @@ describe("quota-exhausted upgrade dialog", () => {
     expect(upgrade).not.toBeNull();
     expect(upgrade?.textContent ?? "").toContain("Upgrade plan");
 
-    // Server-side enforcement is stated explicitly so the user knows retrying
-    // cannot bypass the allowance.
-    const description = body.querySelector('[id$="-description"], [role="dialog"]')?.textContent ?? "";
-    expect(description).toContain("enforces plan limits server-side");
-
     // Portal architecture: dialog mounts at body level, above dashboard containers.
     const root = body.querySelector("[data-dialog-root]");
     expect(root).not.toBeNull();
@@ -100,11 +95,24 @@ describe("quota-exhausted upgrade dialog", () => {
     // Each render appends a new portal; scope to the last dialog root.
     const roots = body.querySelectorAll('[role="dialog"]');
     const rateText = roots[roots.length - 1]?.textContent ?? "";
-    expect(rateText).toContain("rolling 60-second limit");
-    expect(rateText).toContain("Try again in about 1 minute");
+    // A rate limit is a throughput window measured in jobs per minute, and it
+    // resets on its own: the remedy is to wait, not to upgrade.
+    expect(rateText).toContain("Print rate limit reached");
+    expect(rateText).toContain("jobs per minute");
+    expect(rateText).toContain("This resets soon");
 
+    // A concurrency limit counts jobs in flight right now. It is reported in
+    // active jobs and explained as a present-tense count, so the operator is
+    // not told to wait out a window that does not exist.
+    const before = body.querySelectorAll('[role="dialog"]').length;
     renderDialog({ open: true, resource: "concurrency", used: 5, limit: 5 });
-    expect(body.textContent ?? "").toContain("queued, claimed, and actively printing jobs");
+    const all = body.querySelectorAll('[role="dialog"]');
+    const concurrencyText = all[all.length - 1]?.textContent ?? all[before - 1]?.textContent ?? "";
+    expect(concurrencyText).toContain("Concurrent print limit reached");
+    expect(concurrencyText).toContain("active print jobs");
+    expect(concurrencyText).toContain("This counts jobs waiting or printing now.");
+    // The two limits must remain distinguishable in copy and in unit.
+    expect(concurrencyText).not.toContain("jobs per minute");
   });
 
   it("reports an unlimited allowance and stays closed when not opened", () => {

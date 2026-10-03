@@ -219,7 +219,7 @@ export const ar: Catalog = {
   "job.queued": "قيد الانتظار",
   "job.claimed": "أُرسلت إلى الطابعة",
   "job.printing": "جارٍ الطباعة",
-  "job.success": "تمت الطباعة",
+  "job.success": "تم التسليم إلى الطابعة",
   "job.failed": "لم تتم الطباعة",
   "job.failedUnknown": "النتيجة غير معروفة",
   "job.expired": "منتهية",

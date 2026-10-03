@@ -103,15 +103,22 @@ describe("job-timeline", () => {
     expect(Object.prototype.hasOwnProperty.call(printingStage!, "at")).toBe(true);
     expect(printingStage!.at).toBeNull();
 
-    const success = buildTimelineFromJobRow(makeJob({ status: "success" }));
+    // A successful job reaches this state without ackedAt on the late-success
+    // reconciliation path. `updated_at` is NOT NULL in the schema, so the
+    // builder falls back to it rather than rendering an undefined time; the
+    // stage timestamps stay defined and truthful.
+    const reconciledAt = new Date("2024-01-01T00:05:00Z");
+    const success = buildTimelineFromJobRow(
+      makeJob({ status: "success", ackedAt: null, deliveredAt: null, updatedAt: reconciledAt })
+    );
     const delivery = success.find((entry) => entry.stage === "delivery");
     const final = success.find((entry) => entry.stage === "success");
     expect(delivery).toBeDefined();
     expect(final).toBeDefined();
     expect(Object.prototype.hasOwnProperty.call(delivery!, "at")).toBe(true);
-    expect(delivery!.at).toBeNull();
+    expect(delivery!.at).toEqual(reconciledAt);
     expect(Object.prototype.hasOwnProperty.call(final!, "at")).toBe(true);
-    expect(final!.at).toBeNull();
+    expect(final!.at).toEqual(reconciledAt);
   });
 
   it("handles failed job", () => {

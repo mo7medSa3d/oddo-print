@@ -6,7 +6,8 @@ describe("system-health", () => {
   it("derives schema version from the latest Drizzle migration", async () => {
     const journal = await import("../drizzle/meta/_journal.json");
     expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
-    expect(CURRENT_SCHEMA_VERSION).toBe(75);
+    // Migration 0076 added the discovery candidate status constraint.
+    expect(CURRENT_SCHEMA_VERSION).toBe(76);
   });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();
