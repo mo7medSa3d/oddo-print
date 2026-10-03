@@ -973,23 +973,15 @@ export default function App() {
               <MetaRow label={t("desktop.drawer.management")}>
                 {selectedPrinter.managementSource === "manager" ? t("desktop.drawer.gatewayDesired") : t("desktop.drawer.agentOwned")}
               </MetaRow>
-              <MetaRow label={t("desktop.drawer.desiredRevision")}>
-                {selectedPrinter.desiredRevision ?? 0}
-              </MetaRow>
-              <MetaRow label={t("desktop.drawer.appliedRevision")}>
-                {selectedPrinter.appliedDesiredRevision ?? 0}
-                {selectedPrinter.managementSource === "manager" && (
-                  <span className="ms-2 text-ink-4">
-                    {selectedPrinter.configurationConverged ? t("desktop.drawer.applied") : t("desktop.drawer.pending")}
-                  </span>
-                )}
-              </MetaRow>
-              <MetaRow label={t("desktop.drawer.observed")}>
-                {t("desktop.drawer.observedLine", {
-                  status: selectedPrinter.status,
-                  deviceClass: selectedPrinter.observedDeviceClass ?? t("status.unknown").toLowerCase(),
-                  revision: selectedPrinter.observedDesiredRevision ?? 0,
-                })}
+              {/* Internal revision counters (desired/applied/observed) are an
+                  implementation detail: operators need the setup state and the
+                  next step, not the state-machine numbers. */}
+              <MetaRow label={t("desktop.drawer.setup")}>
+                {selectedPrinter.managementSource !== "manager"
+                  ? t("desktop.drawers.agentOwned")
+                  : selectedPrinter.configurationConverged
+                    ? t("desktop.drawers.applied")
+                    : t("desktop.drawers.pending")}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
                 {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}

@@ -15,23 +15,23 @@ const ALLOWED_ENTITLEMENTS = new Set([
 const COPY = {
     max_agents: {
         title: _t("Agent limit reached"),
-        reason: _t("Your organization's Gateway plan has reached its Agent limit."),
+        reason: _t("You've reached the computer limit on your plan."),
     },
     max_printers: {
         title: _t("Printer limit reached"),
-        reason: _t("Your organization's Gateway plan has reached its Printer limit."),
+        reason: _t("You've reached the printer limit on your plan."),
     },
     max_jobs_per_minute: {
         title: _t("Print rate limit reached"),
-        reason: _t("Your organization's Gateway plan has reached its print throughput limit."),
+        reason: _t("Too many prints at once. Try again shortly."),
     },
     max_concurrent_jobs: {
         title: _t("Concurrent print limit reached"),
-        reason: _t("Your organization's Gateway plan has reached its active print-job capacity."),
+        reason: _t("Too many jobs printing now. Wait a moment."),
     },
     max_prints_per_period: {
         title: _t("Print allowance reached"),
-        reason: _t("Your organization's Gateway plan has used all included print jobs for this billing period."),
+        reason: _t("You've used all prints for this period."),
     },
 };
 
@@ -170,11 +170,11 @@ export function showGatewayBillingLimitDialog(env, errorOrDetails) {
 
     const body = [
         details.message || copy.reason,
-        _t("No new print was sent to the printer."),
+        _t("Nothing was printed."),
         facts.join("  •  "),
         details.entitlement === "max_prints_per_period"
-            ? _t("Upgrade the Gateway plan to continue printing before the next billing period.")
-            : _t("Upgrade the Gateway plan or wait for capacity to become available."),
+            ? _t("Upgrade your plan to keep printing.")
+            : _t("Upgrade your plan or try again shortly."),
     ].filter(Boolean).join("\n\n");
 
     env.services.dialog.add(ConfirmationDialog, {

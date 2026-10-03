@@ -208,18 +208,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         <div className="space-y-5">
           {checkoutState === "success" && (
             <Callout tone="ok" title={t("billing.checkoutCompleted")}>
-              Payment submitted. Stripe sync can take a moment before the plan updates here.
+              Payment received. Your plan will update shortly.
             </Callout>
           )}
           {checkoutState === "cancelled" && (
             <Callout tone="neutral" title={t("billing.checkoutCancelled")}>
-              No subscription change was applied.
+              No changes made. You can try again anytime.
             </Callout>
           )}
           {sub && (sub.checkoutStatus === "creating" || sub.checkoutStatus === "open") && checkoutState !== "success" && checkoutState !== "cancelled" && (
             <Callout tone="info" title={t("billing.checkoutInProgress")}>
-              A billing operation is already running. The subscription will update when Stripe
-              confirms it.
+              Payment in progress. Your plan will update shortly.
             </Callout>
           )}
           {printUsageUnavailable && (
@@ -281,12 +280,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
                 <div className="px-5 py-5">
                   <div className="flex flex-wrap items-end justify-between gap-2">
-                    <div>
-                      <div className="label-caps">{t("billing.includedCapacity")}</div>
-                      <h3 className="mt-1.5 text-md font-[600] tracking-[-0.015em] text-ink">
-                        {t("billing.whatThisPlanCovers")}
-                      </h3>
-                    </div>
+                    <h3 className="text-md font-[600] tracking-[-0.015em] text-ink">
+                      {t("billing.whatThisPlanCovers")}
+                    </h3>
                     <Link
                       href="/pricing"
                       className="inline-flex items-center gap-1.5 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"

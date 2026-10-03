@@ -76,8 +76,6 @@ export default function SettingsPage() {
     }
   }
 
-  const dirty = name.trim() !== "" && name.trim() !== undefined;
-
   return (
     <>
       <PageHeader
@@ -118,7 +116,6 @@ export default function SettingsPage() {
                     maxLength={120}
                     required
                     placeholder={t("settings.namePlaceholder")}
-                    disabled={busy || !dirty}
                   />
                 </Field>
 
@@ -133,7 +130,7 @@ export default function SettingsPage() {
                 )}
 
                 <div className="flex items-center justify-end gap-2 border-t border-edge-subtle pt-4">
-                  <Button type="submit" variant="primary" disabled={busy} loading={busy} icon={<Save className="h-4 w-4" />}>
+                  <Button type="submit" variant="primary" disabled={busy || name.trim().length < 2} loading={busy} icon={<Save className="h-4 w-4" />}>
                     {busy ? t("common.saving") : t("common.saveChanges")}
                   </Button>
                 </div>
@@ -151,7 +148,6 @@ export default function SettingsPage() {
                   rows={[
                     { label: t("settings.signedInAs"), value: email || "—" },
                     { label: t("settings.role"), value: <span className="capitalize">{role || "—"}</span> },
-                    { label: t("settings.workspaceId"), value: <code className="font-mono text-xs">{name ? "•••" : "—"}</code> },
                     {
                       label: t("settings.workspaceCreated"),
                       value: tenantCreatedAt ? formatDate(tenantCreatedAt) : "—",
@@ -161,8 +157,7 @@ export default function SettingsPage() {
                 <div className="mt-3 flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
                   <Shield className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                   <p className="text-sm leading-relaxed text-ink-3">
-                    Permissions are enforced server-side per request. Changing a member’s role takes
-                    effect immediately.
+                    Role changes apply immediately.
                   </p>
                 </div>
               </div>

@@ -67,9 +67,9 @@ export function JobsPage({ s }: { s: DesktopState }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-edge bg-surface-2 text-start text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">{t("desktop.jobs.colDocument")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colJobId")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colStatus")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colCreated")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colUpdated")}</th><th className="px-5 py-2.5 text-end">{t("desktop.jobs.colActions")}</th></tr></thead>
+              <thead><tr className="border-b border-edge bg-surface-2 text-start text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">{t("desktop.jobs.colDocument")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colJobId")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colStatus")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colCreated")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colUpdated")}</th><th className="px-5 py-2.5 text-end">{t("desktop.jobs.colActions")}</th></tr></thead>
               <tbody>{s.jobsFiltered.map((j) => (
-                <tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div>{jobDestination(j) ? <div className="text-2xs text-ink-3">{jobDestination(j)}</div> : null}</td><td className="px-4 py-3"><Mono>{jobId(j)}</Mono></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="px-4 py-3 text-2xs text-ink-3 tabular-nums">{formatDateTime(jobTimestamp(j, "createdAt"))}</td><td className="px-4 py-3 text-2xs text-ink-3 tabular-nums">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td><td className="px-5 py-3 text-end"><Button size="sm" variant="secondary" onClick={() => s.setSelectedJob(j)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.jobs.details")}</Button></td></tr>
+                <tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div>{jobDestination(j) ? <div className="text-2xs text-ink-3">{jobDestination(j)}</div> : null}</td><td className="hidden px-4 py-3 lg:table-cell"><Mono>{jobId(j)}</Mono></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="hidden px-4 py-3 text-2xs text-ink-3 tabular-nums lg:table-cell">{formatDateTime(jobTimestamp(j, "createdAt"))}</td><td className="px-4 py-3 text-2xs text-ink-3 tabular-nums">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td><td className="px-5 py-3 text-end"><Button size="sm" variant="secondary" onClick={() => s.setSelectedJob(j)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.jobs.details")}</Button></td></tr>
               ))}</tbody>
             </table>
           </div>
@@ -77,11 +77,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
       </Card>
 
       <Modal open={cleanupOpen} onClose={() => { if (!cleanupBusy) setCleanupOpen(false); }} title={t("desktop.jobs.cleanupTitle")} description={t("desktop.jobs.cleanupDescription")} footer={<><Button variant="secondary" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy}>{t("common.cancel")}</Button><Button variant="danger" onClick={handleCleanup} loading={cleanupBusy} icon={<Trash2 className="h-4 w-4" />}>{t("desktop.jobs.cleanupConfirm")}</Button></>}>
-        <div className="space-y-3 text-sm text-ink-2"><p>{t("desktop.jobs.cleanupBody1")}</p><p>
-            {t("desktop.jobs.cleanupBody2a")} <strong>unknown-outcome</strong>{" "}
-            {t("desktop.jobs.cleanupBody2b")}{" "}
-            <span className="font-mono text-2xs bg-surface-2 px-1.5 py-0.5 rounded border border-edge">jobs cleanup --include-unknown</span>.
-          </p><p className="text-2xs text-ink-3">{t("desktop.jobs.cleanupBody3")}</p></div>
+        <div className="space-y-3 text-sm text-ink-2"><p>{t("desktop.jobs.cleanupBody1")}</p><p>{t("desktop.jobs.cleanupBody2a")} {t("desktop.jobs.cleanupBody2b")}</p><p className="text-2xs text-ink-3">{t("desktop.jobs.cleanupBody3")}</p></div>
       </Modal>
     </div>
   );

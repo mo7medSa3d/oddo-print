@@ -706,7 +706,7 @@ export function LoadingState({
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="skeleton h-9" style={{ width: `${100 - (i % 3) * 12}%` }} />
       ))}
-      <span className="sr-only">{label ?? t("ui.loading")}…</span>
+      <span className="sr-only">{(label ?? t("ui.loading")).replace(/…+$/, "")}…</span>
     </div>
   );
 }

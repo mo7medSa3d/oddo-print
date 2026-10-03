@@ -194,17 +194,17 @@ patch(PosStore.prototype, {
                 );
             } else if (result?.status === "failed") {
                 this.notification.add(
-                    result?.message || _t("The receipt could not be accepted for printing. Check Print Activity for details."),
+                    result?.message || _t("Couldn't print the receipt. See Print Activity."),
                     { type: "danger" }
                 );
             } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
                 this.notification.add(
-                    result?.message || _t("Receipt sent to the printing service. Check Print Activity for the final status."),
+                    result?.message || _t("Receipt sent. Check Print Activity for the result."),
                     { type: "success" }
                 );
             } else {
                 this.notification.add(
-                    result?.message || _t("The receipt could not be accepted for printing. Check Print Activity for details."),
+                    result?.message || _t("Couldn't print the receipt. See Print Activity."),
                     { type: "danger" }
                 );
             }

@@ -803,12 +803,12 @@ export default function DashboardClient({
     const result = await runAction(() => setAgentLifecycle(agent.id, next));
     if (result && next === "disabled") {
       setMessage({
-        text: `Agent ${agent.name} disabled: its credentials were revoked and its ${agent.printerCount} printer(s) no longer receive jobs. Re-enabling requires pairing it again with a new code.`,
+        text: t("dashboard.agentDisabledNotice", { name: agent.name, count: agent.printerCount }),
         type: "ok",
       });
     }
     if (result && next === "retired") {
-      setMessage({ text: `Agent ${agent.name} retired. It is kept for audit history and cannot receive jobs.`, type: "ok" });
+      setMessage({ text: t("dashboard.agentRetiredNotice", { name: agent.name }), type: "ok" });
     }
   };
 
@@ -927,7 +927,7 @@ export default function DashboardClient({
     // action that always fails, so success is excluded explicitly.
     const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
-      { key: "inspect", label: "Inspect details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
+      { key: "inspect", label: "View details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
       {
         key: "copy",
         label: t("job.copyJobId"),
@@ -958,7 +958,7 @@ export default function DashboardClient({
         disabled: busy || testingPrinterId !== null || !active,
         onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
       },
-      { key: "certify", label: "Run certification", icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
+      { key: "certify", label: "Test printer", icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
       {
         key: "copy",
         label: t("printer.copyPrinterId"),
@@ -1196,8 +1196,7 @@ export default function DashboardClient({
             </Button>
           }
         >
-          New jobs submitted to the Gateway are rejected until the period resets or the plan is
-          upgraded.
+          {t("dashboard.printCreditsExhausted")}
         </Callout>
       )}
 
@@ -1348,7 +1347,7 @@ export default function DashboardClient({
                   {SURFACE_LABELS_EN.printers}
                 </h3>
                 <p className="mt-0.5 text-sm leading-snug text-ink-3">
-                  {kpis.onlinePrinters} available of {kpis.totalPrinters}
+                  {kpis.onlinePrinters} of {kpis.totalPrinters} ready
                 </p>
               </div>
             </div>
@@ -1358,8 +1357,8 @@ export default function DashboardClient({
               value={printerViewMode}
               onChange={setPrinterViewMode}
               options={[
-                { value: "grid", label: "Cards", icon: <LayoutGrid className="h-3.5 w-3.5" /> },
-                { value: "table", label: "Table", icon: <List className="h-3.5 w-3.5" /> },
+                { value: "grid", label: t("printer.view.cards"), icon: <LayoutGrid className="h-3.5 w-3.5" /> },
+                { value: "table", label: t("printer.view.list"), icon: <List className="h-3.5 w-3.5" /> },
               ]}
             />
           </div>
@@ -1693,7 +1692,7 @@ export default function DashboardClient({
                             {job.destination ?? "—"}
                           </div>
                           <div className="mt-0.5 text-2xs text-ink-4">
-                            {job.documentType?.replace(/_/g, " ") ?? "unknown type"}
+                            {job.documentType?.replace(/_/g, " ") ?? "Unknown"}
                           </div>
                         </td>
                         <td>
@@ -1745,7 +1744,7 @@ export default function DashboardClient({
                       <span aria-hidden>·</span>
                       <span title={formatDateTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
                       <span aria-hidden>·</span>
-                      <span>{job.documentType?.replace(/_/g, " ") ?? "unknown type"}</span>
+                      <span>{job.documentType?.replace(/_/g, " ") ?? "Unknown"}</span>
                     </div>
                     <div className="mt-2.5 flex items-center gap-1.5">
                       <Button size="sm" variant="secondary" onClick={() => setSelectedJob(job)} icon={<Eye className="h-3.5 w-3.5" />}>

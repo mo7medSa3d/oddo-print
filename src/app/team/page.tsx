@@ -276,9 +276,9 @@ export default function TeamPage() {
         meta={
           loaded ? (
             <div className="flex items-center gap-2">
-              <StatusBadge tone="neutral" label={`${members.length} member${members.length === 1 ? "" : "s"}`} />
+              <StatusBadge tone="neutral" label={`${members.length} ${members.length === 1 ? "member" : "members"}`} />
               {invitations.length > 0 && (
-                <StatusBadge tone="warn" label={`${invitations.length} pending`} />
+                <StatusBadge tone="warn" label={`${invitations.length} ${invitations.length === 1 ? "invite" : "invites"} pending`} />
               )}
             </div>
           ) : null
@@ -316,7 +316,7 @@ export default function TeamPage() {
               />
 
               {!loaded ? (
-                <ul className="divide-y divide-edge-subtle" role="status" aria-label="Loading members">
+                <ul className="divide-y divide-edge-subtle" role="status" aria-label={t("team.loadingMembers")}>
                   {[0, 1, 2].map((i) => (
                     <li key={i} className="flex items-center gap-3 px-5 py-4">
                       <span className="skeleton h-9 w-9 rounded-full" aria-hidden />
@@ -384,7 +384,7 @@ export default function TeamPage() {
                                   <StatusBadge tone="brand" label={t("team.role.owner")} />
                                 ) : (
                                   <Select
-                                    aria-label={`Role for ${member.email}`}
+                                    aria-label={`${t("team.roleFor")} ${member.email}`}
                                     disabled={busy}
                                     value={member.role}
                                     onChange={(e) => void updateRole(member.userId, e.target.value)}
@@ -439,7 +439,7 @@ export default function TeamPage() {
                         {member.role !== "owner" && (
                           <div className="mt-3 flex items-center gap-2">
                             <Select
-                              aria-label={`Role for ${member.email}`}
+                              aria-label={`${t("team.roleFor")} ${member.email}`}
                               disabled={busy}
                               value={member.role}
                               onChange={(e) => void updateRole(member.userId, e.target.value)}
@@ -477,7 +477,7 @@ export default function TeamPage() {
                 icon={<Clock className="h-4 w-4" />}
               />
               {!loaded ? (
-                <div className="space-y-3 px-5 py-4" role="status" aria-label="Loading invitations">
+                <div className="space-y-3 px-5 py-4" role="status" aria-label={t("team.loadingInvitations")}>
                   {[0, 1].map((i) => (
                     <span key={i} className="skeleton block h-3.5 w-56" aria-hidden />
                   ))}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, Loader2, MinusCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, MinusCircle, RefreshCw } from "lucide-react";
 import { Mono, Skeleton, StatusBadge, type Tone } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
@@ -152,14 +152,14 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
       <div role="alert" className="flex flex-col gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-2.5 text-sm text-bad">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>{t("timeline.unavailable")} {error}</span>
+          <span>{t("timeline.unavailable")}</span>
         </div>
         <button
           type="button"
           onClick={retry}
           className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-sm border border-bad-edge bg-surface px-3 text-sm font-[550] text-bad transition-colors duration-[140ms] hover:bg-bad-bg sm:self-auto"
         >
-          <Loader2 className="h-3.5 w-3.5" aria-hidden />
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           {t("timeline.retry")}
         </button>
       </div>

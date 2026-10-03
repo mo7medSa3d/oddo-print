@@ -181,7 +181,7 @@ export default function LoginPage() {
               {t("auth.signIn.chooseWorkspace")}
             </div>
             <p className="mt-1 text-sm text-ink-2">
-              This account belongs to more than one workspace.
+              You belong to multiple workspaces. Choose one to continue.
             </p>
             <div className="mt-3 grid gap-2">
               {workspaces.map((id) => (
@@ -192,7 +192,7 @@ export default function LoginPage() {
                   onClick={() => void chooseWorkspace(id)}
                   className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
                 >
-                  <span className="truncate">{id}</span>
+                  <span className="truncate font-mono text-[13px]" title={id}>Workspace …{id.slice(-6)}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
                 </button>
               ))}
@@ -208,13 +208,13 @@ export default function LoginPage() {
           size="lg"
           icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
         >
-          {loading ? t("auth.signIn.submitting") : t("common.continue")}
+          {loading ? t("auth.signIn.submitting") : t("auth.signIn.title")}
         </Button>
 
         <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <p className="text-sm leading-relaxed text-ink-3">
-            Sessions are protected server-side. Email verification is required before sign-in.
+            Please verify your email before signing in.
           </p>
         </div>
       </form>
