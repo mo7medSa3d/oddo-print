@@ -448,16 +448,31 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
 | CSV rectangularity (`ir.model.access.csv`) | PASS — 12×8 |
 | All `.json` files parse (incl. both drizzle snapshots) | PASS |
 | en/ar key parity (2117) + all 1656 `t()` keys resolve | PASS |
+| Every `/api/**/route.ts`: 76 files, 95 handlers, all valid + unique methods | PASS |
+| Tauri command surface: declared == `build.rs` ACL == `invoke_handler` == capability | PASS — 22 == 22 == 22 == 22, same order |
 | CI gate: no `@/` path aliases, no tsconfig path mapping | PASS |
 | CI gate: no `<tree>`/`attrs=`/`states=` in addon views | PASS |
 | CI gate: Odoo icon == desktop icon sha256 | PASS — identical |
+| `cargo verify-project --locked` (manifest validity) | PASS |
+| `cargo metadata --locked --offline` (lockfile ↔ manifest agreement) | PASS — 427 pkgs; `tauri 2.11.5`, `tauri-build 2.6.3`, `tauri-plugin-autostart 2.5.1`, `reqwest 0.13.5`, `rustls 0.23.45` |
 | `npm audit --package-lock-only --audit-level=high` | **FAIL** — see F-013 (dev-only) |
-| `cargo metadata --offline` | BLOCKED — Rust dep cache incomplete; see below |
+| `cargo check` (native and `x86_64-pc-windows-msvc`) | BLOCKED — needs system packages |
 
-Toolchain notes: `node_modules` is **absent**, so `npm run typecheck`, `lint`, `build`, `i18n:check`,
-`test`, `test:integration`, `test:e2e`, `test:odoo:static` and `docker compose config` could not run
-here without installing dependencies. `govulncheck` and `cargo audit` additionally require
-`go install` / `cargo install` and a vulnerability-database download.
+Toolchain notes and limits of this run:
+- `node_modules` is **absent**, so `npm run typecheck`, `lint`, `build`, `i18n:check`, `test`,
+  `test:integration`, `test:e2e`, `test:odoo:static` and `docker compose config` could not run
+  without installing dependencies. The TS/TSX gate above substitutes a **syntactic** parse and
+  performs **no** type checking — that remains outstanding.
+- `cargo check` cannot complete on this host: the native target needs `gobject-2.0`/GTK development
+  headers, and the Windows target needs the MSVC C compiler for the `aws-lc-sys` C dependency
+  (`GNU compiler is not supported for this target`). Both require installing system packages, so
+  the crate's own Rust code was **not** compiled here. `rustfmt` is not installed for the pinned
+  toolchain, so no Rust formatting gate was possible either.
+- `govulncheck` and `cargo audit` additionally require `go install` / `cargo install` plus a
+  vulnerability-database download.
+- Disclosure: `staticcheck v0.8.1` was compiled from source into `/tmp` (CI pins v0.7.0) and the
+  declared Rust dependencies were fetched into the shared cargo cache. Neither changed the
+  repository, the system, or any project manifest.
 
 ---
 
