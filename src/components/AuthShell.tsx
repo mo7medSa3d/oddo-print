@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { BrandMark } from "./brand";
 import { ThemeToggle } from "./ThemeToggle";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useI18n } from "../i18n/react";
 import type { MessageKey } from "../i18n/messages/en";
 
@@ -70,7 +71,10 @@ export function AuthShell({
           <div className="w-full max-w-[420px]">
             <div className="mb-7 flex items-center justify-between gap-4 lg:hidden">
               <BrandMark size="md" title="Yaseir" subtitle={subtitleText} />
-              <ThemeToggle />
+              <div className="flex items-center gap-1">
+                <LanguageSwitcher />
+                <ThemeToggle />
+              </div>
             </div>
 
             {(eyebrow || title || description) && (
@@ -94,7 +98,8 @@ export function AuthShell({
         </section>
       </div>
 
-      <div className="absolute end-4 top-4 z-20 hidden lg:block">
+      <div className="absolute end-4 top-4 z-20 hidden lg:flex items-center gap-1">
+        <LanguageSwitcher />
         <ThemeToggle />
       </div>
     </main>
