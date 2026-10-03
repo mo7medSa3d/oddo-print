@@ -26,6 +26,7 @@ import {
   Toast as ToastView,
 } from "../components/ui";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
