@@ -15,6 +15,9 @@ import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_prin
 // crypto.randomUUID() is undefined in non-secure contexts (plain-HTTP LAN,
 // which this integration otherwise tolerates). Fall back to a v4 UUID so
 // kitchen/reprint operation identities never throw and abort printChanges.
+// getRandomValues is available even in non-secure contexts; if neither source
+// exists the UUID would be predictable (Math.random) and could collapse
+// distinct reprint idempotency keys, so fail closed instead.
 function gatewayUuid() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
         return crypto.randomUUID();
@@ -23,9 +26,7 @@ function gatewayUuid() {
     if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
         crypto.getRandomValues(bytes);
     } else {
-        for (let i = 0; i < 16; i++) {
-            bytes[i] = Math.floor(Math.random() * 256);
-        }
+        throw new Error("Secure random number generator is unavailable; cannot generate print operation idempotency key");
     }
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -183,7 +184,9 @@ patch(PosStore.prototype, {
             );
 
             // Truthful feedback: "submitted" means QUEUED for the agent, not
-            // printed; "unknown" means the outcome cannot be trusted.
+            // printed; "unknown" means the outcome cannot be trusted. Only
+            // allowlisted accepted statuses render success; an absent or
+            // unexpected status must never toast success.
             if (["unknown", "partial"].includes(result?.status)) {
                 this.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
@@ -194,17 +197,23 @@ patch(PosStore.prototype, {
                     result?.message || _t("The receipt could not be accepted for printing. Check Print Activity for details."),
                     { type: "danger" }
                 );
-            } else {
+            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
                 this.notification.add(
                     result?.message || _t("Receipt sent to the printing service. Check Print Activity for the final status."),
                     { type: "success" }
+                );
+            } else {
+                this.notification.add(
+                    result?.message || _t("The receipt could not be accepted for printing. Check Print Activity for details."),
+                    { type: "danger" }
                 );
             }
 
             // Count only accepted/known print outcomes. A definite Gateway
             // rejection or an ambiguous physical outcome must not be recorded
-            // as a completed POS print.
-            const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);
+            // as a completed POS print. Allowlist (mirrors the kitchen path):
+            // an absent/unexpected status must never count as success.
+            const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);
             if (!printBillActionTriggered && recordPrintAttempt) {
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {

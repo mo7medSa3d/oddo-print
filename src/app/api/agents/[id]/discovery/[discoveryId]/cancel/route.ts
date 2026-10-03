@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; discoveryId: string }> }) {
   const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "agents.disable"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  // Cancelling a scan is the inverse of starting one (which requires
+  // agents.pair). Requiring agents.disable here demanded a stronger permission
+  // than starting the scan itself.
+  try { requireManagerPermission(claims, "agents.pair"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id: agentId, discoveryId } = await params;
   const result = await db.transaction(async (tx) => {
     // Serialize cancellation with the Agent's discovery report. The row lock

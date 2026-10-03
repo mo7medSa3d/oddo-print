@@ -134,6 +134,21 @@ func Load(path string) (*Config, error) {
 	store := storage.NewStore(dir)
 	if sealed, serr := store.GetSecret(secretStoreKey); serr == nil && sealed != "" {
 		cfg.Agent.Secret = sealed
+		// A previous migration may have sealed the secret but failed to strip
+		// the YAML plaintext (Save succeeded, stripped.Save failed). The next
+		// Load took this fast path and never retried, leaving the secret in
+		// both places forever. Retry the strip best-effort: Load must not fail
+		// when the secret is already usable, but the plaintext must not linger.
+		if raw, ferr := os.ReadFile(path); ferr == nil && len(raw) > 0 {
+			var onDisk Config
+			if yerr := yaml.Unmarshal(raw, &onDisk); yerr == nil && onDisk.Agent.Secret != "" {
+				stripped := onDisk
+				stripped.Agent.Secret = ""
+				if serr := stripped.Save(path); serr != nil {
+					fmt.Fprintf(os.Stderr, "warning: retry stripping plaintext agent secret: %v\n", serr)
+				}
+			}
+		}
 	} else if cfg.Agent.Secret != "" {
 		legacySecret := cfg.Agent.Secret
 		if merr := store.SaveSecret(secretStoreKey, legacySecret); merr != nil {
@@ -167,6 +182,13 @@ func Ensure(path string) error {
 		return fmt.Errorf("secure config dir %s: %w", dir, err)
 	}
 	if _, err := os.Stat(path); err == nil {
+		// A pre-existing config file predates ACL hardening (or was restored
+		// with loose permissions). Harden it now: Save() hardens on write,
+		// but an existing loose file would otherwise stay loose until the
+		// next Save.
+		if err := EnsureSecureFileACL(path); err != nil {
+			return fmt.Errorf("secure config file %s: %w", path, err)
+		}
 		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("stat %s: %w", path, err)

@@ -114,7 +114,7 @@ class PrintGatewayPolicy(models.Model):
     priority = fields.Integer(default=10, help="Lower numbers execute first.")
 
     @api.model
-    def _sanitize_template_field(self, field_name):
+    def _sanitize_template_field(self, field_name, conversion=None):
         if field_name is None:
             return
         # Only bare allow-listed scalar names may appear: no attribute
@@ -122,6 +122,12 @@ class PrintGatewayPolicy(models.Model):
         # __class__ traversal are all impossible by construction).
         if "." in field_name or "[" in field_name or "__" in field_name:
             raise ValueError("Attribute and index access are strictly forbidden in raw print templates.")
+        # Conversions (!r/!s/!a) run AFTER value sanitization during
+        # str.format, so {name!r} would re-add quotes that sanitize_raw_value
+        # deliberately stripped for TSPL (and reshape values for ZPL/ESC-POS).
+        # Templates must use plain {} placeholders only.
+        if conversion:
+            raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
 
     def render_raw_template(self, record, protocol=None):
         """Deterministically render a raw template while keeping field values inert.
@@ -150,7 +156,7 @@ class PrintGatewayPolicy(models.Model):
             import string  # noqa: F401  (imported for clarity; Formatter used below)
             formatter = string.Formatter()
             for literal_text, field_name, format_spec, conversion in formatter.parse(template):
-                self._sanitize_template_field(field_name)
+                self._sanitize_template_field(field_name, conversion)
                 # str.format evaluates NESTED replacement fields inside a
                 # format spec (e.g. {x:{a.__class__}}) - the classic escape
                 # from a field-name-only sandbox. Format specs must stay
@@ -159,6 +165,8 @@ class PrintGatewayPolicy(models.Model):
                     for _lit, nested_field, nested_spec, _conv in formatter.parse(format_spec):
                         if nested_field is not None:
                             raise ValueError("Nested replacement fields inside format specifications are forbidden.")
+                        if _conv:
+                            raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
                         if not nested_spec:
                             continue
                         # recurse for the rare double-nested case
@@ -168,6 +176,8 @@ class PrintGatewayPolicy(models.Model):
                             for _l, nf, ns, _c in formatter.parse(spec):
                                 if nf is not None:
                                     raise ValueError("Nested replacement fields inside format specifications are forbidden.")
+                                if _c:
+                                    raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
                                 if ns:
                                     stack.append(ns)
             rendered = template.format(**values)
@@ -312,6 +322,11 @@ class PrintGatewayPolicy(models.Model):
                                 raise ValidationError(_("Field '%s' in domain filter does not exist on model '%s'.") % (field_name, policy.model_name))
                         else:
                             raise ValidationError(_("Invalid element in domain filter: %s") % str(item))
+                except ValidationError:
+                    # Specific operator/arity/field errors above already carry
+                    # the actionable message; do not re-wrap them into the
+                    # generic syntax error below.
+                    raise
                 except Exception as exc:
                     raise ValidationError(_("Invalid domain filter expression for policy '%s': %s") % (policy.name, exc)) from exc
 

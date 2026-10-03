@@ -310,9 +310,17 @@ func handlePrintersAdd(configPath string, args []string) {
 	enabled := strings.ToLower(strings.TrimSpace(*enabledStr)) != "false"
 	var caps map[string]interface{}
 	if *capsJSON != "" {
-		// Parse JSON capabilities
-		// Use simple JSON parse via addPrinterHelper
-		caps = map[string]interface{}{"_raw": *capsJSON}
+		// Parse JSON capabilities. An invalid document must not be persisted
+		// as {"_raw": <raw string>}: endpointToConfig copies unknown
+		// capability keys into the Gateway heartbeat config, so junk would
+		// leak into inventory. Warn and drop instead.
+		var parsed map[string]interface{}
+		if err := parseCapabilitiesJSON(*capsJSON, &parsed); err != nil {
+			log.Printf("WARNING: invalid capabilities JSON: %v (capabilities dropped)", err)
+			caps = nil
+		} else {
+			caps = parsed
+		}
 	}
 
 	info := struct {
@@ -329,17 +337,6 @@ func handlePrintersAdd(configPath string, args []string) {
 		Enabled        bool
 		Capabilities   map[string]interface{}
 	}{ID: *id, Name: *name, ConnectionType: *typ, PrinterType: *printerType, Endpoint: effectiveEndpoint, Protocol: *protocol, SpoolerName: *spoolerName, USBVID: *vid, USBPID: *pid, USBSerial: *serial, Enabled: enabled, Capabilities: caps}
-	// Handle capabilities JSON raw
-	if *capsJSON != "" && caps["_raw"] != nil {
-		// Try to parse as JSON
-		var parsed map[string]interface{}
-		if err := parseCapabilitiesJSON(*capsJSON, &parsed); err == nil {
-			info.Capabilities = parsed
-		} else {
-			log.Printf("WARNING: invalid capabilities JSON: %v", err)
-			info.Capabilities = caps
-		}
-	}
 
 	if err := addPrinterHelper(loaded.cfg, registryPath, info); err != nil {
 		log.Fatalf("Failed to add printer: %v", err)

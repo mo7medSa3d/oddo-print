@@ -1099,6 +1099,12 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 		if err != nil {
 			return err
 		}
+		// Data frames prove the peer is alive as much as pings do. A busy
+		// socket carrying jobs but no pings for >90s must not trip the idle
+		// timeout and drop a healthy connection.
+		if err := conn.SetReadDeadline(time.Now().Add(wsIdleTimeout)); err != nil {
+			return fmt.Errorf("refresh WebSocket read deadline on message: %w", err)
+		}
 
 		var envelope map[string]interface{}
 		if err := json.Unmarshal(message, &envelope); err != nil {
@@ -2101,6 +2107,9 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		// supported_protocols list is left untouched.
 		caps := make(map[string]interface{}, len(pc.Capabilities)+1)
 		for k, v := range pc.Capabilities {
+			if k == "_raw" {
+				continue
+			}
 			caps[k] = v
 		}
 		facts, found := a.deviceFacts(id)
@@ -2226,10 +2235,12 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 	}
 	// Include capabilities if present. Reserved identity keys declared on
 	// the printer config must never be overwritten by a capability bag.
+	// _raw is a legacy invalid-JSON marker that must never leak into the
+	// Gateway heartbeat inventory.
 	if pc.Capabilities != nil {
 		for k, v := range pc.Capabilities {
 			switch k {
-			case "protocol", "address", "ip", "port", "printer_type":
+			case "protocol", "address", "ip", "port", "printer_type", "_raw":
 				continue
 			}
 			cfgMap[k] = v

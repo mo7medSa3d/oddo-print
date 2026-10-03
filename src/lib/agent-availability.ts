@@ -81,7 +81,10 @@ export function getEffectivePrinterStatus(
   const rawStatus = (printer.status ?? "").toLowerCase().trim();
   if (rawStatus === "online") return "online";
   if (rawStatus === "offline") return "offline";
-  if (rawStatus === "busy") return "offline";
+  // "busy" means the queue accepted work and remains claimable (see
+  // isPrinterStatusExecutable in routing.ts and the SQL claim gates). It must
+  // not render as offline, or operators see offline while delivery continues.
+  if (rawStatus === "busy") return "online";
   if (rawStatus === "error") return "offline";
   return "unknown";
 }

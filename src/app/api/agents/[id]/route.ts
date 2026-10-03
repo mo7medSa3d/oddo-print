@@ -36,13 +36,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const claims = await validateWorkspaceManager(req);
-  if (claims) { try { requireManagerPermission(claims, "agents.disable"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   let body: unknown; try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "lifecycle is required" }, { status: 400 });
   const { lifecycle } = parsed.data;
+  // Retiring an agent is a destructive, history-gating transition (see
+  // deleteAgent's agents.retire gate in actions.ts). It must require the
+  // retire permission even on the API path; disable alone is insufficient.
+  try { requireManagerPermission(claims, lifecycle === "retired" ? "agents.retire" : "agents.disable"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   try {
     const result = await transitionAgentLifecycle(id, lifecycle, claims.tenantId, { type: "user", id: claims.userId ?? null });
     if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -74,7 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
-  const reachable = printer.status === "online" && agentOnline;
+  const reachable = (printer.status === "online" || printer.status === "busy") && agentOnline;
   return NextResponse.json({
     reachable,
     latencyMs: null,

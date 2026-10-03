@@ -118,8 +118,13 @@ export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): Der
     timeline.push({ stage: "printing", status: "pending", at: job.deliveredAt, messageKey: "job.timeline.printing" });
   }
   if (job.status === "success") {
-    timeline.push({ stage: "delivery", status: "ok", at: job.ackedAt, messageKey: "job.timeline.delivered" });
-    timeline.push({ stage: "success", status: "ok", at: job.ackedAt, messageKey: "job.timeline.successUnverified" });
+    // ackedAt is only stamped on the acknowledged execution path. Late-success
+    // reconciliations (expired/failed -> success) preserve delivery evidence
+    // via deliveredAt/updatedAt but never set ackedAt, so fall back to the
+    // durable timestamps instead of rendering an undefined time.
+    const successAt = job.ackedAt ?? job.updatedAt ?? job.deliveredAt ?? null;
+    timeline.push({ stage: "delivery", status: "ok", at: successAt, messageKey: "job.timeline.delivered" });
+    timeline.push({ stage: "success", status: "ok", at: successAt, messageKey: "job.timeline.successUnverified" });
   }
   if (job.status === "failed") {
     timeline.push({

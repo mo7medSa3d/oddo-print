@@ -125,7 +125,10 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
     logWarn("agent.health.printer_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
   }
   const printerCount = printerRows.length;
-  const onlinePrinterCount = printerRows.filter((p) => p.status === "online").length;
+  // "busy" is an executable state (queue accepted work, still claimable — see
+  // isPrinterStatusExecutable). Counting only "online" reports error for an
+  // all-busy (actively processing) fleet.
+  const onlinePrinterCount = printerRows.filter((p) => p.status === "online" || p.status === "busy").length;
 
   const checks: HealthCheckResult[] = [];
 

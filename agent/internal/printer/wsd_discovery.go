@@ -88,8 +88,8 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 			if len(allFound) >= maxWSDResults {
 				break
 			}
-			if !seenIP[d.NetworkAddress] {
-				seenIP[d.NetworkAddress] = true
+			if !seenIP[wsdDedupKey(d)] {
+				seenIP[wsdDedupKey(d)] = true
 				allFound = append(allFound, d)
 			}
 		}
@@ -228,7 +228,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 			}
 
 			di := DeviceInfo{
-				ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip)}),
+				ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip), Capabilities: caps}),
 				Name:           fmt.Sprintf("WSD Printer %s", ip),
 				DisplayName:    fmt.Sprintf("WSD Printer %s", ip),
 				PrinterType:    "unknown",
@@ -298,7 +298,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 	}
 
 	di := DeviceInfo{
-		ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip)}),
+		ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip), Capabilities: caps}),
 		Name:           fmt.Sprintf("WSD Printer %s", ip),
 		DisplayName:    fmt.Sprintf("WSD Printer %s", ip),
 		PrinterType:    "unknown",
@@ -350,12 +350,28 @@ func extractIPFromXAddrs(xaddrs string) string {
 	return ""
 }
 
+func wsdDedupKey(d DeviceInfo) string {
+	if d.Capabilities != nil {
+		if uuid, ok := d.Capabilities["uuid"].(string); ok && uuid != "" {
+			return "uuid:" + uuid
+		}
+		if ref, ok := d.Capabilities["endpoint_reference"].(string); ok && ref != "" {
+			return "ref:" + ref
+		}
+	}
+	if d.Endpoint != "" {
+		return "ep:" + d.NetworkAddress + "|" + d.Endpoint
+	}
+	return "ip:" + d.NetworkAddress
+}
+
 func deduplicateWSD(devices []DeviceInfo) []DeviceInfo {
 	seen := make(map[string]bool)
 	var out []DeviceInfo
 	for _, d := range devices {
-		if !seen[d.NetworkAddress] {
-			seen[d.NetworkAddress] = true
+		key := wsdDedupKey(d)
+		if !seen[key] {
+			seen[key] = true
 			out = append(out, d)
 		}
 	}

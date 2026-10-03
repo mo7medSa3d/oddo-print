@@ -9,7 +9,7 @@ import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
-import { getEffectivePrinterStatus } from "../../../lib/agent-availability";
+import { getEffectivePrinterStatus, isAgentAvailableForJob } from "../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 import { logError } from "../../../lib/log";
 
@@ -50,7 +50,10 @@ export async function GET(req: Request) {
     ...printer,
     status: getEffectivePrinterStatus(printer, agent, now),
     agentName: agent?.name ?? null,
-    agentStatus: agent ? (agent.lifecycle === "active" && agent.status === "online" ? "online" : "offline") : "offline",
+    // Must match the canonical presence gate (lifecycle + status + freshness),
+    // not just lifecycle + status, or a stale agent renders online here while
+    // every claim gate and health view reports offline.
+    agentStatus: agent && isAgentAvailableForJob(agent, now) ? "online" : "offline",
     agentLifecycle: agent?.lifecycle ?? null,
     agentLastSeenAt: agent?.lastSeenAt ?? null,
     configurationConverged: printer.managementSource === "manager"
