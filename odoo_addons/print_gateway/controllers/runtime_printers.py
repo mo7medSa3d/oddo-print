@@ -15,6 +15,16 @@ class PrintGatewayRuntimePrinterController(http.Controller):
 
     def _scope(self, company_id=None, branch_id=None, env=None):
         env = env if env is not None else request.env
+        # NOTE: the errors below are deliberately NOT wrapped in _(). Odoo 19
+        # resolves _() by walking the call stack for self.env
+        # (odoo/tools/translate.py _get_uid); a controller instance carries
+        # env=None outside a request, so _() raises
+        # AttributeError: 'NoneType' object has no attribute 'uid' instead of
+        # the intended ValidationError. This broke
+        # test_controller_rejects_root_company_as_branch and
+        # test_runtime_printer_scope_rejects_root_company_branch_parameter
+        # on Odoo 19 (CI run 37014129056). Model code keeps _() — recordsets
+        # always carry a real env.
         if company_id:
             try:
                 company = env["res.company"].browse(int(company_id)).exists()
@@ -86,7 +96,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError('Gateway agent discovery failed (HTTP %s).' % response.status_code)
+                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
         except ValidationError:
             # Missing/invalid server-side configuration is not a client-side
@@ -94,10 +104,10 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             # that the Gateway connection needs attention.
             return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway agent discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
         agents = body.get('agents') if isinstance(body, dict) else None
         if not isinstance(agents, list):
-            raise ValidationError('Gateway returned an invalid agent discovery response.')
+            raise ValidationError(_('Gateway returned an invalid agent discovery response.'))
         sanitized = []
         for agent in agents:
             if not isinstance(agent, dict):
@@ -168,13 +178,13 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if agent_response.status_code != 200:
-                raise ValidationError('Gateway agent discovery failed (HTTP %s).' % agent_response.status_code)
+                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
             agent_body = agent_response.json() if agent_response.content else {}
             all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway agent discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
         matched_agent = next(
             (a for a in all_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
             None,
@@ -190,15 +200,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError('Gateway printer discovery failed (HTTP %s).' % response.status_code)
+                raise ValidationError(_('Gateway printer discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError('Gateway printer discovery is unavailable.') from exc
+            raise ValidationError(_('Gateway printer discovery is unavailable.')) from exc
         printers = body.get('printers') if isinstance(body, dict) else None
         if not isinstance(printers, list):
-            raise ValidationError('Gateway returned an invalid printer discovery response.')
+            raise ValidationError(_('Gateway returned an invalid printer discovery response.'))
         sanitized = []
         for printer in printers:
             if not isinstance(printer, dict):

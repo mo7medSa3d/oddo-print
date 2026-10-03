@@ -6,7 +6,40 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
+
+// normalizeUnicode folds a string to its canonical composed form (NFC) before
+// it is used as identity input.
+//
+// This matters for non-ASCII queue names. Unicode allows the same visible text
+// to be encoded two ways: composed (NFC, one code point per accented/marked
+// letter) or decomposed (NFD, base letter plus a combining mark). Arabic is
+// especially exposed because diacritics such as shadda (U+0651) are separate
+// combining marks, and a name copied from a source that emits NFD — macOS
+// filesystems and many web forms do — is byte-different from the NFC form
+// Windows itself returns.
+//
+// Without this fold, hashing the two encodings produces two different stable
+// IDs, so one physical printer is inventoried twice: duplicated in the
+// dashboard, duplicated in heartbeats, and able to receive the same job on two
+// bindings. Folding to NFC is a no-op for strings already in NFC, so existing
+// IDs are preserved.
+//
+// See https://unicode.org/reports/tr15/ and
+// https://learn.microsoft.com/en-us/windows/win32/intl/using-unicode-normalization-to-represent-strings
+func normalizeUnicode(value string) string {
+	if value == "" {
+		return ""
+	}
+	// Fast path: norm.NFC.IsNormalString is allocation-free, and the
+	// overwhelming majority of names from Windows APIs are already NFC.
+	if norm.NFC.IsNormalString(value) {
+		return value
+	}
+	return norm.NFC.String(value)
+}
 
 func usableIdentityValue(value string) bool {
 	v := strings.ToLower(strings.TrimSpace(value))
@@ -21,6 +54,7 @@ func usableIdentityValue(value string) bool {
 func normalizeIdentityValue(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.TrimPrefix(value, "urn:uuid:")
+	value = normalizeUnicode(value)
 	return strings.ToLower(value)
 }
 
@@ -74,11 +108,11 @@ func physicalIdentityKey(d DeviceInfo) (string, bool) {
 		return "usb-serial:" + serial, true
 	}
 
-	spoolerPort := strings.ToLower(strings.TrimSpace(d.SpoolerPort))
-	spoolerDriver := strings.ToLower(strings.TrimSpace(d.SpoolerDriver))
+	spoolerPort := normalizeIdentityValue(d.SpoolerPort)
+	spoolerDriver := normalizeIdentityValue(d.SpoolerDriver)
 	if usableIdentityValue(spoolerPort) && usableIdentityValue(spoolerDriver) {
-		server := strings.ToLower(strings.TrimSpace(d.SpoolerServer))
-		share := strings.ToLower(strings.TrimSpace(d.SpoolerShare))
+		server := normalizeIdentityValue(d.SpoolerServer)
+		share := normalizeIdentityValue(d.SpoolerShare)
 		return fmt.Sprintf("spooler:%s|port:%s|driver:%s|share:%s", server, spoolerPort, spoolerDriver, share), true
 	}
 
@@ -88,9 +122,10 @@ func physicalIdentityKey(d DeviceInfo) (string, bool) {
 // StableIDFromSpooler derives a deterministic printer ID from Windows spooler name.
 // Kept for backwards compatibility with previously persisted IDs.
 func StableIDFromSpooler(spoolerName string) string {
-	norm := strings.ToLower(strings.TrimSpace(spoolerName))
-	norm = strings.ReplaceAll(norm, " ", "_")
-	h := sha256.Sum256([]byte("spooler:" + norm))
+	name := normalizeUnicode(strings.TrimSpace(spoolerName))
+	name = strings.ToLower(name)
+	name = strings.ReplaceAll(name, " ", "_")
+	h := sha256.Sum256([]byte("spooler:" + name))
 	return fmt.Sprintf("printer_spooler_%x", h[:8])
 }
 
@@ -109,11 +144,11 @@ func StableIDFromUSBFull(vid, pid, serial, location, instanceID string) string {
 	if serial != "" && usableIdentityValue(serial) {
 		key = fmt.Sprintf("usb-sn:%s", normalizeIdentityValue(serial))
 	} else if instanceID != "" {
-		key = fmt.Sprintf("usb-inst:%s", strings.ToLower(strings.TrimSpace(instanceID)))
+		key = fmt.Sprintf("usb-inst:%s", normalizeIdentityValue(instanceID))
 	} else if location != "" {
-		key = fmt.Sprintf("usb-loc:%s", strings.ToLower(strings.TrimSpace(location)))
+		key = fmt.Sprintf("usb-loc:%s", normalizeIdentityValue(location))
 	} else {
-		key = fmt.Sprintf("usb-vidpid:%s:%s", strings.ToLower(vid), strings.ToLower(pid))
+		key = fmt.Sprintf("usb-vidpid:%s:%s", normalizeIdentityValue(vid), normalizeIdentityValue(pid))
 	}
 	h := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("printer_usb_%x", h[:8])
@@ -122,7 +157,7 @@ func StableIDFromUSBFull(vid, pid, serial, location, instanceID string) string {
 // StableIDFromNetwork derives a deterministic ID from IP and port.
 // This is a fallback only when discovery exposes no durable device identity.
 func StableIDFromNetwork(ip string, port int) string {
-	host := strings.ToLower(strings.TrimSpace(ip))
+	host := strings.ToLower(normalizeUnicode(strings.TrimSpace(ip)))
 	host = strings.Trim(host, "[]")
 	if parsed := net.ParseIP(host); parsed != nil {
 		host = parsed.String()
@@ -133,7 +168,7 @@ func StableIDFromNetwork(ip string, port int) string {
 }
 
 func StableIDFromEndpoint(endpoint string) string {
-	key := fmt.Sprintf("endpoint:%s", strings.ToLower(strings.TrimSpace(endpoint)))
+	key := fmt.Sprintf("endpoint:%s", strings.ToLower(normalizeUnicode(strings.TrimSpace(endpoint))))
 	h := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("printer_ep_%x", h[:8])
 }
@@ -192,6 +227,6 @@ func StableIDForDevice(d DeviceInfo) string {
 		return StableIDFromEndpoint(d.Endpoint)
 	}
 
-	h := sha256.Sum256([]byte("name:" + strings.ToLower(strings.TrimSpace(d.Name))))
+	h := sha256.Sum256([]byte("name:" + strings.ToLower(normalizeUnicode(strings.TrimSpace(d.Name)))))
 	return fmt.Sprintf("printer_%x", h[:8])
 }

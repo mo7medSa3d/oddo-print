@@ -101,11 +101,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     if (device.ipAddress && device.port) {
+      // Compute the canonical IPP URL before dedup: IPP printers persist
+      // { address: "ipp://ip:port/ipp/print" } with no ip/port fields, so an
+      // ip/port-only comparison never converges for IPP and re-provisioning
+      // duplicates the row.
+      const expectedIppAddress = device.uri
+        ?? (transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print");
       const all = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
       for (const p of all) {
         const cfg = p.config as { ip?: string; address?: string; port?: number } | null;
         const ip = cfg?.ip ?? cfg?.address;
         if (ip === device.ipAddress && cfg?.port === device.port) {
+          await tx.update(discoveredDevices)
+            .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: sql`now()` })
+            .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
+          return { kind: "already" as const, printerId: p.id };
+        }
+        // IPP/IPPS convergence: match the persisted address URL (or the
+        // reported discovery URI) since those rows carry no ip/port fields.
+        if ((transport.connectionType === "ipp" || transport.connectionType === "ipps")
+          && typeof cfg?.address === "string"
+          && (cfg.address === expectedIppAddress || (device.uri != null && cfg.address === device.uri))) {
           await tx.update(discoveredDevices)
             .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: sql`now()` })
             .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));

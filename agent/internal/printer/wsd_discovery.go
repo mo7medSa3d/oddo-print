@@ -13,6 +13,12 @@ import (
 )
 
 // discoverWSDPrinters performs WS-Discovery multicast probe for network print devices.
+//
+// maxWSDResults bounds the result set: replies are keyed by source IP and a
+// hostile or misconfigured network could otherwise grow the slice without
+// limit during the 2.5s listen window.
+const maxWSDResults = 512
+
 func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
@@ -39,6 +45,25 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		return nil, fmt.Errorf("set WSD read deadline: %w", err)
 	}
 
+	// SetReadDeadline is a single absolute time: a cancellation that arrives
+	// afterwards is invisible to a goroutine already blocked in ReadFromUDP, so
+	// a service stop could stall for the whole 2.5s discovery window. Unblock
+	// the read by pulling the deadline to "now" when the context ends.
+	//
+	// The watchdog terminates on either ctx.Done or the deferred close(done),
+	// so it cannot outlive this function.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Best effort: if the read already returned, this is a no-op on a
+			// socket that is about to be closed anyway.
+			_ = conn.SetReadDeadline(time.Now())
+		case <-done:
+		}
+	}()
+
 	buf := make([]byte, 65535)
 	var allFound []DeviceInfo
 	seenIP := make(map[string]bool)
@@ -60,10 +85,16 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
 		devs := parseWSDProbeMatches(buf[:n], remoteAddr)
 		for _, d := range devs {
-			if !seenIP[d.NetworkAddress] {
-				seenIP[d.NetworkAddress] = true
+			if len(allFound) >= maxWSDResults {
+				break
+			}
+			if !seenIP[wsdDedupKey(d)] {
+				seenIP[wsdDedupKey(d)] = true
 				allFound = append(allFound, d)
 			}
+		}
+		if len(allFound) >= maxWSDResults {
+			break
 		}
 	}
 
@@ -197,7 +228,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 			}
 
 			di := DeviceInfo{
-				ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip)}),
+				ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip), Capabilities: caps}),
 				Name:           fmt.Sprintf("WSD Printer %s", ip),
 				DisplayName:    fmt.Sprintf("WSD Printer %s", ip),
 				PrinterType:    "unknown",
@@ -267,7 +298,7 @@ func parseWSDProbeMatches(data []byte, remoteAddr *net.UDPAddr) []DeviceInfo {
 	}
 
 	di := DeviceInfo{
-		ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip)}),
+		ID:             StableIDForDevice(DeviceInfo{NetworkAddress: ip, Endpoint: xaddr, Name: fmt.Sprintf("WSD Printer %s", ip), Capabilities: caps}),
 		Name:           fmt.Sprintf("WSD Printer %s", ip),
 		DisplayName:    fmt.Sprintf("WSD Printer %s", ip),
 		PrinterType:    "unknown",
@@ -319,12 +350,28 @@ func extractIPFromXAddrs(xaddrs string) string {
 	return ""
 }
 
+func wsdDedupKey(d DeviceInfo) string {
+	if d.Capabilities != nil {
+		if uuid, ok := d.Capabilities["uuid"].(string); ok && uuid != "" {
+			return "uuid:" + uuid
+		}
+		if ref, ok := d.Capabilities["endpoint_reference"].(string); ok && ref != "" {
+			return "ref:" + ref
+		}
+	}
+	if d.Endpoint != "" {
+		return "ep:" + d.NetworkAddress + "|" + d.Endpoint
+	}
+	return "ip:" + d.NetworkAddress
+}
+
 func deduplicateWSD(devices []DeviceInfo) []DeviceInfo {
 	seen := make(map[string]bool)
 	var out []DeviceInfo
 	for _, d := range devices {
-		if !seen[d.NetworkAddress] {
-			seen[d.NetworkAddress] = true
+		key := wsdDedupKey(d)
+		if !seen[key] {
+			seen[key] = true
 			out = append(out, d)
 		}
 	}

@@ -533,6 +533,13 @@
       "when": 1790644199217,
       "tag": "0075_discovery_checks_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1790644200217,
+      "tag": "0076_discovery_candidate_status_check",
+      "breakpoints": false
     }
   ]
 }

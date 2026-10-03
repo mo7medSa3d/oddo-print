@@ -103,7 +103,7 @@ def _gateway_redirect_message(response, gateway_url):
         location = (response.headers.get("Location") if response.headers else "") or ""
     except Exception:
         location = ""
-    return (
+    return _(
         "The Gateway at %(url)s answered with a redirect (HTTP %(code)s%(location)s). "
         "Configure the final Gateway origin directly (usually the HTTPS URL) instead of an address that redirects."
     ) % {
@@ -849,6 +849,19 @@ class PrintGatewayConfig(models.Model):
                     and isinstance(acknowledged_enabled, bool)
                 )
                 if response.status_code == 409:
+                    # Rotation grace is transient, not a revision conflict:
+                    # the old key is read-only for 60 minutes. Do not feed
+                    # this into the revision reconciler (its body carries no
+                    # `current` state); tell the operator to finish rotation
+                    # and retry instead of reporting a sync conflict.
+                    try:
+                        sync_body = response.json()
+                    except (ValueError, TypeError):
+                        sync_body = {}
+                    if isinstance(sync_body, dict) and str(sync_body.get("code") or "").strip() == "API_KEY_READ_ONLY":
+                        raise ValidationError(
+                            _("The API key is in its rotation grace period and is read-only. Finish key rotation, then try again.")
+                        )
                     current = body.get("current") if isinstance(body.get("current"), dict) else {}
                     acknowledged_revision = current.get("revision")
                     acknowledged_enabled = current.get("enabled")
@@ -860,14 +873,24 @@ class PrintGatewayConfig(models.Model):
                     reconciliation_reason = "conflict"
 
                 if response.status_code != 200 and response.status_code != 409:
-                    message = body.get("error") if isinstance(body.get("error"), str) else False
+                    # The Gateway's own `error` field is a diagnostic, not a
+                    # sentence: it carries codes and identifiers that mean
+                    # nothing to the person filling in the form. Show a message
+                    # that says what failed and what to do instead.
+                    _logger.debug(
+                        "gateway activation sync rejected (HTTP %s): %s",
+                        response.status_code,
+                        body.get("error"),
+                    )
                     raise ValidationError(
-                        message or _("Gateway activation synchronization failed (HTTP %s).") % response.status_code
+                        _("The Gateway rejected the printing-service setting (HTTP %s). Check the Gateway URL and installation API key, then try again.")
+                        % response.status_code
                     )
 
                 if response.status_code == 200 and body.get("ok") is not True:
+                    _logger.debug("gateway activation sync not acknowledged: %s", body.get("error"))
                     raise ValidationError(
-                        body.get("error") if isinstance(body.get("error"), str) else _("Gateway activation synchronization failed.")
+                        _("The Gateway did not confirm the printing-service setting. Check the Gateway URL and installation API key, then try again.")
                     )
 
                 if (
@@ -1368,6 +1391,32 @@ class PrintGatewayConfig(models.Model):
                         and isinstance(body.get("revision"), int)
                     ):
                         return True
+
+            # A revision tie where `enabled` differs returns 409 with the
+            # current remote state. If the Gateway is already disabled the
+            # delete precondition holds: converge immediately. Otherwise one
+            # fenced send at current.revision + 1 wins the race instead of
+            # blocking `unlink` until an operator retries by hand.
+            if (
+                response.status_code == 409
+                and isinstance(body, dict)
+                and isinstance(body.get("current"), dict)
+            ):
+                current = body["current"]
+                if current.get("enabled") is False:
+                    return True
+                if isinstance(current.get("revision"), int):
+                    next_revision = current["revision"] + 1
+                    if next_revision <= 2_147_483_647:
+                        response, body = send(next_revision)
+                        if (
+                            response.status_code == 200
+                            and isinstance(body, dict)
+                            and body.get("ok") is True
+                            and body.get("enabled") is False
+                            and isinstance(body.get("revision"), int)
+                        ):
+                            return True
 
             message = body.get("error") if isinstance(body, dict) else False
             _logger.warning(

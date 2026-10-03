@@ -148,7 +148,8 @@ describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
     const widgetSource = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/components/runtime_printer_field.js"), "utf-8");
     expect(widgetSource).toContain('t-att-value="props.record.data[props.name] || \'\'"');
     expect(widgetSource).toContain("configuredPrinterMissing");
-    expect(widgetSource).toContain("(saved / currently unavailable)");
+    // The OWL widget resolves its labels through the translation registry.
+    expect(widgetSource).toContain('_t("saved / currently unavailable")');
     expect(widgetSource).toContain("updateData.printer_protocol = found.protocol");
   });
 });
@@ -224,7 +225,7 @@ describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
 describe("DEFECT #8 — current agent presence is offline when heartbeat is stale", () => {
   it("uses offline semantics rather than an online warning when heartbeat freshness expires", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../src/shared/job-vocabulary.ts"), "utf-8");
-    expect(source).toContain('return { tone: "bad", label: "Offline — heartbeat lost" };');
+    expect(source).toContain('return { tone: "bad", label: word("status.heartbeatLost") };');
     expect(source).not.toContain('label: "Online (heartbeat lost)"');
   });
 

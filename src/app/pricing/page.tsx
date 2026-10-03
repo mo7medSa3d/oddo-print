@@ -9,22 +9,38 @@ import { Button, Callout, Card, StatusBadge } from "../../components/ui";
 import { BrandMark } from "../../components/brand";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import { logError } from "../../lib/log";
+import { getServerLocale, makeT } from "../../i18n/server";
+import type { MessageKey } from "../../i18n/messages/en";
+import { formatNumber as formatNumberFor } from "../../i18n/format";
+import type { Translator } from "../../i18n/translate";
 
 export const dynamic = "force-dynamic";
 
-function entitlementLabel(value: string) {
-  if (value === "max_prints_per_period") return "Print jobs per period";
-  if (value === "max_agents") return "Agents";
-  if (value === "max_printers") return "Printers";
-  if (value === "max_jobs_per_minute") return "Jobs per minute";
-  if (value === "max_concurrent_jobs") return "Concurrent jobs";
+const ENTITLEMENT_KEYS: Record<string, MessageKey> = {
+  max_prints_per_period: "pricing.entitlement.prints",
+  max_agents: "pricing.entitlement.agents",
+  max_printers: "pricing.entitlement.printers",
+  max_jobs_per_minute: "pricing.entitlement.jobsPerMinute",
+  max_concurrent_jobs: "pricing.entitlement.concurrentJobs",
+};
+
+function entitlementLabel(
+  value: string,
+  t: Translator,
+): string {
+  const key = ENTITLEMENT_KEYS[value];
+  if (key) return t(key);
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 
-function entitlementValue(value: unknown) {
-  if (value === "unlimited") return "Unlimited";
-  if (typeof value === "boolean") return value ? "Included" : "Not included";
-  if (typeof value === "number") return value.toLocaleString();
+function entitlementValue(
+  value: unknown,
+  t: Translator,
+  formatNumber: (value: number) => string,
+): string {
+  if (value === "unlimited") return t("pricing.unlimited");
+  if (typeof value === "boolean") return value ? t("pricing.included") : t("pricing.notIncluded");
+  if (typeof value === "number") return formatNumber(value);
   return String(value);
 }
 
@@ -81,6 +97,9 @@ export default async function Pricing() {
     }
   }
 
+  const locale = await getServerLocale();
+  const t = makeT(locale);
+  const formatNumber = (value: number) => formatNumberFor(value, locale);
   const destination = (planId: string) => claims ? `/billing?plan=${encodeURIComponent(planId)}` : `/signup?plan=${encodeURIComponent(planId)}`;
   const columns = rows.length >= 3 ? "lg:grid-cols-3" : rows.length === 2 ? "sm:grid-cols-2" : "";
 
@@ -91,17 +110,17 @@ export default async function Pricing() {
           <Link href="/" className="shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30">
             <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
           </Link>
-          <nav className="ml-auto flex items-center gap-2" aria-label="Pricing navigation">
+          <nav className="ms-auto flex items-center gap-2" aria-label={t("pricing.navAria")}>
             <Link
               href="/"
               className="hidden h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"
             >
-              Product
+              {t("pricing.product")}
             </Link>
             <ThemeToggle />
             {claims ? (
               <Button variant="primary" size="md" href="/dashboard" icon={<ArrowRight className="h-4 w-4" />}>
-                Open console
+                {t("pricing.openConsole")}
               </Button>
             ) : (
               <>
@@ -109,10 +128,10 @@ export default async function Pricing() {
                   href="/login"
                   className="hidden h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"
                 >
-                  Sign in
+                  {t("pricing.signIn")}
                 </Link>
                 <Button variant="primary" size="md" href="/signup">
-                  Start trial
+                  {t("pricing.startTrial")}
                 </Button>
               </>
             )}
@@ -122,38 +141,36 @@ export default async function Pricing() {
 
       <main className="mx-auto w-full max-w-[1200px] px-6 py-12 sm:px-8 lg:py-16">
         <header className="max-w-[640px]">
-          <p className="text-eyebrow">Plans</p>
+          <p className="text-eyebrow">{t("pricing.eyebrow")}</p>
           <h1 className="mt-2.5 text-4xl font-[670] leading-[1.1] tracking-[-0.035em] text-ink sm:text-5xl">
-            Choose the plan that fits your operation
+            {t("pricing.heading")}
           </h1>
           <p className="mt-3.5 max-w-[600px] text-base leading-[1.65] text-ink-2">
-            Compare plans by agent capacity, printer capacity and print volume. Billing is handled
-            through Stripe; capacity is enforced by the Gateway before a job is admitted.
+            {t("pricing.intro")}
           </p>
         </header>
 
         {catalogUnavailable ? (
-          <Callout tone="warn" title="Plan catalog temporarily unavailable" className="mt-10 max-w-[600px]">
+          <Callout tone="warn" title={t("pricing.catalogUnavailableTitle")} className="mt-10 max-w-[600px]">
             <p className="leading-relaxed">
-              The gateway could not read the plan catalog from the database. Pricing and plan limits
-              are unchanged — refresh this page in a moment to try again.
+              {t("pricing.catalogUnavailableBody")}
             </p>
             <Button variant="secondary" size="sm" href="/pricing" className="mt-3" icon={<DatabaseZap className="h-4 w-4" aria-hidden />}>
-              Retry
+              {t("pricing.retry")}
             </Button>
           </Callout>
         ) : rows.length === 0 ? (
           <Card className="mt-10 max-w-[520px]">
             <div className="flex flex-col items-center px-6 py-12 text-center">
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-edge bg-surface-2 text-ink-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-sg border border-edge bg-surface-2 text-ink-3">
                 <CreditCard className="h-5 w-5" aria-hidden />
               </span>
-              <h2 className="mt-4 text-md font-[620] text-ink">No public plans are configured</h2>
+              <h2 className="mt-4 text-md font-[620] text-ink">{t("pricing.noPlansTitle")}</h2>
               <p className="mt-2 max-w-[44ch] text-sm leading-relaxed text-ink-3">
-                A platform administrator needs to publish a plan before it can be selected here.
+                {t("pricing.noPlansBody")}
               </p>
               <Button variant="secondary" size="sm" href="/" className="mt-5">
-                Back to product
+                {t("pricing.backToProduct")}
               </Button>
             </div>
           </Card>
@@ -171,53 +188,54 @@ export default async function Pricing() {
                   <div className="border-b border-edge-subtle px-5 py-5">
                     <div className="flex items-center justify-between gap-3">
                       <h2 className="text-lg font-[640] tracking-[-0.015em] text-ink">{plan.name}</h2>
-                      {isCurrent && <StatusBadge tone="ok" label="Current plan" size="sm" />}
+                      {isCurrent && <StatusBadge tone="ok" label={t("pricing.currentPlan")} size="sm" />}
                     </div>
                     {plan.description ? (
                       <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{plan.description}</p>
                     ) : (
                       <p className="mt-1.5 text-sm leading-relaxed text-ink-3">
-                        Capacity is defined by the entitlements below.
+                        {t("pricing.capacityByEntitlements")}
                       </p>
                     )}
                     <p className="mt-3 flex items-center gap-2 text-xs text-ink-3">
                       <Receipt className="h-3.5 w-3.5 text-ink-4" aria-hidden />
-                      Billed per {plan.interval ?? "month"} · {(plan.currency ?? "USD").toUpperCase()} ·
-                      amount set in Stripe
+                      {t("pricing.billedPer", {
+                        interval: plan.interval ?? "month",
+                        currency: (plan.currency ?? "USD").toUpperCase(),
+                      })}
                     </p>
                   </div>
 
                   <div className="flex-1 px-5 py-5">
-                    <h3 className="label-caps">Included capacity</h3>
+                    <h3 className="label-caps">{t("pricing.includedCapacity")}</h3>
                     {entries.length > 0 ? (
                       <dl className="mt-3 divide-y divide-edge-subtle border-y border-edge-subtle">
                         {entries.map(([key, value]) => (
                           <div key={key} className="flex items-baseline justify-between gap-4 py-2.5">
                             <dt className="flex min-w-0 items-start gap-2 text-sm text-ink-2">
                               <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ok" aria-hidden />
-                              <span>{entitlementLabel(key)}</span>
+                              <span>{entitlementLabel(key, t)}</span>
                             </dt>
                             <dd className="shrink-0 text-sm font-[620] tabular text-ink">
-                              {entitlementValue(value)}
+                              {entitlementValue(value, t, formatNumber)}
                             </dd>
                           </div>
                         ))}
                       </dl>
                     ) : (
                       <p className="mt-3 text-sm text-ink-3">
-                        Entitlements are managed by the platform administrator.
+                        {t("pricing.entitlementsManaged")}
                       </p>
                     )}
                     <p className="mt-3 text-xs leading-relaxed text-ink-3">
-                      One admitted Gateway print job counts as one print credit. An idempotent retry of
-                      the same job does not consume another credit.
+                      {t("pricing.creditNote")}
                     </p>
                   </div>
 
                   <div className="border-t border-edge-subtle px-5 py-4">
                     {isCurrent ? (
                       <div className="flex h-10 w-full items-center justify-center rounded-sm border border-edge bg-surface-2 text-sm font-[600] text-ink-2">
-                        Your current plan
+                        {t("pricing.yourCurrentPlan")}
                       </div>
                     ) : (
                       <Button
@@ -226,15 +244,15 @@ export default async function Pricing() {
                         className="w-full"
                         icon={<ArrowRight className="h-4 w-4" />}
                       >
-                        {claims ? "Choose this plan" : "Get started"}
+                        {claims ? t("pricing.chooseThisPlan") : t("pricing.getStarted")}
                       </Button>
                     )}
                     <p className="mt-2 text-xs leading-relaxed text-ink-3">
                       {isCurrent
-                        ? "No change is required."
+                        ? t("pricing.footerCurrent")
                         : claims
-                          ? "Continue through secure billing."
-                          : "Checkout is handled securely through Stripe."}
+                          ? t("pricing.footerSignedIn")
+                          : t("pricing.footerAnonymous")}
                     </p>
                   </div>
                 </article>
@@ -243,20 +261,20 @@ export default async function Pricing() {
           </div>
         )}
 
-        <section aria-label="How plans work" className="mt-10 max-w-[760px]">
-          <h2 className="text-md font-[620] text-ink">How plans work</h2>
+        <section aria-label={t("pricing.howPlansWorkAria")} className="mt-10 max-w-[760px]">
+          <h2 className="text-md font-[620] text-ink">{t("pricing.howPlansWork")}</h2>
           <ul className="mt-3 space-y-2 text-sm leading-relaxed text-ink-2">
             <li className="flex gap-2.5">
               <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
-              Capacity limits are enforced by the Gateway before a job or resource is admitted.
+              {t("pricing.point1")}
             </li>
             <li className="flex gap-2.5">
               <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
-              Stripe is the source of truth for billing; the Gateway never stores card details.
+              {t("pricing.point2")}
             </li>
             <li className="flex gap-2.5">
               <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden />
-              Workspace owners can change plans or manage payment methods from Billing at any time.
+              {t("pricing.point3")}
             </li>
           </ul>
         </section>

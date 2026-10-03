@@ -26,7 +26,10 @@ describe("debugging / robustness contracts", () => {
     ]) {
       const source = read(path);
       expect(source).not.toMatch(/catch\s*\([^)]*:\s*any\)/);
-      expect(source).toContain("e instanceof Error ? e.message : String(e)");
+      // Errors must be narrowed before use, never dumped as an object. The
+      // wizard's fallback is a translated message rather than String(e), which
+      // keeps the same guarantee without surfacing "[object Object]" copy.
+      expect(source).toMatch(/e instanceof Error \? e\.message : (String\(e\)|t\(")/);
     }
   });
 

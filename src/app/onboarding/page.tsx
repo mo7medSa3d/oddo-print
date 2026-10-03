@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "../../i18n/react";
+import type { Translator } from "../../i18n/translate";
 import {
   AlertTriangle,
   ArrowRight,
@@ -13,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { codeMessageKey } from "../../lib/api-error-keys";
 import {
   Button,
   Callout,
@@ -34,26 +37,33 @@ type Plan = {
   entitlements: Record<string, unknown>;
 };
 
-const NEXT_STEPS = [
-  {
-    icon: Server,
-    title: "Register your first agent",
-    text: "The Windows service that owns printers. Registration issues a one-time pairing code.",
-  },
-  {
-    icon: KeyRound,
-    title: "Connect Odoo",
-    text: "Generate a workspace credential and paste it into the Yaseir module in Odoo.",
-  },
-  {
-    icon: Printer,
-    title: "Send the first job",
-    text: "Print a test page from the console, then verify the delivery state end to end.",
-  },
-];
+// Built per render, not at module scope: `t` comes from the useI18n hook and
+// does not exist until the component runs. A module-level constant would also
+// freeze these strings at first evaluation, so they would never follow a
+// language switch.
+function nextSteps(t: Translator) {
+  return [
+    {
+      icon: Server,
+      title: t("onboarding.step.agent"),
+      text: t("onboarding.step.agentText"),
+    },
+    {
+      icon: KeyRound,
+      title: t("onboarding.step.odoo"),
+      text: t("onboarding.step.odooText"),
+    },
+    {
+      icon: Printer,
+      title: t("onboarding.step.job"),
+      text: t("onboarding.step.jobText"),
+    },
+  ];
+}
 
 export default function Onboarding() {
   const [name, setName] = useState("");
+  const { t, tc, formatNumber } = useI18n();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planId, setPlanId] = useState("");
   const [err, setErr] = useState("");
@@ -69,10 +79,10 @@ export default function Onboarding() {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(typeof data.error === "string" ? data.error : "Unable to load available plans.");
+      throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.plansUnavailable"));
     }
     return Array.isArray(data.plans) ? data.plans : [];
-  }, []);
+  }, [t]);
 
   const loadPlans = useCallback(async () => {
     setPlansLoading(true);
@@ -89,11 +99,11 @@ export default function Onboarding() {
     } catch (error) {
       setPlans([]);
       setPlanId("");
-      setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+      setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
     } finally {
       setPlansLoading(false);
     }
-  }, [fetchPlans]);
+  }, [fetchPlans, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +122,7 @@ export default function Onboarding() {
         if (cancelled) return;
         setPlans([]);
         setPlanId("");
-        setPlansError(error instanceof Error ? error.message : "Unable to load available plans.");
+        setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
       })
       .finally(() => {
         if (!cancelled) setPlansLoading(false);
@@ -120,12 +130,12 @@ export default function Onboarding() {
     return () => {
       cancelled = true;
     };
-  }, [fetchPlans]);
+  }, [fetchPlans, t]);
 
   async function submit(trial: boolean) {
     setErr("");
     if (!name.trim() || !planId) {
-      setErr("Choose a workspace name and a plan before continuing.");
+      setErr(t("onboarding.chooseNameAndPlan"));
       return;
     }
     setLoading(true);
@@ -138,7 +148,7 @@ export default function Onboarding() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Workspace setup failed.");
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.failed"));
       }
       if (trial) {
         router.replace("/dashboard");
@@ -152,11 +162,11 @@ export default function Onboarding() {
       });
       const checkoutData = await checkout.json().catch(() => ({}));
       if (!checkout.ok || typeof checkoutData.url !== "string") {
-        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : "Checkout is temporarily unavailable.");
+        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : t("onboarding.checkoutUnavailable"));
       }
       window.location.href = checkoutData.url;
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Workspace setup failed.");
+      setErr(error instanceof Error ? error.message : t("onboarding.failed"));
     } finally {
       setLoading(false);
     }
@@ -171,32 +181,32 @@ export default function Onboarding() {
         <header className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-sm border border-edge-accent bg-brand-subtle px-3 py-1.5 text-xs font-[600] text-brand-subtle-text">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Workspace setup
+            {t("onboarding.eyebrow")}
           </span>
           <h1 className="mt-4 text-4xl font-[670] tracking-[-0.035em] text-ink sm:text-5xl">
-            Set up your workspace
+            {t("onboarding.heading")}
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-ink-3">
-            Name the workspace and choose a plan. You can change plans later from Billing.
+            {t("onboarding.intro")}
           </p>
         </header>
 
         <div className="mt-9 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.85fr)]">
           <Card>
             <CardHeader
-              title="Workspace and plan"
-              subtitle="Two fields — then you are in the console."
+              title={t("onboarding.sectionTitle")}
+              subtitle={t("onboarding.sectionSubtitle")}
               icon={<Building2 className="h-4 w-4" />}
               actions={
-                <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label="Setup progress">
+                <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label={t("onboarding.progressAria")}>
                   <li className="inline-flex items-center gap-1.5">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-2xs font-[700] text-brand-contrast">1</span>
-                    Workspace
+                    {t("onboarding.stepWorkspace")}
                   </li>
                   <li aria-hidden className="h-px w-4 bg-edge-strong" />
                   <li className="inline-flex items-center gap-1.5">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full border border-edge-strong bg-surface-2 text-2xs font-[700] text-ink-3">2</span>
-                    Plan
+                    {t("onboarding.stepPlan")}
                   </li>
                 </ol>
               }
@@ -204,9 +214,9 @@ export default function Onboarding() {
 
             <div className="space-y-6 px-5 py-6">
               <Field
-                label="Workspace name"
+                label={t("onboarding.workspaceName")}
                 htmlFor="workspace-name"
-                hint="Appears in the console, on audit records and in the Odoo integration."
+                hint={t("onboarding.nameHint")}
                 required
               >
                 <Input
@@ -216,7 +226,7 @@ export default function Onboarding() {
                   minLength={2}
                   maxLength={120}
                   autoComplete="organization"
-                  placeholder="e.g. Acme Warehouse"
+                  placeholder={t("onboarding.namePlaceholder")}
                   required
                   autoFocus
                   disabled={loading}
@@ -225,14 +235,14 @@ export default function Onboarding() {
 
               <fieldset disabled={loading}>
                 <legend className="flex w-full items-end justify-between gap-4 pb-3">
-                  <span className="text-sm font-[600] text-ink">Choose a plan</span>
+                  <span className="text-sm font-[600] text-ink">{t("onboarding.choosePlanLegend")}</span>
                   {plans.length > 0 && (
-                    <span className="text-xs font-[550] text-ink-3">{plans.length} available</span>
+                    <span className="text-xs font-[550] text-ink-3">{tc("onboarding.plansAvailable", plans.length, { count: formatNumber(plans.length) })}</span>
                   )}
                 </legend>
 
                 {plansLoading ? (
-                  <div className="grid gap-3 md:grid-cols-2" role="status" aria-label="Loading plans">
+                  <div className="grid gap-3 md:grid-cols-2" role="status" aria-label={t("onboarding.loadingPlansAria")}>
                     {[0, 1].map((item) => (
                       <div key={item} className="space-y-3 rounded-xl border border-edge bg-surface-2 p-4">
                         <Skeleton className="h-4 w-28" />
@@ -241,22 +251,22 @@ export default function Onboarding() {
                         <Skeleton className="h-3 w-3/4" />
                       </div>
                     ))}
-                    <span className="sr-only">Loading plans…</span>
+                    <span className="sr-only">{t("onboarding.loadingPlansShort")}</span>
                   </div>
                 ) : plansError ? (
                   <ErrorState
-                    title="Plans could not be loaded"
+                    title={t("onboarding.plansLoadFailed")}
                     message={plansError}
                     retry={() => void loadPlans()}
                   />
                 ) : plans.length === 0 ? (
                   <EmptyState
                     icon={<CreditCard className="h-5 w-5" />}
-                    title="No plans are available"
-                    description="The workspace cannot be activated until a public billing plan is configured."
+                    title={t("onboarding.noPlans")}
+                    description={t("onboarding.noPlansBody")}
                   />
                 ) : (
-                  <div role="radiogroup" aria-label="Choose a plan" className="grid gap-3 md:grid-cols-2">
+                  <div role="radiogroup" aria-label={t("onboarding.choosePlanAria")} className="grid gap-3 md:grid-cols-2">
                     {plans.map((plan) => {
                       const selected = planId === plan.id;
                       const included = Object.entries(plan.entitlements ?? {}).slice(0, 4);
@@ -268,7 +278,7 @@ export default function Onboarding() {
                           aria-checked={selected}
                           disabled={loading}
                           onClick={() => setPlanId(plan.id)}
-                          className={`rounded-xl border p-4 text-left transition-[border-color,background-color,box-shadow] duration-[160ms] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
+                          className={`rounded-xl border p-4 text-start transition-[border-color,background-color,box-shadow] duration-[160ms] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
                             selected
                               ? "border-brand bg-brand-subtle shadow-xs"
                               : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2"
@@ -296,7 +306,7 @@ export default function Onboarding() {
                                     {key.replace(/^max_/, "").replace(/_/g, " ")}
                                   </dt>
                                   <dd className="font-[600] tabular text-ink">
-                                    {typeof value === "boolean" ? (value ? "Included" : "Not included") : String(value)}
+                                    {typeof value === "boolean" ? (value ? t("onboarding.included") : t("onboarding.notIncluded")) : String(value)}
                                   </dd>
                                 </div>
                               ))}
@@ -310,7 +320,7 @@ export default function Onboarding() {
               </fieldset>
 
               {err && (
-                <Callout tone="bad" title="Workspace setup failed" icon={<AlertTriangle className="h-4 w-4" />}>
+                <Callout tone="bad" title={t("onboarding.setupFailedTitle")} icon={<AlertTriangle className="h-4 w-4" />}>
                   {err}
                 </Callout>
               )}
@@ -320,11 +330,11 @@ export default function Onboarding() {
               <p className="text-sm text-ink-3">
                 {selectedPlan ? (
                   <>
-                    Selected <span className="font-[600] text-ink">{selectedPlan.name}</span> — trial
-                    starts immediately, no card required.
+                    {t("onboarding.selectedPrefix")} <span className="font-[600] text-ink">{selectedPlan.name}</span>{" "}
+                    {t("onboarding.selectedTail")}
                   </>
                 ) : (
-                  "Choose a plan to continue."
+                  t("onboarding.choosePlan")
                 )}
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -335,10 +345,10 @@ export default function Onboarding() {
                   onClick={() => void submit(true)}
                   icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
                 >
-                  Start free trial
+                  {t("onboarding.startFreeTrial")}
                 </Button>
                 <Button variant="secondary" disabled={!canContinue || loading} onClick={() => void submit(false)}>
-                  Continue to checkout
+                  {t("onboarding.continueToCheckout")}
                 </Button>
               </div>
             </div>
@@ -347,12 +357,12 @@ export default function Onboarding() {
           <aside className="space-y-5">
             <Card>
               <CardHeader
-                title="What happens next"
-                subtitle="Three steps to your first printed page."
+                title={t("onboarding.whatsNext")}
+                subtitle={t("onboarding.whatsNextSubtitle")}
                 icon={<Sparkles className="h-4 w-4" />}
               />
               <ol className="space-y-4 px-5 py-5">
-                {NEXT_STEPS.map((step, index) => (
+                {nextSteps(t).map((step, index) => (
                   <li key={step.title} className="flex gap-3">
                     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
                       <step.icon className="h-3.5 w-3.5" aria-hidden />
@@ -369,14 +379,14 @@ export default function Onboarding() {
               </ol>
             </Card>
 
-            <Callout tone="info" title="No card required for the trial">
+            <Callout tone="info" title={t("onboarding.noCard")}>
               Start with a trial, add a payment method only when you are ready to subscribe. Print
               credits and limits follow the selected plan.
             </Callout>
 
             <div className="flex items-center gap-2 text-sm text-ink-3">
-              <StatusBadge tone="ok" label="Odoo 19 ready" size="sm" />
-              <span>Gateway and agent download included.</span>
+              <StatusBadge tone="ok" label={t("onboarding.odooReady")} size="sm" />
+              <span>{t("onboarding.downloadsIncluded")}</span>
             </div>
           </aside>
         </div>

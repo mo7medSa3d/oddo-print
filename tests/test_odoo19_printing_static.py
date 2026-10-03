@@ -445,7 +445,7 @@ def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
 
 def test_odoo_integration_guide_matches_current_module_architecture():
     guide = (ROOT / "ODOO_INTEGRATION.md").read_text(encoding="utf-8")
-    assert "Version: 19.0.2.10.0" in guide
+    assert "Version: 19.0.2.11.0" in guide
     assert "report_download_override.py" not in guide
     assert "report_interceptor.js" in guide
     assert "runtime_agent_assignment" in guide
@@ -559,3 +559,48 @@ def test_gateway_idempotency_is_namespaced_by_odoo_company():
     assert 'hashlib.sha256(source.encode("utf-8")).hexdigest()' in jobs
     assert '"idempotencyKey": self._gateway_idempotency_key()' in jobs
     assert '"idempotencyKey": self.idempotency_key' not in jobs
+
+
+def test_rotation_grace_409_requeues_with_key_reresolution():
+    source = read("models/print_job.py")
+    assert '"API_KEY_READ_ONLY"' in source
+    assert "GATEWAY_KEY_ROTATION_GRACE" in source
+    assert "re-resolved from the config on every attempt" in source or "re-resolved from the config" in source
+
+
+def test_recoverable_401_requeues_and_leaves_terminal_tuple():
+    source = read("models/print_job.py")
+    assert "GATEWAY_AUTH_RECOVERABLE_401" in source
+    assert "in (400, 403, 404, 409, 422)" in source
+    assert "in (400, 401, 403, 404, 409, 422)" not in source
+
+
+def test_billing_requeue_covers_all_tenant_lifecycle_codes():
+    source = read("models/print_job.py")
+    for code in ("TENANT_SUBSCRIPTION_REQUIRED", "TENANT_ENTITLEMENT_UNAVAILABLE", "TENANT_SUSPENDED", "TENANT_DELETED"):
+        assert code in source
+
+
+def test_disabled_integration_freezes_submit_outbox():
+    source = read("models/print_job.py")
+    assert "if not job.gateway_config_id.enabled" in source
+    assert "Printing is disabled for this company" in source
+
+
+def test_unlink_handles_409_revision_conflict():
+    source = read("models/gateway_config.py")
+    assert 'isinstance(body.get("current"), dict)' in source
+    assert "next_revision = current[" in source
+
+
+def test_activation_sync_names_rotation_grace():
+    source = read("models/gateway_config.py")
+    assert '"API_KEY_READ_ONLY"' in source
+    assert "rotation grace period and is read-only" in source
+
+
+def test_payload_ceiling_is_5mib_decoded_everywhere():
+    source = read("models/print_job.py")
+    assert "8 * 1024 * 1024" not in source
+    assert "decoded_size" in source
+    assert "5 MiB Gateway/Agent safety limit" in source

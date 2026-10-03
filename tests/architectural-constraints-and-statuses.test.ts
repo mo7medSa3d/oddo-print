@@ -104,13 +104,13 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("const gatewayConnected = Boolean(");
     expect(mainTsx).toContain("checkedGatewayUrl === normalizedGatewayUrl");
     expect(mainTsx).toContain("await setGatewayUrl(target);");
-    expect(mainTsx).toContain("setMsg({ text: \"Gateway connection verified and saved\", type: \"success\" });");
+    expect(mainTsx).toContain('setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });');
     expect(mainTsx).not.toContain("const saveGateway = useCallback");
 
     const overviewTsx = read("src/desktop/pages/Overview.tsx");
-    expect(overviewTsx).toContain('s.gatewayUrl ? (s.gatewayConnected ? "Connected" : "Unreachable") : "Not configured"');
+    expect(overviewTsx).toContain('s.gatewayUrl ? (s.gatewayConnected ? t("desktop.status.connected") : t("desktop.status.unreachable")) : t("desktop.status.notConfigured")');
 
     const settingsTsx = read("src/desktop/pages/Settings.tsx");
-    expect(settingsTsx).toContain("s.gatewayConnected ? \"Connected\" : s.gatewayUrl ? \"Unreachable\" : \"Not configured\"");
+    expect(settingsTsx).toContain('s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")');
   });
 });

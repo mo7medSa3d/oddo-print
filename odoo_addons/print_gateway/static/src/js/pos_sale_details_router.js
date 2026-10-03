@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
+import { _t } from "@web/core/l10n/translation";
 import { gatewayServerMessage, showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { formatDateTime } from "@web/core/l10n/dates";
 
@@ -70,12 +71,12 @@ patch(SaleDetailsButton.prototype, {
             }
             if (["unknown", "partial"].includes(result?.status)) {
                 this.env.services.notification.add(
-                    "Print status is unknown. Check the printer before trying again.",
+                    _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
             } else {
                 this.env.services.notification.add(
-                    result.message || "Sales Details sent to the printing service.",
+                    result.message || _t("Sales Details sent to the printing service."),
                     { type: "success" }
                 );
             }
@@ -87,7 +88,7 @@ patch(SaleDetailsButton.prototype, {
             // Fail-safe parity with the receipt router: notify once and
             // return false instead of re-throwing, so a Gateway failure
             // cannot freeze the Sale Details button with a double dialog.
-            this.env.services.notification.add(gatewayServerMessage(error) || "Sales Details could not be printed.", { type: "danger" });
+            this.env.services.notification.add(gatewayServerMessage(error) || _t("Sales Details could not be printed."), { type: "danger" });
             return false;
         }
     },

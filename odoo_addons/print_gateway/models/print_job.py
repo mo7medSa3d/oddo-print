@@ -468,8 +468,23 @@ class PrintGatewayJob(models.Model):
             payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         except (TypeError, ValueError) as exc:
             raise ValidationError(_("Print payload is not JSON serializable.")) from exc
-        if len(payload_json.encode("utf-8")) > 8 * 1024 * 1024:
-            raise ValidationError(_("Print payload exceeds the 8 MiB safety limit."))
+        # Single wire contract (contracts/print-payload-contract.json
+        # maxPayloadBytes = 5 MiB, Gateway payload.ts, agent payload.go, and
+        # the submit validator below all enforce decoded content bytes): a
+        # job that cannot be submitted must not be created. Measure the same
+        # decoded bytes the wire enforces; without a data field fall back to
+        # the serialized size against the same 5 MiB number (such rows are
+        # invalid regardless — the data check below rejects them).
+        data_field = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data_field, str) and data_field:
+            try:
+                decoded_size = len(base64.b64decode(data_field.encode("ascii"), validate=True))
+            except (TypeError, ValueError, base64.binascii.Error):
+                decoded_size = None
+            if decoded_size is not None and decoded_size > 5 * 1024 * 1024:
+                raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
+        elif len(payload_json.encode("utf-8")) > 5 * 1024 * 1024:
+            raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
 
         # Strict kind resolution with NO defaults: a malformed payload fails
         # HERE, at creation, exactly as it would before submission. Persisted
@@ -1185,6 +1200,21 @@ class PrintGatewayJob(models.Model):
         self = self.sudo()
         MAX_FAILOVER_DEPTH = 3
         for job in self:
+            # A disabled integration freezes the outbox: never POST while
+            # printing is off, and never destroy the queued rows either.
+            # Cron callers (raise_on_failure=False) skip calmly with a
+            # pushed-back retry so the outbox does not spin; interactive
+            # callers get an immediate actionable refusal instead.
+            if not job.gateway_config_id.enabled:
+                if raise_on_failure:
+                    raise ValidationError(
+                        _("Printing is disabled for this company. Re-enable the printing service to submit queued jobs.")
+                    )
+                job.write({
+                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=300),
+                })
+                continue
+
             # Once a Gateway job id exists, this Odoo outbox row has already
             # crossed the remote dispatch boundary. Never POST the same row
             # again: intent recovery after a crash must not turn a lost local
@@ -1338,7 +1368,14 @@ class PrintGatewayJob(models.Model):
                             except (ValueError, TypeError):
                                 billing_body = {}
                             billing_code = str(billing_body.get("code") or "").strip()
-                            if billing_code in {"TENANT_SUBSCRIPTION_REQUIRED", "TENANT_ENTITLEMENT_UNAVAILABLE"}:
+                            # All four Gateway billing/lifecycle codes are
+                            # operator-recoverable (renew/fix subscription,
+                            # unsuspend, restore tenant). TENANT_SUSPENDED and
+                            # TENANT_DELETED arrive on this same 403 path via
+                            # isTenantBillingError; collapsing them into the
+                            # terminal branch below would destroy jobs that
+                            # only need a platform action.
+                            if billing_code in {"TENANT_SUBSCRIPTION_REQUIRED", "TENANT_ENTITLEMENT_UNAVAILABLE", "TENANT_SUSPENDED", "TENANT_DELETED"}:
                                 retry_after = 60
                                 try:
                                     retry_after = int(response.headers.get("Retry-After", "60"))
@@ -1364,7 +1401,54 @@ class PrintGatewayJob(models.Model):
                         # credentials) will never succeed on retry. Terminalize
                         # immediately with the Gateway's (safe, typed) reason
                         # instead of burning the exponential-backoff budget.
-                        if response.status_code in (400, 401, 403, 404, 409, 422):
+                        # Rotation grace is recoverable: the old key is valid auth
+                        # but write-restricted for 60 minutes, and the key is
+                        # re-resolved from the config on every attempt, so a
+                        # re-queued job picks up the new key once rotation
+                        # completes. Terminalizing here would destroy jobs
+                        # that only need to wait out the grace window.
+                        if response.status_code == 409:
+                            try:
+                                grace_body = response.json()
+                            except (ValueError, TypeError):
+                                grace_body = {}
+                            if str(grace_body.get("code") or "").strip() == "API_KEY_READ_ONLY":
+                                values = {
+                                    "status": "queued",
+                                    "attempts": job.attempts + 1,
+                                    "last_error": "GATEWAY_KEY_ROTATION_GRACE: API key is in its rotation grace period; re-queued to retry with the current key",
+                                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60),
+                                }
+                                persist_submit_state(values)
+                                if raise_on_failure:
+                                    raise ValidationError(
+                                        _("The API key is rotating. The job was safely re-queued and will retry automatically.")
+                                    )
+                                break
+
+                        # Every 401 the Gateway emits is operator-recoverable:
+                        # revoked/expired key (rotate), disabled integration
+                        # (re-enable), suspended/deleted tenant (platform
+                        # action). There is no permanent 401, so terminalizing
+                        # destroys jobs that only need an operator action.
+                        # Re-queue on a slow cadence; attempts still count so
+                        # a permanently broken configuration surfaces in the
+                        # outbox instead of spinning hot.
+                        if response.status_code == 401:
+                            values = {
+                                "status": "queued",
+                                "attempts": job.attempts + 1,
+                                "last_error": "GATEWAY_AUTH_RECOVERABLE_401: Gateway authentication rejected; re-queued for retry after operator recovery (rotate key, re-enable integration, or restore tenant)",
+                                "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=300),
+                            }
+                            persist_submit_state(values)
+                            if raise_on_failure:
+                                raise ValidationError(
+                                    _("The Gateway rejected authentication. The job was safely re-queued; check the API key and integration state, then it will retry automatically.")
+                                )
+                            break
+
+                        if response.status_code in (400, 403, 404, 409, 422):
                             try:
                                 reject_body = response.json()
                             except (ValueError, TypeError):
@@ -1638,6 +1722,17 @@ class PrintGatewayJob(models.Model):
                 "JOB_EXPIRED_DURING_PRINT",
                 "UNKNOWN_PARTIAL_DELIVERY",
                 "UNKNOWN_SUBMISSION_OUTCOME",
+                # AGENT_EXECUTION_TIMEOUT / AGENT_RESTART_DURING_PRINT must be
+                # listed here too. _apply_synced_status maps EVERY Gateway
+                # ``failed`` whose error starts with a _GATEWAY_UNKNOWN_MARKERS
+                # prefix to Odoo status "unknown", so a Gateway execution
+                # timeout lands here as (unknown, "AGENT_EXECUTION_TIMEOUT: ...")
+                # and was never re-polled. That silently disabled the Gateway
+                # late-success reconciliation (LATE_SUCCESS_ERROR_MARKERS in
+                # src/lib/job-status.ts), which only works while Odoo keeps
+                # asking for the job's status inside the 24h window.
+                "AGENT_EXECUTION_TIMEOUT",
+                "AGENT_RESTART_DURING_PRINT",
             )
         ):
             return True
@@ -1997,7 +2092,7 @@ class PrintGatewayJob(models.Model):
                     AND (
                         status NOT IN ('success', 'failed', 'partial', 'unknown')
                         OR (status = 'failed' AND (last_error LIKE 'AGENT_EXECUTION_TIMEOUT%%' OR last_error LIKE 'AGENT_RESTART_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%'))
-                        OR (status = 'unknown' AND (last_error LIKE 'JOB_EXPIRED_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%' OR last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME%%'))
+                        OR (status = 'unknown' AND (last_error LIKE 'JOB_EXPIRED_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%' OR last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME%%' OR last_error LIKE 'AGENT_EXECUTION_TIMEOUT%%' OR last_error LIKE 'AGENT_RESTART_DURING_PRINT%%'))
                     )
                )
                OR (

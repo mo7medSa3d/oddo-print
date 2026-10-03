@@ -138,7 +138,16 @@ def test_odoo_dynamic_table_identifiers_are_composed_safely():
 def test_ci_carries_failing_supply_chain_gates():
     workflow = read(".github/workflows/ci.yml")
     assert "- name: npm supply-chain audit" in workflow
-    assert "          npm audit" in workflow
+    # The audit step runs scripts/audit-gate.mjs, which keeps the full `high`
+    # threshold and fails on any advisory that is not on its explicit allowlist.
+    assert "          node scripts/audit-gate.mjs" in workflow
+    # The gate itself must still enforce the threshold and refuse to excuse a
+    # runtime dependency, so a weakened or allowlist-everything gate is caught.
+    gate = read("scripts/audit-gate.mjs")
+    assert '"--audit-level=high"' in gate
+    assert "const ALLOWED = [" in gate
+    assert "packageIsDevOnly" in gate
+    assert "is NOT dev-only" in gate
     assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
     assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
     assert "- name: Rust supply-chain audit" in workflow
@@ -179,7 +188,7 @@ def test_nextjs_has_explicit_csp():
 
 def test_manifest_declares_crypto_dependency_and_migration_version():
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
-    assert "'version': '19.0.2.10.0'" in manifest
+    assert "'version': '19.0.2.11.0'" in manifest
     assert "'cryptography'" in manifest
     assert (ADDON / "migrations" / "19.0.2.4.0" / "post-migrate.py").exists()
     assert (ADDON / "migrations" / "19.0.2.10.0" / "post-migrate.py").exists()
@@ -277,8 +286,13 @@ def test_public_product_branding_has_no_stale_gateway_name_in_console_shell():
     shell = read("src/components/AppShell.tsx")
     layout = read("src/app/layout.tsx")
     ipc = read("src/desktop/lib/ipc.ts")
-    assert 'brandSubtitle="Cloud Printing Platform"' in shell
-    assert 'title: "Yaseir — Cloud Printing Platform"' in layout
+    catalog = read("src/i18n/messages/en.ts")
+    # Brand identity is keyed (i18n contract); the catalog still carries the
+    # exact public product wording, and no stale gateway name remains.
+    assert 't("brand.tagline")' in shell
+    assert 't("meta.title")' in layout
+    assert '"brand.tagline": "Cloud Printing Platform"' in catalog
+    assert '"meta.title": "Yaseir — Cloud Printing Platform"' in catalog
     assert 'yaseir-print-manager-auth-changed' in ipc
     assert 'Odoo Print Gateway' not in shell + layout
     assert 'odoo-print-manager-auth-changed' not in ipc
@@ -393,7 +407,9 @@ def test_operator_reprint_excludes_gateway_success_jobs():
     assert 'if (job.status === "success")' in route
     assert 'code: "JOB_REPRINT_NOT_ALLOWED"' in route
     assert 'if (job.status === "success")' in actions
-    assert 'Successful jobs are not eligible for operator reprint' in actions
+    # Keyed copy (i18n contract): the operator refusal resolves through the
+    # catalog, never as inline English.
+    assert 't("errors.jobNotEligibleForReprint")' in actions
     assert 'selectedJob.status.toLowerCase() !== "success"' in dashboard
 
 
@@ -514,11 +530,14 @@ def test_odoo_gateway_status_reconciliation_cannot_downgrade_terminal_state():
 
 def test_team_invitation_email_ambiguity_does_not_revoke_durable_token():
     route = read("src/app/api/team/invitations/route.ts")
-    block_start = route.index('await sendTransactionalEmail({ to: email, subject: "You are invited to Yaseir Print Manager"')
+    # The email subject is keyed (i18n contract); anchor the delivery block
+    # on the send call itself rather than on the English subject.
+    block_start = route.index("await sendTransactionalEmail({")
     block_end = route.index('return NextResponse.json({ ok: true, id });', block_start)
     block = route[block_start:block_end]
     assert "const revoked = await db.transaction" not in block
-    assert "Invitation delivery is temporarily unavailable" in block
+    assert 't("mail.invite.subject")' in block
+    assert '"INVITATION_DELIVERY_UNAVAILABLE"' in block
     assert "Never revoke the durable invitation" in block
 
 

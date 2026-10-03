@@ -147,9 +147,12 @@ describe("ApiKeysPage API-key authoring", () => {
     });
 
     expect(posted[0]).toEqual({ name: "Odoo Production" });
-    expect(host!.textContent ?? "").toContain("Integration read / write · All documents");
+    // The Odoo credential is full read/write over every supported document type.
+    // The badge must therefore state that scope plainly and must never imply a
+    // read-only or document-restricted credential.
+    expect(host!.textContent ?? "").toContain("Can send all document types");
     expect(host!.textContent ?? "").not.toContain("Read only");
-    expect(host!.textContent ?? "").not.toContain("Document types");
+    expect(host!.textContent ?? "").not.toContain("Selected document types");
   });
 });
 

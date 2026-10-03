@@ -4,6 +4,7 @@ import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../.
 import { hasManagerPermission } from "../../lib/authorization";
 import SystemHealthClient from "./system-health-client";
 import { HeartPulse } from "lucide-react";
+import { getServerLocale, makeT } from "../../i18n/server";
 import { PageContainer, PageHeader } from "../../components/ui";
 
 export const dynamic = "force-dynamic";
@@ -19,15 +20,16 @@ export default async function SystemHealthPage() {
   );
   if (!claims) redirect("/login");
   if (!hasManagerPermission(claims, "agents.read")) redirect("/");
+  const t = makeT(await getServerLocale());
 
   return (
     <>
       <PageHeader
         width="wide"
-        eyebrow="Operations"
+        eyebrow={t("health.page.eyebrow")}
         icon={<HeartPulse className="h-4 w-4" />}
-        title="System health"
-        description="Gateway, database, queue, agents, printers, Odoo and billing — sampled on demand."
+        title={t("health.page.title")}
+        description={t("health.page.description")}
       />
       <PageContainer width="wide">
         <SystemHealthClient />

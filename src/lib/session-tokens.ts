@@ -5,6 +5,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
+import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
+import { translate } from "../i18n/translate";
 import { writeAuditEvent } from "./audit";
 import { logError, logWarn } from "./log";
 
@@ -54,6 +56,11 @@ export type SharedSessionPrincipal = {
 export type SessionRequestContext = {
   ipAddress?: string | null;
   userAgent?: string | null;
+  /**
+   * Language for any email this session flow sends. Optional: callers outside
+   * a request (tests, scripts) simply get the default.
+   */
+  locale?: Locale | null;
 };
 
 export type SharedSessionClaims = {
@@ -526,6 +533,9 @@ export async function rotateRefreshToken(
   context?: SessionRequestContext,
 ): Promise<RefreshResult> {
   const tokenHash = hashRefreshToken(token);
+  const locale = context?.locale ?? DEFAULT_LOCALE;
+  const t = (key: Parameters<typeof translate>[1], vars?: Parameters<typeof translate>[2]) =>
+    translate(locale, key, vars);
 
   const outcome = await db.transaction(async (tx) => {
     const result = await tx.execute(sql`
@@ -677,9 +687,9 @@ export async function rotateRefreshToken(
       try {
         await sendTransactionalEmail({
           to: outcome.notificationEmail,
-          subject: "Yaseir security alert: refresh token reuse detected",
-          html: "<p>A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.</p>",
-          text: "A refresh token reuse was detected on your Yaseir session. All tokens in that session family were revoked. Sign in again to create a new session.",
+          subject: t("mail.tokenReuse.subject"),
+          html: `<p>${t("mail.tokenReuse.body")}</p>`,
+          text: t("mail.tokenReuse.body"),
         });
       } catch (error) {
         logError("auth.refresh.reuse_notification_failed", {
@@ -758,11 +768,16 @@ export async function revokeRefreshTokenFamily(
 ): Promise<boolean> {
   const tokenHash = hashRefreshToken(token);
   const result = await db.transaction(async (tx) => {
+    // Read the family id WITHOUT locking the row: lock order must stay
+    // advisory-family-lock → row locks (as in rotateRefreshToken). Taking a
+    // row lock here first inverts that order and deadlocks (40P01) against a
+    // concurrent rotation of the same token. family_id is immutable for a
+    // row, so an unlocked read is sufficient; revokeSessionFamilyInTransaction
+    // takes the family advisory lock before its UPDATE takes row locks.
     const found = await tx.execute(sql`
       SELECT family_id AS "familyId"
       FROM refresh_tokens
       WHERE token_hash = ${tokenHash} AND kind = ${kind}
-      FOR UPDATE
     `);
     const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
     if (!familyId) return false;

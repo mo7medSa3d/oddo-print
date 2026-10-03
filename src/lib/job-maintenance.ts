@@ -74,7 +74,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
         AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-        AND retries < ${MAX_RETRIES} AND expires_at > now() ${agentFilter}
+        AND retries < ${MAX_RETRIES} AND delivery_attempts < ${MAX_DELIVERY_ATTEMPTS} AND expires_at > now() ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
@@ -145,7 +145,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       WHERE status='claimed' AND delivered_at IS NULL AND acked_at IS NULL
         AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING'
         AND updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-        AND retries >= ${MAX_RETRIES} ${agentFilter}
+        AND (retries >= ${MAX_RETRIES} OR delivery_attempts >= ${MAX_DELIVERY_ATTEMPTS}) ${agentFilter}
       ORDER BY updated_at ASC
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
@@ -164,7 +164,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     WITH candidates AS (
       SELECT id FROM print_jobs
       WHERE status='queued' AND expires_at > now()
-        AND retries >= ${MAX_RETRIES} ${agentFilter}
+        AND (retries >= ${MAX_RETRIES} OR delivery_attempts >= ${MAX_DELIVERY_ATTEMPTS}) ${agentFilter}
       ORDER BY created_at ASC
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED

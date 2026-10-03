@@ -209,10 +209,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const ticketText = testPage
         ? `YASEIR TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
         : `CERTIFICATION ${idempotencyKey}`;
+      // `encoding` is a REQUIRED member of the wire contract
+      // (contracts/print-payload-contract.json -> payload.ts printJobPayloadSchema
+      // `encoding: z.literal("base64")`). Omitting it made validatePrintJobPayload
+      // throw a ZodError inside createPrintJobForPrinter, so every certification
+      // request failed at the queue step with a 500 instead of enqueuing a job.
       const payload = isDocumentTransport
-        ? { type: "pdf" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
+        ? { type: "pdf" as const, encoding: "base64" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
         : {
             type: "raw" as const,
+            encoding: "base64" as const,
             protocol: (isByteProtocol ? declaredProtocol : "raw") as "raw" | "escpos" | "zpl" | "tspl",
             data: Buffer.from(ticketText).toString("base64"),
           };
@@ -282,7 +288,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         return NextResponse.json({ error: "Idempotency conflict", code: "IDEMPOTENCY_CONFLICT", steps, capability }, { status: 409, headers: { "x-request-id": requestId } });
       }
       logError("certification.queue_failed", { printerId, tenantId, requestId, error: e instanceof Error ? e.message : String(e) });
-      setStep("queue", "error", `Failed to queue: ${String(e).slice(0, 200)}`, String(e).slice(0, 500));
+      // Raw exception text stays in the server log only: the 500 body is an
+      // operator-facing contract, and String(e) can carry driver/SQL detail.
+      setStep("queue", "error", "Failed to queue job", "Internal queueing error (see gateway logs)");
       return NextResponse.json({ printerId, requestId, steps, certified: false, blocked: false, capability }, { status: 500, headers: { "x-request-id": requestId } });
     }
 

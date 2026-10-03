@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
 import { Kbd } from "./ui";
+import { useI18n } from "../i18n/react";
 
 export type CommandItem = {
   id: string;
@@ -33,6 +34,7 @@ export function CommandPalette({
   items: CommandItem[];
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [sessionOpen, setSessionOpen] = useState(open);
@@ -114,7 +116,7 @@ export function CommandPalette({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Command menu"
+        aria-label={t("command.ariaLabel")}
         className="pg-scale-in relative w-full max-w-[560px] overflow-hidden rounded-2xl border border-edge-strong bg-surface shadow-2xl"
       >
         <div className="flex items-center gap-2.5 border-b border-edge-subtle px-4 py-3">
@@ -140,18 +142,18 @@ export function CommandPalette({
                 event.preventDefault();
               }
             }}
-            placeholder="Search pages and actions…"
-            aria-label="Search pages and actions"
+            placeholder={t("command.placeholder")}
+            aria-label={t("command.searchAria")}
             aria-controls="command-results"
             className="w-full bg-transparent text-base text-ink placeholder:text-ink-4 focus:outline-none"
           />
-          <Kbd>Esc</Kbd>
+          <Kbd>{t("command.esc")}</Kbd>
         </div>
 
-        <div ref={listRef} id="command-results" role="listbox" aria-label="Results" className="max-h-[52vh] overflow-y-auto p-2">
+        <div ref={listRef} id="command-results" role="listbox" aria-label={t("command.resultsAria")} className="max-h-[52vh] overflow-y-auto p-2">
           {results.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-ink-3">
-              No matches. Try “printers”, “billing” or “jobs”.
+              {t("command.empty")}
             </p>
           ) : (
             Object.entries(grouped).map(([group, groupItems]) => (
@@ -169,7 +171,7 @@ export function CommandPalette({
                       aria-selected={selected}
                       onMouseEnter={() => setCursor(index)}
                       onClick={() => run(item)}
-                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-left text-sm transition-colors duration-[100ms] ${
+                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-start text-sm transition-colors duration-[100ms] ${
                         selected ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2"
                       }`}
                     >
@@ -193,6 +195,7 @@ export function CommandPalette({
 }
 
 export function CommandHint({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -200,7 +203,7 @@ export function CommandHint({ onOpen }: { onOpen: () => void }) {
       className="flex w-full items-center gap-2 rounded-sm border border-edge bg-surface-2 px-2.5 py-1.5 text-sm text-ink-3 transition-colors duration-[140ms] hover:border-edge-strong hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
     >
       <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="flex-1 truncate text-left">Search…</span>
+      <span className="flex-1 truncate text-start">{t("command.hint")}</span>
       <Kbd>⌘K</Kbd>
     </button>
   );

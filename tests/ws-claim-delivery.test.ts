@@ -8,6 +8,7 @@ import { db } from "../src/db";
 import { claimJobForDelivery, markJobDelivered, releaseUndeliveredClaim, recordJobAck, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../src/lib/job-delivery";
 import type { ClaimedJobRow } from "../src/lib/job-delivery";
 import { MAX_RETRIES, sweepPrintJobs } from "../src/lib/job-maintenance";
+import { derivePhysicalOutcome } from "../src/lib/job-status";
 import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/agent/jobs/route";
 
 // Delivery-evidence hook: claimAndPushJobToAgent must report "delivered"
@@ -875,10 +876,10 @@ suite("WS claim-before-delivery", () => {
   });
 
   it("a ceiling-exhausted stale claim terminates via requeue then expiry, never stuck invisible", async () => {
-    // PHASE 4 lifecycle proof: delivery_attempts >= MAX with retries < MAX
-    // must not strand. The sweep requeues the provably-undelivered claim,
-    // both claim boundaries then refuse it (ceiling), and TTL expiry drives
-    // it to a terminal outcome with no fabricated evidence.
+    // A claim whose delivery-attempt budget is spent must never be requeued into a
+    // loop it cannot win. The stale-claim sweep therefore excludes exhausted
+    // claims, and the exhausted-claim sweep drives them straight to a terminal
+    // failure with no fabricated delivery evidence.
     await insertQueuedJob(f, "job_ceiling_lifecycle");
     const claim = await claimJobForDelivery("job_ceiling_lifecycle", f.agentId);
     expect(claim).not.toBeNull();
@@ -887,23 +888,31 @@ suite("WS claim-before-delivery", () => {
     );
     await sweepPrintJobs({ agentId: f.agentId });
     let row = await jobRow("job_ceiling_lifecycle");
-    expect(row.status).toBe("queued"); // T8 requeued the stale no-evidence claim
+    // Terminal, not requeued: retries is still 0, so only the delivery-attempt
+    // ceiling can have produced this, proving the exhausted-claim sweep ran.
+    expect(row.status).toBe("failed");
     expect(row.claim_token).toBeNull();
     expect(Number(row.delivery_attempts)).toBe(MAX_DELIVERY_ATTEMPTS);
+    expect(row.error).toBe("exceeded max retries after a stale claim (agent likely crashed or lost connection)");
 
+    // No evidence existed, so none may be fabricated: nothing was delivered and
+    // the terminal error is a deterministic refusal, which the shared vocabulary
+    // classifies as not_printed rather than an ambiguous physical outcome.
+    expect(row.delivered_at).toBeNull();
+    expect(row.acked_at).toBeNull();
+    expect(derivePhysicalOutcome(row.status, row.error)).toBe("not_printed");
+
+    // Never reoffered for delivery at any claim boundary.
     expect(await claimJobForDelivery("job_ceiling_lifecycle", f.agentId)).toBeNull();
     const poll = await (await agentJobsGET(agentRequest(f, "GET"))).json();
     expect(poll.find((r: any) => r.id === "job_ceiling_lifecycle")).toBeUndefined();
-    row = await jobRow("job_ceiling_lifecycle");
-    expect(row.status).toBe("queued"); // never reclaimed
 
-    // TTL expiry makes the fate explicit and terminal.
+    // Already terminal, so a later TTL sweep must not resurrect or reclassify it.
     await pool().query(`UPDATE print_jobs SET expires_at = now() - interval '1 second' WHERE id = 'job_ceiling_lifecycle'`);
     await sweepPrintJobs();
     row = await jobRow("job_ceiling_lifecycle");
-    expect(row.status).toBe("expired");
-    expect(row.delivered_at).toBeNull(); // no evidence existed, none fabricated
-    expect(row.error).toBeNull(); // unheld claim: not_printed derivation is honest
+    expect(row.status).toBe("failed");
+    expect(row.delivered_at).toBeNull();
   });
 
   it("WebSocket claim refuses at the ceiling and leaves the row untouched", async () => {

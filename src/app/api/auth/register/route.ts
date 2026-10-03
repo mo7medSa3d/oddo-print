@@ -6,6 +6,7 @@ import { generateOpaqueToken, hashPassword, hashToken, normalizeEmail, validEmai
 import { emailVerificationTokens } from "../../../../db/schema";
 import { nanoid } from "../../../../lib/nanoid";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
+import { getServerLocale, makeT } from "../../../../i18n/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { sql } from "drizzle-orm";
@@ -13,6 +14,7 @@ import { sql } from "drizzle-orm";
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
 
 export async function POST(req: Request) {
+  const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { email?: unknown; password?: unknown; planId?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -55,9 +57,9 @@ export async function POST(req: Request) {
     const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
     await sendTransactionalEmail({
       to: email,
-      subject: "Verify your Yaseir account",
-      html: `<p>Verify your Yaseir account.</p><p><a href="${url}">Verify email</a></p><p>This link expires in 30 minutes.</p>`,
-      text: `Verify your Yaseir account: ${url}\nThis link expires in 30 minutes.`,
+      subject: t("mail.verify.subject"),
+      html: `<p>${t("mail.verify.body")}</p><p><a href="${url}">${t("mail.verify.cta")}</a></p><p>${t("mail.verify.expires")}</p>`,
+      text: t("mail.verify.text", { url }),
     });
   } catch (error) {
     // Registration is committed and the generic 202 response is required

@@ -97,7 +97,10 @@ def test_billing_page_surfaces_print_usage_lookup_failures():
     source = read("src/app/billing/page.tsx")
     assert "billing.print_usage_unavailable" in source
     assert "printUsageUnavailable = true" in source
-    assert "Print usage temporarily unavailable" in source
+    # User-facing copy is keyed (i18n contract): the title and body resolve
+    # through the catalog, never as inline English.
+    assert 't("billing.usageUnavailable")' in source
+    assert 't("billing.usageUnavailableBody")' in source
 
 def test_health_metrics_do_not_turn_database_lookup_failures_into_zero_values():
     source = read("src/lib/agent-health.ts")
@@ -170,10 +173,13 @@ def test_ui_dependency_failures_are_visible_instead_of_silently_disappearing():
     dashboard = read("src/app/dashboard/dashboard-client.tsx")
     ui = read("src/components/ui.tsx")
     assert "billingUsageError" in dashboard
-    assert 'Print usage is temporarily unavailable' in dashboard
+    # Keyed copy (i18n contract): the dashboard callout resolves its title
+    # and body through the catalog, never as inline English.
+    assert 't("billing.usageUnavailable")' in dashboard
+    assert 't("billing.usageUnavailableDashboardBody")' in dashboard
     assert "setBillingUsageError(true)" in dashboard
     assert 'setCopyFailed(true)' in ui
-    assert "Copy failed" in ui
+    assert 't("ui.copyFailed")' in ui
 
 def test_registration_email_failure_is_observable_not_swallowed():
     """Regression: the verification-email send used to end in a bare ``catch {}``.

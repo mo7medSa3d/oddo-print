@@ -6,7 +6,8 @@ describe("system-health", () => {
   it("derives schema version from the latest Drizzle migration", async () => {
     const journal = await import("../drizzle/meta/_journal.json");
     expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
-    expect(CURRENT_SCHEMA_VERSION).toBe(75);
+    // Migration 0076 added the discovery candidate status constraint.
+    expect(CURRENT_SCHEMA_VERSION).toBe(76);
   });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();
@@ -21,7 +22,12 @@ describe("system-health", () => {
     expect(source).toContain("tenantId");
     expect(source).toContain("tenant_id=");
     expect(source).toContain("requires tenant context");
-    expect(source).toContain("tenant-safe");
+    // Each tenant-scoped check degrades to an explicit "needs tenant" result
+    // rather than scanning across tenants, and carries a messageKey so the
+    // reason is translatable instead of a bare English literal.
+    expect(source).toContain('messageKey: "health.queueNeedsTenant"');
+    expect(source).toContain('messageKey: "health.agentsNeedsTenant"');
+    expect(source).toContain('messageKey: "health.printersNeedsTenant"');
   });
 
   it("overall policy prevents false OK when critical UNKNOWN", () => {

@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../../components/AuthShell";
 import { Button, Field, Input, ErrorState, Skeleton } from "../../../components/ui";
+import { useI18n } from "../../../i18n/react";
+import { codeMessageKey } from "../../../lib/api-error-keys";
 
 export default function PlatformLoginPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -56,13 +59,14 @@ export default function PlatformLoginPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.error || "Authentication failed");
+        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined)
+          ?? (res.status === 429 ? "errors.tooManyAttempts" : "auth.signIn.failed")));
       }
 
       router.replace("/platform/dashboard");
       router.refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      setError(err instanceof Error ? err.message : t("auth.signIn.failed"));
     } finally {
       setLoading(false);
     }
@@ -70,14 +74,14 @@ export default function PlatformLoginPage() {
 
   if (checkingSession) {
     return (
-      <AuthShell subtitle="Platform Administration">
-        <div className="space-y-4" role="status" aria-label="Checking your session">
+      <AuthShell subtitle={t("auth.shell.platformAdmin")}>
+        <div className="space-y-4" role="status" aria-label={t("platform.login.checkingSession")}>
           <Skeleton className="h-7 w-44" />
           <Skeleton className="h-4 w-60" />
           <Skeleton className="mt-6 h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
-          <span className="sr-only">Checking your session…</span>
+          <span className="sr-only">{t("platform.login.checkingSessionShort")}</span>
         </div>
       </AuthShell>
     );
@@ -85,17 +89,17 @@ export default function PlatformLoginPage() {
 
   return (
     <AuthShell
-      subtitle="Platform Administration"
-      eyebrow="Platform access"
-      title="Sign in"
-      description="Platform Owner credentials manage tenants, plans and subscriptions."
+      subtitle={t("auth.shell.platformAdmin")}
+      eyebrow={t("platform.login.eyebrow")}
+      title={t("auth.signIn.title")}
+      description={t("platform.login.description")}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Field label="Platform owner email" htmlFor="platform-email" required>
+        <Field label={t("platform.login.email")} htmlFor="platform-email" required>
           <Input
             id="platform-email"
             type="email"
-            placeholder="admin@platform.local"
+            placeholder={t("platform.login.emailPlaceholder")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
@@ -104,11 +108,11 @@ export default function PlatformLoginPage() {
           />
         </Field>
 
-        <Field label="Password" htmlFor="platform-password" required>
+        <Field label={t("platform.login.password")} htmlFor="platform-password" required>
           <Input
             id="platform-password"
             type="password"
-            placeholder="Enter password"
+            placeholder={t("platform.login.passwordPlaceholder")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
@@ -116,7 +120,7 @@ export default function PlatformLoginPage() {
           />
         </Field>
 
-        {error && <ErrorState title="Couldn’t sign you in" message={error} />}
+        {error && <ErrorState title={t("platform.login.signInTitle")} message={error} />}
 
         <Button
           variant="primary"
@@ -126,14 +130,13 @@ export default function PlatformLoginPage() {
           size="lg"
           icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
         >
-          {loading ? "Signing in…" : "Continue"}
+          {loading ? t("auth.signIn.submitting") : t("common.continue")}
         </Button>
 
-        <div className="flex items-start gap-2.5 rounded-lg border border-edge-strong bg-surface px-3.5 py-3">
+        <div className="flex items-start gap-2.5 rounded-sg border border-edge-strong bg-surface px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <p className="text-sm leading-relaxed text-ink-3">
-            Restricted to authorized Platform Owners. Control-plane access uses a separate
-            server-side session with a shorter lifetime.
+            {t("platform.login.restricted")}
           </p>
         </div>
       </form>

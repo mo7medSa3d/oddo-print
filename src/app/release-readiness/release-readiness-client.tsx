@@ -13,6 +13,7 @@ import {
   StatusBadge,
   type Tone,
 } from "../../components/ui";
+import { useI18n } from "../../i18n/react";
 
 type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE";
 type Row = {
@@ -39,14 +40,14 @@ const STATUS_TONE: Record<Status, Tone> = {
   "NOT APPLICABLE": "neutral",
 };
 
-const STATUS_LABEL: Record<Status, string> = {
-  PASS: "Pass",
-  FAIL: "Fail",
-  BLOCKED: "Blocked",
-  "NOT APPLICABLE": "N/A",
-};
-
 export default function ReleaseReadinessClient() {
+  const { t } = useI18n();
+  const STATUS_LABEL: Record<Status, string> = {
+    PASS: t("release.status.pass"),
+    FAIL: t("release.status.fail"),
+    BLOCKED: t("release.status.blocked"),
+    "NOT APPLICABLE": t("release.status.na"),
+  };
   const [rows] = useState<Row[]>([
     {
       area: "Real Print Certification Mode (canonical pipeline + idempotency + state-driven)",
@@ -172,7 +173,7 @@ export default function ReleaseReadinessClient() {
     let cancelled = false;
     fetch("/api/system/health", { credentials: "include", cache: "no-store" })
       .then((r) => {
-        if (!r.ok) throw new Error(`Health check unavailable (HTTP ${r.status})`);
+        if (!r.ok) throw new Error(t("errors.serviceUnavailable"));
         return r.json() as Promise<SystemHealthPayload>;
       })
       .then((data) => {
@@ -185,7 +186,7 @@ export default function ReleaseReadinessClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const overall = rows.some((r) => r.status === "FAIL")
     ? "FAIL"
@@ -213,29 +214,27 @@ export default function ReleaseReadinessClient() {
   return (
     <div className="space-y-5">
       <Card
-        className={`border-l-[3px] ${
-          tone === "bad" ? "border-l-bad-solid" : tone === "warn" ? "border-l-warn-solid" : "border-l-ok-solid"
+        className={`border-s-[3px] ${
+          tone === "bad" ? "border-s-bad-solid" : tone === "warn" ? "border-s-warn-solid" : "border-s-ok-solid"
         }`}
       >
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-md font-[620] tracking-[-0.015em] text-ink">
-                Release decision: {overall}
+                {t("release.decision", { overall })}
               </h2>
-              <StatusBadge tone={tone} label={tone === "ok" ? "Ship" : tone === "warn" ? "Conditional" : "Blocked"} />
+              <StatusBadge tone={tone} label={tone === "ok" ? t("release.badge.ship") : tone === "warn" ? t("release.badge.conditional") : t("release.badge.blocked")} />
             </div>
             <p className="mt-1.5 max-w-[86ch] text-sm leading-relaxed text-ink-3">
-              P0 implemented with truthful state-driven wizard, tenant-safe health, claim token
-              redaction, evidence-based printer/agent health. BLOCKED items are explicit, not hidden.
-              No fake PASS.
+              {t("release.summaryBody")}
             </p>
           </div>
-          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-lg border border-edge bg-edge-subtle">
+          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-sg border border-edge bg-edge-subtle">
             {[
-              { label: "Pass", value: counts.pass, tone: "text-ok" },
-              { label: "Blocked", value: counts.blocked, tone: "text-warn" },
-              { label: "Fail", value: counts.fail, tone: "text-bad" },
+              { label: t("release.count.pass"), value: counts.pass, tone: "text-ok" },
+              { label: t("release.count.blocked"), value: counts.blocked, tone: "text-warn" },
+              { label: t("release.count.fail"), value: counts.fail, tone: "text-bad" },
             ].map((item) => (
               <div key={item.label} className="bg-surface px-4 py-2.5 text-center">
                 <div className={`text-lg font-[660] leading-none tabular ${item.tone}`}>{item.value}</div>
@@ -250,18 +249,18 @@ export default function ReleaseReadinessClient() {
 
       <Card className="overflow-hidden">
         <CardHeader
-          title="Checklist"
-          subtitle={`${visibleRows.length} of ${rows.length} checks shown`}
+          title={t("release.checklist")}
+          subtitle={t("release.checklistSubtitle", { visible: String(visibleRows.length), total: String(rows.length) })}
           actions={
             <SegmentedControl
-              label="Filter checks"
+              label={t("release.filterLabel")}
               value={filter}
               onChange={setFilter}
               size="sm"
               options={[
-                { value: "all", label: "All" },
-                { value: "attention", label: "Needs attention" },
-                { value: "pass", label: "Passing" },
+                { value: "all", label: t("release.filter.all") },
+                { value: "attention", label: t("release.filter.attention") },
+                { value: "pass", label: t("release.filter.pass") },
               ]}
             />
           }
@@ -269,8 +268,8 @@ export default function ReleaseReadinessClient() {
 
         {visibleRows.length === 0 ? (
           <div className="px-5 py-10 text-center">
-            <p className="text-sm font-[550] text-ink">Nothing in this filter</p>
-            <p className="mt-1 text-sm text-ink-3">Switch back to “All” to see every check.</p>
+            <p className="text-sm font-[550] text-ink">{t("release.emptyTitle")}</p>
+            <p className="mt-1 text-sm text-ink-3">{t("release.emptyBody")}</p>
           </div>
         ) : (
           <ul className="divide-y divide-edge-subtle">
@@ -284,18 +283,18 @@ export default function ReleaseReadinessClient() {
                       <div className="text-sm font-[600] leading-snug text-ink">{row.area}</div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
                         <span>
-                          Implemented:{" "}
+                          {t("release.implemented")}{" "}
                           <span className="font-[550] text-ink-2">{STATUS_LABEL[row.implemented]}</span>
                         </span>
                         <span aria-hidden>·</span>
                         <span>
-                          Runtime verified:{" "}
+                          {t("release.runtimeVerified")}{" "}
                           <span className="font-[550] text-ink-2">{STATUS_LABEL[row.runtimeVerified]}</span>
                         </span>
                         {row.rootCause && (
                           <>
                             <span aria-hidden>·</span>
-                            <span className="font-[550] text-brand">Root cause fixed</span>
+                            <span className="font-[550] text-brand">{t("release.rootCauseFixed")}</span>
                           </>
                         )}
                       </div>
@@ -306,7 +305,7 @@ export default function ReleaseReadinessClient() {
                       aria-expanded={open}
                       className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
                     >
-                      Evidence
+                      {t("release.evidence")}
                       <ChevronDown
                         className={`h-3.5 w-3.5 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`}
                         aria-hidden
@@ -317,7 +316,7 @@ export default function ReleaseReadinessClient() {
                     <div className="space-y-3 px-5 pb-5">
                       <p className="max-w-[100ch] text-sm leading-relaxed text-ink-2">{row.evidence}</p>
                       {row.rootCause && (
-                        <Callout tone="info" title="Root cause fixed">
+                        <Callout tone="info" title={t("release.rootCauseFixed")}>
                           {row.rootCause}
                         </Callout>
                       )}
@@ -333,16 +332,16 @@ export default function ReleaseReadinessClient() {
       {systemHealth && (
         <Card>
           <CardHeader
-            title="Live system health sample"
-            subtitle={systemHealth.policy ? `Overall policy: ${systemHealth.policy}` : undefined}
+            title={t("release.liveHealth")}
+            subtitle={systemHealth.policy ? t("release.overallPolicy", { policy: systemHealth.policy }) : undefined}
             actions={
               <Button variant="secondary" size="sm" onClick={() => setShowRawHealth((v) => !v)}>
-                {showRawHealth ? "Hide JSON" : "Show JSON"}
+                {showRawHealth ? t("release.hideJson") : t("release.showJson")}
               </Button>
             }
           />
           {showRawHealth && (
-            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-lg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
               {JSON.stringify(systemHealth, null, 2)}
             </pre>
           )}
@@ -351,27 +350,27 @@ export default function ReleaseReadinessClient() {
 
       <Card>
         <CardHeader
-          title="Compliance notes (honest)"
-          subtitle="Claims are limited to what has been verified."
+          title={t("release.complianceTitle")}
+          subtitle={t("release.complianceSubtitle")}
         />
-        <ul className="list-disc space-y-2 pl-9 pr-5 py-5 text-sm text-ink-2">
+        <ul className="list-disc space-y-2 ps-9 pe-5 py-5 text-sm text-ink-2">
           <li>
-            <strong className="font-[600] text-ink">OTel-inspired distributed correlation</strong> (not full
+            <strong className="font-[600] text-ink">{t("release.compliance.otel")}</strong> (not full
             OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id
             in logs and headers, documented as application-specific, not official OTel semantic conventions.
           </li>
           <li>
-            <strong className="font-[600] text-ink">IPP support / driverless direction</strong> (not IPP
+            <strong className="font-[600] text-ink">{t("release.compliance.ipp")}</strong> (not IPP
             Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance
             testing not run, so not claiming certification.
           </li>
           <li>
-            <strong className="font-[600] text-ink">Tauri updater</strong>: no updater plugin/config found
+            <strong className="font-[600] text-ink">{t("release.compliance.tauri")}</strong>: no updater plugin/config found
             in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21
             perms least-privilege verified.
           </li>
           <li>
-            <strong className="font-[600] text-ink">Odoo/Billing health</strong>: UNKNOWN / NOT VERIFIED
+            <strong className="font-[600] text-ink">{t("release.compliance.odooBilling")}</strong>: UNKNOWN / NOT VERIFIED
             honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents
             false green.
           </li>

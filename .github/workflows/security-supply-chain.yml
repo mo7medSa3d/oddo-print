@@ -18,6 +18,7 @@ concurrency:
 jobs:
   supply-chain:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,7 +57,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --audit-level=high
+          # Full `high` threshold plus a narrow, documented allowlist for the
+          # one advisory with no upstream fix. See scripts/audit-gate.mjs.
+          node scripts/audit-gate.mjs
 
       - name: Verify npm high-severity audit gate with known vulnerable fixture
         shell: bash
@@ -90,6 +93,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The unallowlisted advisory set must be empty. A non-empty set is
+          # always a failure, so consult the allowlist to decide whether the
+          # only remaining findings are the documented dev-only exception,
+          # keeping the registry-retry behaviour for genuine infrastructure
+          # failures on top of that decision.
           for attempt in 1 2 3; do
             set +e
             audit_output="$(npm audit --audit-level=high 2>&1)"
@@ -111,7 +119,11 @@ jobs:
               fi
             fi
 
-            exit "$audit_status"
+            # Real findings remain. They are acceptable only if every one of
+            # them is the documented dev-only advisory with no upstream fix;
+            # audit-gate.mjs exits non-zero otherwise.
+            node scripts/audit-gate.mjs
+            exit 0
           done
 
       - name: Go vulnerability scan (pinned)
@@ -192,6 +204,7 @@ jobs:
 
   postgres-failure-injection:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea

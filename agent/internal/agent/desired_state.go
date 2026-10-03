@@ -471,6 +471,9 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 		if exists && desired.DesiredRevision == current.Desired.DesiredRevision && !reflect.DeepEqual(desired, current.Desired) {
 			a.desiredStateMu.Unlock()
 			log.Printf("[desired-state] rejecting conflicting snapshot for printer %s at revision %d", id, desired.DesiredRevision)
+			if recordErr := a.recordDesiredError(id, fmt.Errorf("conflicting desired-state snapshot at revision %d", desired.DesiredRevision)); recordErr != nil {
+				log.Printf("failed to persist desired-state conflict for %s: %v", id, recordErr)
+			}
 			continue
 		}
 

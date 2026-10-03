@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -121,8 +122,8 @@ func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticRe
 	}
 	report.System = SystemInfo{
 		Hostname:      getHostname(),
-		OS:            "windows",
-		Architecture:  "amd64",
+		OS:            runtime.GOOS,
+		Architecture:  runtime.GOARCH,
 		DataDirectory: configPathDir(registryPath),
 	}
 	report.Spooler = SpoolerInfo{

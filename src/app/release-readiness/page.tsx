@@ -4,6 +4,7 @@ import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../.
 import { hasManagerPermission } from "../../lib/authorization";
 import ReleaseReadinessClient from "./release-readiness-client";
 import { ClipboardCheck } from "lucide-react";
+import { getServerLocale, makeT } from "../../i18n/server";
 import { PageContainer, PageHeader } from "../../components/ui";
 
 export const dynamic = "force-dynamic";
@@ -19,15 +20,16 @@ export default async function ReleaseReadinessPage() {
   );
   if (!claims) redirect("/login");
   if (!hasManagerPermission(claims, "agents.read")) redirect("/");
+  const t = makeT(await getServerLocale());
 
   return (
     <>
       <PageHeader
         width="wide"
-        eyebrow="Operations"
+        eyebrow={t("release.page.eyebrow")}
         icon={<ClipboardCheck className="h-4 w-4" />}
-        title="Release readiness"
-        description="Production checks, runtime evidence and outstanding release blockers."
+        title={t("release.page.title")}
+        description={t("release.page.description")}
       />
       <PageContainer width="wide">
         <ReleaseReadinessClient />

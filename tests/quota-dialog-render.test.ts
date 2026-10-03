@@ -70,8 +70,8 @@ describe("quota-exhausted upgrade dialog", () => {
 
     const text = body.textContent ?? "";
     expect(text).toContain("Print limit reached");
-    expect(text).toContain("used its included print jobs for this billing period");
-    expect(text).toContain("Metering unit: 1 admitted Gateway print job = 1 print credit.");
+    expect(text).toContain("You've used all prints for this period");
+    expect(text).toContain("1 print = 1 credit.");
     // Usage must reflect the signal, not a guess.
     expect(text).toContain("500");
     expect(text).toContain("Used");
@@ -84,11 +84,6 @@ describe("quota-exhausted upgrade dialog", () => {
     expect(upgrade).not.toBeNull();
     expect(upgrade?.textContent ?? "").toContain("Upgrade plan");
 
-    // Server-side enforcement is stated explicitly so the user knows retrying
-    // cannot bypass the allowance.
-    const description = body.querySelector('[id$="-description"], [role="dialog"]')?.textContent ?? "";
-    expect(description).toContain("enforces plan limits server-side");
-
     // Portal architecture: dialog mounts at body level, above dashboard containers.
     const root = body.querySelector("[data-dialog-root]");
     expect(root).not.toBeNull();
@@ -100,11 +95,26 @@ describe("quota-exhausted upgrade dialog", () => {
     // Each render appends a new portal; scope to the last dialog root.
     const roots = body.querySelectorAll('[role="dialog"]');
     const rateText = roots[roots.length - 1]?.textContent ?? "";
-    expect(rateText).toContain("rolling 60-second limit");
+    // A rate limit is a throughput window that resets on its own, so the
+    // operator is told to wait out the window rather than to upgrade. It must
+    // NOT be explained like a concurrency limit.
+    expect(rateText).toContain("Print rate limit reached");
+    expect(rateText).toContain("This resets soon");
     expect(rateText).toContain("Try again in about 1 minute");
+    expect(rateText).not.toContain("This counts jobs waiting or printing now.");
 
+    // A concurrency limit counts jobs in flight right now. It is explained as a
+    // present-tense count with no reset window, and must stay distinguishable
+    // from the rate case above.
     renderDialog({ open: true, resource: "concurrency", used: 5, limit: 5 });
-    expect(body.textContent ?? "").toContain("queued, claimed, and actively printing jobs");
+    const all = body.querySelectorAll('[role="dialog"]');
+    const concurrencyText = all[all.length - 1]?.textContent ?? "";
+    expect(concurrencyText).toContain("Concurrent print limit reached");
+    expect(concurrencyText).toContain("This counts jobs waiting or printing now.");
+    expect(concurrencyText).not.toContain("This resets soon");
+    // Both limits are reported with real usage figures, never a guess.
+    expect(rateText).toContain("20");
+    expect(concurrencyText).toContain("5");
   });
 
   it("reports an unlimited allowance and stays closed when not opened", () => {
@@ -141,7 +151,12 @@ describe("quota-exhausted upgrade dialog", () => {
   it("closes through the modal action", () => {
     const onClose = vi.fn();
     const body = renderDialog({ open: true, used: 10, limit: 10, onClose });
-    const closeButton = Array.from(body.querySelectorAll("button")).find((b) => (b.textContent ?? "").trim() === "Close");
+    // The dismiss control is an icon-only button, so it carries no text
+    // content — it is identified by its accessible name (aria-label), which is
+    // what assistive tech and the a11y contract actually depend on.
+    const closeButton = Array.from(body.querySelectorAll('[role="dialog"] button')).find(
+      (b) => (b.getAttribute("aria-label") ?? "").trim() === "Close dialog",
+    );
     expect(closeButton).toBeDefined();
     act(() => {
       closeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

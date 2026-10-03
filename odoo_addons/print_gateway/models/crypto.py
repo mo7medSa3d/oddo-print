@@ -33,8 +33,17 @@ class CredentialDecryptError(CredentialError):
     """Stored ciphertext is malformed, unsupported, or failed authentication."""
 
 
-class CredentialVersionError(CredentialError):
-    """The ciphertext uses an unsupported/invalid key version."""
+class CredentialVersionError(CredentialError, ValueError):
+    """The ciphertext uses an unsupported/invalid key version.
+
+    Also a ValueError on purpose: every credential entry point in
+    ``gateway_config`` degrades ``(CredentialKeyUnavailable,
+    CredentialDecryptError, ValueError)`` into an actionable
+    ``ValidationError``. Deriving from ValueError too means a malformed
+    ``ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION`` or a corrupted
+    ``opg1:<version>:`` prefix reaches those handlers too, instead of
+    escaping as an RPC traceback (and aborting the module upgrade).
+    """
 
 
 def _runtime_secret(name: str) -> str:

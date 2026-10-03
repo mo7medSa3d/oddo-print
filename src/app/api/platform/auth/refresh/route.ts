@@ -11,6 +11,7 @@ import {
   rotateRefreshToken,
 } from "../../../../../lib/session-tokens";
 import { logError } from "../../../../../lib/log";
+import { getServerLocale } from "../../../../../i18n/server";
 
 export async function POST(req: Request) {
   const token = getRefreshTokenFromRequest(req, "platform");
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
     outcome = await rotateRefreshToken("platform", token, {
       ipAddress: clientIpFrom(req),
       userAgent: req.headers.get("user-agent"),
+      locale: await getServerLocale(),
     });
   } catch (error) {
     logError("auth.platform_refresh.failed", { error: error instanceof Error ? error.message : "unknown" });

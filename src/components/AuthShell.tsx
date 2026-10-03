@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { BrandMark } from "./brand";
 import { ThemeToggle } from "./ThemeToggle";
+import { useI18n } from "../i18n/react";
+import type { MessageKey } from "../i18n/messages/en";
 
-const TRUST_POINTS = [
-  "Jobs are delivered to the right branch printer without browser dialogs.",
-  "Every delivery step — queue, agent, spooler — stays visible and auditable.",
-  "Credentials are scoped per workspace and revocable at any time.",
+const TRUST_POINT_KEYS: MessageKey[] = [
+  "auth.shell.point1",
+  "auth.shell.point2",
+  "auth.shell.point3",
 ];
 
 /**
@@ -15,7 +17,7 @@ const TRUST_POINTS = [
  */
 export function AuthShell({
   children,
-  subtitle = "Secure workspace access",
+  subtitle,
   eyebrow,
   title,
   description,
@@ -28,37 +30,38 @@ export function AuthShell({
   description?: ReactNode;
   footer?: ReactNode;
 }) {
+  const { t } = useI18n();
+  const subtitleText = subtitle ?? t("auth.shell.console");
   return (
     <main className="ambient-surface relative flex min-h-screen flex-col">
       <div className="relative z-10 flex min-h-screen flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">
         {/* Brand rail — desktop only; small screens get the mark above the form. */}
-        <section className="relative hidden flex-col justify-between border-r border-edge-subtle bg-surface/40 px-10 py-12 lg:flex xl:px-14">
-          <BrandMark size="lg" title="Yaseir" subtitle="Cloud Printing Platform" />
+        <section className="relative hidden flex-col justify-between border-e border-edge-subtle bg-surface/40 px-10 py-12 lg:flex xl:px-14">
+          <BrandMark size="lg" title="Yaseir" subtitle={t("brand.tagline")} />
 
           <div className="max-w-[46ch]">
-            <p className="text-eyebrow">Printing infrastructure</p>
+            <p className="text-eyebrow">{t("auth.shell.heading")}</p>
             <h2 className="mt-3 text-3xl font-[640] leading-[1.15] tracking-[-0.026em] text-ink">
-              Every document reaches the right printer, quietly.
+              {t("auth.shell.headline")}
             </h2>
             <p className="mt-4 text-base leading-relaxed text-ink-2">
-              Yaseir routes receipts, invoices, labels and reports from Odoo to local printers
-              through a managed agent — no print dialogs, no orphaned jobs.
+              {t("auth.shell.body")}
             </p>
             <ul className="mt-8 space-y-3.5">
-              {TRUST_POINTS.map((point) => (
-                <li key={point} className="flex items-start gap-3 text-sm leading-relaxed text-ink-2">
+              {TRUST_POINT_KEYS.map((key) => (
+                <li key={key} className="flex items-start gap-3 text-sm leading-relaxed text-ink-2">
                   <span
                     aria-hidden
                     className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand"
                   />
-                  {point}
+                  {t(key)}
                 </li>
               ))}
             </ul>
           </div>
 
           <p className="text-xs text-ink-4">
-            © {new Date().getFullYear()} Yaseir · {subtitle}
+            © {new Date().getFullYear()} Yaseir · {subtitleText}
           </p>
         </section>
 
@@ -66,7 +69,7 @@ export function AuthShell({
         <section className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-[420px]">
             <div className="mb-7 flex items-center justify-between gap-4 lg:hidden">
-              <BrandMark size="md" title="Yaseir" subtitle={subtitle} />
+              <BrandMark size="md" title="Yaseir" subtitle={subtitleText} />
               <ThemeToggle />
             </div>
 
@@ -91,7 +94,7 @@ export function AuthShell({
         </section>
       </div>
 
-      <div className="absolute right-4 top-4 z-20 hidden lg:block">
+      <div className="absolute end-4 top-4 z-20 hidden lg:block">
         <ThemeToggle />
       </div>
     </main>

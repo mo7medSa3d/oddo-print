@@ -30,7 +30,7 @@ export function SectionHeader({ title, subtitle, icon, actions, className = "" }
 
 export function StatCard({ label, value, sub, tone = "neutral", icon, footer }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: Tone; icon: React.ReactNode; footer?: React.ReactNode; }) {
   return (
-    <div className="group rounded-lg border border-edge bg-surface p-5 shadow-card transition-all duration-150 hover:-translate-y-px hover:border-edge-accent hover:shadow-md">
+    <div className="group rounded-sg border border-edge bg-surface p-5 shadow-card transition-all duration-150 hover:-translate-y-px hover:border-edge-accent hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <span className="text-2xs font-semibold uppercase tracking-[0.12em] text-ink-4">{label}</span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3 transition-colors group-hover:text-brand">{icon}</span>
@@ -58,7 +58,7 @@ const noticeIconStyles: Record<NoticeTone, string> = {
 
 export function StatusNotice({ tone = "warn", icon, title, children, action, className = "" }: { tone?: NoticeTone; icon: React.ReactNode; title: string; children?: React.ReactNode; action?: React.ReactNode; className?: string; }) {
   return (
-    <div role="status" className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
+    <div role="status" className={`flex flex-col gap-3 rounded-sg border p-4 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
       <span className={`mt-0.5 shrink-0 ${noticeIconStyles[tone]}`}>{icon}</span>
       <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-xs leading-relaxed opacity-85">{children}</div>}</div>
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
@@ -74,12 +74,12 @@ export function PrinterAvatar({ name, size = "md", tone = "brand" }: { name: str
 }
 
 export function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-lg border border-edge bg-surface p-3.5 shadow-xs"><div className="flex flex-col gap-3 lg:flex-row lg:items-center">{children}</div></div>;
+  return <div className="rounded-sg border border-edge bg-surface p-3.5 shadow-xs"><div className="flex flex-col gap-3 lg:flex-row lg:items-center">{children}</div></div>;
 }
 
 export function SettingsSection({ title, description, icon, children, className = "" }: { title: string; description?: string; icon: React.ReactNode; children: React.ReactNode; className?: string; }) {
   return (
-    <section className={`overflow-hidden rounded-lg border border-edge bg-surface shadow-card ${className}`}>
+    <section className={`overflow-hidden rounded-sg border border-edge bg-surface shadow-card ${className}`}>
       <div className="border-b border-edge bg-surface-2/60 px-5 py-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-brand">{icon}</span>
@@ -95,7 +95,7 @@ export function DetailList({ rows, className = "" }: { rows: { label: string; va
   return <dl className={`divide-y divide-edge ${className}`}>
     {rows.map((r) => <div key={r.label} className="flex items-start justify-between gap-6 py-2.5">
       <dt className="shrink-0 text-xs text-ink-3">{r.label}</dt>
-      <dd className="min-w-0 text-right text-sm font-medium text-ink">{r.value}</dd>
+      <dd className="min-w-0 text-end text-sm font-medium text-ink">{r.value}</dd>
     </div>)}
   </dl>;
 }

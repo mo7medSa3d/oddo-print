@@ -117,6 +117,19 @@ export async function claimJobForDelivery(
       WHERE p.agent_id = ${agentId}
         AND p.status IN ('claimed', 'printing')
         AND p.expires_at > now()
+        -- Same stale-claim exclusion as the poll path (agent/jobs route): a
+        -- stale no-evidence claim reuses its own executor slot when reclaimed,
+        -- so counting it as occupied would permanently starve reclaims at the
+        -- cap. The predicate mirrors the poll's stale_candidates exactly.
+        AND NOT (
+          p.status = 'claimed'
+          AND p.delivered_at IS NULL
+          AND p.acked_at IS NULL
+          AND COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}
+          AND p.updated_at < now() - make_interval(secs => ${agentStaleThresholdSeconds()})
+          AND p.retries < ${MAX_RETRIES}
+          AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
+        )
         AND a.lifecycle = 'active'
         AND a.status = 'online'
         AND a.last_seen_at IS NOT NULL
@@ -126,6 +139,10 @@ export async function claimJobForDelivery(
     `);
     const inFlight = Number((live.rows[0] as { count?: number | string } | undefined)?.count ?? 0);
     if (inFlight >= MAX_AGENT_IN_FLIGHT_JOBS) return null;
+    // Claim eligibility (status/transport part) mirrors isPrinterClaimable()
+    // in src/lib/routing.ts: online/busy, or unknown with a fully declared
+    // spooler/ipp/direct transport. offline/error fail fast. Kept IN SQL so
+    // the eligibility check and the row lock are atomic.
     const locked = await tx.execute(sql`
       SELECT p.id
       FROM print_jobs p
