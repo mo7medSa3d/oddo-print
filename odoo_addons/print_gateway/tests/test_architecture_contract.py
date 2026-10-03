@@ -352,7 +352,16 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         ambiguous_block = source[ambiguous_idx:source.index('if (result.successful)', ambiguous_idx)]
         self.assertIn("continue;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
-        self.assertIn('const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);', source)
+        # The receipt print counter must use an allowlist of the accepted
+        # statuses, not a denylist of the rejected ones: a denylist records an
+        # absent or unexpected status as a completed print, which is exactly
+        # the ambiguous-outcome path this contract forbids. The allowlist must
+        # stay identical to the one that selects the success notification above.
+        record_line = 'const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);'
+        self.assertIn(record_line, source)
+        self.assertNotIn('!["failed", "unknown", "partial"].includes(result?.status)', source)
+        notification_idx = source.index('["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)')
+        self.assertLess(notification_idx, source.index(record_line))
 
     def test_report_action_preserves_odoo19_layout_configuration_gate(self):
         source = (MODELS / "ir_actions_report.py").read_text(encoding="utf-8")
