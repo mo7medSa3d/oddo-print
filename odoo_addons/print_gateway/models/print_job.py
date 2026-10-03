@@ -1722,6 +1722,17 @@ class PrintGatewayJob(models.Model):
                 "JOB_EXPIRED_DURING_PRINT",
                 "UNKNOWN_PARTIAL_DELIVERY",
                 "UNKNOWN_SUBMISSION_OUTCOME",
+                # AGENT_EXECUTION_TIMEOUT / AGENT_RESTART_DURING_PRINT must be
+                # listed here too. _apply_synced_status maps EVERY Gateway
+                # ``failed`` whose error starts with a _GATEWAY_UNKNOWN_MARKERS
+                # prefix to Odoo status "unknown", so a Gateway execution
+                # timeout lands here as (unknown, "AGENT_EXECUTION_TIMEOUT: ...")
+                # and was never re-polled. That silently disabled the Gateway
+                # late-success reconciliation (LATE_SUCCESS_ERROR_MARKERS in
+                # src/lib/job-status.ts), which only works while Odoo keeps
+                # asking for the job's status inside the 24h window.
+                "AGENT_EXECUTION_TIMEOUT",
+                "AGENT_RESTART_DURING_PRINT",
             )
         ):
             return True
@@ -2081,7 +2092,7 @@ class PrintGatewayJob(models.Model):
                     AND (
                         status NOT IN ('success', 'failed', 'partial', 'unknown')
                         OR (status = 'failed' AND (last_error LIKE 'AGENT_EXECUTION_TIMEOUT%%' OR last_error LIKE 'AGENT_RESTART_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%'))
-                        OR (status = 'unknown' AND (last_error LIKE 'JOB_EXPIRED_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%' OR last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME%%'))
+                        OR (status = 'unknown' AND (last_error LIKE 'JOB_EXPIRED_DURING_PRINT%%' OR last_error LIKE 'UNKNOWN_PARTIAL_DELIVERY%%' OR last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME%%' OR last_error LIKE 'AGENT_EXECUTION_TIMEOUT%%' OR last_error LIKE 'AGENT_RESTART_DURING_PRINT%%'))
                     )
                )
                OR (

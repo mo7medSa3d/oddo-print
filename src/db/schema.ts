@@ -426,7 +426,14 @@ export const jobEvents = pgTable("job_events", {
   message: text("message"),
   errorCode: text("error_code"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Migration 0055 creates this column as TIMESTAMPTZ. Declare it that way
+  // here too: a `timestamp` (without time zone) declaration made `db:push` /
+  // `db:generate` emit an ALTER TYPE that would needlessly rewrite this
+  // append-only table. Read/write behaviour is identical (node-postgres maps
+  // timestamptz to Date), so aligning the ORM with the database changes no
+  // runtime value. `gateway_metrics.updated_at` is the other timestamptz
+  // column and is already declared with `withTimezone: true`.
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   jobFk: foreignKey({
     name: "job_events_tenant_id_job_id_print_jobs_fk",
