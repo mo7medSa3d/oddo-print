@@ -592,9 +592,11 @@ export default function DashboardClient({
   }, []);
 
   const [refreshing, setRefreshing] = React.useState(false);
+  const refreshingRef = React.useRef(false);
 
   const refreshData = React.useCallback(async () => {
-    if (refreshing) return;
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     try {
       const data = await getDashboardState();
@@ -644,9 +646,10 @@ export default function DashboardClient({
         router.push("/login");
       }
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, refreshing, router]);
+  }, [refreshBillingUsage, router]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -1078,16 +1081,13 @@ export default function DashboardClient({
                 {kpis.totalAgents === 0 ? t("dashboard.waitingForFirstAgent") : onlineAgentsLabel}
               </span>
             )}
-            <Tooltip label={t("dashboard.refreshConsole")}>
-              <IconButton
-                label={t("dashboard.refreshConsole")}
-                onClick={() => void refreshData()}
-                disabled={refreshing}
-                className={refreshing ? "bg-surface-2 text-ink animate-spin" : ""}
-              >
-                <RefreshCw className="h-4 w-4" aria-hidden />
-              </IconButton>
-            </Tooltip>
+            <IconButton
+              label={t("dashboard.refreshConsole")}
+              onClick={() => void refreshData()}
+              disabled={refreshing}
+            >
+              <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden />
+            </IconButton>
           </div>
         </div>
 
