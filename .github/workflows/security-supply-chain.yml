@@ -57,7 +57,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --audit-level=high
+          # Full `high` threshold plus a narrow, documented allowlist for the
+          # one advisory with no upstream fix. See scripts/audit-gate.mjs.
+          node scripts/audit-gate.mjs
 
       - name: Verify npm high-severity audit gate with known vulnerable fixture
         shell: bash
@@ -91,6 +93,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The unallowlisted advisory set must be empty. A non-empty set is
+          # always a failure, so consult the allowlist to decide whether the
+          # only remaining findings are the documented dev-only exception,
+          # keeping the registry-retry behaviour for genuine infrastructure
+          # failures on top of that decision.
           for attempt in 1 2 3; do
             set +e
             audit_output="$(npm audit --audit-level=high 2>&1)"
@@ -112,6 +119,9 @@ jobs:
               fi
             fi
 
+            # Real findings remain. Fail unless every one of them is the
+            # documented dev-only advisory with no upstream fix.
+            node scripts/audit-gate.mjs
             exit "$audit_status"
           done
 

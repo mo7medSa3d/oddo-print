@@ -86,7 +86,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --audit-level=high
+          # Full `high` threshold plus a narrow, documented allowlist for the
+          # one advisory with no upstream fix. See scripts/audit-gate.mjs.
+          node scripts/audit-gate.mjs
       - name: Install Rust toolchain for supply-chain audit
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
         with:

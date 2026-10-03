@@ -408,7 +408,65 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
   **370/370 `.ts`/`.tsx` files parse**, en/ar parity is still **2117/2117**, and every
   `t()`/`tc()` call-site key still resolves.
 
-### F-013 — High-severity advisory in a dev-only transitive dependency — NOT FIXED
+### F-014 — Stale Odoo contract test pinned the pre-allowlist receipt-counter source — FIXED
+- **Location:** `odoo_addons/print_gateway/tests/test_architecture_contract.py`,
+  `test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path`.
+- **Evidence:** CI (`odoo19` job) failed on this assertion only. Commit `a88b6bdf` had converted the
+  POS receipt print counter from a denylist to an allowlist:
+
+  ```js
+  - const recordPrintAttempt = !["failed", "unknown", "partial"].includes(result?.status);
+  + const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);
+  ```
+
+  The test still asserted the old denylist text, so the addon suite failed on stale source text
+  rather than on any behavioural defect.
+- **Why the JS was right and the test was wrong:** the denylist recorded an **absent or unexpected**
+  status as a completed POS print, which is exactly the ambiguous-outcome path the test exists to
+  forbid. The allowlist is the stronger, intended form and matches the success-notification allowlist
+  immediately above it.
+- **Severity:** high (blocked merge; the addon suite could never go green). **Classification:** CONFIRMED.
+- **Fix:** the assertion now requires the allowlist form, explicitly rejects the denylist form, and
+  pins that the counter allowlist stays identical to — and ordered after — the notification allowlist,
+  so the two cannot drift apart again. Verified standalone: all 9 contract assertions pass.
+  The `duplicate key value violates unique constraint` errors in the same log are **intentional**
+  negative-test fixtures proving constraint enforcement, not failures.
+
+### F-015 — `npm audit --audit-level=high` was unsatisfiable (advisory with no upstream fix) — FIXED
+- **Location:** `.github/workflows/ci.yml`, `.github/workflows/security-supply-chain.yml`, new
+  `scripts/audit-gate.mjs`.
+- **Evidence:** the `supply-chain` and `ci` jobs both failed at the audit step. GHSA-vfj7-8cjw-p6xm
+  (CVE-2026-93687) reports `braces` affected `<= 3.0.3` with **patched versions: none**, and every
+  path in the tree still requires it: `eslint-config-next → @next/eslint-plugin-next → fast-glob →
+  micromatch → braces`. `braces@3.0.3` *is* the latest published version, and `micromatch@4.0.8`
+  (also latest) still declares `braces: ^3.0.3`. The upstream fix PR
+  https://github.com/micromatch/braces/pull/72 is **open and unmerged**.
+- **Severity:** high (blocked merge; Typecheck/Lint/build/tests never ran in CI behind this step).
+  **Classification:** CONFIRMED.
+- **Reachability:** dev-only. `braces` matches glob patterns supplied by this repository's own
+  ESLint configuration, never untrusted input, and is absent from the runtime image
+  (`npm ci --omit=dev`).
+- **Fix, and why not the alternatives:** the threshold was **not** lowered and `npm audit --omit=dev`
+  was left untouched. `audit-gate.mjs` keeps the full `high` threshold and, on failure, requires every
+  high/critical advisory to match an explicit documented allowlist. It adds three guarantees a bare
+  `npm audit` does not make:
+  1. **dev-only enforcement** — an allowlist entry whose package appears in `dependencies` fails the
+     gate, so a runtime dependency can never be excused;
+  2. **stale-entry detection** — an allowlisted advisory that is no longer reported fails the gate
+     and must be deleted once upstream ships a fix;
+  3. **no silent passes** — a non-zero npm exit with no high/critical findings (e.g. a registry fault)
+     fails as exit 2 rather than passing.
+
+  Rejected: pinning the unmerged PR commit (tracks unreviewed upstream code); lowering the severity
+  threshold (would hide future high findings); removing `eslint-config-next` (architecture change to
+  the lint setup for a lint-only advisory).
+- **Verification:** passes on the real repo (exit 0) with `npm audit --omit=dev` still reporting
+  `found 0 vulnerabilities`. Negative-tested against fixtures — an unlisted `lodash` advisory fails
+  with the advisory IDs listed; an allowlist entry whose package is a runtime dependency fails as
+  "not dev-only"; a stale entry fails; a dependency-free tree passes. All five workflow YAML files
+  still parse.
+
+### F-013 — High-severity advisory in a dev-only transitive dependency — RESOLVED BY F-015
 - **Location:** `package-lock.json` → `node_modules/braces@3.0.3`.
 - **Evidence:** `npm audit --package-lock-only --audit-level=high` reports 5 high findings, all one
   root cause: `braces` < fixed (GHSA-vfj7-8cjw-p6xm, stack-exhaustion DoS on deeply nested patterns),
@@ -419,11 +477,31 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
   shipped runtime**. The only consumer is ESLint's glob matching during `npm run lint`.
 - **Severity:** high per the advisory; low practical impact given dev-only, non-production reachability.
 - **Classification:** CONFIRMED present in the dependency graph.
-- **Why not fixed here:** the remediation is an `overrides` entry plus a regenerated
-  `package-lock.json`. `npm audit fix --force` proposes downgrading `eslint-config-next` to 14.2.35
-  (breaking), and hand-editing the lockfile without being able to run `npm ci` + `npm run lint`
-  would risk breaking the CI lint step. This run excludes dependency installation, so the fix is
-  recorded rather than applied blind.
+- **Initial disposition (this pass):** recorded rather than applied, because the only dependency-side
+  remediation was an `overrides` entry plus a regenerated `package-lock.json`, and
+  `npm audit fix --force` proposes a *breaking* downgrade of `eslint-config-next` to 14.2.35.
+- **Superseded by F-015:** pushing this commit turned the finding into a hard CI failure in two
+  workflows. Investigation established there is **no patched `braces` release at all**, so no
+  dependency change can clear it, and it is resolved by a documented dev-only allowlist in
+  `scripts/audit-gate.mjs` instead. See F-015.
+
+---
+
+## CI verification (GitHub Actions, commit `b6612f14`)
+
+The push of `b6612f14` triggered all five workflows. Three passed (Docker, Static Security Gates,
+Build Windows Installer); two failed and produced F-014 and F-015.
+
+| Workflow | Job | Failure | Finding |
+|---|---|---|---|
+| Security and Resilience Gates | `supply-chain` | `npm audit --audit-level=high` — `braces` CVE-2026-93687 | F-015 |
+| CI | `ci` | same audit step (blocked 20 later steps) | F-015 |
+| CI | `odoo19` | stale contract assertion on the receipt counter | F-014 |
+
+Consequence worth noting: because the audit step sits early in the `ci` job, **Typecheck, Lint,
+i18n checks, DB drift check, Build Next.js, unit tests, Drizzle migrations, integration tests and the
+exact requested Gateway verification commands never ran**. Those results remain genuinely unknown
+until a green run completes.
 
 ---
 
@@ -455,7 +533,9 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
 | CI gate: Odoo icon == desktop icon sha256 | PASS — identical |
 | `cargo verify-project --locked` (manifest validity) | PASS |
 | `cargo metadata --locked --offline` (lockfile ↔ manifest agreement) | PASS — 427 pkgs; `tauri 2.11.5`, `tauri-build 2.6.3`, `tauri-plugin-autostart 2.5.1`, `reqwest 0.13.5`, `rustls 0.23.45` |
-| `npm audit --package-lock-only --audit-level=high` | **FAIL** — see F-013 (dev-only) |
+| `npm audit --package-lock-only --audit-level=high` | FAIL — unsatisfiable, see F-015 |
+| `node scripts/audit-gate.mjs` (the new CI gate) | PASS — real repo; negative-tested on 4 fixtures |
+| `npm audit --omit=dev` (production gate, unweakened) | PASS — `found 0 vulnerabilities` |
 | `cargo check` (native and `x86_64-pc-windows-msvc`) | BLOCKED — needs system packages |
 
 Toolchain notes and limits of this run:
@@ -479,9 +559,9 @@ Toolchain notes and limits of this run:
 ## Final status
 
 - **Repository-wide coverage:** COMPLETE (754 files; every directory accounted for).
-- **CONFIRMED source-provable defects found and fixed:** 12 (F-001 … F-012).
-- **CONFIRMED defect found but intentionally not fixed:** 1 (F-013 — dev-only transitive advisory;
-  remediation requires regenerating the lockfile, which this run excludes).
+- **CONFIRMED source-provable defects found and fixed:** 14 (F-001 … F-012, F-014, F-015).
+- **CONFIRMED defect superseded:** F-013 is resolved by F-015 (documented dev-only allowlist), after
+  pushing showed the advisory had **no patched release** and blocked two workflows.
 - **Findings intentionally unchanged:** 15 groups, each with a stated reason (see the table above).
 - **Runtime verification still required:** `npm ci` then `npm run typecheck`, `lint`,
   `i18n:check`, `build`, `test`, `test:integration`, `test:e2e`, `test:odoo:static`,
