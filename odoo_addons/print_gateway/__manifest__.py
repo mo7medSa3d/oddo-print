@@ -42,6 +42,8 @@ to the printing service without opening the browser print dialog.
             'print_gateway/static/src/scss/print_gateway_backend.scss',
             'print_gateway/static/src/components/runtime_agent_field.js',
             'print_gateway/static/src/components/runtime_printer_field.js',
+            'print_gateway/static/src/components/language_switcher.js',
+            'print_gateway/static/src/components/language_switcher.xml',
             'print_gateway/static/src/js/gateway_config_auto_sync.js',
             'print_gateway/static/src/js/gateway_limit_dialog.js',
             'print_gateway/static/src/js/report_interceptor.js',
