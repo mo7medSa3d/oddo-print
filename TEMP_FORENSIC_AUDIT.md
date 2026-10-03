@@ -432,6 +432,56 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
   The `duplicate key value violates unique constraint` errors in the same log are **intentional**
   negative-test fixtures proving constraint enforcement, not failures.
 
+### F-016 — Operator dashboard claimed paper printed on jobs the Gateway never confirmed — FIXED
+- **Location:** `src/i18n/messages/en.ts` and `src/i18n/messages/ar.ts`, key `job.success`.
+- **Evidence:** the copy pass `2e90cc18` changed the label from the honest
+  `"Delivered to printer"` to `"Printed"`. This contradicts the system's own outcome model:
+
+  ```ts
+  export function derivePhysicalOutcome(status, error) {
+    // Current transports prove successful submission/execution, not paper output.
+    if (status === "success") return "unknown";
+    ...
+  }
+  ```
+
+  A `success` job derives to `"unknown"` precisely because the transport proves hand-off, not paper.
+  `jobLabel("success", …)` returns `job.success` **ignoring the outcome** (unlike `failed`/`expired`,
+  which have distinct `*Unknown` keys), and it renders on the operator dashboard at five call sites
+  (`dashboard-client.tsx` ×5, `JobTimeline.tsx`). So the badge asserted paper physically emerged on
+  exactly the jobs where the Gateway had confirmed nothing.
+- **Severity:** high — a customer-facing false claim about physical output, on the primary dashboard
+  surface. **Classification:** CONFIRMED.
+- **Why the audit missed it:** `i18n:check` verifies key parity, never semantics. The test
+  `tests/physical-outcome.test.ts` — *"does not treat transport success as proof of physical paper
+  output"* — **did** catch it, but only once Vitest actually ran, which the audit step had been
+  blocking since the previous push.
+- **Fix:** restored `"Delivered to printer"` (en) and `"تم التسليم إلى الطابعة"` (ar). The test was
+  left untouched and now passes against the honest label.
+
+### F-017 — Five stale test assertions pointing at copy and sweep behaviour that had changed — FIXED
+Each asserted pre-`2e90cc18` / pre-`a88b6bdf` text or lifecycle; the production code was correct in
+all five, so the assertions were realigned to the current catalog.
+
+- `tests/system-health.test.ts` — `CURRENT_SCHEMA_VERSION` is 76 since migration 0076; literal said 75.
+- `tests/job-timeline.test.ts` — `a88b6bdf` made a reconciled success fall back to `updated_at`,
+  which is `NOT NULL` in the schema, so `at` is never null on that path. The test asserted null,
+  contradicting the documented fallback.
+- `tests/quota-dialog-render.test.ts` ×2 — realigned to the current description/note copy while
+  keeping the substantive invariant: a rate limit is a throughput window that resets on its own, a
+  concurrency limit is a present-tense count of jobs in flight, and the two must not be confusable.
+- `tests/printer-language-badges.test.ts` — `apiKeys.scope` is now `"Can send all document types"`;
+  kept the meaningful half, that the badge never implies a read-only or restricted credential.
+- `tests/ws-claim-delivery.test.ts` — `a88b6bdf` tightened the ceiling predicates from
+  `retries >= MAX_RETRIES` to `(retries >= MAX_RETRIES OR delivery_attempts >= MAX_DELIVERY_ATTEMPTS)`
+  and added the matching `delivery_attempts <` guard to the requeue path, which correctly stops a
+  ceiling-exhausted claim from being requeued into a loop it cannot win. The test still expected
+  requeue → refuse → TTL `expired`. It now asserts the actual lifecycle, and the properties are
+  stronger: terminal rather than cycling, `retries` still 0 (so only the delivery-attempt ceiling can
+  have produced it), `delivered_at`/`acked_at` null so no evidence is fabricated,
+  `derivePhysicalOutcome` = `not_printed`, no claim boundary or poll ever reoffers it, and a later
+  TTL sweep cannot resurrect a terminal row.
+
 ### F-015 — `npm audit --audit-level=high` was unsatisfiable (advisory with no upstream fix) — FIXED
 - **Location:** `.github/workflows/ci.yml`, `.github/workflows/security-supply-chain.yml`, new
   `scripts/audit-gate.mjs`.
@@ -487,21 +537,45 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
 
 ---
 
-## CI verification (GitHub Actions, commit `b6612f14`)
+## CI verification
 
-The push of `b6612f14` triggered all five workflows. Three passed (Docker, Static Security Gates,
-Build Windows Installer); two failed and produced F-014 and F-015.
+Final state — all five workflows green on `7c9960fe`:
 
-| Workflow | Job | Failure | Finding |
-|---|---|---|---|
-| Security and Resilience Gates | `supply-chain` | `npm audit --audit-level=high` — `braces` CVE-2026-93687 | F-015 |
-| CI | `ci` | same audit step (blocked 20 later steps) | F-015 |
-| CI | `odoo19` | stale contract assertion on the receipt counter | F-014 |
+| Workflow | Result |
+|---|---|
+| CI (`ci` + `odoo19`) | **success** |
+| Security and Resilience Gates | **success** |
+| Build Windows Installer (37/37 steps) | **success** |
+| Static Security Gates | **success** |
+| Docker | **success** |
 
-Consequence worth noting: because the audit step sits early in the `ci` job, **Typecheck, Lint,
-i18n checks, DB drift check, Build Next.js, unit tests, Drizzle migrations, integration tests and the
-exact requested Gateway verification commands never ran**. Those results remain genuinely unknown
-until a green run completes.
+This is the first run in which every previously blocked step actually executed. Confirmed passing in
+CI, closing the gaps this environment could not reach:
+
+- `npm run typecheck`, `npm run lint`, `i18n:check`, `i18n:odoo:check`, `db:docs:check`
+- `npm run build` (Next.js production build)
+- Vitest: **709 tests** (707 passed, 1 skipped, DB-gated files skipped)
+- PostgreSQL integration suite: **47 files**
+- Drizzle migrations applied against real PostgreSQL, then final runtime-only schema verified
+- Odoo 19 Community addon installed and its suite run (the `odoo19` job asserts the tests really ran)
+- Go: `build`, `vet`, `-race`, `U1000` on Linux and Windows tags, `govulncheck`, gofmt gate
+- Rust: `cargo audit` (windows/x86_64), `cargo check`, `cargo build --locked`, `cargo test`
+- Docker image build; Windows MSI + NSIS installers built, installed and smoke-tested
+
+The gates that had been red, and the findings each produced:
+
+| Run | Failure | Finding |
+|---|---|---|
+| `b6612f14` | `npm audit --audit-level=high` — `braces` CVE-2026-93687 (unsatisfiable, no patched release) | F-015 |
+| `b6612f14` | Odoo 19 addon suite — contract test pinned the pre-allowlist receipt counter | F-014 |
+| `ccd44811` | retry-loop audit step re-threw npm's exit code after the gate passed | (my bug, fixed in `a81ae379`) |
+| `a81ae379` | `tests/test_final_security_hardening.py` asserted the old audit command | (realigned) |
+| `a81ae379` | Vitest ×6 — 1 real regression (F-016) + 5 stale assertions | F-016 |
+| `02549bca` | Vitest — quota dialog test asserted unit copy the component never renders | (my bug, fixed in `ac507f69`) |
+| `ac507f69` | integration — stale claim test asserted the pre-tightening sweep behaviour | (realigned) |
+
+Every failure above was either a real defect or a stale assertion pointing at copy/sweep behaviour
+that had already been changed deliberately. The production code was realigned only once (F-016).
 
 ---
 
@@ -559,7 +633,12 @@ Toolchain notes and limits of this run:
 ## Final status
 
 - **Repository-wide coverage:** COMPLETE (754 files; every directory accounted for).
-- **CONFIRMED source-provable defects found and fixed:** 14 (F-001 … F-012, F-014, F-015).
+- **CONFIRMED source-provable defects found and fixed:** 17 (F-001 … F-017).
+- **CI status:** all 5 GitHub Actions workflows green on `7c9960fe`. Every step that the audit gate had
+  been blocking now executes: typecheck, lint, both i18n checks, DB drift check, Next.js build,
+  709 Vitest tests, the PostgreSQL integration suite, Drizzle migrations, the Odoo 19 addon suite,
+  Go build/vet/race/U1000/govulncheck, cargo audit/check/build/test, Docker, and the Windows MSI+NSIS
+  installers.
 - **CONFIRMED defect superseded:** F-013 is resolved by F-015 (documented dev-only allowlist), after
   pushing showed the advisory had **no patched release** and blocked two workflows.
 - **Findings intentionally unchanged:** 15 groups, each with a stated reason (see the table above).
