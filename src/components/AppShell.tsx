@@ -25,10 +25,11 @@ import { TopNavbar, type TopNavItem } from "./TopNavbar";
 import { Avatar, Menu, type MenuItemSpec } from "./ui";
 import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { BrandMark } from "./brand";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
-import { LOCALES, LOCALE_LABELS, type Locale } from "../i18n/config";
+
 import type { MessageKey } from "../i18n/messages/en";
 
 const NAV_ITEMS: TopNavItem[] = [
@@ -145,7 +146,7 @@ function WorkspaceMenu({
   onLogout: () => void;
   compact?: boolean;
 }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const items: MenuItemSpec[] = [
     ...(workspace.email
       ? [{ key: "identity", label: workspace.email, meta: workspace.role, disabled: true }]
@@ -165,16 +166,6 @@ function WorkspaceMenu({
     },
     // Language: names stay in their own language so an Arabic reader can find
     // "العربية" without reading English first, and the active one is inert
-    // instead of silently re-applying itself.
-    ...LOCALES.map((code: Locale) => ({
-      key: `locale-${code}`,
-      label: LOCALE_LABELS[code],
-      icon: <Globe className="h-4 w-4" />,
-      meta: code === locale ? "✓" : undefined,
-      separatorBefore: code === LOCALES[0],
-      disabled: code === locale,
-      onSelect: () => setLocale(code),
-    })),
     {
       key: "logout",
       label: loggingOut ? t("nav.signingOut") : t("nav.signOut"),
@@ -193,6 +184,7 @@ function WorkspaceMenu({
       label={t("nav.accountAndWorkspace")}
       className="w-full"
       placement="above"
+      align="start"
       trigger={
         <span
           className={`flex w-full items-center gap-2 rounded-md border border-transparent p-1.5 transition-colors duration-[140ms] hover:border-edge hover:bg-surface-2 ${
@@ -393,6 +385,7 @@ function ConsoleShell({
               >
                 <Search className="h-4 w-4" aria-hidden />
               </button>
+              <LanguageSwitcher align="start" compact className="w-auto" />
               <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} compact />
               <button
                 type="button"
@@ -407,7 +400,12 @@ function ConsoleShell({
           ) : (
             <div className="space-y-2">
               <CommandHint onOpen={() => setPaletteOpen(true)} />
-              <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} />
+              <div className="flex items-center gap-2">
+                <LanguageSwitcher align="start" className="shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -431,6 +429,7 @@ function ConsoleShell({
             <ConsoleBrand brandSubtitle={t("brand.tagline")} />
           </Link>
           <div className="ms-auto flex items-center gap-1">
+            <LanguageSwitcher />
             <ThemeToggle />
             <Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" />
           </div>
