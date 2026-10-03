@@ -132,11 +132,24 @@ class PrintGatewayRouter(models.AbstractModel):
         if not config:
             return {"gateway_enabled": False, "native": True}
         dtype = self._document_type(report=report, record=record, explicit=document_type)
-        destination = self.destination_for(
-            report=report,
-            record=record,
-            explicit_destination=explicit_destination,
-        )
+        # destination_for() raises when there is no Odoo record, no report and
+        # no explicit destination. That is correct for implicit routing, but the
+        # operator diagnostic (binding.action_send_test_print ->
+        # _route_spooler_test_page / _route_ipp_test_page) is deliberately
+        # invoked with explicit_binding and no document at all: the binding IS
+        # the routing decision, and the ticket only needs its own declared
+        # protocol. Derive the destination from that binding instead of
+        # raising, so resolve_explicit() still performs its full identity,
+        # company/branch, protocol and payload_type validation below.
+        destination = False
+        if report or record or explicit_destination:
+            destination = self.destination_for(
+                report=report,
+                record=record,
+                explicit_destination=explicit_destination,
+            )
+        elif explicit_binding and getattr(explicit_binding, "destination_ref", False):
+            destination = explicit_binding.destination_ref
         binding_model = self.env["print_gateway.binding"].sudo()
         if explicit_binding:
             binding = binding_model.resolve_explicit(
