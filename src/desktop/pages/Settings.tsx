@@ -8,7 +8,7 @@ import { friendlyAgentError, friendlyGatewayError, friendlyPrinterError, labelPr
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
   const [autostartBusy, setAutostartBusy] = React.useState(false);
   const paths: [string, string][] = s.runtimePaths
