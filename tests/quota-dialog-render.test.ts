@@ -95,24 +95,26 @@ describe("quota-exhausted upgrade dialog", () => {
     // Each render appends a new portal; scope to the last dialog root.
     const roots = body.querySelectorAll('[role="dialog"]');
     const rateText = roots[roots.length - 1]?.textContent ?? "";
-    // A rate limit is a throughput window measured in jobs per minute, and it
-    // resets on its own: the remedy is to wait, not to upgrade.
+    // A rate limit is a throughput window that resets on its own, so the
+    // operator is told to wait out the window rather than to upgrade. It must
+    // NOT be explained like a concurrency limit.
     expect(rateText).toContain("Print rate limit reached");
-    expect(rateText).toContain("jobs per minute");
     expect(rateText).toContain("This resets soon");
+    expect(rateText).toContain("Try again in about 1 minute");
+    expect(rateText).not.toContain("This counts jobs waiting or printing now.");
 
-    // A concurrency limit counts jobs in flight right now. It is reported in
-    // active jobs and explained as a present-tense count, so the operator is
-    // not told to wait out a window that does not exist.
-    const before = body.querySelectorAll('[role="dialog"]').length;
+    // A concurrency limit counts jobs in flight right now. It is explained as a
+    // present-tense count with no reset window, and must stay distinguishable
+    // from the rate case above.
     renderDialog({ open: true, resource: "concurrency", used: 5, limit: 5 });
     const all = body.querySelectorAll('[role="dialog"]');
-    const concurrencyText = all[all.length - 1]?.textContent ?? all[before - 1]?.textContent ?? "";
+    const concurrencyText = all[all.length - 1]?.textContent ?? "";
     expect(concurrencyText).toContain("Concurrent print limit reached");
-    expect(concurrencyText).toContain("active print jobs");
     expect(concurrencyText).toContain("This counts jobs waiting or printing now.");
-    // The two limits must remain distinguishable in copy and in unit.
-    expect(concurrencyText).not.toContain("jobs per minute");
+    expect(concurrencyText).not.toContain("This resets soon");
+    // Both limits are reported with real usage figures, never a guess.
+    expect(rateText).toContain("20");
+    expect(concurrencyText).toContain("5");
   });
 
   it("reports an unlimited allowance and stays closed when not opened", () => {
