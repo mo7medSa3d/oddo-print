@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="print_gateway.LanguageSwitcher">
+        <Dropdown class="'o_print_gateway_language_switcher d-flex align-items-center'">
+            <button
+                class="btn btn-link text-reset text-decoration-none p-2 d-flex align-items-center gap-1"
+                type="button"
+                t-att-aria-label="label"
+                t-att-title="label"
+            >
+                <i class="fa fa-globe" aria-hidden="true"/>
+                <span class="d-none d-lg-inline fw-semibold">
+                    <t t-esc="currentLabel"/>
+                </span>
+                <span class="d-lg-none fw-semibold">
+                    <t t-esc="currentCode.slice(0, 2).toUpperCase()"/>
+                </span>
+            </button>
+            <t t-set-slot="content">
+                <DropdownItem
+                    t-foreach="languages"
+                    t-as="language"
+                    t-key="language.code"
+                    onSelected="() => this.selectLanguage(language.code)"
+                >
+                    <div class="d-flex align-items-center justify-content-between gap-3 w-100">
+                        <span t-esc="language.label"/>
+                        <span t-if="language.code === currentCode" class="text-muted">✓</span>
+                    </div>
+                </DropdownItem>
+            </t>
+        </Dropdown>
+    </t>
+</templates>
