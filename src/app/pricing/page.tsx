@@ -8,6 +8,7 @@ import { ArrowRight, Check, CreditCard, DatabaseZap, Receipt } from "lucide-reac
 import { Button, Callout, Card, StatusBadge } from "../../components/ui";
 import { BrandMark } from "../../components/brand";
 import { ThemeToggle } from "../../components/ThemeToggle";
+import { LanguageSwitcher } from "../../components/LanguageSwitcher";
 import { logError } from "../../lib/log";
 import { getServerLocale, makeT } from "../../i18n/server";
 import type { MessageKey } from "../../i18n/messages/en";
@@ -111,6 +112,7 @@ export default async function Pricing() {
             <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
           </Link>
           <nav className="ms-auto flex items-center gap-2" aria-label={t("pricing.navAria")}>
+            <LanguageSwitcher />
             <Link
               href="/"
               className="hidden h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"

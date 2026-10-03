@@ -5,6 +5,7 @@ import { db } from "../db";
 import { plans, tenantSubscriptions, tenants } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -343,6 +344,7 @@ function PublicHeader({ t }: { t: Translator }) {
         </nav>
 
         <div className="ms-auto flex items-center gap-2">
+          <LanguageSwitcher />
           <ThemeToggle />
 
           <div className="hidden items-center gap-2 sm:flex">

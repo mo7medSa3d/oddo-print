@@ -7,6 +7,7 @@ import { useEffect, useId, useState } from "react";
 import { LogOut, Menu, X } from "lucide-react";
 import { BrandMark } from "./brand";
 import { ThemeToggle } from "./ThemeToggle";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { Button } from "./ui";
 import { isNavItemActive } from "../lib/nav";
 import { useI18n } from "../i18n/react";
@@ -165,6 +166,7 @@ export function TopNavbar({
         </nav>
 
         <div className="ms-auto flex shrink-0 items-center gap-1 lg:ms-0">
+          <LanguageSwitcher />
           <ThemeToggle />
           <Button
             variant="ghost"

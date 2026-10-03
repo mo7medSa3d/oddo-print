@@ -2318,3 +2318,18 @@ msgstr "الطباعة معطّلة لهذه الشركة. أعد تفعيل خ�
 #: models/gateway_config.py
 msgid "The API key is in its rotation grace period and is read-only. Finish key rotation, then try again."
 msgstr "مفتاح API في فترة السماح للتدوير وهو للقراءة فقط. أنهِ تدوير المفتاح، ثم أعد المحاولة."
+
+
+#. module: print_gateway
+#: print_gateway/static/src/components/language_switcher.js
+msgid "Language"
+msgstr "اللغة"
+
+#. module: print_gateway
+#: print_gateway/static/src/components/language_switcher.js
+msgid "Could not change language. Make sure the language is installed."
+msgstr "تعذر تغيير اللغة. تأكد من تثبيت اللغة."
+
+#. module: print_gateway
+msgid "label"
+msgstr "التسمية"

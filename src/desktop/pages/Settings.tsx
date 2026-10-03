@@ -4,12 +4,11 @@ import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, Status
 import { SettingsSection } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { LOCALES, LOCALE_LABELS } from "../../i18n/config";
 import { friendlyAgentError, friendlyGatewayError, friendlyPrinterError, labelPrinter } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
   const [autostartBusy, setAutostartBusy] = React.useState(false);
   const paths: [string, string][] = s.runtimePaths
@@ -104,23 +103,6 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-start hover:bg-surface-2"><span className="text-base font-semibold text-ink">{t("desktop.settings.advanced")}</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform ${s.advancedOpen ? "rotate-90" : ""}`} /></button>
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
-            <div>
-              <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.settings.language")}</div>
-              <p className="text-xs text-ink-2 leading-relaxed">{t("desktop.settings.languageBody")}</p>
-              <div className="mt-3 inline-flex rounded-md border border-edge bg-surface-2 p-0.5" role="group" aria-label={t("desktop.settings.languageAria")}>
-                {LOCALES.map((code) => (
-                  <button
-                    key={code}
-                    type="button"
-                    aria-pressed={locale === code}
-                    onClick={() => setLocale(code)}
-                    className={`rounded-sm px-3 py-1.5 text-xs font-medium transition-colors ${locale === code ? "bg-brand text-brand-contrast" : "text-ink-3 hover:text-ink"}`}
-                  >
-                    {LOCALE_LABELS[code]}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div><div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.settings.security")}</div><p className="text-xs text-ink-2 leading-relaxed">{t("desktop.settings.securityBody")}</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />{t("desktop.settings.credentialsLocal")}</div></div>
             <div><div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.settings.dataLocations")}</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-2xs font-semibold text-ink-2">{label}</span><span className="flex-1 truncate font-mono text-2xs text-ink-3">{path}</span><CopyButton value={path} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.settings.copied"), type: "success" })} /></div>))}</div> : <p className="text-xs text-ink-3">{t("desktop.settings.loadingPaths")}</p>}<p className="mt-4 text-2xs text-ink-3">{t("desktop.settings.footer", { version: s.version || "—" })}</p></div>
           </div>
