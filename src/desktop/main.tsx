@@ -864,6 +864,7 @@ export default function App() {
                     >
                       <span className="hidden sm:inline">{t("desktop.app.refresh")}</span>
                     </Button>
+                      <LanguageSwitcher />
                       <ThemeToggle />
                   </>
                 }
