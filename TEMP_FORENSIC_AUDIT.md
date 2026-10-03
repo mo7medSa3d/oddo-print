@@ -383,15 +383,93 @@ work (`0564480b`, `2e90cc18`, `e298a5e6`, `5c20c400`):
 - The concurrent `2e90cc18` desktop/Odoo changes are copy/CSS/responsive-class only; no logic,
   effect-handler, dependency-array or fetch target was altered.
 
+### F-012 — Orphaned Arabic strings broke the TypeScript build — FIXED
+- **Location:** `src/i18n/messages/ar.ts` lines 231, 233, 279 (removed).
+- **Code path:** module parse of the `ar` catalog.
+- **Evidence:** three lines contained a bare Arabic string literal with **no key and no colon** —
+  a syntax error (TS1005) inside the catalog object literal:
+
+  | line | content | duplicate of |
+  |---|---|---|
+  | 231 | `"حالة الطباعة غير معروفة…"` | `"job.guidance.unknown"` (line 230) |
+  | 233 | `"لم يستلم أي Agent هذه المهمة…"` | `"job.guidance.expired"` (line 232) |
+  | 279 | `"سيتم حذف الـ Agent وبيانات اعتماده…"` | `"agent.deleteBody"` (line 278) |
+
+  The customer-facing copy pass (`2e90cc18`) replaced each keyed value with a shorter string but
+  left the previous long Arabic text on the following line. Confirmed by two independent on-disk
+  compilers (TypeScript 5.4.5 and 6.0.3), both reporting the same three TS1005 diagnostics.
+- **Severity:** critical (build-breaking). **Classification:** CONFIRMED.
+- **Why the Phase 1–6 audit missed it:** the en/ar **key**-parity check compares key *sets*; an
+  orphan line is not a key, so it was invisible to `check-i18n.ts`-style verification. It was found
+  only by *parsing* the files.
+- **Invariant:** every message catalog must be syntactically valid TypeScript; a value may only
+  appear as `"key": "value"`.
+- **Fix:** the three orphan lines were deleted (each was unreferenced duplicate text). After removal
+  **370/370 `.ts`/`.tsx` files parse**, en/ar parity is still **2117/2117**, and every
+  `t()`/`tc()` call-site key still resolves.
+
+### F-013 — High-severity advisory in a dev-only transitive dependency — NOT FIXED
+- **Location:** `package-lock.json` → `node_modules/braces@3.0.3`.
+- **Evidence:** `npm audit --package-lock-only --audit-level=high` reports 5 high findings, all one
+  root cause: `braces` < fixed (GHSA-vfj7-8cjw-p6xm, stack-exhaustion DoS on deeply nested patterns),
+  reached only as `braces → micromatch@4.0.8 → fast-glob@3.3.1 → @next/eslint-plugin-next →
+  eslint-config-next`.
+- **Reachability:** every package in the chain is marked `(dev)` in the lockfile. The production
+  image installs with `npm ci --omit=dev` (`Dockerfile:17`), so `braces` is **not present in the
+  shipped runtime**. The only consumer is ESLint's glob matching during `npm run lint`.
+- **Severity:** high per the advisory; low practical impact given dev-only, non-production reachability.
+- **Classification:** CONFIRMED present in the dependency graph.
+- **Why not fixed here:** the remediation is an `overrides` entry plus a regenerated
+  `package-lock.json`. `npm audit fix --force` proposes downgrading `eslint-config-next` to 14.2.35
+  (breaking), and hand-editing the lockfile without being able to run `npm ci` + `npm run lint`
+  would risk breaking the CI lint step. This run excludes dependency installation, so the fix is
+  recorded rather than applied blind.
+
+---
+
+## Checks executed in this environment (no tool installation)
+
+| Check | Result |
+|---|---|
+| `go mod verify` (agent) | PASS — all modules verified |
+| `go build ./...` (agent, offline `GOPROXY=off`) | PASS |
+| `go vet ./...` (agent, offline) | PASS |
+| `go test ./... -race` (agent, offline) | PASS — **429 tests, 10 packages** |
+| `gofmt -l .` (agent formatting gate) | PASS — clean |
+| `staticcheck -checks=U1000 ./...` (Linux build tags) | PASS — no dead code |
+| `staticcheck -checks=U1000 GOOS=windows ./...` | PASS — no dead code |
+| `python3 scripts/check-db-docs.py` (`db:docs:check`) | PASS — 24 schema tables ↔ 77 migrations ↔ docs in sync |
+| `python3 scripts/check-odoo-translations.py` (`i18n:odoo:check`) | PASS — 458/458, 0 missing/stale |
+| `pytest tests/` (all 5 Python contract suites) | PASS — **143 tests** |
+| TS/TSX syntactic parse of all 370 files (on-disk compiler) | PASS after F-012; found F-012 |
+| Python byte-compile of all 54 `.py` files | PASS |
+| `node --check` on all 13 `.js`/`.mjs` files | PASS |
+| XML well-formedness of all 9 addon XML files | PASS |
+| CSV rectangularity (`ir.model.access.csv`) | PASS — 12×8 |
+| All `.json` files parse (incl. both drizzle snapshots) | PASS |
+| en/ar key parity (2117) + all 1656 `t()` keys resolve | PASS |
+| CI gate: no `@/` path aliases, no tsconfig path mapping | PASS |
+| CI gate: no `<tree>`/`attrs=`/`states=` in addon views | PASS |
+| CI gate: Odoo icon == desktop icon sha256 | PASS — identical |
+| `npm audit --package-lock-only --audit-level=high` | **FAIL** — see F-013 (dev-only) |
+| `cargo metadata --offline` | BLOCKED — Rust dep cache incomplete; see below |
+
+Toolchain notes: `node_modules` is **absent**, so `npm run typecheck`, `lint`, `build`, `i18n:check`,
+`test`, `test:integration`, `test:e2e`, `test:odoo:static` and `docker compose config` could not run
+here without installing dependencies. `govulncheck` and `cargo audit` additionally require
+`go install` / `cargo install` and a vulnerability-database download.
+
 ---
 
 ## Final status
 
 - **Repository-wide coverage:** COMPLETE (754 files; every directory accounted for).
-- **CONFIRMED source-provable defects found and fixed:** 11 (F-001 … F-011).
+- **CONFIRMED source-provable defects found and fixed:** 12 (F-001 … F-012).
+- **CONFIRMED defect found but intentionally not fixed:** 1 (F-013 — dev-only transitive advisory;
+  remediation requires regenerating the lockfile, which this run excludes).
 - **Findings intentionally unchanged:** 15 groups, each with a stated reason (see the table above).
-- **Runtime verification still required:** `npm run typecheck`, `npm run lint`, `npm run i18n:check`,
-  `npm run i18n:odoo:check`, `npm run db:docs:check`, `npm run build`, `npm run test`,
-  `npm run test:integration`, `npm run test:e2e`, `npm run test:odoo:static`, the Odoo 19 addon suite,
-  Go `build`/`vet`/`test -race`/`staticcheck`/`govulncheck`, `cargo build`/`cargo audit`, and the
-  generated-NSIS inspection needed to settle TAURI-F-02.
+- **Runtime verification still required:** `npm ci` then `npm run typecheck`, `lint`,
+  `i18n:check`, `build`, `test`, `test:integration`, `test:e2e`, `test:odoo:static`,
+  `docker compose config`; the Odoo 19 addon suite; `cargo check`/`cargo build`/`cargo audit` for
+  `src-tauri`; `govulncheck`; the generated-NSIS inspection needed to settle TAURI-F-02; and
+  dependency resolution + a lint run to settle F-013.
