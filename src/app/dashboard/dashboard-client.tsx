@@ -591,7 +591,11 @@ export default function DashboardClient({
     }
   }, []);
 
+  const [refreshing, setRefreshing] = React.useState(false);
+
   const refreshData = React.useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
     try {
       const data = await getDashboardState();
       if (data) {
@@ -639,8 +643,10 @@ export default function DashboardClient({
       if (error instanceof Error && error.message.includes("session has expired")) {
         router.push("/login");
       }
+    } finally {
+      setRefreshing(false);
     }
-  }, [refreshBillingUsage, router]);
+  }, [refreshBillingUsage, refreshing, router]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -1054,7 +1060,7 @@ export default function DashboardClient({
       {/* ── Fleet summary ─────────────────────────────────────────── */}
       <section
         aria-label={t("dashboard.fleetSummary")}
-        className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card"
+        className="rounded-xl border border-edge bg-surface shadow-card"
       >
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-edge-subtle px-4 py-2.5">
           <h2 className="label-caps">{t("dashboard.fleetSummary")}</h2>
@@ -1073,7 +1079,12 @@ export default function DashboardClient({
               </span>
             )}
             <Tooltip label={t("dashboard.refreshConsole")}>
-              <IconButton label={t("dashboard.refreshConsole")} onClick={() => void refreshData()}>
+              <IconButton
+                label={t("dashboard.refreshConsole")}
+                onClick={() => void refreshData()}
+                disabled={refreshing}
+                className={refreshing ? "bg-surface-2 text-ink animate-spin" : ""}
+              >
                 <RefreshCw className="h-4 w-4" aria-hidden />
               </IconButton>
             </Tooltip>
@@ -1089,7 +1100,7 @@ export default function DashboardClient({
             edge after the third cell — stray lines hugging the card frame,
             which read as a broken border. 1px grid gaps are column-count
             agnostic, so no breakpoint can produce a stray edge. */}
-        <div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
+        <div className="overflow-hidden rounded-b-xl"><div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
             label={t("dashboard.agentsOnline")}
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
@@ -1118,6 +1129,7 @@ export default function DashboardClient({
               })}
             progress={kpis.successRate ?? undefined}
           />
+        </div>
         </div>
 
         {prints && (
