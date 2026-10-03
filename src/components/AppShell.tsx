@@ -16,7 +16,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Moon,
-  Globe,
   Search,
   Sun,
   X,
@@ -164,8 +163,6 @@ function WorkspaceMenu({
       ),
       onSelect: () => toggleTheme(),
     },
-    // Language: names stay in their own language so an Arabic reader can find
-    // "العربية" without reading English first, and the active one is inert
     {
       key: "logout",
       label: loggingOut ? t("nav.signingOut") : t("nav.signOut"),
