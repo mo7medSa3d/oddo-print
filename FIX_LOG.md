@@ -1,3 +1,54 @@
+RESUME HERE: Continuation of the UI/UX pass on branch arena/01a1080f-oddo-print (PR #115). Every screen in the coverage matrix now has a complete implementation, English and Arabic copy review; the rendering/RTL/keyboard/workflow columns are UNVERIFIED because this environment has no browser engine, no Playwright/Puppeteer, no cached browser and no node_modules, and installing them is forbidden. Outstanding if a rendered environment becomes available: screenshots, 390/768/1024/1440 px checks, RTL and dark-theme rendering, keyboard traversal, 200% zoom, and the Tauri window at minimum size. `build-windows` was red on main before this branch; its cause is recorded below.
+
+SESSION 2026-10-04 (continuation) — remaining screens completed, copy pruned, visual QA attempted. Deliverable: /home/user/oddo-print-ui-redesign.zip.
+
+Scope completed in this continuation (branch arena/01a1080f-oddo-print, PR #115):
+- Desktop shell (`main.tsx`): page headings lost the subtitles that only restated the panel content
+  below them (Overview, Printers, Print Jobs); Agents and Settings keep one line that answers a
+  question the screen does not answer itself. The stop-agent confirmation is now two sentences —
+  the queue consequence, then the partially-printed warning — instead of a sentence assembled from
+  three catalog fragments around a `<strong>` (fragile in Arabic word order).
+- Desktop dialogs: Add printer no longer explains itself twice (the description restated the fields
+  and the connection-type labels), the English-only "e.g. Kitchen receipt" placeholder is a catalog
+  key, the IPP/IPPS hints state only the constraint the placeholder does not, and the "no spooler
+  printer found" condition is reported once instead of three times (hint + disabled option + input).
+  Agent rows and the printer drawer render agent status through the shared `agentLiveView`
+  vocabulary instead of interpolating the raw API enum ("online", "unknown").
+- CommandPalette: arrow-key navigation scrolls the active option into view (with up to 24 results in
+  a 52vh list the highlight used to leave the viewport while Enter still ran it), the active option
+  is exposed to assistive technology through `aria-activedescendant`, the select arrow mirrors in
+  RTL, and arbitrary `duration-[100ms]`/`[140ms]` values were normalized to the scale.
+- Platform: the "Control plane · …" eyebrows were removed from five screens (they restated the
+  navigation group), section subtitles that repeated their own headings were deleted (three on the
+  dashboard), audit actor enums and the platform-scope fallback are translated, the audit metadata
+  trigger is now a visible bordered control rather than a bare icon, and the plan archive-impact
+  sentence became one translatable unit with placeholders plus a real zero case instead of four
+  concatenated fragments.
+- Copy: sign-in shell lost the marketing tail, pricing lost internal gateway jargon, every description
+  on the platform screens was shortened. The remaining long strings were each reviewed and kept —
+  they are destructive consequences, billing terms, secret handling, permission limits, physical
+  printing uncertainty or recovery steps, which the brief protects.
+
+Gate hardening: `scripts/check-ui-copy.py` now also scans plain-string presentation props
+(`placeholder="e.g. Kitchen receipt"`), which the template-literal scan could not see. That is how the
+last two untranslated literals were found. Values that are data (URLs, e-mail examples, `price_…`,
+`0x04b8`, `9100`) are excluded explicitly.
+
+Verification executed in this continuation:
+- python3 scripts/check-ui-copy.py — en 2278 / ar 2278 keys, no hard-coded UI copy, every token defined.
+- node --experimental-strip-types --experimental-loader <hook> scripts/check-i18n.ts — 2278/2278, 22 tc() sites.
+- Dangling-reference sweep for every key deleted this session (16 keys): no source file still calls them.
+- CI on this branch (pushed): see the per-commit results below.
+
+Visual QA is NOT done and cannot be done here: no Chromium/Chrome/Firefox binary, no Playwright,
+Puppeteer or Selenium package, no cached browser download, no node_modules (so the Next and Vite dev
+servers cannot run), and installing or downloading any of them is forbidden by the repository rules.
+Consequently there are no screenshots and no rendered evidence for responsive layout, RTL, themes,
+keyboard traversal, zoom or long-content behaviour. They are marked UNVERIFIED in the coverage matrix
+rather than inferred from source. Source-level interaction contracts that do exist (dialog focus trap
+and return focus in useDialog, dialog-certification tests, overflow-x-auto table hosts) are recorded
+there as partial evidence, not as verification.
+
 SESSION 2026-10-04 — UI/design-system + localized-copy hardening (branch arena/01a1080f-oddo-print, base 30a4221). Deliverable: /home/user/oddo-print-ui-copy-design-pass.zip (complete source excluding .git/dependency/build output).
 
 Scope: Gateway console + Tauri desktop shell design-system consistency, hard-coded copy elimination, Arabic/English catalog parity, and WCAG contrast on status fills. No dependency or lockfile changes, no schema/migration changes, no API contract changes. 26 files modified + new scripts/check-ui-copy.py.

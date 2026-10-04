@@ -194,73 +194,66 @@
 
 ## Screen and feature coverage matrix — UI redesign pass (2026-10-04)
 
-Every existing screen, its actor, its job, its primary action and its states. `Status`
-records what this pass actually did — `redesigned` = hierarchy/copy/structure changed here,
-`system-wide` = inherited the shared token/copy/contrast changes and verified clean by the
-gates, `follow-up` = identified for the next pass, not yet redesigned.
+Two things are tracked separately here:
 
-Machine-checked for every row: no hard-coded JSX copy, every `rounded-*`/colour utility maps
-to a defined token, text and status colours meet WCAG AA (`scripts/check-ui-copy.py`), and
-en/ar catalogs stay key- and placeholder-equal (2284/2284).
+* **What this pass did** — `redesigned` (hierarchy/structure/copy changed), `system-wide`
+  (inherited the shared token/copy/contrast work and verified clean by the gates).
+* **Verification columns** — `imp` = implementation, `en` = English copy reviewed,
+  `ar` = Arabic copy reviewed, `resp` = responsive rendering, `rtl` = RTL rendering,
+  `kbd` = keyboard interaction, `flow` = workflow exercised at runtime.
 
-### Gateway — authenticated console
+`COMPLETE` means it was actually checked. `UNVERIFIED` means it was not, and the reason is
+given once at the bottom of the table — no column is marked complete on the strength of a
+source inspection or a passing test.
 
-| Screen | Actor | Job to be done | Primary action | States present | Status |
-| --- | --- | --- | --- | --- | --- |
-| `/dashboard` (`dashboard-client.tsx` 2110L) | Workspace manager/operator | See fleet health and act on problems | Pair agent / view job | loading skeleton, DB-unavailable, empty fleet, quota dialog, printer/job drawers, cert modal, partial failure per tab | redesigned (tokens, chips, readiness copy, job title, protocol case) |
-| `/api-keys` (479L) | Manager with `integrations.manage` | Create and manage Odoo credentials | Create key | no-key, waiting-for-Odoo, connected, disabled-at-source, one-time secret, revoke/delete confirms, load failure | redesigned (connection row, access-level badge, collapsed how-it-works) |
-| `/team` (656L) | Owner/manager | Manage members, invites, roles | Invite member | loading, forbidden/403, empty, pending invites, role change, remove/transfer confirms | redesigned (localized counts, remove copy) |
-| `/billing` (422L) + `BillingActions` + `UpgradeLimitDialog` | Owner | Understand plan, usage, payment state | Manage subscription | active, past-due, unpaid, paused, incomplete, canceled, credits exhausted, usage unavailable | redesigned (server copy keys, accent border, solid CTA) |
-| `/settings` (190L) | Manager | Workspace profile and role settings | Save | validation error, save success/failure, restricted role | follow-up (verified clean by gates) |
-| `/onboarding` (395L) | New manager | Finish first-run setup | Continue step | step progress, validation, no-card note, completion | redesigned (step chip, copy) |
-| `/system-health` (client 315L) | Manager / support | Read live subsystem state | Re-run checks | loading, unavailable, refresh failure with last sample, four cohorts | redesigned (localized sample time; 0 hard-coded copy) |
-| `/release-readiness` (302L) | Manager / release owner | Read evidence status honestly | Refresh | PASS/FAIL/BLOCKED/UNVERIFIED, technical detail disclosure | redesigned (status rows, detail disclosure) |
+| Screen | Actor / job | imp | en | ar | resp | rtl | kbd | flow |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Gateway `/dashboard` (`dashboard-client.tsx` 2110L) | Manager/operator: fleet health and action | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/api-keys` (479L) | Manager: create/manage Odoo credentials | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/team` (656L) | Owner/manager: members, invites, roles | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/billing` (422L) + `BillingActions` + `UpgradeLimitDialog` | Owner: plan, usage, payment state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/settings` (190L) | Manager: workspace profile | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/onboarding` (395L) | New manager: first-run setup | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/system-health` (client 315L) | Manager/support: live subsystem state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/release-readiness` (302L) | Release owner: honest evidence status | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/` (727L) | Visitor: understand the product | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/pricing` (286L) | Visitor: compare plans | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway auth screens (login 217L, signup 139L, forgot/reset/verify 94–195L, invite 126L) | Any user: access and recovery | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/dashboard` (541L) | Platform admin: platform-wide state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/tenants` (366L) | Platform admin: suspend/reactivate workspaces | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/subscriptions` (254L) | Platform admin: Stripe lifecycle | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/plans` (447L) | Platform admin: catalog and entitlements | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/audit` (250L) | Platform admin: privileged action trail | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Shell: `AppShell`, `TopNavbar`, `CommandPalette`, `LanguageSwitcher`, `ThemeToggle`, `AuthShell`, `brand.tsx` | All Gateway users | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Shared: `ui.tsx` (1958L) primitives, `JobTimeline`, `JobCleanupButton`, `PrintCertificationWizard`, `overview-charts` | Every Gateway screen | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop shell (`main.tsx` 1183L) + `Sidebar` | Windows operator: is it connected, what is queued | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Overview` (131L) | Operator: is printing working right now | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Agents` (91L) | Operator: local service state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Printers` (66L) | Operator: which printers are available | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Jobs` (84L) | Operator: what happened to a job | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Settings` (111L) | Operator: pair and configure | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop dialogs: `AddPrinterDialog` (396L), `EditPrinterDialog` (275L), `AdminPrivilegeDialog` (96L), `JobTimeline` (149L), `desktop/ui.tsx` (104L) | Operator: register, repair, diagnose | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
 
-### Gateway — public / auth / platform
+**Why the rendering columns are UNVERIFIED:** this environment has no browser engine (no
+Chromium/Firefox), no Playwright/Puppeteer/Selenium package, no cached browser download and no
+`node_modules`, and the repository rules forbid installing or downloading dependencies, tools or
+fonts. The dev servers cannot start (Vite/Next need `node_modules`), so nothing can be rendered —
+not at 390/768/1024/1440 px, not in the Tauri window, and not in either theme or direction.
+No screenshot was produced, and none is claimed. What *is* verified is source-level and
+tool-based: the copy/token/contrast gate, the catalog checker, CI typecheck/lint/unit/integration
+suites, and the offline Node and Python suites listed in FIX_LOG.md.
 
-| Screen | Actor | Job | Primary action | States | Status |
-| --- | --- | --- | --- | --- | --- |
-| `/` (727L) | Visitor | Understand the product | Start free / sign in | marketing sections, locale switch | redesigned (badge case, copy trims) |
-| `/pricing` (286L) | Visitor | Compare plans | Choose plan | plan grid, limits, billing note | system-wide |
-| `/login` (217L) | Any user | Sign in | Sign in | invalid credentials, unverified email, rate limit | redesigned (verify-email note) |
-| `/signup`, `/forgot-password`, `/reset-password`, `/verify-email`, `/invite` | Invitee/user | Create or recover access | Submit | token missing/expired, success, validation | system-wide |
-| `/platform/*` (dashboard 541L, tenants 366L, subscriptions 254L, plans 447L, audit 250L, login 145L) | Platform admin | Operate tenants and plans | Suspend/activate, save plan | empty, filtered-empty, load failure, save failure, archive impact, pagination | partly redesigned (dashboard labels); audit/tenants/plans follow-up |
-| `layout`, `error`, `loading`, `not-found` | All | — | Retry / go home | error, loading | system-wide |
+**Source-level evidence that does exist for the interaction columns** (recorded as partial, not
+as verification): `useDialog` implements the focus trap, Escape handling, scroll lock and return
+focus (`src/components/ui.tsx:1537`), and `tests/dialog-certification-ux.test.ts` asserts those
+contracts; `CommandPalette` now keeps the active option in view and exposes it through
+`aria-activedescendant`; tables that exceed their column live inside `overflow-x-auto` containers
+rather than the page (verified by reading each table host, e.g. `platform/audit`, `platform/tenants`).
 
-### Desktop — Manager (Tauri)
-
-| Screen | Actor | Job | Primary action | States | Status |
-| --- | --- | --- | --- | --- | --- |
-| Shell (`main.tsx` 1183L) | Windows operator | Pair and stay connected | Pair agent / connect | not configured, checking, connected, unreachable, read-only, stop-agent confirm | partly redesigned (connection copy, dialogs); deep pass follow-up |
-| `Sidebar` | Operator | Navigate | — | collapsed/expanded, RTL | redesigned (label case, duration) |
-| `Overview` (131L) | Operator | Answer "is it working?" | Refresh | gateway/queue/agent states, empty printers | redesigned (fleet rows, queue label) |
-| `Agents` (91L) | Operator | Inspect the local service | Refresh / restart | running, stopped, admin-required, elevation | redesigned (DetailList) |
-| `Printers` (66L) | Operator | See available printers | Add / test print | online, offline, unassigned, virtual filtered | redesigned (case, hierarchy) |
-| `Jobs` (84L) | Operator | Check print outcomes | Refresh / reprint | queued, printing, done, failed, unknown | redesigned (case, vocabulary) |
-| `Settings` (111L) | Operator | Pair, configure, diagnose | Save / pair | pairing code, admin-required, connection tested | redesigned (dedup badges) |
-| `AddPrinterDialog` (396L), `EditPrinterDialog` (275L) | Operator | Register/repair a printer | Save | validation, discovery source, transport, failure | follow-up |
-| `AdminPrivilegeDialog`, `JobTimeline` (149L), `ui.tsx` (104L) | Operator | Explain privilege / read timeline | — | blocked, mixed outcomes | partly redesigned (`ui.tsx` primitives, warning fill) |
-
-### Shared surfaces in both shells
-
-| Component | Used by | Status |
-| --- | --- | --- |
-| `components/ui.tsx` (1958L) — Button, Card, Callout, Input, Checkbox, Modal, Drawer, Tabs, Table, EmptyState, Skeleton, Progress, StatusBadge, PageHeader | every Gateway screen | redesigned (primary fill, control border, heading scale, scroll lock) |
-| `components/AppShell.tsx`, `TopNavbar`, `CommandPalette`, `LanguageSwitcher`, `ThemeToggle`, `AuthShell`, `brand.tsx` | shell | partly redesigned (nav labels); CommandPalette/Palette follow-up |
-| `components/JobTimeline.tsx`, `JobCleanupButton`, `PrintCertificationWizard`, `platform/overview-charts` | job detail, certification | partly redesigned (theme/labels) |
-| `src/desktop/ui.tsx`, `components/Sidebar` | desktop shell | redesigned |
-| `globals.css` tokens + `desktop/theme-light.css`, `desktop/public/theme-init.css` | both | redesigned (contrast fills, table head, pre-paint colours) |
-
-### Copy conventions applied
-
-| Rule | Where |
-| --- | --- |
-| Page titles 2–5 words; descriptions optional, one sentence | catalog values touched this pass |
-| Buttons name the action ("Create key", "Re-run checks", "Refresh printers") | `ui.tsx` + pages |
-| Errors say what happened and what to do next | `errors.*`, `health.*`, `billing.*` |
-| Developer detail behind `<details>` ("Technical detail") | release-readiness compliance rows |
-| Uppercase reserved for `.label-caps`/`.text-eyebrow` and mono data entry | repo-wide |
-| Arabic rewritten with the English in the same change; Glossary in `docs/TERMINOLOGY.md` | 2284-key parity, gate-enforced |
+**Known residual (not fixed, deliberately):** icon-only buttons in dense navigation rows are
+32–36 px tall, below the ~44 px touch target the guidance prefers. Enlarging them affects every
+row of every list and would need rendered verification to avoid regressions, which is unavailable
+here.
 
 ### Features preserved (simplification without removal)
 
@@ -278,3 +271,10 @@ exists, in the same route or the same dialog, with the same handler.
 | system-health | overall state, 4 cohort counts, per-check cards, latency, refresh, stale-sample warning | yes | "Sampled {time}" localized |
 | dashboard | KPIs, fleet list, printers, jobs, filters, drawers, cert wizard, quota dialog, cleanup, reprint | yes | only labels/case changed |
 | desktop | pair, connect, stop agent, add/edit printer, admin privilege, per-printer test print, job outcomes | yes | labels/case/hierarchy only |
+| D14 | P2 | Desktop | src/components/CommandPalette.tsx:80 | Arrow-key navigation in the ⌘K palette moved the highlight through up to 24 results inside a 52vh scroll container without scrolling it into view, so Enter could run an item the operator could no longer see. | fixed |
+| D15 | P2 | Gateway a11y | src/components/CommandPalette.tsx:150 | Focus stays in the search field (correct), but the highlighted option was not exposed: no aria-activedescendant and no option ids, so assistive technology announced nothing about the active result. | fixed |
+| D16 | P2 | Desktop | src/desktop/main.tsx:1026 | Raw API enum values were interpolated into visible text (agent status in the printer drawer, printers table and add dialog), rendering "online"/"unknown" untranslated in the Arabic UI instead of the shared status vocabulary. | fixed |
+| D17 | P2 | Desktop | src/desktop/components/AddPrinterDialog.tsx:264 | English-only placeholders ("e.g. Kitchen receipt", "192.168.1.50 (LAN IP)") bypassed the catalog, and the empty-spooler condition was reported three times at once (hint, disabled option, manual input). | fixed |
+| D18 | P2 | Platform | src/app/platform/audit/page.tsx:186 | Platform screens carried eyebrows and section subtitles that restated their own navigation group and headings; the audit table rendered actor enums and the "Platform" scope label untranslated; the plan archive-impact sentence was assembled from four catalog fragments around inline markup, which constrains word order in Arabic. | fixed |
+| D19 | P3 | Gateway | src/components/AppShell.tsx:403 | Fifteen files used arbitrary duration values (duration-[140ms], duration-[160ms], duration-[200ms]) instead of the shared motion scale, so transition timing drifted between screens. | fixed |
+| U09 | P1 | Tooling verification | FIX_LOG.md:1 | Rendered verification is impossible in this environment: no browser engine binary, no Playwright/Puppeteer/Selenium package, no cached browser download and no node_modules, with dependency installation forbidden. Responsive (390/768/1024/1440), RTL, light/dark rendering, keyboard traversal, 200% zoom and the Tauri window at minimum size remain UNVERIFIED; no screenshots exist. | unverified |

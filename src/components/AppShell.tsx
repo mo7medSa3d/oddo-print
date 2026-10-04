@@ -400,7 +400,7 @@ function ConsoleShell({
 
       {/* Content column */}
       <div
-        className="lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-[200ms] motion-safe:ease-out"
+        className="lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
         {/* Mobile chrome */}
         <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-edge/80 px-3 lg:hidden">
