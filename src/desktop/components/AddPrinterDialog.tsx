@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   Button,
@@ -44,6 +44,14 @@ export function AddPrinterDialog({
   // be keyed by URL: reusing gateway A's agents after switching to gateway
   // B would register the printer against an agentId B never issued.
   const [agentsForUrl, setAgentsForUrl] = useState("");
+
+  // Staleness is derived from the heartbeat (90s by default), so an honest
+  // status needs a clock that advances while the screen stays open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
   const [agentId, setAgentId] = useState("");
   const [upgradeLimit, setUpgradeLimit] = useState<{
     resource: UpgradeLimitResource;
@@ -250,7 +258,7 @@ export function AddPrinterDialog({
             <option value="">{t("desktop.add.selectActiveAgent")}</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null, lastSeenAt: a.lastSeenAt ?? null }, Date.now(), locale).label})
+                {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null, lastSeenAt: a.lastSeenAt ?? null }, nowMs, locale).label})
               </option>
             ))}
           </Select>

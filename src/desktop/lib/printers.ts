@@ -13,6 +13,7 @@ export {
   UNKNOWN_OUTCOME_MARKERS,
 } from "../../shared/job-vocabulary";
 import {
+  agentLiveView,
   deriveOutcome as deriveOutcomeImpl,
   jobLabel as jobLabelImpl,
   jobTone as jobToneImpl,
@@ -52,6 +53,19 @@ function tr(locale: Locale, key: MessageKey): string {
  * normalized metadata (and the same port-monitor table) instead of relying on
  * the printer name alone.
  */
+/** Heartbeat-aware status of the agent that owns a printer. */
+export function printerAgentView(
+  printer: PrinterInfo,
+  nowMs: number,
+  locale: Locale = DEFAULT_LOCALE,
+): { tone: Tone; label: string } {
+  return agentLiveView(
+    { status: printer.agentStatus ?? null, lastSeenAt: printer.agentLastSeenAt ?? null },
+    nowMs,
+    locale,
+  );
+}
+
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
   if (!p) return false;
   const anyP = p as unknown as Record<string, unknown>;

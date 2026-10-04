@@ -66,8 +66,8 @@ import {
   type PrinterInfo,
 } from "./lib/ipc";
 import {
-  agentLiveView,
   deriveOutcome,
+  printerAgentView,
   errMsg,
   friendlyPrinterError,
   humanConnection,
@@ -737,6 +737,14 @@ export default function App() {
   // Headings carry no subtitle where the panels already state their content.
   // The two that remain answer a question the operator cannot read off screen:
   // whose Agent this is, and what is configured here.
+  // Staleness is derived from the heartbeat (90s by default), so an honest
+  // status needs a clock that advances while the screen stays open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
   const pageMeta: Record<Page, { title: string; subtitle?: string }> = {
     dashboard: { title: t("desktop.nav.overview") },
     printers: { title: t("desktop.nav.printers") },
@@ -1014,7 +1022,7 @@ export default function App() {
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
                 {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
-                {agentLiveView({ status: selectedPrinter.agentStatus ?? null, lastSeenAt: selectedPrinter.agentLastSeenAt ?? null }, Date.now(), locale).label}
+                {printerAgentView(selectedPrinter, nowMs, locale).label}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agentHeartbeat")}>
                 {selectedPrinter.agentLastSeenAt ? formatDateTime(selectedPrinter.agentLastSeenAt) : "—"}
