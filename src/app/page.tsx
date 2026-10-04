@@ -187,7 +187,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                 title={t("home.flowTitle")}
                 text={t("home.flowText")}
               />
-              <p className="mt-6 inline-flex items-center gap-2 rounded-sm border border-edge bg-surface-2 px-3 py-1.5 text-xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+              <p className="mt-6 inline-flex items-center gap-2 rounded-sm border border-edge bg-surface-2 px-3 py-1.5 text-xs font-[600] text-ink-3">
                 {t("home.flowChain")}
               </p>
             </div>

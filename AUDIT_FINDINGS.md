@@ -191,3 +191,90 @@
 | D12 | P3 | Gateway | src/i18n/messages/en.ts:1 | Long-form copy pass: 44 verbose operational values trimmed in both catalogs with placeholders and safety warnings preserved. 84 values above 95 chars remain (release evidence, home marketing, safety/uncertainty text, test-locked desktop copy) and are retained deliberately; pass-1 removed-literal sweep found 4 test-locked values and none were trimmed. | fixed |
 | U08 | P2 | Tooling verification | FIX_LOG.md:1 | This sandbox has no `pytest` and no `cryptography` module, and no `rustc`; 7 of 167 Python static tests could not execute here (6 need `cryptography`, 1 needs `rustc`). 160/167 executed via a minimal pytest-compatible shim. | unverified |
 | D13 | P1 | Gateway | src/app/team/page.tsx:289 | The `useI18n()` number formatter already closes over the locale, so passing `locale` as its second argument (Intl options) is a type error that the offline sandbox could not detect; caught by the CI Typecheck and Docker `next build` jobs on the first push. Fixed and swept repo-wide for the same arity mistake. | fixed |
+
+## Screen and feature coverage matrix — UI redesign pass (2026-10-04)
+
+Every existing screen, its actor, its job, its primary action and its states. `Status`
+records what this pass actually did — `redesigned` = hierarchy/copy/structure changed here,
+`system-wide` = inherited the shared token/copy/contrast changes and verified clean by the
+gates, `follow-up` = identified for the next pass, not yet redesigned.
+
+Machine-checked for every row: no hard-coded JSX copy, every `rounded-*`/colour utility maps
+to a defined token, text and status colours meet WCAG AA (`scripts/check-ui-copy.py`), and
+en/ar catalogs stay key- and placeholder-equal (2284/2284).
+
+### Gateway — authenticated console
+
+| Screen | Actor | Job to be done | Primary action | States present | Status |
+| --- | --- | --- | --- | --- | --- |
+| `/dashboard` (`dashboard-client.tsx` 2110L) | Workspace manager/operator | See fleet health and act on problems | Pair agent / view job | loading skeleton, DB-unavailable, empty fleet, quota dialog, printer/job drawers, cert modal, partial failure per tab | redesigned (tokens, chips, readiness copy, job title, protocol case) |
+| `/api-keys` (479L) | Manager with `integrations.manage` | Create and manage Odoo credentials | Create key | no-key, waiting-for-Odoo, connected, disabled-at-source, one-time secret, revoke/delete confirms, load failure | redesigned (connection row, access-level badge, collapsed how-it-works) |
+| `/team` (656L) | Owner/manager | Manage members, invites, roles | Invite member | loading, forbidden/403, empty, pending invites, role change, remove/transfer confirms | redesigned (localized counts, remove copy) |
+| `/billing` (422L) + `BillingActions` + `UpgradeLimitDialog` | Owner | Understand plan, usage, payment state | Manage subscription | active, past-due, unpaid, paused, incomplete, canceled, credits exhausted, usage unavailable | redesigned (server copy keys, accent border, solid CTA) |
+| `/settings` (190L) | Manager | Workspace profile and role settings | Save | validation error, save success/failure, restricted role | follow-up (verified clean by gates) |
+| `/onboarding` (395L) | New manager | Finish first-run setup | Continue step | step progress, validation, no-card note, completion | redesigned (step chip, copy) |
+| `/system-health` (client 315L) | Manager / support | Read live subsystem state | Re-run checks | loading, unavailable, refresh failure with last sample, four cohorts | redesigned (localized sample time; 0 hard-coded copy) |
+| `/release-readiness` (302L) | Manager / release owner | Read evidence status honestly | Refresh | PASS/FAIL/BLOCKED/UNVERIFIED, technical detail disclosure | redesigned (status rows, detail disclosure) |
+
+### Gateway — public / auth / platform
+
+| Screen | Actor | Job | Primary action | States | Status |
+| --- | --- | --- | --- | --- | --- |
+| `/` (727L) | Visitor | Understand the product | Start free / sign in | marketing sections, locale switch | redesigned (badge case, copy trims) |
+| `/pricing` (286L) | Visitor | Compare plans | Choose plan | plan grid, limits, billing note | system-wide |
+| `/login` (217L) | Any user | Sign in | Sign in | invalid credentials, unverified email, rate limit | redesigned (verify-email note) |
+| `/signup`, `/forgot-password`, `/reset-password`, `/verify-email`, `/invite` | Invitee/user | Create or recover access | Submit | token missing/expired, success, validation | system-wide |
+| `/platform/*` (dashboard 541L, tenants 366L, subscriptions 254L, plans 447L, audit 250L, login 145L) | Platform admin | Operate tenants and plans | Suspend/activate, save plan | empty, filtered-empty, load failure, save failure, archive impact, pagination | partly redesigned (dashboard labels); audit/tenants/plans follow-up |
+| `layout`, `error`, `loading`, `not-found` | All | — | Retry / go home | error, loading | system-wide |
+
+### Desktop — Manager (Tauri)
+
+| Screen | Actor | Job | Primary action | States | Status |
+| --- | --- | --- | --- | --- | --- |
+| Shell (`main.tsx` 1183L) | Windows operator | Pair and stay connected | Pair agent / connect | not configured, checking, connected, unreachable, read-only, stop-agent confirm | partly redesigned (connection copy, dialogs); deep pass follow-up |
+| `Sidebar` | Operator | Navigate | — | collapsed/expanded, RTL | redesigned (label case, duration) |
+| `Overview` (131L) | Operator | Answer "is it working?" | Refresh | gateway/queue/agent states, empty printers | redesigned (fleet rows, queue label) |
+| `Agents` (91L) | Operator | Inspect the local service | Refresh / restart | running, stopped, admin-required, elevation | redesigned (DetailList) |
+| `Printers` (66L) | Operator | See available printers | Add / test print | online, offline, unassigned, virtual filtered | redesigned (case, hierarchy) |
+| `Jobs` (84L) | Operator | Check print outcomes | Refresh / reprint | queued, printing, done, failed, unknown | redesigned (case, vocabulary) |
+| `Settings` (111L) | Operator | Pair, configure, diagnose | Save / pair | pairing code, admin-required, connection tested | redesigned (dedup badges) |
+| `AddPrinterDialog` (396L), `EditPrinterDialog` (275L) | Operator | Register/repair a printer | Save | validation, discovery source, transport, failure | follow-up |
+| `AdminPrivilegeDialog`, `JobTimeline` (149L), `ui.tsx` (104L) | Operator | Explain privilege / read timeline | — | blocked, mixed outcomes | partly redesigned (`ui.tsx` primitives, warning fill) |
+
+### Shared surfaces in both shells
+
+| Component | Used by | Status |
+| --- | --- | --- |
+| `components/ui.tsx` (1958L) — Button, Card, Callout, Input, Checkbox, Modal, Drawer, Tabs, Table, EmptyState, Skeleton, Progress, StatusBadge, PageHeader | every Gateway screen | redesigned (primary fill, control border, heading scale, scroll lock) |
+| `components/AppShell.tsx`, `TopNavbar`, `CommandPalette`, `LanguageSwitcher`, `ThemeToggle`, `AuthShell`, `brand.tsx` | shell | partly redesigned (nav labels); CommandPalette/Palette follow-up |
+| `components/JobTimeline.tsx`, `JobCleanupButton`, `PrintCertificationWizard`, `platform/overview-charts` | job detail, certification | partly redesigned (theme/labels) |
+| `src/desktop/ui.tsx`, `components/Sidebar` | desktop shell | redesigned |
+| `globals.css` tokens + `desktop/theme-light.css`, `desktop/public/theme-init.css` | both | redesigned (contrast fills, table head, pre-paint colours) |
+
+### Copy conventions applied
+
+| Rule | Where |
+| --- | --- |
+| Page titles 2–5 words; descriptions optional, one sentence | catalog values touched this pass |
+| Buttons name the action ("Create key", "Re-run checks", "Refresh printers") | `ui.tsx` + pages |
+| Errors say what happened and what to do next | `errors.*`, `health.*`, `billing.*` |
+| Developer detail behind `<details>` ("Technical detail") | release-readiness compliance rows |
+| Uppercase reserved for `.label-caps`/`.text-eyebrow` and mono data entry | repo-wide |
+| Arabic rewritten with the English in the same change; Glossary in `docs/TERMINOLOGY.md` | 2284-key parity, gate-enforced |
+
+### Features preserved (simplification without removal)
+
+Checked against the pre-change files (`git show HEAD:<path>`) — every capability below still
+exists, in the same route or the same dialog, with the same handler.
+
+| Screen | Capability | Kept | Where it moved / why it reads shorter |
+| --- | --- | --- | --- |
+| api-keys | create key, one-time secret + copy, revoke, delete, rotate indicator, read-only grace, per-key Odoo state | yes | counts merged into one connection row; how-it-works collapsed into `<details>` (never removed) |
+| api-keys | workspace scope note | yes | sentence → `apiKeys.scopeNote`, same meaning |
+| team | invite, resend, role change, remove member, transfer ownership, pending list | yes | count badges now plural-correct per locale |
+| team | remove-member consequence text | yes | shortened, audit-log guarantee kept |
+| billing | plan, usage, remaining, payment state, portal, cancel, upgrade, credits | yes | server page strings moved to keys; the accent border on the action panel was an undefined class, so it was invisible before |
+| release-readiness | every status row, evidence line, BLOCKED/UNVERIFIED honesty, raw JSON panel | yes | 4 compliance paragraphs → 4 status rows + `<details>` detail (8 keys) |
+| system-health | overall state, 4 cohort counts, per-check cards, latency, refresh, stale-sample warning | yes | "Sampled {time}" localized |
+| dashboard | KPIs, fleet list, printers, jobs, filters, drawers, cert wizard, quota dialog, cleanup, reprint | yes | only labels/case changed |
+| desktop | pair, connect, stop agent, add/edit printer, admin privilege, per-printer test print, job outcomes | yes | labels/case/hierarchy only |

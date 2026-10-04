@@ -134,6 +134,15 @@ CODE_STATEMENT_HEADS = (
     "throw ", "declare ", "async ", "class ", "//", "*", "/*", "}",
 )
 ALLOWED_TEMPLATE_WORDS = re.compile(r"^(?:\$\{[^}]*\}|[\s.,:·—/×+()\-])+$")
+# A leftover word beside an interpolation is copy ("Sampled {time}", "{used} of
+# {limit}"). Units, punctuation and technical suffixes are not.
+UNIT_OR_TOKEN = {
+    "ms", "kb", "mb", "gb", "tb", "px", "min", "sec", "hr", "id", "ids", "ip", "url", "api",
+    "pdf", "usb", "zpl", "tspl", "esc", "pos", "ok", "x", "vs", "and", "or",
+}
+# Words left between interpolations are prose only when the remainder is
+# sentence-shaped: a leading letter, then letters/punctuation, no code syntax.
+WORD_BESIDE_EXPR = re.compile(r"^[A-Za-z][\sA-Za-z'’.,\-·/×%:]*(?:[A-Za-z'’])$")
 
 
 COMMENT_RE = re.compile(r"/\*.*?\*/|(?<![\w:/])//[^\n]*", re.S)
@@ -175,6 +184,23 @@ def check_hardcoded_copy() -> None:
                             "COPY",
                             f"{rel}:{line_no}",
                             f"JSX text bypasses t(): {phrase[:64]!r}",
+                        )
+                # The stripped span loses the interpolations, so scan the raw
+                # line for copy that sits *beside* an expression:
+                # `Sampled {time}` renders literal English in both locales.
+                for raw_span in re.findall(r">([^<>]*)<", line_text):
+                    if "{" not in raw_span:
+                        continue
+                    leftover = INTERPOLATION.sub(" ", raw_span).strip()
+                    if not WORD_BESIDE_EXPR.match(leftover):
+                        continue
+                    words = [w for w in re.findall(r"[A-Za-z][A-Za-z'’-]{1,}", leftover)
+                             if w.lower() not in UNIT_OR_TOKEN]
+                    if words:
+                        report(
+                            "COPY",
+                            f"{rel}:{line_no}",
+                            f"literal beside an interpolation: {leftover[:64]!r}",
                         )
             # A text line made only of interpolations plus words ("{used} of
             # {limit} print jobs used") carries copy but no tags.

@@ -810,6 +810,7 @@ export const en = {
   "health.checksNeedAttention.other": "{count} checks need attention — see the details below.",
   "health.versionGateway": "Gateway v{version}",
   "health.versionSchema": "Schema {version}",
+  "health.sampledAt": "Sampled {time}",
   "billingActions.stripeNotConfigured": "Stripe billing is not configured on this Gateway yet.",
   "billingActions.requestFailed": "Billing request failed",
   "billingActions.portalUrlMissing": "Billing portal URL was not returned",

@@ -816,6 +816,7 @@ export const ar: Catalog = {
   "health.checksNeedAttention.other": "يحتاج {count} فحص إلى انتباه — راجع التفاصيل أدناه.",
   "health.versionGateway": "الـ Gateway إصدار {version}",
   "health.versionSchema": "المخطط {version}",
+  "health.sampledAt": "آخر فحص {time}",
   "billingActions.stripeNotConfigured": "لم تُضبط فوترة Stripe على هذا الـ Gateway بعد.",
   "billingActions.requestFailed": "تعذّر تنفيذ طلب الفوترة",
   "billingActions.portalUrlMissing": "لم يُرجَع رابط بوابة الفوترة",

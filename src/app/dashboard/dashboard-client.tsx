@@ -1416,7 +1416,7 @@ export default function DashboardClient({
                           {printer.protocol && (
                             <>
                               <span aria-hidden>·</span>
-                              <span className="uppercase">{printer.protocol}</span>
+                              <span className="font-[550] text-ink-3">{printer.protocol}</span>
                             </>
                           )}
                         </div>
