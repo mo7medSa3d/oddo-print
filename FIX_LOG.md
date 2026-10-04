@@ -68,6 +68,13 @@ derives "heartbeat lost" from a missing or stale `lastSeenAt`, so an online agen
 barrel without its heartbeat would have shown as offline in the printers table, the printer drawer and the
 add-printer agent list.
 
+CI on this branch is green on the final commit: `ci` 39/39 steps (including Typecheck, Lint, the i18n
+catalog check, the offline audit regressions and the vitest suites), `docker-build-runtime` (a real
+`next build` inside the image), `odoo19`, `supply-chain`, `postgres-failure-injection`, CodeQL (go/js-ts/py),
+Dependency Review and the secret scan. `build-windows` fails identically on `main` @ `30a4221`, so it is
+pre-existing and not attributable to this branch. That is the strongest verification available here:
+typecheck, lint and build are verified remotely; only *rendering* remains unverified.
+
 Visual QA is NOT done and cannot be done here: no Chromium/Chrome/Firefox binary, no Playwright,
 Puppeteer or Selenium package, no cached browser download, no node_modules (so the Next and Vite dev
 servers cannot run), and installing or downloading any of them is forbidden by the repository rules.
