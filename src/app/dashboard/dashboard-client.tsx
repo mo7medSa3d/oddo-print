@@ -7,8 +7,8 @@ import {
   deleteAgentResult,
   getDashboardJobsResult,
   getDashboardStateResult,
-  setAgentLifecycle,
-  setPrinterLifecycle,
+  setAgentLifecycleResult,
+  setPrinterLifecycleResult,
 } from "../actions";
 import {
   AlertTriangle,
@@ -468,6 +468,8 @@ export default function DashboardClient({
   const getDashboardJobs = React.useCallback((options?: Parameters<typeof getDashboardJobsResult>[0]) => dashboardRequest(() => getDashboardJobsResult(options)), [dashboardRequest]);
   const getDashboardState = React.useCallback(() => dashboardRequest(getDashboardStateResult), [dashboardRequest]);
   const deleteAgent = (id: string) => dashboardRequest(() => deleteAgentResult(id));
+  const setPrinterLifecycle = (id: string, lifecycle: "active" | "disabled" | "retired") => dashboardRequest(() => setPrinterLifecycleResult(id, lifecycle));
+  const setAgentLifecycle = (id: string, lifecycle: "active" | "disabled" | "retired") => dashboardRequest(() => setAgentLifecycleResult(id, lifecycle));
 
   const jobsGeneration = React.useRef(0);
   const filterRef = React.useRef({ status: "all", search: "" });
