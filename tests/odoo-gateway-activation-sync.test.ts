@@ -250,7 +250,9 @@ describe("Odoo Gateway auto-sync client record identity", () => {
     const source = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
     expect(source).toContain("const resId = record.resId;");
     expect(source).toContain("[[resId]]");
-    expect(source).toContain("method,");
+    // The A168 rewrite inlined the action choice instead of passing a
+    // `method` variable; both post-save actions and the resId identity stay pinned.
+    expect(source).toContain('"action_test_connection" : "action_retry_enabled_sync"');
     expect(source).toContain("await this.model.load({ resId });");
     expect(source).not.toContain("record.id");
     expect(source).not.toContain("[[record.id]]");
