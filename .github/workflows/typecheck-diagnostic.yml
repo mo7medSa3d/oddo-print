@@ -1,4 +1,4 @@
-name: Typecheck diagnostic
+name: Typecheck and lint diagnostic
 
 # Temporary, branch-scoped diagnostic.
 #
@@ -30,6 +30,31 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Lint and publish violations as annotations
+        shell: bash
+        run: |
+          set -uo pipefail
+          npx eslint . --format json > /tmp/eslint.json 2>/tmp/eslint.err || true
+          head -c 2000 /tmp/eslint.err
+          node -e '
+            const fs = require("fs");
+            let reports = [];
+            try { reports = JSON.parse(fs.readFileSync("/tmp/eslint.json", "utf8")); }
+            catch (error) { console.log("::error::could not parse eslint json"); process.exit(0); }
+            const cwd = process.cwd() + "/";
+            let count = 0;
+            for (const report of reports) {
+              for (const message of report.messages) {
+                if (count > 45) continue;
+                count += 1;
+                const level = message.severity === 2 ? "error" : "warning";
+                const text = String(message.message).replace(/%/g, "%25").replace(/\r?\n/g, "%0A");
+                const file = report.filePath.startsWith(cwd) ? report.filePath.slice(cwd.length) : report.filePath;
+                console.log(`::${level} file=${file},line=${message.line || 1},col=${message.column || 1}::${text} (${message.ruleId || "eslint"})`);
+              }
+            }
+            console.log(`eslint messages: ${count}`);
+          '
       - name: Typecheck and publish errors as annotations
         shell: bash
         run: |
