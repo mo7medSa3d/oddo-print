@@ -81,17 +81,18 @@ export function AddPrinterDialog({
   // `/api/printers` rows are camelCase too, so reading only snake_case made
   // these two lists permanently empty.
   const physicalSpoolers = useMemo(
-    () => printers.filter((p) => isProductionPrinter(p) && (p.spooler_name || p.spoolerName)),
-    [printers]
+    () => printers.filter((p) => p.agentId === agentId && isProductionPrinter(p) && (p.spooler_name || p.spoolerName)),
+    [printers, agentId]
   );
   const usbPrinters = useMemo(
     () =>
       printers.filter(
         (p) =>
+          p.agentId === agentId &&
           ((p.connection_type || p.connectionType) || "").toLowerCase() === "usb" &&
           isProductionPrinter(p)
       ),
-    [printers]
+    [printers, agentId]
   );
 
   const validate = (): string | null => {
@@ -161,15 +162,16 @@ export function AddPrinterDialog({
         req.protocol = conn;
       }
       if (conn === "usb") {
-        const sel = usbPrinters.find((p) => p.id === usbSel);
+        const sel = usbPrinters.find((p) => p.id === usbSel && p.agentId === agentId);
+        if (!sel) throw new Error(t("desktop.add.selectUsb"));
         if (sel) {
           const sourceConfig = sel.config && typeof sel.config === "object"
             ? sel.config as Record<string, unknown>
             : {};
-          req.usbVid = sel.usbVid ?? (sourceConfig.vid != null ? String(sourceConfig.vid) : undefined);
-          req.usbPid = sel.usbPid ?? (sourceConfig.pid != null ? String(sourceConfig.pid) : undefined);
+          req.usbVid = sourceConfig.vid != null ? String(sourceConfig.vid) : sel.usbVid ? "0x" + sel.usbVid.replace(/^0x/i, "") : undefined;
+          req.usbPid = sourceConfig.pid != null ? String(sourceConfig.pid) : sel.usbPid ? "0x" + sel.usbPid.replace(/^0x/i, "") : undefined;
           req.usbSerial = sel.usbSerial ?? (sourceConfig.serial != null ? String(sourceConfig.serial) : undefined);
-          const discoveredSpooler = sel.spooler_name ?? (typeof sourceConfig.spooler_name === "string" ? sourceConfig.spooler_name : "");
+          const discoveredSpooler = sel.spooler_name ?? sel.spoolerName ?? (typeof sourceConfig.spooler_name === "string" ? sourceConfig.spooler_name : "");
           if (discoveredSpooler.trim()) {
             req.spoolerName = discoveredSpooler.trim();
             req.endpoint = discoveredSpooler.trim();

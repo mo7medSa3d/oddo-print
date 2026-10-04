@@ -273,3 +273,7 @@ one authority per decision:
 **Enforcement**: `tests/database-clock.test.ts` (unit, behaviour and source
 contracts) and `tests/database-clock.integration.test.ts` (live calibration,
 single-reading TTL invariant, quota rollback).
+
+New physical dispatch requires an acknowledged, claim-fenced `printing` response (`success: true`, `status: "printing"`). Local delivery receipt age is diagnostic only; a buffered frame may already have a stale claim. An unacknowledged admission sends no hardware bytes. Printing that already crossed this boundary retains its durable outcome reporting through a later disconnect. Repeated admission for the same live printing claim is acknowledged without creating another job or physical attempt.
+
+Gateway document-type displays and admission share the pure `validatePayloadForPrinter` implementation in `src/lib/printer-capability.ts`, re-exported by routing. Explicit supported_protocols remain authoritative, and physical backend restrictions still override unsupported image/PDF capabilities. The Go capability matrix remains the matching Agent authority.

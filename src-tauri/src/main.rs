@@ -47,11 +47,19 @@ fn main() {
             #[cfg(windows)]
             {
                 use tauri_plugin_autostart::ManagerExt;
-                apply_first_launch_autostart(
-                    &paths::manager_data_root().join("autostart-user-choice"),
-                    || app.autolaunch().enable().map_err(|e| e.to_string()),
-                    |path| std::fs::write(path, "1").map_err(|e| e.to_string()),
-                );
+                if std::env::var("YASEIR_MANAGER_AUTOSTART_AGENT").as_deref() != Ok("0") {
+                match paths::autostart_choice_path() {
+                    Ok(marker) => apply_first_launch_autostart(
+                        &marker,
+                        || app.autolaunch().enable().map_err(|e| e.to_string()),
+                        |path| {
+                            if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+                            std::fs::write(path, "1").map_err(|e| e.to_string())
+                        },
+                    ),
+                    Err(error) => logging::error(&error),
+                }
+                }
             }
 
             tray::setup_tray(app.handle())?;
@@ -70,10 +78,10 @@ fn main() {
 
             // Start exactly one agent. A missing/unregistered configuration is
             // not fatal to the desktop app; the agent logs the situation.
-            if let Err(e) = agent::ensure_started(app.handle()) {
-                logging::warn(&format!(
-                    "agent could not be started during setup: {e}"
-                ));
+            if std::env::var("YASEIR_MANAGER_AUTOSTART_AGENT").as_deref() == Ok("0") {
+                logging::info("automatic Agent startup disabled by explicit environment setting");
+            } else if let Err(e) = agent::ensure_started(app.handle()) {
+                logging::warn(&format!("agent could not be started during setup: {e}"));
             } else {
                 logging::info("agent process/service started during setup");
             }
@@ -119,12 +127,8 @@ fn main() {
     };
 
     app.run(|_app_handle, event| match event {
-        tauri::RunEvent::ExitRequested { .. } => {
-            logging::info("application exit requested")
-        }
-        tauri::RunEvent::Exit => {
-            logging::info("application exited")
-        }
+        tauri::RunEvent::ExitRequested { .. } => logging::info("application exit requested"),
+        tauri::RunEvent::Exit => logging::info("application exited"),
         _ => {}
     });
 }
@@ -170,7 +174,8 @@ mod autostart_tests {
     use super::apply_first_launch_autostart;
 
     fn temp_marker(test: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("odoo-autostart-{test}-{:?}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("odoo-autostart-{test}-{:?}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("autostart-user-choice")
     }
@@ -179,8 +184,15 @@ mod autostart_tests {
     fn first_launch_enable_success_persists_the_marker() {
         let marker = temp_marker("ok");
         let _ = std::fs::remove_file(&marker);
-        apply_first_launch_autostart(&marker, || Ok(()), |p| std::fs::write(p, "1").map_err(|e| e.to_string()));
-        assert!(marker.exists(), "successful default-enable must record the marker");
+        apply_first_launch_autostart(
+            &marker,
+            || Ok(()),
+            |p| std::fs::write(p, "1").map_err(|e| e.to_string()),
+        );
+        assert!(
+            marker.exists(),
+            "successful default-enable must record the marker"
+        );
         let _ = std::fs::remove_file(&marker);
     }
 
@@ -199,8 +211,14 @@ mod autostart_tests {
                 Ok(())
             },
         );
-        assert!(!marker_written.get(), "failed enable must not invoke the marker write at all");
-        assert!(!marker.exists(), "failed enable must leave the state retryable (no marker)");
+        assert!(
+            !marker_written.get(),
+            "failed enable must not invoke the marker write at all"
+        );
+        assert!(
+            !marker.exists(),
+            "failed enable must leave the state retryable (no marker)"
+        );
     }
 
     #[test]
@@ -218,7 +236,10 @@ mod autostart_tests {
             },
             |_p| Ok(()),
         );
-        assert!(!enable_called, "an existing marker means the decision is already recorded");
+        assert!(
+            !enable_called,
+            "an existing marker means the decision is already recorded"
+        );
         let _ = std::fs::remove_file(&marker);
     }
 

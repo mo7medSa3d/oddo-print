@@ -25,7 +25,7 @@ export async function PATCH(req: Request) {
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { name?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (name.length < 2 || name.length > 120) return NextResponse.json({ error: "Workspace name must be 2-120 characters" }, { status: 400 });
   await db.transaction(async (tx) => {

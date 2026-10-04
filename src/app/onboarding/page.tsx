@@ -162,7 +162,7 @@ export default function Onboarding() {
       });
       const checkoutData = await checkout.json().catch(() => ({}));
       if (!checkout.ok || typeof checkoutData.url !== "string") {
-        throw new Error(typeof checkoutData.error === "string" ? checkoutData.error : t("onboarding.checkoutUnavailable"));
+        throw new Error(t(codeMessageKey(checkoutData.code) ?? "onboarding.checkoutUnavailable"));
       }
       window.location.href = checkoutData.url;
     } catch (error) {
@@ -303,7 +303,7 @@ export default function Onboarding() {
                               {included.map(([key, value]) => (
                                 <div key={key} className="flex items-center justify-between gap-4">
                                   <dt className="capitalize text-ink-3">
-                                    {key.replace(/^max_/, "").replace(/_/g, " ")}
+                                    {t(({ max_agents: "pricing.entitlement.agents", max_printers: "pricing.entitlement.printers", max_jobs_per_minute: "pricing.entitlement.jobsPerMinute", max_concurrent_jobs: "pricing.entitlement.concurrentJobs", max_prints_per_period: "pricing.entitlement.prints" } as Record<string, import("../../i18n/messages/en").MessageKey>)[key] ?? "common.unknown")}
                                   </dt>
                                   <dd className="font-[600] tabular text-ink">
                                     {typeof value === "boolean" ? (value ? t("onboarding.included") : t("onboarding.notIncluded")) : String(value)}

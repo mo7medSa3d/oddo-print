@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -20,11 +20,12 @@ import {
   Sun,
   X,
 } from "lucide-react";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
-import { Avatar, Menu, type MenuItemSpec } from "./ui";
+import { Avatar, Menu, useDialog, type MenuItemSpec } from "./ui";
 import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
-import { LanguageSwitcher } from "./LanguageSwitcher";
+import { ensureCustomerSession } from "../lib/session-config";
 import { BrandMark } from "./brand";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
@@ -216,6 +217,8 @@ function ConsoleShell({
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobilePanelRef = useRef<HTMLDivElement>(null);
+  useDialog(mobileOpen, () => setMobileOpen(false), mobilePanelRef);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>({});
   const [renderedPath, setRenderedPath] = useState(pathname);
@@ -290,19 +293,6 @@ function ConsoleShell({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [mobileOpen]);
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -437,7 +427,7 @@ function ConsoleShell({
 
       {/* Mobile navigation sheet */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
+        <div data-dialog-root className="fixed inset-0 z-50 lg:hidden" role="presentation">
           <div
             className="pg-fade-in absolute inset-0"
             style={{ backgroundColor: "var(--overlay)" }}
@@ -445,6 +435,8 @@ function ConsoleShell({
             aria-hidden
           />
           <div
+            ref={mobilePanelRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label={t("nav.consoleNavigation")}
@@ -489,6 +481,11 @@ function ConsoleShell({
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  useEffect(() => {
+    const refresh = () => router.refresh();
+    window.addEventListener("yaseir:locale-navigation", refresh);
+    return () => window.removeEventListener("yaseir:locale-navigation", refresh);
+  }, [router]);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -504,29 +501,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isPlatformScreen || isAuthScreen || isPublicScreen) return;
     let cancelled = false;
-    fetch("/api/auth/me", { method: "GET", credentials: "include", cache: "no-store" })
-      .then((res) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checking = false;
+    const check = async () => {
+      if (checking || cancelled) return;
+      checking = true;
+      if (timer !== undefined) clearTimeout(timer);
+      try {
+        const session = await ensureCustomerSession();
         if (cancelled) return;
-        if (res.ok) {
-          setAuthenticated(true);
-        } else {
-          // The shell is a presentation boundary, never an authorization
-          // boundary: the console API routes would reject these requests
-          // regardless (validateManager + per-route permissions). Redirecting
-          // here only stops the user from staring at a chrome-less page whose
-          // contents fail with 401s. Auth/public/platform screens are never
-          // captured as a return destination to prevent redirect loops.
-          const dest = encodeURIComponent(pathname);
-          router.replace(`/login?next=${dest}`);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAuthenticated(false);
-      });
-
-    return () => {
-      cancelled = true;
+        if (!session.authenticated) { setAuthenticated(false); router.replace(`/login?next=${encodeURIComponent(pathname)}`); return; }
+        setAuthenticated(true);
+        timer = setTimeout(() => { void check(); }, Math.max(1000, Math.min(13 * 60 * 1000, session.expiresAt - Date.now() - 60000)));
+      } catch {
+        if (!cancelled) timer = setTimeout(() => { void check(); }, 30000);
+      } finally { checking = false; }
     };
+    const visible = () => { if (document.visibilityState === "visible") { if (timer !== undefined) clearTimeout(timer); void check(); } };
+    void check();
+    document.addEventListener("visibilitychange", visible);
+    return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer); document.removeEventListener("visibilitychange", visible); };
   }, [pathname, isPlatformScreen, isAuthScreen, isPublicScreen, router]);
 
   async function handleLogout() {

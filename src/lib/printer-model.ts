@@ -50,7 +50,11 @@ export function assertPrinterMetadataLimits(input: Pick<CanonicalPrinterInput, "
  */
 export function isAllowedPrinterDestination(ip: string): boolean {
   // Accept bare IPv6 addresses and URL-style bracketed IPv6 literals.
-  const host = ip.trim().replace(/^\[([^\]]+)\]$/, "$1");
+  let host = ip.trim().replace(/^\[([^\]]+)\]$/, "$1");
+  if (host.includes(":")) {
+    try { host = new URL(`http://[${host}]/`).hostname.replace(/^\[([^\]]+)\]$/, "$1"); }
+    catch { return false; }
+  }
   // Reject the IPv4/IPv6 cloud-instance metadata endpoints even though they
   // are technically link-local/ULA destinations. A printer configuration
   // must never become a metadata-service proxy.

@@ -1,4 +1,4 @@
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { IncomingMessage, Server as HttpServer } from "http";
 import type { Duplex } from "node:stream";
 import type { PoolClient } from "pg";
@@ -894,6 +894,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
 
   server.on("upgrade", async (req: IncomingMessage, socket, head) => {
     let reservationActive = false;
+    let completeRegistration: (ready: boolean) => void = () => {};
     const releaseReservation = () => {
       if (!reservationActive) return;
       reservationActive = false;
@@ -969,7 +970,7 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       reservationActive = true;
       markAgentSocketRegistrationPending(agent!.id);
       let registrationPending = true;
-      const completeRegistration = (ready: boolean) => {
+      completeRegistration = (ready: boolean) => {
         if (!registrationPending) return;
         registrationPending = false;
         finishAgentSocketRegistrationPending(agent!.id, ready);
@@ -978,13 +979,38 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
       // A raw client disconnect or synchronous handshake failure must release
       // the global reservation. Otherwise repeated failed upgrades can exhaust
       // MAX_TOTAL_AGENT_SOCKETS even though no WebSocket was registered.
-      socket.once("close", releaseReservation);
+      socket.once("close", () => {
+        releaseReservation();
+        completeRegistration(false);
+      });
       wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const aws = ws as AgentSocket;
           aws.isAlive = true;
           aws.tenantId = agent!.tenantId;
           aws.on("pong", () => { aws.isAlive = true; });
           aws.lifecycleRevision = agent!.lifecycleRevision;
+          // Handshake completion precedes asynchronous lifecycle admission.
+          // Capture bounded frames/errors immediately so early ACKs are retained.
+          const earlyMessages: RawData[] = [];
+          let earlyBytes = 0;
+          const captureEarlyMessage = (data: RawData) => {
+            const size = Buffer.byteLength(data.toString(), "utf8");
+            if (size > MAX_WS_MESSAGE_BYTES || earlyBytes + size > MAX_WS_MESSAGE_BYTES || earlyMessages.length >= MAX_WS_INFLIGHT_MESSAGES_PER_AGENT) {
+              earlyMessages.length = 0;
+              ws.close(1009, "too much data before lifecycle admission");
+              return;
+            }
+            earlyBytes += size;
+            earlyMessages.push(data);
+          };
+          const handleEarlyError = (error: Error) => {
+            logUpgradeError(error);
+            earlyMessages.length = 0;
+            ws.terminate();
+          };
+          ws.on("message", captureEarlyMessage);
+          ws.on("error", handleEarlyError);
+
 
           // Lifecycle changes can race the async authentication/upgrade path.
           // Register only under a shared lifecycle lock: tracking first would
@@ -1013,6 +1039,9 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
               // lazily creates or reuses the persistent agent-level limiter, so
               // reconnects retain token state instead of resetting evasion budget.
               wss.emit("connection", ws, req);
+              ws.removeListener("message", captureEarlyMessage);
+              ws.removeListener("error", handleEarlyError);
+              for (const data of earlyMessages.splice(0)) ws.emit("message", data, false);
             } catch (error) {
               releaseReservation();
               completeRegistration(false);
@@ -1028,10 +1057,15 @@ export function attachAgentWSS(server: HttpServer, options: AgentWSSOptions = {}
 
           // A client can disconnect while lifecycle verification waits on PostgreSQL.
           // Release only the reservation; readyState is checked before registration.
-          aws.once("close", releaseReservation);
+          aws.once("close", () => {
+            releaseReservation();
+            completeRegistration(false);
+            earlyMessages.length = 0;
+          });
         });
     } catch (error) {
       releaseReservation();
+      completeRegistration(false);
       logUpgradeError(error);
       if (!socket.destroyed && !socket.writableEnded) {
           writeWsHttpError(socket, 500, "WebSocket upgrade failed");

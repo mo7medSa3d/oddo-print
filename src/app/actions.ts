@@ -195,7 +195,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
     const ownerAgentId = (owner.rows[0] as { agent_id?: string } | undefined)?.agent_id;
     if (!ownerAgentId) throw new ActionError(t("errors.printerNotFound"), 404);
 
-    if (lifecycle === "active") {
+    {
       const agent = await tx.execute(sql`
         SELECT lifecycle
         FROM agents
@@ -204,7 +204,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       `);
       const agentLifecycle = (agent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
       if (!agentLifecycle) throw new ActionError(t("errors.printerOwnerMissing"), 404);
-      if (agentLifecycle !== "active") {
+      if (lifecycle === "active" && agentLifecycle !== "active") {
                 // Translate the stored enum: it is a database identifier, not copy.
         throw new ActionError(t("errors.printerOwnerLifecycle", { state: lifecycleLabel(t, agentLifecycle) }), 409);
       }
@@ -270,7 +270,7 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
     // transitionAgentLifecycle persists the single authoritative lifecycle
     // audit event inside the same transaction as the state change.
     revalidatePath("/dashboard");
-    return { lifecycle: result.lifecycle, pairingCode: result.pairingCode };
+    return { lifecycle: result.lifecycle, pairingCode: result.pairingCode, pairingCodeExpiresAt: result.pairingCodeExpiresAt };
   } catch (error) {
     if (error instanceof LifecycleConflict) throw new ActionError(t("errors.lifecycleConflict"), 409);
     throw error;

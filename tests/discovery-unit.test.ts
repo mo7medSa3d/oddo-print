@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { isPrivateCIDR, confidenceFor, DISCOVERY_SOURCES, DISCOVERY_PROTOCOLS } from "../src/lib/discovery";
 
+
+
 describe("discovery taxonomy", () => {
   it("canonical sources include all required", () => {
     expect(DISCOVERY_SOURCES).toContain("mdns");
@@ -50,13 +52,8 @@ describe("confidence scoring deterministic", () => {
   });
 });
 
-describe("deduplication mental model", () => {
-  it("mDNS + IPP + SNMP for same printer should deduplicate (simulated via sources array)", () => {
-    const sources = [["mdns"],["ipp"],["snmp"]];
-    const merged = Array.from(new Set(sources.flat()));
-    expect(merged.length).toBe(3);
-    // single logical device after dedup would be 1, not 3
-    const deduped = 1;
-    expect(deduped).toBe(1);
+
+  it("rejects nondecimal CIDR octets/prefixes instead of numeric coercion", () => {
+    for (const cidr of ["10..1.0/24", "10.0x10.0.0/24", "10.1.5e1.0/24", "10.1.1.0/0x18", "10.1.1.0/2.4e1", "10.01.1.0/24", "10.1.1.0/ 24"]) expect(isPrivateCIDR(cidr)).toBe(false);
+    expect(isPrivateCIDR("10.255.254.0/24")).toBe(true);
   });
-});

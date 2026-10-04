@@ -29,10 +29,8 @@ const (
 	// bytes of padding/newlines after it.
 	pdfEOFSearchWindow = 4096
 
-	// Maximum time assigned to the embedded render/print pipeline. The agent's
-	// caller budget remains authoritative for non-PDF transports, while PDF
-	// keeps its existing dedicated budget so a larger document is not clipped
-	// by a nearly-expired outer context.
+	// Fallback when no renderer deadline was assigned by the caller.
+	// A deliberate caller budget remains authoritative.
 	defaultPDFPrintTimeout = 120 * time.Second
 )
 
@@ -126,8 +124,8 @@ func isWindowsChmodUnsupported(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not supported")
 }
 
-// PrintPDF gives the embedded PDF submission its own 120-second deadline
-// while still propagating caller cancellation. A callback can be supplied for
+// PrintPDF preserves the assigned renderer deadline and cancellation, using
+// a 120-second fallback only without a deadline. A callback can be supplied for
 // deterministic tests; production uses the platform renderer.
 func PrintPDF(ctx context.Context, printerName string, doc Document, printFn PDFPrintFunc) error {
 	if err := ValidatePDF(doc.Data); err != nil {
@@ -147,18 +145,14 @@ func PrintPDF(ctx context.Context, printerName string, doc Document, printFn PDF
 	}
 	defer cleanup()
 
-	printCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultPDFPrintTimeout)
+	var printCtx context.Context
+	var cancel context.CancelFunc
+	if _, assigned := ctx.Deadline(); assigned {
+		printCtx, cancel = context.WithCancel(ctx)
+	} else {
+		printCtx, cancel = context.WithTimeout(ctx, defaultPDFPrintTimeout)
+	}
 	defer cancel()
-	parentDone := make(chan struct{})
-	defer close(parentDone)
-	go func() {
-		select {
-		case <-ctx.Done():
-			cancel()
-		case <-parentDone:
-		case <-printCtx.Done():
-		}
-	}()
 
 	if err := printFn(printCtx, printerName, path); err != nil {
 		return fmt.Errorf("PDF print on %q failed: %w", printerName, err)

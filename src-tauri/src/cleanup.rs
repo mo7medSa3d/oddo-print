@@ -47,9 +47,12 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
             deleted: u64,
         }
 
-        let result: CleanupResult = serde_json::from_str(&stdout)
-            .map_err(|e| format!("invalid cleanup response: {e}"))?;
-        logging::info(&format!("local print-job cleanup removed {} terminal jobs", result.deleted));
+        let result: CleanupResult =
+            serde_json::from_str(&stdout).map_err(|e| format!("invalid cleanup response: {e}"))?;
+        logging::info(&format!(
+            "local print-job cleanup removed {} terminal jobs",
+            result.deleted
+        ));
         Ok(result.deleted)
     })
     .await

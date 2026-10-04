@@ -77,6 +77,7 @@ function sanitizePrinter(p: ReportedPrinter): {
     capabilities: Record<string, unknown> | null;
   };
 } | { ok: false; reason: string } {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return { ok: false, reason: "invalid_printer" };
   if (typeof p.id !== "string" || !p.id.trim() || p.id.length > 120) return { ok: false, reason: "invalid_id" };
   if (typeof p.name !== "string" || !p.name.trim() || p.name.length > 100) return { ok: false, reason: "invalid_name" };
   const connectionType = normalizeConnectionType(p.connectionType, p.type);
@@ -138,7 +139,7 @@ export async function POST(req: Request) {
 
   let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
-    body = await req.json() as typeof body;
+    const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -273,17 +274,18 @@ export async function POST(req: Request) {
       // getTenantEntitlementLimit locks the subscription row, so concurrent
       // heartbeat pages/other registrations for the same tenant cannot both
       // pass the capacity check against the same stale count.
+      const inventoryIds = [...new Set(sanitizedPrinters.map(p => p.id))];
+      const inventoryRows = inventoryIds.length ? await tx.query.printers.findMany({
+        where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, inventoryIds)),
+      }) : [];
+      const inventoryById = new Map(inventoryRows.map(p => [p.id, p]));
       const candidateIds = [...new Set(
         sanitizedPrinters
           .map((p) => p.id)
           .filter((id) => !gatewayOwnedPrinterIds.has(id)),
       )];
       if (candidateIds.length > 0) {
-        const existingCandidates = await tx.query.printers.findMany({
-          where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, candidateIds)),
-          columns: { id: true },
-        });
-        const existingIds = new Set(existingCandidates.map((row) => row.id));
+        const existingIds = new Set(inventoryById.keys());
         const newPrinterCount = candidateIds.filter((id) => !existingIds.has(id)).length;
         if (newPrinterCount > 0) {
           const printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
@@ -315,9 +317,7 @@ export async function POST(req: Request) {
           lastSeenAt: sql`now()`,
         };
 
-        const existing = await tx.query.printers.findFirst({
-          where: and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)),
-        });
+        const existing = inventoryById.get(p.id);
 
         if (existing) {
           if (existing.agentId !== agent.id) {
@@ -346,6 +346,7 @@ export async function POST(req: Request) {
               eq(printers.id, p.id),
               eq(printers.tenantId, agent.tenantId),
               eq(printers.agentId, agent.id),
+              eq(printers.managementSource, existing.managementSource),
             ));
         } else {
           // The Agent carries an ownership fence for Gateway-managed IDs. This

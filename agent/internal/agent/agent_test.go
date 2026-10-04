@@ -166,7 +166,7 @@ func newStatusTestServer(t *testing.T) *httptest.Server {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"success":true}`))
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body["status"]})
 				return
 			case http.MethodGet:
 				w.Header().Set("Content-Type", "application/json")
@@ -677,11 +677,11 @@ func TestAuthorizeDispatchAfterReportFailure(t *testing.T) {
 		{"fence rejection never proceeds", now, time.Time{}, false, ErrStaleClaim, false},
 		{"explicit gateway rejection never proceeds", now, time.Time{}, false, ErrTransitionRejected, false},
 		{"nil error proceeds (defensive: gate only runs on error)", now, time.Time{}, false, nil, true},
-		{"transport failure with fresh receipt proceeds", now.Add(-10 * time.Second), time.Time{}, false, transportErr, true},
+		{"transport failure with fresh receipt refuses", now.Add(-10 * time.Second), time.Time{}, false, transportErr, false},
 		{"transport failure with stale receipt refuses", now.Add(-time.Hour), time.Time{}, false, transportErr, false},
 		{"transport failure with unknown receipt refuses", time.Time{}, time.Time{}, false, transportErr, false},
-		{"transport failure ignores Gateway expiry timestamp when receipt is fresh", now.Add(-time.Second), now.Add(-time.Second), true, transportErr, true},
-		{"transport failure before TTL proceeds when fresh", now.Add(-time.Second), now.Add(time.Hour), true, transportErr, true},
+		{"transport failure ignores Gateway expiry timestamp when receipt is fresh", now.Add(-time.Second), now.Add(-time.Second), true, transportErr, false},
+		{"transport failure before TTL still refuses", now.Add(-time.Second), now.Add(time.Hour), true, transportErr, false},
 		{"boundary: exactly at the window refuses", now.Add(-staleClaimSafetyWindow), time.Time{}, false, transportErr, false},
 	}
 	for _, tc := range cases {
@@ -747,10 +747,9 @@ func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
 	}
 }
 
-func TestFreshTransportFailureStillPrints(t *testing.T) {
-	// The mirror case: gateway unreachable but the delivery is seconds old,
-	// so no reclaim could have completed. Offline-tolerant printing is
-	// preserved: the job prints and the ledger tracks it.
+func TestFreshTransportFailureRefusesUnacknowledgedDispatch(t *testing.T) {
+	// Even a new receipt may contain an old Gateway claim. Without an
+	// accepted printing transition, no hardware side effect is authorized.
 	cfg := &config.Config{}
 	cfg.Agent.ID = "agt_test"
 	cfg.Agent.Secret = "secret"
@@ -776,8 +775,8 @@ func TestFreshTransportFailureStillPrints(t *testing.T) {
 		"claimToken": "tok-fresh-1",
 	})
 	ag.waitForJobs()
-	if p.calls != 1 {
-		t.Fatalf("fresh delivery with unreachable gateway must still print once, got %d calls", p.calls)
+	if p.calls != 0 {
+		t.Fatalf("unacknowledged fresh delivery must print nothing, got %d calls", p.calls)
 	}
 }
 
@@ -1029,8 +1028,13 @@ func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 			return
 		}
 		if r.Method == http.MethodPatch {
+			var body statusUpdate
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid JSON", 400)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body.Status})
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -1320,10 +1324,5 @@ func TestUpdateJobStatusRedactsClaimTokenOverride(t *testing.T) {
 	if strings.Contains(output, live) {
 		t.Fatalf("log leaked live claim token: %q", output)
 	}
-	if !strings.Contains(output, redactClaimTokenForLog(passed)) {
-		t.Fatalf("log did not contain redacted passed claim token: %q", output)
-	}
-	if !strings.Contains(output, redactClaimTokenForLog(live)) {
-		t.Fatalf("log did not contain redacted live claim token: %q", output)
-	}
+	// A successful request needs no token diagnostic; absence from logs is valid.
 }

@@ -66,7 +66,7 @@ describe("windows-service-recovery", () => {
     // If no updater found, it must be marked BLOCKED/NOT IMPLEMENTED, not claimed PASS
     const releaseReadiness = fs.readFileSync("src/app/release-readiness/release-readiness-client.tsx", "utf8");
     if (!hasUpdater && !cargoHasUpdater) {
-      expect(releaseReadiness).toContain("Tauri updater");
+      expect(releaseReadiness).toContain('t("release.area.updater")');
       expect(releaseReadiness).toMatch(/BLOCKED|NOT IMPLEMENTED|FAIL/);
     }
   });

@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import type { DbTx } from "../db";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { runtimeSecret } from "./runtime-secret";
 import { gatewayNowMs } from "./database-clock";
@@ -248,4 +250,30 @@ export function verifyStripeSignature(payload: string, header: string, secret: s
       return false;
     }
   });
+}
+
+/** Normalize the plan item period on Basil+, with pre-Basil compatibility.
+ * Gateway checkout creates one plan item; the webhook's price selection also
+ * uses that first item. Never manufacture a period from event arrival time.
+ */
+export function stripeSubscriptionPeriod(subscription: Record<string, unknown> | null): { start: Date | null; end: Date | null } {
+  const items = subscription?.items as { data?: unknown[] } | undefined;
+  const first = Array.isArray(items?.data) ? items.data[0] : null;
+  const item = first && typeof first === "object" && !Array.isArray(first) ? first as Record<string, unknown> : null;
+  const date = (value: unknown): Date | null => {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > 8_640_000_000_000) return null;
+    return new Date(value * 1000);
+  };
+  return {
+    start: date(item?.current_period_start ?? subscription?.current_period_start),
+    end: date(item?.current_period_end ?? subscription?.current_period_end),
+  };
+}
+
+/** Catalog mutations share one lock so retired Price identities cannot move between plans. */
+export async function lockStripePlanCatalog(tx: DbTx, planId: string, priceId?: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('stripe:plan-price-mappings'))`);
+  if (!priceId) return;
+  const other = await tx.execute(sql`SELECT id FROM plans WHERE id <> ${planId} AND (stripe_price_id = ${priceId} OR ${priceId} = ANY(stripe_price_history)) LIMIT 1`);
+  if (other.rows.length) throw new Error("STRIPE_PRICE_CONFLICT");
 }

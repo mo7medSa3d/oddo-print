@@ -28,7 +28,8 @@ const PLACEHOLDER = /\{(\w+)\}/g;
  * it must never throw: the console keeps working while a translation lands.
  */
 export function translate(locale: Locale, key: MessageKey, vars?: MessageVars): string {
-  const template = catalogs[locale]?.[key] ?? en[key] ?? key;
+  const catalog = Object.prototype.hasOwnProperty.call(catalogs, locale) ? catalogs[locale] : en;
+  const template = Object.prototype.hasOwnProperty.call(catalog, key) ? catalog[key] : Object.prototype.hasOwnProperty.call(en, key) ? en[key] : key;
   if (!vars) return template;
   return template.replace(PLACEHOLDER, (match, name: string) =>
     Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match,
@@ -54,7 +55,7 @@ export function translateCount(locale: Locale, baseKey: string, count: number, v
   }
   // `zero`/`two`/`few`/`many` are locale-specific; `other` always exists.
   for (const candidate of [`${baseKey}.${category}`, `${baseKey}.other`, baseKey]) {
-    if (candidate in en) return translate(locale, candidate as MessageKey, merged);
+    if (Object.prototype.hasOwnProperty.call(en, candidate)) return translate(locale, candidate as MessageKey, merged);
   }
   return translate(locale, baseKey as MessageKey, merged);
 }

@@ -106,8 +106,10 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
     const order = { export_for_printing: () => ({ lines: [{ productName: "قهوة عربية" }] }) } as never;
     const result = await renderReceiptImage(makePos(renderer), order);
     expect(result).toBe("VALIDJPEG");
-    const props = renderer.toHtml.mock.calls[0][1] as { data: { lines: Array<{ productName: string }> } };
-    expect(props.data.lines[0].productName).toBe("قهوة عربية");
+    const props = renderer.toHtml.mock.calls[0][1] as { order: typeof order; basic_receipt: boolean };
+    expect(props.order).toBe(order);
+    expect(Object.keys(props).sort()).toEqual(["basic_receipt", "order"]);
+    expect((props.order as unknown as { export_for_printing(): { lines: Array<{ productName: string }> } }).export_for_printing().lines[0].productName).toBe("قهوة عربية");
     expect(toCanvas.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
 

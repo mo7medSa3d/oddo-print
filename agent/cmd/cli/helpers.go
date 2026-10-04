@@ -19,7 +19,13 @@ func discoverHelper(cfg *config.Config, registryPath string, jsonOutput bool) []
 			log.Printf("Failed to persist discovery: %v", err)
 		}
 	}
+	for _, message := range result.Errors {
+		log.Printf("Discovery warning: %s", message)
+	}
 	if jsonOutput {
+		if result.Printers == nil {
+			return []printer.DeviceInfo{}
+		}
 		return result.Printers
 	}
 	fmt.Printf("%-32s %-24s %-12s %-10s %-8s %-7s %s\n", "ID", "NAME", "TYPE", "PROTO", "STATUS", "ENABLED", "ENDPOINT/SPOOLER")

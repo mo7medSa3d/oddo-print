@@ -24,7 +24,7 @@ export function LanguageSwitcher({
     icon: <Globe2 className="h-4 w-4" aria-hidden />,
     meta: code === locale ? "✓" : undefined,
     disabled: code === locale,
-    onSelect: () => setLocale(code),
+    onSelect: () => { setLocale(code); window.dispatchEvent(new Event("yaseir:locale-navigation")); },
   }));
 
   return (

@@ -539,7 +539,7 @@ export async function rotateRefreshToken(
 
   const outcome = await db.transaction(async (tx) => {
     const result = await tx.execute(sql`
-      SELECT id, family_id AS "familyId", kind
+      SELECT id, family_id AS "familyId", user_id AS "userId", kind
       FROM refresh_tokens
       WHERE token_hash = ${tokenHash}
     `);
@@ -547,11 +547,14 @@ export async function rotateRefreshToken(
     const initial = result.rows[0] as {
       id: string;
       familyId: string;
+      userId: string | null;
       kind: SessionKind;
     } | undefined;
 
     if (!initial || initial.kind !== kind) return { status: "invalid" as const };
 
+    // Principal -> family -> token order matches reset and membership revocation.
+    if (initial.userId) await tx.execute(sql`SELECT id FROM users WHERE id = ${initial.userId} FOR UPDATE`);
     await lockRefreshFamily(tx, initial.familyId);
 
     const lockedRowResult = await tx.execute(sql`

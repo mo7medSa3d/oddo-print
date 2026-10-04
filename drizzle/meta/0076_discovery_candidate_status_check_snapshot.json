@@ -1836,6 +1836,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "stripe_price_history": {
+          "name": "stripe_price_history",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "ARRAY[]::text[]"
         }
       },
       "indexes": {
@@ -2166,6 +2173,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "closed_claim_token_hash": {
+          "name": "closed_claim_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2474,7 +2487,7 @@
         },
         "print_jobs_payload_contract_check": {
           "name": "print_jobs_payload_contract_check",
-          "value": "jsonb_typeof(\"print_jobs\".\"payload\") = 'object' AND (\n    (\"print_jobs\".\"payload\"->>'type' = 'raw' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') in ('raw','escpos','zpl','tspl'))\n    OR (\"print_jobs\".\"payload\"->>'type' = 'escpos' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = 'escpos')\n    OR (\"print_jobs\".\"payload\"->>'type' = 'pdf' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = '')\n    OR (\"print_jobs\".\"payload\"->>'type' = 'image' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = '')\n  )"
+          "value": "jsonb_typeof(\"print_jobs\".\"payload\") = 'object' AND (\n    (COALESCE(\"print_jobs\".\"payload\"->>'type', '') = 'raw' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') in ('raw','escpos','zpl','tspl'))\n    OR (COALESCE(\"print_jobs\".\"payload\"->>'type', '') = 'escpos' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = 'escpos')\n    OR (COALESCE(\"print_jobs\".\"payload\"->>'type', '') = 'pdf' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = '')\n    OR (COALESCE(\"print_jobs\".\"payload\"->>'type', '') = 'image' AND COALESCE(\"print_jobs\".\"payload\"->>'protocol', '') = '')\n  )"
         }
       },
       "isRLSEnabled": false
@@ -3541,6 +3554,25 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "checkout_request_params": {
+          "name": "checkout_request_params",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checkout_intent_created_at": {
+          "name": "checkout_intent_created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stripe_state_revision": {
+          "name": "stripe_state_revision",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {
@@ -3981,6 +4013,162 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.print_job_receipts": {
+      "name": "print_job_receipts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "printer_id": {
+          "name": "printer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_key_id": {
+          "name": "api_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination": {
+          "name": "destination",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "document_type": {
+          "name": "document_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "closed_claim_token_hash": {
+          "name": "closed_claim_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acked_at": {
+          "name": "acked_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "print_job_receipts_tenant_idempotency_unique": {
+          "name": "print_job_receipts_tenant_idempotency_unique",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "print_job_receipts_tenant_id_tenants_id_fk": {
+          "name": "print_job_receipts_tenant_id_tenants_id_fk",
+          "tableFrom": "print_job_receipts",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "print_job_receipts_status_check": {
+          "name": "print_job_receipts_status_check",
+          "value": "\"print_job_receipts\".\"status\" in ('success','failed','expired')"
+        }
+      },
       "isRLSEnabled": false
     }
   },

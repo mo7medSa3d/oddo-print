@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,9 +50,9 @@ func New(dbPath string) (*Queue, error) {
 		return nil, fmt.Errorf("create queue directory %s: %w", dir, err)
 	}
 
-	// _busy_timeout + WAL + synchronous=NORMAL are required for crash safety
-	// on Windows without blocking the per-printer serialization mutex.
-	dsn := fmt.Sprintf("%s?_busy_timeout=5000&_journal_mode=WAL&_synchronous=NORMAL", dbPath)
+	// FULL WAL commits durably fence physical execution across power loss.
+	// NORMAL may lose an acknowledged printing/terminal ledger transaction.
+	dsn := fmt.Sprintf("%s?_busy_timeout=5000&_journal_mode=WAL&_synchronous=FULL", dbPath)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
@@ -63,20 +62,38 @@ func New(dbPath string) (*Queue, error) {
 	// is deliberately serialized to avoid SQLITE_BUSY on Windows.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	// Ensure WAL is actually on (some sqlite builds ignore dsn params).
-	// Non-fatal: the queue still works in rollback-journal mode, but a failed
-	// PRAGMA must remain visible for diagnosis rather than becoming silent.
-	for _, pragma := range []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA synchronous=NORMAL`,
-		`PRAGMA busy_timeout=5000`,
-	} {
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = db.Close()
+		}
+	}()
+	for _, pragma := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA synchronous=FULL`, `PRAGMA busy_timeout=5000`} {
 		if _, err := db.Exec(pragma); err != nil {
-			log.Printf("queue SQLite pragma failed (%s): %v", pragma, err)
+			return nil, fmt.Errorf("queue durability configuration %s: %w", pragma, err)
 		}
 	}
+	var journal string
+	if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&journal); err != nil {
+		return nil, fmt.Errorf("read queue journal mode: %w", err)
+	}
+	if journal != "wal" && !(dbPath == ":memory:" && journal == "memory") {
+		return nil, fmt.Errorf("queue requires WAL, got %q", journal)
+	}
+	var synchronous int
+	if err := db.QueryRow(`PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		return nil, fmt.Errorf("read queue durability: %w", err)
+	}
+	if synchronous < 2 {
+		return nil, fmt.Errorf("queue requires FULL durability, got %d", synchronous)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin queue schema migration: %w", err)
+	}
+	defer tx.Rollback()
 
-	_, err = db.Exec(`
+	_, err = tx.Exec(`
 		CREATE TABLE IF NOT EXISTS print_jobs (
 			id TEXT PRIMARY KEY,
 			printer_id TEXT NOT NULL,
@@ -96,21 +113,47 @@ func New(dbPath string) (*Queue, error) {
 		return nil, err
 	}
 
-	// Migrate legacy schema from Phase 0 (had only id,printer_id,payload,status,retries,created_at)
-	// Add missing columns if they don't exist (ALTER TABLE ADD COLUMN IF NOT EXISTS is sqlite 3.35+)
-	for _, col := range []string{
-		`ALTER TABLE print_jobs ADD COLUMN last_error TEXT`,
-		`ALTER TABLE print_jobs ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
-		`ALTER TABLE print_jobs ADD COLUMN claimed_at DATETIME`,
-		`ALTER TABLE print_jobs ADD COLUMN claim_token TEXT`,
+	// Inspect columns instead of swallowing ALTER errors. SQLite forbids
+	// adding a CURRENT_TIMESTAMP default to an existing nonempty table.
+	columns := make(map[string]bool)
+	rows, err := tx.Query(`PRAGMA table_info(print_jobs)`)
+	if err != nil {
+		return nil, fmt.Errorf("inspect queue schema: %w", err)
+	}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, typ string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, column := range []struct{ name, declaration string }{
+		{"last_error", "last_error TEXT"}, {"updated_at", "updated_at DATETIME"},
+		{"claimed_at", "claimed_at DATETIME"}, {"claim_token", "claim_token TEXT"},
 	} {
-		if _, err := db.Exec(col); err != nil {
-			message := strings.ToLower(err.Error())
-			if !strings.Contains(message, "duplicate column name") {
-				log.Printf("queue SQLite legacy migration failed (%s): %v", col, err)
+		if !columns[column.name] {
+			if _, err := tx.Exec("ALTER TABLE print_jobs ADD COLUMN " + column.declaration); err != nil {
+				return nil, fmt.Errorf("migrate queue column %s: %w", column.name, err)
 			}
 		}
 	}
+	if _, err := tx.Exec(`UPDATE print_jobs SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`); err != nil {
+		return nil, fmt.Errorf("backfill queue timestamps: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit queue schema migration: %w", err)
+	}
+	initialized = true
 
 	return &Queue{db: db}, nil
 }
@@ -132,7 +175,7 @@ func (q *Queue) IsProcessed(id string) bool {
 // so that a retried Gateway delivery never causes a second physical print.
 func (q *Queue) Push(id, printerID string, payload []byte) error {
 	_, err := q.db.Exec(
-		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status) VALUES (?, ?, ?, 'queued')`,
+		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, updated_at) VALUES (?, ?, ?, 'queued', CURRENT_TIMESTAMP)`,
 		id, printerID, payload,
 	)
 	return err
@@ -158,7 +201,7 @@ func (q *Queue) UpdateStatus(id, status string) error {
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	if status == "success" || status == "failed" {
 		// The terminal state is a durable outbox record for the Gateway status
-		// report. Preserve claim_token until that report receives a 2xx response.
+		// report. Preserve claim_token until a validated terminal acknowledgement.
 		_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, id)
 		return err
 	}
@@ -223,7 +266,7 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 		insertToken = claimToken
 	}
 	_, err = tx.Exec(
-		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token) VALUES (?, ?, ?, 'queued', ?)`,
+		`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token, updated_at) VALUES (?, ?, ?, 'queued', ?, CURRENT_TIMESTAMP)`,
 		id, printerID, payload, insertToken,
 	)
 	if err != nil {
@@ -317,8 +360,8 @@ func (q *Queue) ClaimTokenFor(id string) string {
 // for this local execution attempt. The token is cleared only after the
 // remote 2xx response, so a process crash between local terminalization and
 // remote acknowledgement leaves a durable retryable report in SQLite.
-func (q *Queue) ClearClaimToken(id string) error {
-	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed')`, id)
+func (q *Queue) ClearClaimToken(id, claimToken string) error {
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed') AND claim_token = ?`, id, claimToken)
 	return err
 }
 

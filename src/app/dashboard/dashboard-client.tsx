@@ -354,22 +354,6 @@ function connectionIcon(connectionType: string) {
   return <Layers className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
 }
 
-/**
- * English surface names.
- *
- * The rendered headings come from the catalog so they follow the active
- * language; these literals remain as (a) the operator vocabulary the
- * integration contract suite asserts on — see
- * tests/production-hardening-contract.test.ts — and (b) stable search keywords
- * that keep working in Arabic, where typing "printers" should still find this
- * screen.
- */
-const SURFACE_LABELS_EN = {
-  agents: "Agents",
-  printers: "Runtime Printers",
-  jobs: "Recent Print Jobs",
-} as const;
-
 export default function DashboardClient({
   initialAgents,
   initialPrinters,
@@ -391,62 +375,6 @@ export default function DashboardClient({
   const router = useRouter();
   const { t, tc, locale, formatNumber, formatDate, formatRelativeTime, formatDateTime } = useI18n();
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const scheduleRefresh = () => {
-      timer = setTimeout(() => {
-        void refreshSession();
-      }, 13 * 60 * 1000);
-    };
-
-    async function refreshSession() {
-      try {
-        const response = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          if (!cancelled) router.push("/login");
-          return;
-        }
-        const data = await response.json().catch(() => null) as { expiresAt?: unknown } | null;
-        if (!cancelled && typeof data?.expiresAt === "string") {
-          scheduleRefresh();
-        }
-      } catch {
-        if (!cancelled) router.push("/login");
-      }
-    }
-
-    async function bootstrap() {
-      try {
-        const response = await fetch("/api/auth/me", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (cancelled) return;
-        if (response.ok) {
-          const data = await response.json().catch(() => null) as { exp?: unknown } | null;
-          if (typeof data?.exp === "number") {
-            scheduleRefresh();
-            return;
-          }
-        }
-        await refreshSession();
-      } catch {
-        if (!cancelled) router.push("/login");
-      }
-    }
-
-    void bootstrap();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [router]);
 
   const [prevAgents, setPrevAgents] = useState(initialAgents);
   if (prevAgents !== initialAgents) {
@@ -523,6 +451,7 @@ export default function DashboardClient({
     };
   }, [selectedJob]);
 
+  const jobsGeneration = React.useRef(0);
   const filterRef = React.useRef({ status: "all", search: "" });
   useEffect(() => {
     filterRef.current = { status: jobStatusFilter, search: debouncedJobSearch };
@@ -535,6 +464,7 @@ export default function DashboardClient({
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++jobsGeneration.current;
     async function loadFilteredJobs() {
       setJobsLoading(true);
       setJobsError(null);
@@ -544,18 +474,18 @@ export default function DashboardClient({
           search: debouncedJobSearch,
           limit: 100,
         });
-        if (!cancelled) {
+        if (!cancelled && generation === jobsGeneration.current) {
           setJobs(res as unknown as Job[]);
         }
       } catch (err) {
         // Surface the failure: a stale job list with no error state is
         // indistinguishable from "no jobs" for an operator.
         console.error("Dashboard jobs query failed:", err);
-        if (!cancelled) {
+        if (!cancelled && generation === jobsGeneration.current) {
           setJobsError(t("errors.loadJobsFailed"));
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && generation === jobsGeneration.current) {
           setJobsLoading(false);
         }
       }
@@ -607,15 +537,21 @@ export default function DashboardClient({
 
         const current = filterRef.current;
         if (current.status === "all" && !current.search) {
+          ++jobsGeneration.current;
+          setJobsError(null);
           setJobs(data.jobs as Job[]);
+          setJobsLoading(false);
         } else {
+          const generation = ++jobsGeneration.current;
           void getDashboardJobs({
             status: current.status,
             search: current.search,
             limit: 100,
           }).then((res) => {
-            setJobs(res as unknown as Job[]);
-          });
+            if (generation === jobsGeneration.current && current.status === filterRef.current.status && current.search === filterRef.current.search) { setJobs(res as unknown as Job[]); setJobsError(null); }
+          }).catch(() => {
+            if (generation === jobsGeneration.current) setJobsError(t("errors.loadJobsFailed"));
+          }).finally(() => { if (generation === jobsGeneration.current) setJobsLoading(false); });
         }
 
         setActivePairing((currentPairing) => {
@@ -632,7 +568,7 @@ export default function DashboardClient({
               target.pairingCodeExpiresAt === null)
           ) {
             setMessage({
-              text: `Agent ${target.name} paired successfully and is now online.`,
+              text: t("success.agentPairedOnline", { name: target.name }),
               type: "ok",
             });
             return null;
@@ -649,7 +585,7 @@ export default function DashboardClient({
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, router]);
+  }, [refreshBillingUsage, router, t]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -713,7 +649,7 @@ export default function DashboardClient({
     };
   }, [agents, printers, kpiJobs, nowMs, locale]);
 
-  const runAction = async (operation: () => Promise<unknown>, successMsg?: string) => {
+  const runAction = async <T,>(operation: () => Promise<T>, successMsg?: string) => {
     setBusy(true);
     setMessage(null);
     try {
@@ -936,7 +872,7 @@ export default function DashboardClient({
     // action that always fails, so success is excluded explicitly.
     const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
-      { key: "inspect", label: "View details", icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
+      { key: "inspect", label: t("job.viewDetails"), icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
       {
         key: "copy",
         label: t("job.copyJobId"),
@@ -967,7 +903,7 @@ export default function DashboardClient({
         disabled: busy || testingPrinterId !== null || !active,
         onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
       },
-      { key: "certify", label: "Test printer", icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
+      { key: "certify", label: t("cert.run"), icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
       {
         key: "copy",
         label: t("printer.copyPrinterId"),
@@ -986,6 +922,17 @@ export default function DashboardClient({
           ),
       },
     ];
+  };
+
+  const reenableAgent = async (agent: Agent) => {
+    const result = await runAction(() => setAgentLifecycle(agent.id, "active"));
+    if (!result) return;
+    const pairingCode = typeof result.pairingCode === "string" ? result.pairingCode : "";
+    if (pairingCode && result.pairingCodeExpiresAt) {
+      setActivePairing({ id: agent.id, code: pairingCode, expiresAt: result.pairingCodeExpiresAt });
+      setRegisterOpen(true);
+    }
+    void refreshData();
   };
 
   const agentActions = (agent: Agent): MenuItemSpec[] => [
@@ -1007,7 +954,7 @@ export default function DashboardClient({
             label: t("agent.reenable"),
             icon: <PlayCircle className="h-4 w-4" />,
             disabled: busy,
-            onSelect: () => setRegisterOpen(true),
+            onSelect: () => { void reenableAgent(agent); },
           },
         ]
       : []),
@@ -1327,7 +1274,7 @@ export default function DashboardClient({
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {agent.lifecycle === "disabled" && (
-                        <Button variant="secondary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy}>
+                        <Button variant="secondary" size="sm" onClick={() => { void reenableAgent(agent); }} disabled={busy}>
                           {t("agent.reenable")}
                         </Button>
                       )}
@@ -1356,7 +1303,7 @@ export default function DashboardClient({
               </span>
               <div className="min-w-0">
                 <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
-                  {SURFACE_LABELS_EN.printers}
+                  {t("dashboard.tab.printers")}
                 </h3>
                 <p className="mt-0.5 text-sm leading-snug text-ink-3">
                   {kpis.onlinePrinters} of {kpis.totalPrinters} ready
@@ -1589,7 +1536,7 @@ export default function DashboardClient({
       {/* ── Recent print jobs ─────────────────────────────────────── */}
       <Card className="overflow-hidden">
         <CardHeader
-          title={SURFACE_LABELS_EN.jobs}
+          title={t("dashboard.tab.jobs")}
           subtitle={t("job.subtitle")}
           icon={<Layers className="h-4 w-4" />}
         />
@@ -1704,7 +1651,7 @@ export default function DashboardClient({
                             {job.destination ?? "—"}
                           </div>
                           <div className="mt-0.5 text-2xs text-ink-4">
-                            {job.documentType?.replace(/_/g, " ") ?? "Unknown"}
+                            {job.documentType?.replace(/_/g, " ") ?? t("job.unknownType")}
                           </div>
                         </td>
                         <td>
@@ -1756,7 +1703,7 @@ export default function DashboardClient({
                       <span aria-hidden>·</span>
                       <span title={formatDateTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
                       <span aria-hidden>·</span>
-                      <span>{job.documentType?.replace(/_/g, " ") ?? "Unknown"}</span>
+                      <span>{job.documentType?.replace(/_/g, " ") ?? t("job.unknownType")}</span>
                     </div>
                     <div className="mt-2.5 flex items-center gap-1.5">
                       <Button size="sm" variant="secondary" onClick={() => setSelectedJob(job)} icon={<Eye className="h-3.5 w-3.5" />}>

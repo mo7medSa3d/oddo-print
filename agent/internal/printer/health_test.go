@@ -28,7 +28,7 @@ func TestPreFlightHealthStatus(t *testing.T) {
 
 	// Subtest 2: Healthy ESC/POS Printer
 	t.Run("HealthyStatus", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:19994")
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen failed: %v", err)
 		}
@@ -71,7 +71,7 @@ func TestPreFlightHealthStatus(t *testing.T) {
 
 	// Subtest 3: Paper Out Status
 	t.Run("PaperOutStatus", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:19995")
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen failed: %v", err)
 		}
@@ -118,7 +118,7 @@ func TestPreFlightHealthStatus(t *testing.T) {
 
 	// Subtest 4: Cover Open Status
 	t.Run("CoverOpenStatus", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:19997")
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen failed: %v", err)
 		}

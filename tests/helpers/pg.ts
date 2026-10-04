@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
 import { Pool } from "pg";
+import { AUDIT_REPAIRS } from "../../scripts/db-migrate";
 import { getWorkerSchema, schemaSearchPath } from "../../src/lib/worker-schema";
 
 export const TEST_DATABASE_URL = process.env.DATABASE_URL ?? "";
@@ -60,6 +61,7 @@ async function applyMigrationsOnce(): Promise<void> {
           await client.query(statement);
         }
       }
+      for (const repair of AUDIT_REPAIRS) await client.query(rewriteMigrationForSchema(repair, schema));
       const columns = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'print_jobs'`);
       const names = new Set(columns.rows.map((row: { column_name: string }) => row.column_name));
       for (const required of ["destination", "agent_id", "printer_id", "idempotency_key", "delivery_attempts"]) {
@@ -92,6 +94,7 @@ export async function truncateAll(): Promise<void> {
         // the cheaper DELETE-based cleanup semantically equivalent to the
         // previous TRUNCATE ... CASCADE isolation without requiring CASCADE.
         "job_events",
+        "print_job_receipts",
         "discovered_devices",
         "print_jobs",
         "printers",

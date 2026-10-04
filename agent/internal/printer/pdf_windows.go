@@ -96,6 +96,7 @@ var (
 	procGetDeviceCaps     = modGDI32.NewProc("GetDeviceCaps")
 	procStartDocW         = modGDI32.NewProc("StartDocW")
 	procEndDoc            = modGDI32.NewProc("EndDoc")
+	procAbortDoc          = modGDI32.NewProc("AbortDoc")
 	procStartPage         = modGDI32.NewProc("StartPage")
 	procEndPage           = modGDI32.NewProc("EndPage")
 	procStretchDIBits     = modGDI32.NewProc("StretchDIBits")
@@ -170,6 +171,14 @@ func endGDIPrint(hdc uintptr) error {
 	return nil
 }
 
+func abortGDIPrint(hdc uintptr) error {
+	ret, _, callErr := procAbortDoc.Call(hdc)
+	if int32(ret) <= 0 {
+		return fmt.Errorf("AbortDoc failed: %w", callErr)
+	}
+	return nil
+}
+
 func startGDIPage(hdc uintptr) error {
 	ret, _, callErr := procStartPage.Call(hdc)
 	if int32(ret) <= 0 {
@@ -224,7 +233,20 @@ func rgbaToBGRAInPlace(src *image.RGBA) error {
 	return nil
 }
 
-func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, printableWidth, printableHeight, offsetX, offsetY int) error {
+// The printer DC origin is already the printable-area origin. Physical
+// offsets are diagnostics only, and capped renderer pixels must scale back
+// to printer device units so resolution limits do not shrink the page.
+func bitmapPrintDestination(width, height, printableWidth, printableHeight int) (int, int, int, int, error) {
+	if width <= 0 || height <= 0 || printableWidth <= 0 || printableHeight <= 0 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid bitmap or printable bounds")
+	}
+	scale := math.Min(float64(printableWidth)/float64(width), float64(printableHeight)/float64(height))
+	destinationWidth := min(printableWidth, max(1, int(math.Round(float64(width)*scale))))
+	destinationHeight := min(printableHeight, max(1, int(math.Round(float64(height)*scale))))
+	return (printableWidth - destinationWidth) / 2, (printableHeight - destinationHeight) / 2, destinationWidth, destinationHeight, nil
+}
+
+func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, printableWidth, printableHeight int) error {
 	if width <= 0 || height <= 0 || len(bitmap) != width*height*4 {
 		return fmt.Errorf("invalid rendered bitmap %dx%d (%d bytes)", width, height, len(bitmap))
 	}
@@ -240,19 +262,15 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, printableWid
 		},
 	}
 
-	x := offsetX + (printableWidth-width)/2
-	y := offsetY + (printableHeight-height)/2
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
+	x, y, destinationWidth, destinationHeight, err := bitmapPrintDestination(width, height, printableWidth, printableHeight)
+	if err != nil {
+		return err
 	}
 
 	procSetStretchBltMode.Call(hdc, halftone)
 	ret, _, callErr := procStretchDIBits.Call(
 		hdc,
-		uintptr(x), uintptr(y), uintptr(width), uintptr(height),
+		uintptr(x), uintptr(y), uintptr(destinationWidth), uintptr(destinationHeight),
 		0, 0, uintptr(width), uintptr(height),
 		uintptr(unsafe.Pointer(&bitmap[0])),
 		uintptr(unsafe.Pointer(&info)),
@@ -429,8 +447,11 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 			cleanup()
 		}
 		if docStarted && !docEnded {
-			if endErr := endGDIPrint(hdc); endErr != nil && retErr == nil {
-				retErr = markPDFDispatchUnknown(printerName, "could not finalize the spool document", endErr)
+			if abortErr := abortGDIPrint(hdc); abortErr != nil {
+				log.Printf("PDF job abort failed for %q: %v", printerName, abortErr)
+				if retErr == nil {
+					retErr = markPDFDispatchUnknown(printerName, "could not abort the incomplete spool document", abortErr)
+				}
 			}
 		}
 	}()
@@ -439,7 +460,7 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		if err := startGDIPage(hdc); err != nil {
 			return markPDFDispatchUnknown(printerName, fmt.Sprintf("could not start page %d", pageNumber), err)
 		}
-		if err := drawBitmapToPrinter(hdc, img.Pix, img.Rect.Dx(), img.Rect.Dy(), printableWidth, printableHeight, offsetX, offsetY); err != nil {
+		if err := drawBitmapToPrinter(hdc, img.Pix, img.Rect.Dx(), img.Rect.Dy(), printableWidth, printableHeight); err != nil {
 			_ = endGDIPage(hdc)
 			return markPDFDispatchUnknown(printerName, fmt.Sprintf("could not render page %d to the printer", pageNumber), err)
 		}
@@ -491,7 +512,6 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 	}
 
 	if err := endGDIPrint(hdc); err != nil {
-		docEnded = true // EndDocW was already attempted; never issue it twice.
 		return markPDFDispatchUnknown(printerName, "could not finalize the print job", err)
 	}
 	docEnded = true

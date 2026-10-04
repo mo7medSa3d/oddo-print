@@ -8,7 +8,7 @@ import { writeAuditEvent } from "../../../../lib/audit";
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { email?: unknown; password?: unknown; tenantId?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? body.email : "";
   const password = typeof body.password === "string" ? body.password : "";
   const tenantId = typeof body.tenantId === "string" && body.tenantId.length <= 128 ? body.tenantId : undefined;
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       ipAddress: ip,
       userAgent: req.headers.get("user-agent"),
     },
-    email,
+    identity.email,
   );
   if (!session) {
     return setRateLimitHeaders(NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 }), pre);

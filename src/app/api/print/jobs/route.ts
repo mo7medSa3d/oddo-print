@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { printJobs } from "../../../../db/schema";
+import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { validatePrintJobPayload, type PrintJobPayload } from "../../../../lib/payload";
-import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, idempotencyFingerprint } from "../../../../lib/print-job-service";
+import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, idempotencyDigest, idempotencyFingerprint } from "../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../../../../lib/entitlements";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
@@ -33,7 +33,7 @@ function parseExpiresAt(value?: string) {
   return parsed;
 }
 
-function responseForRow(row: typeof printJobs.$inferSelect) {
+function responseForRow(row: Pick<typeof printJobs.$inferSelect, "id" | "status" | "printerId" | "agentId" | "destination" | "documentType" | "error">) {
   return {
     jobId: row.id,
     status: row.status,
@@ -107,6 +107,10 @@ export async function POST(req: Request) {
         isNotNull(printJobs.apiKeyId),
       ),
     });
+    const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, odoo.tenantId), eq(printJobReceipts.idempotencyKey, parsed.data.idempotencyKey), isNotNull(printJobReceipts.apiKeyId)) });
+    if (receipt) {
+      return receipt.fingerprint === idempotencyDigest(request) ? NextResponse.json(responseForRow(receipt), { status: 200 }) : idempotencyConflict();
+    }
     if (existing) {
       if (idempotencyMatches(existing, request)) return NextResponse.json(responseForRow(existing), { status: 200 });
       return idempotencyConflict();
@@ -135,6 +139,8 @@ export async function POST(req: Request) {
       if (existing) {
         return NextResponse.json(responseForRow(existing), { status: 200 });
       }
+      const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.id, result.id), eq(printJobReceipts.tenantId, odoo.tenantId), isNotNull(printJobReceipts.apiKeyId)) });
+      if (receipt) return NextResponse.json(responseForRow(receipt), { status: 200 });
       // The reused job was deleted concurrently; do not fall through to a
       // 201 describing a job that no longer exists.
       return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", retryable: false }, { status: 409 });
@@ -243,6 +249,10 @@ export async function GET(req: Request) {
       isNotNull(printJobs.apiKeyId),
     ),
   });
-  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(responseForRow(row), { status: 200 });
+  const receipt = row ? null : await db.query.printJobReceipts.findFirst({ where: and(
+    ...(id ? [eq(printJobReceipts.id, id)] : [eq(printJobReceipts.idempotencyKey, idempotencyKey!)]),
+    eq(printJobReceipts.tenantId, odoo.tenantId), isNotNull(printJobReceipts.apiKeyId),
+  ) });
+  if (!row && !receipt) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(responseForRow(row ?? receipt!), { status: 200 });
 }

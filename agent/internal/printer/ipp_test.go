@@ -499,3 +499,20 @@ func TestIPPParseGuardReportsRecoveredPanics(t *testing.T) {
 		t.Error("the bare `_ = recover()` form is back, which discards the panic without a trace")
 	}
 }
+
+func TestIPPRequestedAttributesUseAdditionalValues(t *testing.T) {
+	packet := buildIPPGetPrinterAttributes("ipp://192.168.1.60/ipp/print")
+	if count := bytes.Count(packet, []byte("requested-attributes")); count != 1 {
+		t.Fatalf("attribute name appeared %d times, want one", count)
+	}
+	for _, value := range []string{"printer-state-reasons", "printer-is-accepting-jobs"} {
+		var expected bytes.Buffer
+		writeIPPAttribute(&expected, 0x44, "", value)
+		if !bytes.Contains(packet, expected.Bytes()) {
+			t.Fatalf("missing zero-name additional value %q", value)
+		}
+	}
+	if got := parseIPPAttributes(packet)["requested-attributes"]; got != "printer-state,printer-state-reasons,printer-is-accepting-jobs" {
+		t.Fatalf("requested attribute values = %q", got)
+	}
+}

@@ -224,6 +224,10 @@ yaseir-agent-cli.exe printers add --name "Office IPP" --type ipp --endpoint ipp:
 
 Other CLI verbs: `printers list`, `printers discover`, `printers test <id>`,
 `printers remove <id>`, plus `-config <path>` and `--json`.
+
+`printers discover --json` writes the current scan's device array to stdout
+(`[]` when empty), with diagnostics on stderr. The desktop reads this result
+directly, so failed registry persistence cannot substitute stale inventory.
 `printers.json` is canonical; `printers: []` in `config.yaml` is fine.
 
 ## 9. Diagnostics
@@ -269,3 +273,11 @@ implemented.
 - **Lifecycle:** `active ↔ disabled`, `active/disabled → retired`; `retired` is terminal.
 - **Database:** PostgreSQL integration tests are a required CI gate; unit tests and integration tests are separate commands.
 
+
+### Windows service account visibility
+
+LocalSystem enumerates machine queues and its own connections, not another user's connected printers. For a shared queue missing from discovery, install it for the Agent's service account (or as a machine connection), grant that account print access, then restart discovery. A queue visible only in an interactive user's Settings does not establish service access. Discovery reports include this account diagnostic; the Agent does not impersonate users or fabricate accessible queues.
+
+New physical dispatch requires an acknowledged, claim-fenced `printing` response (`success: true`, `status: "printing"`). Local delivery receipt age is diagnostic only; a buffered frame may already have a stale claim. An unacknowledged admission sends no hardware bytes. Printing that already crossed this boundary retains its durable outcome reporting through a later disconnect. Repeated admission for the same live printing claim is acknowledged without creating another job or physical attempt.
+
+PDF rendering preserves the caller-assigned deadline and cancellation throughout document dispatch. Kind-specific timeouts apply only without a caller deadline. Windows aborts unfinished GDI documents; an abort does not prove that no physical page was emitted, so post-admission failures remain unknown outcomes.

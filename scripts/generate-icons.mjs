@@ -44,14 +44,10 @@ async function generatePNGs() {
 
   // Also generate public favicon and app icon for Next.js
   const publicIcon = join(root, "src/app/icon.png");
-  try {
-    await sharp(svgBuf).resize(512, 512).png().toFile(publicIcon);
-    console.log(`✓ src/app/icon.png (512)`);
-  } catch {}
-  try {
-    const favicon32 = join(root, "src/app/favicon.ico.png");
-    await sharp(svgBuf).resize(32, 32).png().toFile(join(root, "public/favicon.png").replace("public/favicon.png","public/favicon.png"));
-  } catch {}
+  await sharp(svgBuf).resize(512, 512).png().toFile(publicIcon);
+  console.log(`✓ src/app/icon.png (512)`);
+  await sharp(svgBuf).resize(32, 32).png().toFile(join(root, "public/favicon.png"));
+  console.log(`✓ public/favicon.png (32)`);
 }
 
 async function generateICO() {

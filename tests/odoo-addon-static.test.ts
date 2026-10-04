@@ -316,7 +316,7 @@ describe("Odoo addon static contracts", () => {
     // Gateway side: image payloads require a spooler transport or an
     // ESC/POS raster device; IPP/IPPS transports are document-only here, so
     // routing a raster to them would be a guaranteed CAPABILITY_MISMATCH.
-    const routing = readFileSync(path.join(ROOT, "src", "lib", "routing.ts"), "utf8");
+    const routing = readFileSync(path.join(ROOT, "src", "lib", "printer-capability.ts"), "utf8");
     const physicalImageIdx = routing.indexOf("const physicalImage");
     expect(physicalImageIdx).toBeGreaterThan(-1);
     const physicalImage = routing.slice(physicalImageIdx, physicalImageIdx + 300);

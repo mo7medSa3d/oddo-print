@@ -93,9 +93,9 @@ class PrintGatewayIntent(models.Model):
         manage_cr = cr is None
         try:
             target_cr = env.registry.cursor() if manage_cr else cr
-            now = db_now_utc(target_cr)
-            stale_threshold = now - datetime.timedelta(minutes=5)
             try:
+                now = db_now_utc(target_cr)
+                stale_threshold = now - datetime.timedelta(minutes=5)
                 target_cr.execute("""
                     UPDATE print_gateway_intent
                     SET status = 'claimed', claimed_at = %s, claim_token = %s, attempts = attempts + 1
@@ -371,13 +371,19 @@ class PrintGatewayIntent(models.Model):
             # and require manual operator re-arm rather than leaving an
             # automation event wedged forever.
             if candidate.status == "claimed" and candidate.attempts >= candidate.max_attempts:
-                recovered = candidate.with_context(allow_lease_recovery=True).write({
-                    "status": "failed",
-                    "claimed_at": False,
-                    "claim_token": False,
-                    "next_retry_at": False,
-                    "last_error": "Dispatch lease expired after the final attempt; manual operator re-arm required.",
-                })
+                self.env.cr.execute("""
+                    UPDATE print_gateway_intent
+                       SET status = 'failed', claimed_at = NULL, claim_token = NULL,
+                           next_retry_at = NULL, last_error = %s,
+                           write_date = NOW() AT TIME ZONE 'UTC'
+                     WHERE id = %s AND status = 'claimed' AND attempts >= max_attempts
+                       AND claim_token IS NOT DISTINCT FROM %s
+                       AND (claimed_at IS NULL OR claimed_at <= %s)
+                    RETURNING id
+                """, ("Dispatch lease expired after the final attempt; manual operator re-arm required.",
+                      candidate.id, candidate.claim_token or None, stale_threshold))
+                recovered = bool(self.env.cr.fetchone())
+                candidate.invalidate_recordset()
                 if recovered:
                     recovered_count += 1
                 remaining_time = cron._commit_progress(1)

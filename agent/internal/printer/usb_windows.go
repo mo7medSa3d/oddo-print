@@ -4,6 +4,7 @@ package printer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -248,27 +249,35 @@ type spDeviceInterfaceData struct {
 }
 
 var guidDevInterfaceUSBPrint = windows.GUID{Data1: 0x28d78fad, Data2: 0x100a, Data3: 0x48d4, Data4: [8]byte{0xa4, 0x89, 0x38, 0xd5, 0xbe, 0xd3, 0x41, 0xb0}}
-var guidDevInterfaceUSBDevice = windows.GUID{Data1: 0xA5DCBF10, Data2: 0x6530, Data3: 0x11D2, Data4: [8]byte{0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED}}
 
 func discoverUSBPrinters() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting USB discovery (SetupDi)")
-	pathMap := buildUSBDevicePathMap()
+	pathMap, pathErr := buildUSBDevicePathMap()
+	var diagnostics []error
+	if pathErr != nil {
+		diagnostics = append(diagnostics, pathErr)
+	}
 
 	// Prefer printer-specific interface GUID; fallback to ALLCLASSES with strict filtering
 	handle, _, err := procSetupDiGetClassDevsW.Call(uintptr(unsafe.Pointer(&guidDevInterfaceUSBPrint)), 0, 0, uintptr(digcfPresent|digcfDeviceInterface))
-	if handle == uintptr(0) || handle == uintptr(^uint32(0)) {
-		return nil, fmt.Errorf("SetupDiGetClassDevsW failed: %v", err)
+	primaryAvailable := handle != uintptr(0) && handle != ^uintptr(0)
+	if primaryAvailable {
+		defer procSetupDiDestroyDeviceInfoList.Call(handle)
+	} else {
+		diagnostics = append(diagnostics, fmt.Errorf("USBPRINT SetupDiGetClassDevsW failed: %v", err))
 	}
-	defer procSetupDiDestroyDeviceInfoList.Call(handle)
 
 	var infos []DeviceInfo
 	seenIDs := make(map[string]bool)
 
-	for idx := 0; ; idx++ {
+	for idx := 0; primaryAvailable; idx++ {
 		var devInfo spDevInfoData
 		devInfo.cbSize = uint32(unsafe.Sizeof(devInfo))
-		ret, _, _ := procSetupDiEnumDeviceInfo.Call(handle, uintptr(idx), uintptr(unsafe.Pointer(&devInfo)))
+		ret, _, enumErr := procSetupDiEnumDeviceInfo.Call(handle, uintptr(idx), uintptr(unsafe.Pointer(&devInfo)))
 		if ret == 0 {
+			if enumErr != windows.ERROR_NO_MORE_ITEMS {
+				diagnostics = append(diagnostics, fmt.Errorf("USB device enumeration: %v", enumErr))
+			}
 			break
 		}
 		instanceID, err := getDeviceInstanceID(handle, &devInfo)
@@ -321,9 +330,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				}
 			}
 		}
-		if devicePath == "" {
-			continue
-		}
 
 		caps := map[string]interface{}{}
 		caps["hardware_ids"] = hwIDs
@@ -366,7 +372,8 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			Type:           "usb",
 		}
 		if devicePath == "" {
-			di.Endpoint = instanceID
+			di.Protocol = "unknown"
+			diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
 		}
 		lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
 		if strings.Contains(lowerName, "thermal") || strings.Contains(lowerName, "receipt") || strings.Contains(lowerName, "pos") {
@@ -386,17 +393,19 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 	}
 	// Fallback enumeration via ALLCLASSES with strict filtering to catch vendor-specific
 	// printers that do not expose GUID_DEVINTERFACE_USBPRINT but still have Class_07.
-	// This path is only taken if primary found nothing, to avoid re-enumerating hundreds
-	// of devices when primary succeeded.
-	if len(infos) == 0 {
-		fbHandle, _, _ := procSetupDiGetClassDevsW.Call(0, 0, 0, uintptr(digcfPresent|digcfAllClasses))
-		if fbHandle != uintptr(0) && fbHandle != uintptr(^uint32(0)) {
+	// Always supplement primary results; one standard printer must not hide vendor-specific ones.
+	{
+		fbHandle, _, fallbackErr := procSetupDiGetClassDevsW.Call(0, 0, 0, uintptr(digcfPresent|digcfAllClasses))
+		if fbHandle != uintptr(0) && fbHandle != ^uintptr(0) {
 			defer procSetupDiDestroyDeviceInfoList.Call(fbHandle)
 			for idx := 0; ; idx++ {
 				var devInfo spDevInfoData
 				devInfo.cbSize = uint32(unsafe.Sizeof(devInfo))
-				ret, _, _ := procSetupDiEnumDeviceInfo.Call(fbHandle, uintptr(idx), uintptr(unsafe.Pointer(&devInfo)))
+				ret, _, enumErr := procSetupDiEnumDeviceInfo.Call(fbHandle, uintptr(idx), uintptr(unsafe.Pointer(&devInfo)))
 				if ret == 0 {
+					if enumErr != windows.ERROR_NO_MORE_ITEMS {
+						diagnostics = append(diagnostics, fmt.Errorf("USB fallback enumeration: %v", enumErr))
+					}
 					break
 				}
 				instanceID, err := getDeviceInstanceID(fbHandle, &devInfo)
@@ -447,9 +456,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 						}
 					}
 				}
-				if devicePath == "" {
-					continue
-				}
 				caps := map[string]interface{}{}
 				caps["hardware_ids"] = hwIDs
 				caps["compatible_ids"] = compatIDs
@@ -464,8 +470,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					caps["location"] = location
 				}
 				caps["device_path"] = devicePath
-				caps["direct_usb_available"] = true
-				caps["requires_spooler"] = false
+				caps["direct_usb_available"] = devicePath != ""
+				caps["requires_spooler"] = devicePath == ""
+				if devicePath == "" {
+					caps["diagnostic"] = "USB printer has no direct device path; install its Windows spooler queue"
+				}
 				di := DeviceInfo{
 					ID:             id,
 					Name:           friendlyName,
@@ -482,6 +491,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					Capabilities:   caps,
 					Type:           "usb",
 				}
+				if devicePath == "" {
+					di.Status = "unknown"
+					di.Protocol = "unknown"
+					diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
+				}
 				lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
 				if strings.Contains(lowerName, "thermal") || strings.Contains(lowerName, "receipt") || strings.Contains(lowerName, "pos") {
 					di.PrinterType = "thermal"
@@ -495,30 +509,44 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				log.Printf("[discovery] found USB printer via fallback: %q VID:%04x PID:%04x -> %s", friendlyName, vid, pid, id)
 				infos = append(infos, di)
 			}
+		} else {
+			diagnostics = append(diagnostics, fmt.Errorf("USB fallback SetupDiGetClassDevsW failed: %v", fallbackErr))
 		}
 	}
 	log.Printf("[discovery] USB discovery completed: %d devices", len(infos))
-	return infos, nil
+	return infos, errors.Join(diagnostics...)
 }
 
-func buildUSBDevicePathMap() map[string]string {
+func buildUSBDevicePathMap() (map[string]string, error) {
 	out := make(map[string]string)
-	guids := []windows.GUID{guidDevInterfaceUSBPrint, guidDevInterfaceUSBDevice}
+	var diagnostics []error
+	// Generic USB interfaces do not promise a printer WriteFile transport.
+	// Keep those devices as fallback candidates requiring a spooler queue.
+	guids := []windows.GUID{guidDevInterfaceUSBPrint}
 	for _, guid := range guids {
-		handle, _, _ := procSetupDiGetClassDevsW.Call(uintptr(unsafe.Pointer(&guid)), 0, 0, uintptr(digcfPresent|digcfDeviceInterface))
-		if handle == uintptr(0) || handle == uintptr(^uint32(0)) {
+		handle, _, classErr := procSetupDiGetClassDevsW.Call(uintptr(unsafe.Pointer(&guid)), 0, 0, uintptr(digcfPresent|digcfDeviceInterface))
+		if handle == uintptr(0) || handle == ^uintptr(0) {
+			diagnostics = append(diagnostics, fmt.Errorf("USB path interface set: %v", classErr))
 			continue
 		}
 		for idx := 0; ; idx++ {
 			var ifData spDeviceInterfaceData
 			ifData.cbSize = uint32(unsafe.Sizeof(ifData))
-			ret, _, _ := procSetupDiEnumDeviceInterfaces.Call(handle, 0, uintptr(unsafe.Pointer(&guid)), uintptr(idx), uintptr(unsafe.Pointer(&ifData)))
+			ret, _, enumErr := procSetupDiEnumDeviceInterfaces.Call(handle, 0, uintptr(unsafe.Pointer(&guid)), uintptr(idx), uintptr(unsafe.Pointer(&ifData)))
 			if ret == 0 {
+				if enumErr != windows.ERROR_NO_MORE_ITEMS {
+					diagnostics = append(diagnostics, fmt.Errorf("USB path enumeration: %v", enumErr))
+				}
 				break
 			}
 			var required uint32
-			procSetupDiGetDeviceInterfaceDetailW.Call(handle, uintptr(unsafe.Pointer(&ifData)), 0, 0, uintptr(unsafe.Pointer(&required)), 0)
-			if required == 0 || required > 4096 {
+			ret, _, detailErr := procSetupDiGetDeviceInterfaceDetailW.Call(handle, uintptr(unsafe.Pointer(&ifData)), 0, 0, uintptr(unsafe.Pointer(&required)), 0)
+			if ret == 0 && detailErr != windows.ERROR_INSUFFICIENT_BUFFER {
+				diagnostics = append(diagnostics, fmt.Errorf("USB path detail sizing: %v", detailErr))
+				continue
+			}
+			if required < 6 || required > 4096 {
+				diagnostics = append(diagnostics, fmt.Errorf("USB path detail invalid size %d", required))
 				continue
 			}
 			buf := make([]byte, required)
@@ -529,14 +557,19 @@ func buildUSBDevicePathMap() map[string]string {
 			*(*uint32)(unsafe.Pointer(&buf[0])) = uint32(cbSize)
 			var devInfo spDevInfoData
 			devInfo.cbSize = uint32(unsafe.Sizeof(devInfo))
-			ret, _, _ = procSetupDiGetDeviceInterfaceDetailW.Call(handle, uintptr(unsafe.Pointer(&ifData)), uintptr(unsafe.Pointer(&buf[0])), uintptr(required), uintptr(unsafe.Pointer(&required)), uintptr(unsafe.Pointer(&devInfo)))
+			ret, _, detailErr = procSetupDiGetDeviceInterfaceDetailW.Call(handle, uintptr(unsafe.Pointer(&ifData)), uintptr(unsafe.Pointer(&buf[0])), uintptr(required), uintptr(unsafe.Pointer(&required)), uintptr(unsafe.Pointer(&devInfo)))
 			if ret == 0 {
+				diagnostics = append(diagnostics, fmt.Errorf("USB path detail: %v", detailErr))
 				continue
 			}
-			pathPtr := (*uint16)(unsafe.Pointer(&buf[cbSize]))
-			path := windows.UTF16PtrToString(pathPtr)
+			path, pathErr := usbDeviceInterfacePath(buf)
+			if pathErr != nil {
+				diagnostics = append(diagnostics, fmt.Errorf("USB interface detail: %w", pathErr))
+				continue
+			}
 			instanceID, err := getDeviceInstanceID(handle, &devInfo)
 			if err != nil || instanceID == "" {
+				diagnostics = append(diagnostics, fmt.Errorf("USB path device instance: %v", err))
 				continue
 			}
 			if _, exists := out[instanceID]; !exists {
@@ -545,7 +578,24 @@ func buildUSBDevicePathMap() map[string]string {
 		}
 		procSetupDiDestroyDeviceInfoList.Call(handle)
 	}
-	return out
+	return out, errors.Join(diagnostics...)
+}
+
+// DevicePath follows the DWORD at offset 4 on both Win32 and Win64.
+// cbSize includes ABI padding and is NOT the offset of DevicePath.
+func usbDeviceInterfacePath(buf []byte) (string, error) {
+	if len(buf) < 6 || len(buf)%2 != 0 {
+		return "", fmt.Errorf("invalid USB interface detail length %d", len(buf))
+	}
+	chars := make([]uint16, (len(buf)-4)/2)
+	for i := range chars {
+		chars[i] = uint16(buf[4+i*2]) | uint16(buf[5+i*2])<<8
+	}
+	path := syscall.UTF16ToString(chars)
+	if !strings.HasPrefix(path, `\\?\`) && !strings.HasPrefix(path, `\\.\`) {
+		return "", fmt.Errorf("invalid USB interface path")
+	}
+	return path, nil
 }
 
 // getDeviceInstanceID reads the device instance ID using the documented

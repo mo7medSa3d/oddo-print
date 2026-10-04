@@ -133,6 +133,12 @@ export default function App() {
   // Keep the editable URL draft separate from the last successfully saved URL.
   // Network refresh effects must never be driven by keystrokes in Settings.
   const [savedGatewayUrl, setSavedGatewayUrl] = useState("");
+  const savedOriginRef = useRef(savedGatewayUrl);
+  useEffect(() => { savedOriginRef.current = savedGatewayUrl; }, [savedGatewayUrl]);
+  const printersGeneration = useRef(0);
+  const jobsGeneration = useRef(0);
+  const healthGeneration = useRef(0);
+  const configurationFlight = useRef(false);
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -185,28 +191,38 @@ export default function App() {
   const refreshPrinters = useCallback(async () => {
     if (!savedGatewayUrl) {
       setPrintersError(t("desktop.app.gatewayUrlMissing"));
-      return;
+      return false;
     }
+    const generation = ++printersGeneration.current;
+    const current = () => generation === printersGeneration.current && savedOriginRef.current === savedGatewayUrl;
     setPrintersLoading(true);
     setPrintersError(null);
     try {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
+      if (!current()) return false;
       setPrinters(list.filter(isProductionPrinter));
+      return true;
     } catch (e) {
+      if (!current()) return false;
       setPrintersError(friendlyPrinterError(errMsg(e), locale));
+      return false;
     } finally {
-      setPrintersLoading(false);
+      if (current()) setPrintersLoading(false);
     }
   }, [savedGatewayUrl, t, locale]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
     if (!savedGatewayUrl) return;
+    const generation = ++jobsGeneration.current;
+    const current = () => generation === jobsGeneration.current && savedOriginRef.current === savedGatewayUrl;
     setJobsLoading(true);
     try {
       const data = await fetchGatewayJobs(savedGatewayUrl, options);
+      if (!current()) return;
       setJobs(Array.isArray(data) ? data : []);
       setJobsError(null);
     } catch (e: unknown) {
+      if (!current()) return;
       setJobs([]);
       const status = Number((e as { status?: number })?.status ?? 0);
       setJobsError(
@@ -215,13 +231,16 @@ export default function App() {
           : friendlyGatewayError(errMsg(e), locale)
       );
     } finally {
-      setJobsLoading(false);
+      if (current()) setJobsLoading(false);
     }
   }, [savedGatewayUrl, t, locale]);
 
   const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
+    const generation = ++healthGeneration.current;
+    const current = () => generation === healthGeneration.current && savedOriginRef.current === targetUrl;
     try {
       const h = await fetchGatewayHealth(targetUrl);
+      if (!current()) return false;
       setHealth(h);
       setCheckedGatewayUrl(targetUrl);
       const gatewayError = (h as { error?: unknown })?.error;
@@ -232,6 +251,7 @@ export default function App() {
       setHealthError(null);
       return true;
     } catch (e) {
+      if (!current()) return false;
       setHealth(null);
       setCheckedGatewayUrl(targetUrl);
       setHealthError(friendlyGatewayError(errMsg(e), locale));
@@ -240,7 +260,7 @@ export default function App() {
   }, [locale]);
 
   const checkHealth = useCallback(async () => {
-    const raw = gatewayUrl.trim();
+    const raw = savedGatewayUrl.trim();
     if (!raw) {
       setHealth(null);
       setCheckedGatewayUrl("");
@@ -258,6 +278,8 @@ export default function App() {
       return;
     }
 
+    if (configurationFlight.current) return;
+    configurationFlight.current = true;
     setGatewayChecking(true);
     setHealthError(null);
 
@@ -270,6 +292,7 @@ export default function App() {
     try {
       await setGatewayUrl(target);
       setGw(target);
+      savedOriginRef.current = target;
       setSavedGatewayUrl(target);
 
       const reachable = await probeGateway(target);
@@ -277,6 +300,7 @@ export default function App() {
         if (previousGatewayUrl && previousGatewayUrl !== target) {
           await setGatewayUrl(previousGatewayUrl);
           setGw(previousGatewayUrl);
+          savedOriginRef.current = previousGatewayUrl;
           setSavedGatewayUrl(previousGatewayUrl);
         }
         return;
@@ -288,6 +312,7 @@ export default function App() {
         if (previousGatewayUrl && previousGatewayUrl !== target) {
           await setGatewayUrl(previousGatewayUrl);
           setGw(previousGatewayUrl);
+          savedOriginRef.current = previousGatewayUrl;
           setSavedGatewayUrl(previousGatewayUrl);
         }
       } catch {
@@ -295,6 +320,7 @@ export default function App() {
       }
       setMsg({ text: friendlyGatewayError(errMsg(e), locale), type: "error" });
     } finally {
+      configurationFlight.current = false;
       setGatewayChecking(false);
     }
   }, [gatewayUrl, probeGateway, savedGatewayUrl, t, locale]);
@@ -307,13 +333,12 @@ export default function App() {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
-      await refreshPrinters();
-      setPrintersError(null);
+      const refreshed = await refreshPrinters();
       setMsg({
         text: list.length === 0
           ? t("desktop.app.noPhysicalPrinters")
-          : `Discovery found ${list.length} physical printer${list.length === 1 ? "" : "s"} and refreshed the Gateway inventory.`,
-        type: "success",
+          : t("desktop.app.discoveryFound", { count: list.length }),
+        type: refreshed && list.length > 0 ? "success" : "info",
       });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e), locale));
@@ -323,14 +348,14 @@ export default function App() {
   }, [refreshPrinters, t, locale]);
 
   const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
-    if (!gatewayUrl) {
+    if (!savedGatewayUrl) {
       setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
       return;
     }
     if (lifecycle === "retired" && !window.confirm(t("desktop.app.retireConfirmPrompt"))) return;
     try {
       setBusyBoth(true);
-      await updateGatewayPrinter(gatewayUrl, id, { lifecycle });
+      await updateGatewayPrinter(savedGatewayUrl, id, { lifecycle });
       await refreshPrinters();
       setSelectedPrinter((current) => current?.id === id ? null : current);
       setMsg({ text: lifecycle === "disabled" ? t("desktop.app.printerDisabled") : lifecycle === "retired" ? t("desktop.app.printerRetired") : t("desktop.app.printerEnabled"), type: "success" });
@@ -339,16 +364,16 @@ export default function App() {
     } finally {
       setBusyBoth(false);
     }
-  }, [gatewayUrl, refreshPrinters, setBusyBoth, t, locale]);
+  }, [savedGatewayUrl, refreshPrinters, setBusyBoth, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
       try {
         setBusyBoth(true);
-        if (!gatewayUrl) {
+        if (!savedGatewayUrl) {
           throw new Error(t("desktop.app.gatewayUrlMissing"));
         }
-        const result = await testGatewayPrinter(gatewayUrl, id);
+        const result = await testGatewayPrinter(savedGatewayUrl, id);
         const jobId = typeof result.jobId === "string" ? result.jobId : null;
         setMsg({
           text: jobId
@@ -363,7 +388,7 @@ export default function App() {
         setBusyBoth(false);
       }
     },
-    [gatewayUrl, refreshJobs, setBusyBoth]
+    [savedGatewayUrl, refreshJobs, setBusyBoth]
   );  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
@@ -417,13 +442,13 @@ export default function App() {
       setMsg({ text: t("desktop.app.enterPairingCode"), type: "error" });
       return;
     }
-    if (!gatewayUrl) {
+    if (!savedGatewayUrl) {
       setMsg({ text: t("desktop.app.setGatewayFirst"), type: "error" });
       return;
     }
     try {
       setBusyBoth(true);
-      const r = await pairAgent(pairCode.trim(), gatewayUrl);
+      const r = await pairAgent(pairCode.trim(), savedGatewayUrl);
       setMsg({ text: r || t("desktop.app.agentPaired"), type: "success" });
       setPairCode("");
       refreshStatus();
@@ -433,7 +458,7 @@ export default function App() {
     } finally {
       setBusyBoth(false);
     }
-  }, [pairCode, gatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth, t, locale]);
+  }, [pairCode, savedGatewayUrl, refreshJobs, refreshPrinters, refreshStatus, setBusyBoth, t, locale]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -465,7 +490,7 @@ export default function App() {
   useEffect(() => {
     if (!isTauri || !savedGatewayUrl) return;
 
-    const raw = gatewayUrl.trim();
+    const raw = savedGatewayUrl.trim();
     if (!raw) {
       setHealth(null);
       setCheckedGatewayUrl("");
@@ -493,7 +518,7 @@ export default function App() {
     }, 450);
 
     return () => window.clearTimeout(timer);
-  }, [gatewayUrl, savedGatewayUrl, probeGateway]);
+  }, [savedGatewayUrl, probeGateway]);
 
   useEffect(() => {
     if (savedGatewayUrl) refreshPrinters();
@@ -540,6 +565,10 @@ export default function App() {
       // Switching gateways must not send the old JWT to the new origin:
       // drop it (and stale per-gateway caches) before probing the new URL.
       void clearManagerSession();
+      savedOriginRef.current = url;
+      ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
+      setPrintersLoading(false); setJobsLoading(false);
+      setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); setDiscoveredPrinters([]);
       setSavedGatewayUrl(url);
       setGw(url);
       setJobs([]);
@@ -568,17 +597,16 @@ export default function App() {
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);
-  const agentRegistered = Boolean((agentStatus as { registered?: boolean } | null)?.registered);
   let normalizedGatewayUrl = "";
   try {
-    normalizedGatewayUrl = normalizeGatewayUrl(gatewayUrl);
+    normalizedGatewayUrl = normalizeGatewayUrl(savedGatewayUrl);
   } catch {
     // The URL is still being edited; an invalid/partial draft is never connected.
   }
   const gatewayConnected = Boolean(
     normalizedGatewayUrl &&
       checkedGatewayUrl === normalizedGatewayUrl &&
-      (healthOk || agentRegistered)
+      healthOk
   );
   const gatewaySubLabel = !savedGatewayUrl
     ? t("desktop.app.setGatewayUrlInSettings")
@@ -592,7 +620,7 @@ export default function App() {
     (p) => p.status === "offline" || p.status === "error"
   ).length;
   const pendingJobs = jobs.filter((j) => ["queued", "claimed"].includes(jobStatus(j))).length;
-  const failedJobs = jobs.filter((j) => ["failed", "expired"].includes(jobStatus(j))).length;
+  const failedJobs = jobs.filter((j) => ["failed", "expired"].includes(jobStatus(j)) && deriveOutcome(jobStatus(j), typeof j.error === "string" ? j.error : null) === "not_printed").length;
   const fleetAgents = (health as { agents?: { total?: number; online?: number } } | null)?.agents;
   // /api/health deliberately reports liveness only. Fabricating 0/0 here lied
   // to operators; absent data renders as an explicit dash instead.
@@ -828,7 +856,7 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:pl-[72px]" : "lg:pl-[276px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:ps-[72px]" : "lg:ps-[276px]"}`}
       >
         <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-4 py-4 backdrop-blur-xl lg:px-7">
           <div className="flex items-center gap-4">
@@ -910,14 +938,14 @@ export default function App() {
           setMsg({ text: t("desktop.app.printerAdded"), type: "success" });
         }}
         printers={discoveredPrinters}
-        gatewayUrl={gatewayUrl}
+        gatewayUrl={savedGatewayUrl}
       />
 
       <EditPrinterDialog
         key={editingPrinter ? `edit-${editingPrinter.id}-${editingPrinter.desiredRevision ?? 0}` : "edit-none"}
         open={!!editingPrinter}
         printer={editingPrinter}
-        gatewayUrl={gatewayUrl}
+        gatewayUrl={savedGatewayUrl}
         onClose={() => setEditingPrinter(null)}
         onSaved={handleEditSaved}
         onError={(message) => setMsg({ text: friendlyPrinterError(message, locale), type: "error" })}

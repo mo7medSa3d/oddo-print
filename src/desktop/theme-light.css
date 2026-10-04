@@ -2,10 +2,6 @@
    Do not duplicate palette values here: globals.css is the single theme source.
    This file keeps only Desktop-specific compatibility helpers. */
 
-:root {
-  color-scheme: light;
-}
-
 html,
 body {
   background: var(--bg);

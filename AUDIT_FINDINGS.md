@@ -1,0 +1,171 @@
+| ID | Severity | Component | file:line | Problem | Status |
+| --- | --- | --- | --- | --- | --- |
+| A47 | P0 | Agent | agent/internal/agent/agent.go:1567 | Local delivery receipt age cannot prove Gateway claim freshness; delayed stale frames may print after an unacknowledged transition. | fixed |
+| A131 | P0 | Odoo | odoo_addons/print_gateway/models/binding.py:29 | Environment.is_superuser is tested as a truthy bound method, bypassing report group checks and administrative guards for ordinary callers. | fixed |
+| A01 | P1 | Agent | agent/internal/printer/spooler_windows.go:1272 | LocalSystem enumerates its own connections; no service-context diagnostic for missing user queues. | fixed |
+| A02 | P1 | Agent | agent/internal/printer/discovery.go:235 | Successful partial source results are discarded whenever a source also returns an error. | fixed |
+| A03 | P1 | Agent | agent/internal/agent/discovery_manager.go:233 | Discovery sends port=0, manufacturer=null and capabilities=null; strict Gateway schema rejects local printers and errors are omitted. | fixed |
+| A04 | P1 | Agent | agent/internal/printer/ipp_discovery.go:252 | Parallel Browse calls share resolver sockets; one cancellation shuts down other service scans. | fixed |
+| A05 | P1 | Agent | agent/internal/printer/discovery.go:295 | Parallel heuristic mDNS scanner invents IPP paths/protocols from arbitrary packet bytes, bypassing DNS-SD metadata. | fixed |
+| A06 | P1 | Agent | agent/internal/printer/discovery.go:766 | Cross-source merging by host alone conflates queues and mixes the chosen protocol with another endpoint/port. | fixed |
+| A07 | P1 | Agent | agent/internal/printer/classify_device.go:264 | Enhanced Point and Print compatibility driver for physical remote queues is classified as a software writer. | fixed |
+| A09 | P1 | Agent | agent/internal/printer/usb_windows.go:585 | SetupAPI DevicePath is read at cbSize instead of DWORD offset 4, truncating its required prefix. | fixed |
+| A10 | P1 | Agent | agent/internal/printer/usb_windows.go:254 | Fallback USB enumeration runs only for empty primary results and drops devices without paths; handle sentinel is truncated on x64. | fixed |
+| A11 | P1 | Agent | agent/internal/agent/agent.go:2167 | Direct USB heartbeat VID/PID are hex strings, but Gateway requires integers; inventory is rejected. | fixed |
+| A12 | P1 | Agent | agent/internal/agent/discovery_manager.go:30 | Polling/duplicate WS triggers mark the active discovery cancelled and reject its eventual results. | fixed |
+| A13 | P1 | Agent | agent/internal/printer/discovery.go:656 | Serial per-queue status re-probes multiply startup delays and abandon helpers on offline queues. | fixed |
+| A14 | P1 | Agent | agent/internal/printer/registry.go:198 | Failed quarantine of corrupt registry still proceeds to overwrite the original data. | fixed |
+| A15 | P1 | Agent | agent/internal/agent/agent.go:696 | 401 heartbeat rejection backs off polls but leaves new local/WS hardware dispatch unfenced. | fixed |
+| A16 | P1 | Gateway | src/app/api/agent/heartbeat/route.ts:66 | Null/non-object printer entries throw before validation and fail the entire heartbeat. | fixed |
+| A17 | P1 | Odoo | odoo_addons/print_gateway/static/src/js/pos_print_router.js:90 | Receipt renderer uses removed data/formatCurrency props and an obsolete Odoo 19 template. | fixed |
+| A18 | P1 | Odoo | odoo_addons/print_gateway/static/src/js/pos_print_router.js:368 | Kitchen printing treats any successful station as complete, consuming changes despite failed/unknown stations. | fixed |
+| A19 | P1 | Odoo | odoo_addons/print_gateway/static/src/js/pos_sale_details_router.js:31 | Sales report shows success for failed/rejected statuses and its activation RPC escapes error handling. | fixed |
+| A20 | P1 | Odoo | odoo_addons/print_gateway/static/src/components/runtime_printer_field.js:148 | Same-agent company/branch changes retain stale selectable printer rows after a failed reload. | fixed |
+| A21 | P1 | Deployment | Dockerfile:33 | Runtime server imports contracts/print-payload-contract.json but final image omits contracts. | fixed |
+| A28 | P1 | Agent | agent/internal/printer/network.go:128 | TCP writes ignore shorter context deadlines and cancellation can wait the full 60-second stall timeout. | fixed |
+| A29 | P1 | Billing | src/lib/stripe.ts:206 | Subscription periods are read only at the top level, failing Stripe Basil item-level subscription events. | fixed |
+| A30 | P1 | Agent | agent/internal/agent/agent.go:2157 | Full Windows queue names exceed Gateway heartbeat name limit 100 and are skipped despite valid hardware identity. | fixed |
+| A31 | P1 | Tauri | src-tauri/src/commands.rs:1059 | Discovery ignores CLI JSON and rereads persisted registry, hiding fresh printers when persistence fails. | fixed |
+| A35 | P1 | Agent | agent/internal/printer/discovery_extended.go:267 | Standalone SNMP extraction reads the public community before sysDescr, so normal printer responses are discarded. | fixed |
+| A36 | P1 | Agent | agent/internal/printer/discovery_extended.go:370 | LPD queue-status discovery requires a NUL acknowledgement instead of the protocol text response, hiding valid queues. | fixed |
+| A37 | P1 | Agent | agent/internal/printer/discovery.go:573 | SNMP/LPR targets on wide or multiple subnets are capped from the first network base, omitting the local segment and later interfaces. | fixed |
+| A38 | P1 | Agent | agent/internal/printer/stable_id.go:145 | USB IDs hash only serial, so different VID/PID devices sharing manufacturer serial values collide and are merged. | fixed |
+| A39 | P1 | Agent | agent/internal/printer/network_discovery.go:118 | Nested WSD discovery discards partial results and only logs source failures, while full discovery launches a redundant WSD scan. | fixed |
+| A40 | P1 | Agent | agent/internal/printer/ipp.go:389 | IPP attribute request repeats a named set member rather than encoding zero-length continuation names; strict printers reject discovery/status probes. | fixed |
+| A41 | P1 | Agent | agent/internal/printer/usb_windows.go:524 | Generic USB device interfaces are promoted to writable print streams without a driver contract, producing false readiness and failed direct dispatch. | fixed |
+| A42 | P1 | Agent | agent/internal/printer/pdf_windows.go:243 | GDI bitmap output adds physical offsets to printable-origin coordinates and fails to upscale capped renders, clipping or shrinking PDFs. | fixed |
+| A43 | P1 | Agent | agent/internal/printer/pdf_windows.go:431 | PDF error/cancellation cleanup finalizes an incomplete GDI document, releasing partial pages instead of aborting the job. | fixed |
+| A46 | P1 | Agent | agent/internal/agent/agent.go:572 | Registry persistence failures silently prevent otherwise valid discovered printers from entering runtime inventory. | fixed |
+| A48 | P1 | Agent | agent/internal/agent/agent.go:2852 | Async terminal outbox reports replace their preserved claim token with a newer in-flight token, attributing old outcomes to new attempts. | fixed |
+| A49 | P1 | Agent | agent/internal/agent/desired_state.go:491 | Unchanged unobserved desired state rebuilds printer backends every heartbeat, discarding stalled-call gates and wedged USB/spooler state. | fixed |
+| A50 | P1 | Agent | agent/internal/config/config.go:77 | Malformed IPP URLs can return a nil parsed URL, dereferenced before the error check and panic during validation. | fixed |
+| A51 | P1 | Agent | agent/internal/agent/agent.go:471 | Disabled YAML printers still initialize, heartbeat and execute because startup and execution checks ignore Enabled. | fixed |
+| A52 | P1 | Agent | agent/cmd/cli/diagnose.go:166 | Diagnostic queue probes call synchronous Win32 APIs without a bound, so one stalled queue can hang the entire CLI. | fixed |
+| A53 | P1 | Agent | agent/internal/payload/payload.go:151 | Present non-object peripherals are silently discarded rather than rejected, diverging from the Gateway contract. | fixed |
+| A56 | P1 | Agent | agent/internal/queue/queue.go:54 | WAL synchronous=NORMAL can lose committed execution evidence on power loss; legacy migration failures also return a usable incomplete queue. | fixed |
+| A57 | P1 | Agent | agent/internal/printer/stable_id.go:85 | Registry physical matching collapses distinct IPP resource queues sharing one printer UUID, despite distinct discovery IDs. | fixed |
+| A58 | P1 | Agent | agent/internal/agent/desired_state.go:402 | Numeric Gateway USB VID/PID become decimal strings parsed as hexadecimal, so desired USB backends target wrong device identifiers. | fixed |
+| A59 | P1 | Agent | agent/internal/printer/pdf.go:150 | PrintPDF unconditionally caps the renderer at 120 seconds, shortening the larger PDF budget already assigned by documentContext. | fixed |
+| A61 | P1 | Agent | agent/internal/printer/registry.go:17 | Process-local registry locking does not serialize service and CLI read-modify-write operations, allowing lost manual registrations. | fixed |
+| A62 | P1 | Gateway | src/app/api/agent/jobs/route.ts:539 | Terminal transitions clear claim tokens and reject replay, so a lost success response strands the Agent's durable terminal outbox forever. | fixed |
+| A63 | P1 | Gateway | src/app/api/agent/jobs/route.ts:418 | Pre-execution rejection requires absent delivery/ACK evidence, so normal WS deliveries cannot hand back jobs when local admission or ledger fails. | fixed |
+| A65 | P1 | Gateway | src/server/ws.ts:980 | Upgraded sockets lack message/error listeners while async lifecycle verification runs, risking dropped ACKs and unhandled socket errors. | fixed |
+| A66 | P1 | Gateway | src/db/schema.ts:322 | discovery_sessions.stats types errors as number while the reporting route writes string[], causing a TypeScript contract error. | fixed |
+| A67 | P1 | Gateway | src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts:196 | Provisioned random printer IDs default to agent ownership, so no desired-state delivery creates their backend and jobs remain unroutable. | fixed |
+| A68 | P1 | Gateway | src/app/api/agent/discovery/route.ts:181 | Rediscovery replaces approved candidate transport/endpoint metadata without invalidating approval, authorizing changed destinations without review. | fixed |
+| A69 | P1 | Agent | agent/internal/agent/desired_state.go:374 | Desired-state validation rejects all fd00::/8 private printer addresses although Gateway accepts these IPv6 ULA destinations. | fixed |
+| A76 | P1 | Gateway | src/lib/print-job-service.ts:419 | Printer lifecycle/status/capability checks precede idempotency lookup, so retries of already accepted jobs fail after printer state changes. | fixed |
+| A79 | P1 | Gateway | src/app/api/auth/login/route.ts:66 | Sessions persist the raw login email while refresh compares normalized database email, breaking refresh after mixed-case or padded logins. | fixed |
+| A81 | P1 | Gateway | src/lib/auth-rate-limit.ts:388 | Successful login deletes the shared IP bucket, allowing one known account to reset aggregate brute-force limits for other accounts. | fixed |
+| A82 | P1 | Gateway | src/app/api/auth/select-tenant/route.ts:24 | Workspace switching authenticates only manager sessions, so ordinary customer sessions cannot select another membership. | fixed |
+| A83 | P1 | Gateway | src/app/api/auth/reset-password/route.ts:68 | Reset locks the token before the user while forgot-password locks user before tokens, allowing concurrent recovery requests to deadlock. | fixed |
+| A84 | P1 | Gateway | src/lib/session-tokens.ts:612 | Refresh validates user/membership without a lock shared by password-reset revocation; a concurrent refresh can insert an unrevoked successor. | fixed |
+| A86 | P1 | Gateway | src/app/api/jobs/route.ts:190 | Cleanup removes tenant idempotency evidence, allowing old accepted print requests to enqueue again and reprint sequence keys to collide. | fixed |
+| A90 | P1 | Gateway | src/app/api/printers/[id]/test-print/route.ts:59 | Test payload embeds the current time before idempotency lookup, so retries with one key conflict after a lost acceptance response. | fixed |
+| A91 | P1 | Gateway | src/app/api/printers/[id]/certify/route.ts:212 | Certification sends plain text labeled ZPL/TSPL rather than valid commands, yielding successful byte delivery with no diagnostic label. | fixed |
+| A93 | P1 | Gateway | src/app/api/odoo/keys/route.ts:185 | Explicitly revoking a retiring key leaves readOnlyUntil intact, so it remains authenticated on grace-enabled discovery/health endpoints. | fixed |
+| A94 | P1 | Gateway | src/app/api/billing/status/route.ts:31 | UI subscription gate expires past_due access and ignores entitlementBlocked, disagreeing with authoritative runtime billing predicates. | fixed |
+| A95 | P1 | Gateway | src/app/api/billing/webhook/route.ts:317 | Checkout completion writes retrieved periods without the stored event fence, allowing delayed checkout snapshots to roll back newer billing periods. | fixed |
+| A96 | P1 | Gateway | src/app/api/billing/webhook/route.ts:385 | Concurrent same-second live snapshots are fetched before locking and accepted on equal timestamps, allowing older state to overwrite newer or deleted state. | fixed |
+| A97 | P1 | Gateway | src/app/api/billing/checkout/route.ts:332 | Persisted checkout intent replays parameters from the mutable plan and request base URL, so response-loss retries may violate Stripe idempotency. | fixed |
+| A98 | P1 | Gateway | src/app/api/platform/plans/[id]/route.ts:212 | Changing a plan price removes the old price mapping; existing subscriptions keep that price and become entitlement-blocked on their next webhook. | fixed |
+| A99 | P1 | Gateway | src/app/api/onboarding/route.ts:79 | First local-trial request can overwrite an existing paid Stripe subscription's plan/status without changing its external billing contract. | fixed |
+| A100 | P1 | Gateway | src/components/PrintCertificationWizard.tsx:135 | Certification has no stable operation key or status polling; response-loss retries can print again and queued results never refresh. | fixed |
+| A103 | P1 | Gateway | src/app/forgot-password/page.tsx:67 | Password-reset request button lacks type=submit; shared Button defaults to button, so clicking Send never submits the form. | fixed |
+| A104 | P1 | Gateway | src/app/login/page.tsx:25 | Return destination accepts slash-backslash URLs that browsers normalize to an external host; normalize and enforce same-origin destinations. | fixed |
+| A106 | P1 | Gateway | src/app/dashboard/dashboard-client.tsx:396 | Customer refresh scheduling exists only on the dashboard and ignores token expiry; other pages expire silently and concurrent tab rotations revoke the family. | fixed |
+| A107 | P1 | Gateway | src/app/verify-email/page.tsx:86 | Verification mutation reruns when locale changes and during Strict Mode effect replay; consuming one-use token twice reports failure after successful verification. | fixed |
+| A109 | P1 | Gateway | src/app/dashboard/dashboard-client.tsx:1040 | Re-enable Agent controls open the new-Agent registration dialog instead of reactivating/re-pairing the selected disabled Agent. | fixed |
+| A121 | P1 | Gateway | src/desktop/components/EditPrinterDialog.tsx:149 | USB editing requires VID/PID/path but renders no USB controls; changing transport also retains obsolete USB identifiers. | fixed |
+| A122 | P1 | Gateway | src/desktop/components/AddPrinterDialog.tsx:175 | USB registration ignores camelCase spoolerName from local discovery and can select a physical printer for an unrelated Agent. | fixed |
+| A123 | P1 | Gateway | src/desktop/main.tsx:333 | Mutations use the editable Gateway URL while reads use the saved URL, so a Settings draft can target a different Gateway or fail origin validation. | fixed |
+| A128 | P1 | Gateway | src/i18n/messages/en.ts:1531 | Certification failure copy claims no job was created after an ambiguous response, encouraging duplicate physical prints; acknowledgement copy claims printer proof without evidence. | fixed |
+| A133 | P1 | Odoo | odoo_addons/print_gateway/controllers/runtime_printers.py:133 | Printer discovery requires printing enabled while Agent discovery does not; invalid credentials are hidden as empty Agent inventory. | fixed |
+| A134 | P1 | Odoo | odoo_addons/print_gateway/models/binding.py:347 | Runtime target validation fetches an unscoped capped printer list, hiding valid printers on the selected Agent. | fixed |
+| A135 | P1 | Odoo | odoo_addons/print_gateway/models/print_policy.py:374 | Policy scheduling catches database failures without a savepoint and reserves dedupe targets before successful intent creation. | fixed |
+| A136 | P1 | Odoo | odoo_addons/print_gateway/models/print_intent.py:97 | Claim clock failures leak dedicated cursors; final-attempt recovery clears leases without an atomic token/staleness fence. | fixed |
+| A137 | P1 | Odoo | odoo_addons/print_gateway/models/print_job.py:621 | RPC context test_mode enables fixture submission/lease shortcuts and bypasses durable production dispatch boundaries. | fixed |
+| A138 | P1 | Odoo | odoo_addons/print_gateway/models/print_job.py:1644 | Interactive billing/rate-limit ValidationErrors are caught as deterministic failures, wrapping or truncating structured billing markers. | fixed |
+| A139 | P1 | Odoo | odoo_addons/print_gateway/models/print_job.py:1804 | Unknown submissions and execution timeouts cannot reconcile ordinary confirmed Gateway success; late success is only accepted for post-expiration markers. | fixed |
+| A140 | P1 | Odoo | odoo_addons/print_gateway/models/gateway_config.py:1634 | Revision zero is treated as missing via or -1, leaving an acknowledged initial configuration syncing and repeatedly reconciling. | fixed |
+| A141 | P1 | Odoo | odoo_addons/print_gateway/models/gateway_config.py:1875 | Test Connection synchronizes the new endpoint directly without completing the durable previous-endpoint shutdown fence. | fixed |
+| A143 | P1 | Odoo | odoo_addons/print_gateway/static/src/js/pos_print_router.js:665 | Kitchen RPC failures permit retry with a fresh operation ID although the original ticket may already have been accepted. | fixed |
+| A144 | P1 | Odoo | odoo_addons/print_gateway/views/gateway_config_views.xml:27 | Connection form exposes neither sync/error details nor connection-test/recovery actions, concealing failed setup and migration fences. | fixed |
+| A145 | P1 | Odoo | odoo_addons/print_gateway/static/src/components/runtime_printer_field.js:118 | Operation-type picker excludes document printers even when a PDF report is configured, contradicting server capability validation. | fixed |
+| A147 | P1 | Odoo | odoo_addons/print_gateway/i18n/ar.po:22 | Most PO occurrences lack Odoo code/model references, two code entries lack numeric lines, and XML entity msgids do not match exported terms. | fixed |
+| A149 | P1 | Tauri | src-tauri/src/agent.rs:573 | Win32 process image is compared with extended canonical path; owned background Agents cannot be recognized or stopped. | fixed |
+| A150 | P1 | Tauri | src-tauri/src/commands.rs:394 | Manager tokens lack origin/generation fences; URL changes and concurrent refresh expose or replace credentials across origins. | fixed |
+| A151 | P1 | Odoo | odoo_addons/print_gateway/models/print_job.py:1644 | Malformed successful submission responses are declared failed despite possible acceptance, enabling duplicate retries. | fixed |
+| A153 | P1 | Deployment | Dockerfile:30 | Runtime image omits public assets; theme initialization, CSS and favicon requests fail in production. | fixed |
+| A154 | P1 | Windows verification | scripts/smoke-test-windows.ps1:128 | Smoke test kills every Agent by image name and can disrupt unrelated production services; KeepRunning does nothing. | fixed |
+| A159 | P1 | Database | drizzle/meta/_journal.json:228 | Migration timestamps regress at 0033-0036 and 0074; timestamp-based Drizzle upgrades silently skip required schema changes. | fixed |
+| A161 | P1 | Tauri | src-tauri/src/agent.rs:702 | Unserialized service control falls back to a duplicate background Agent on installed-service failures or pending startup. | fixed |
+| A162 | P1 | Agent | agent/internal/printer/document.go:95 | PDF documentContext strips caller cancellation/deadlines, so service shutdown and explicit cancellation cannot stop the renderer. | fixed |
+| A163 | P1 | Billing | src/app/api/billing/webhook/route.ts:197 | Webhook locks subscriptions before tenant FK/audit writes while onboarding/checkout lock tenant first, permitting deadlock. | fixed |
+| U01 | P1 | Gateway verification | package.json:14 | Full typecheck/lint/Vitest/Next build blocked by absent project dependencies/binaries; existing Node 24 runtime available. | unverified |
+| U02 | P1 | Agent verification | agent/go.mod:14 | Full Go checks blocked by uncached pinned x/text 0.41.0/x/crypto 0.56.0; Windows also lacks cached PDFium WASM data; downloads disabled. | unverified |
+| U03 | P1 | Tauri verification | src-tauri/Cargo.toml:17 | Full crate checks/tests blocked by missing GLib/GIO system libraries and Windows MSVC cross-build prerequisites. | unverified |
+| U04 | P1 | Live verification | FIX_LOG.md:1 | Windows service/physical printers/live Odoo 19/Stripe/PostgreSQL integration unavailable in this environment. | unverified |
+| U05 | P1 | Audit coverage | FIX_LOG.md:1 | Earlier delivery omitted exhaustive source reading; continuation completed the component-by-component full source audit. | fixed |
+| A08 | P2 | Agent | agent/internal/printer/ipp_discovery.go:291 | _printer._tcp (LPD) advertisements are mislabeled as verified IPP; TCP-only candidates are also marked verified. | fixed |
+| A22 | P2 | Gateway | src/lib/api-error-keys.ts:94 | Prototype property codes such as constructor resolve to non-message values through the in operator. | fixed |
+| A23 | P2 | Gateway | src/desktop/pages/Printers.tsx:37 | Connected empty inventories hide fetch errors and instead claim there are no printers. | fixed |
+| A24 | P2 | Odoo | odoo_addons/print_gateway/static/src/js/pos_print_router.js:398 | New POS failures/titles bypass translation and are absent from the Arabic catalog. | fixed |
+| A25 | P2 | Tauri | src-tauri/src/logging.rs:162 | Log rotation runs only at startup, so a long-running desktop app grows logs without bound. | fixed |
+| A26 | P2 | Tauri | src-tauri/src/agent.rs:117 | Output overflow is checked before reader threads finish, allowing truncated helper output to succeed. | fixed |
+| A27 | P2 | CI | scripts/check-odoo-translations.py:195 | Placeholder checks ignore repeated placeholder counts and CI explicitly lists only existing Python tests. | fixed |
+| A32 | P2 | Gateway | src/server/ws.ts:897 | Failed/disconnected WebSocket upgrades release capacity but leave pending-registration entries indefinitely. | fixed |
+| A33 | P2 | Dependencies | agent/go.mod:23 | Indirect miekg/dns v1.1.27 is outdated versus upstream v1.1.68; upgrade prohibited and vulnerability reachability unverified. | open |
+| A34 | P2 | Gateway | src/lib/cache.ts:7 | Unused SSA-Vary helper falsely claims response-header values partition shared caches by tenant. | fixed |
+| A44 | P2 | Agent | agent/internal/printer/image.go:166 | Extreme wide/short JPEG resizing rounds height to zero and returns an initialization-only successful print. | fixed |
+| A45 | P2 | Agent | agent/internal/printer/ipp_discovery.go:93 | IPP scan normalizes mapped IPv4 masks but then reads the original mask, skipping the local /24 scan on wide mapped subnets. | fixed |
+| A54 | P2 | Agent | agent/cmd/cli/helpers.go:22 | JSON discovery returns before surfacing source errors, so desktop discovery loses its per-source diagnostics. | fixed |
+| A55 | P2 | Agent | agent/internal/testutil/mock_printer.go:83 | Mock disconnect and partial-read modes truncate only after EOF, so failure tests do not exercise mid-stream transport failure. | fixed |
+| A60 | P2 | Agent | agent/internal/config/paths.go:10 | Bare config filenames load from the working directory while registry/queue storage resolves beside the executable, splitting state. | fixed |
+| A64 | P2 | Gateway | src/app/api/agent/heartbeat/route.ts:331 | Every heartbeat printer performs a SELECT plus UPDATE/INSERT under one transaction, producing up to 1000 serial database round trips per page. | fixed |
+| A70 | P2 | Gateway | src/lib/discovery.ts:29 | CIDR validation accepts empty, fractional and noncanonical octets that Go rejects, producing accepted discovery requests that cannot execute. | fixed |
+| A71 | P2 | Gateway | src/lib/agent-health.ts:261 | Fleet Agent/printer health performs per-device queries, and Agent online-printer counts ignore lifecycle and observation freshness. | fixed |
+| A72 | P2 | Gateway | src/lib/printer-health.ts:227 | Explicit spooler_status and driver errors remain authoritative after their observations become stale, showing obsolete hardware health. | fixed |
+| A73 | P2 | Gateway | src/lib/printer-health.ts:174 | Document capability matrices ignore authoritative supported_protocols, advertising payloads that dispatch correctly rejects. | fixed |
+| A74 | P2 | Gateway | src/lib/circuit-breaker.ts:75 | A late success from an older concurrent call closes an opened breaker before the designated recovery probe succeeds. | fixed |
+| A75 | P2 | Gateway | src/lib/system-health.ts:163 | System/platform printer health excludes busy queues; platform counts also ignore printer observation freshness. | fixed |
+| A77 | P2 | Gateway | src/i18n/react.tsx:94 | Missing localStorage preferences resolve to English and overwrite an Arabic initial server/cookie locale after hydration. | fixed |
+| A78 | P2 | Gateway | src/i18n/translate.ts:39 | Translation/lifecycle lookups resolve inherited object properties, returning functions or throwing for unknown prototype-named keys. | fixed |
+| A80 | P2 | Gateway | src/app/api/auth/login/route.ts:15 | Parsed null/non-object JSON is dereferenced outside validation, turning malformed login inputs into unhandled server failures. | fixed |
+| A85 | P2 | Gateway | src/app/api/auth/resend-verification/route.ts:125 | Verification resend suppresses persistence and email failures without logging, leaving committed but undelivered recovery links undiagnosable. | fixed |
+| A87 | P2 | Gateway | src/app/api/jobs/[id]/reprint/route.ts:119 | Reprint maps known printer/capability/queue failures to an unlogged generic 500 rather than their actionable statuses. | fixed |
+| A88 | P2 | Gateway | src/app/api/jobs/[id]/timeline/route.ts:74 | Any persisted event suppresses the authoritative derived timeline, so missing best-effort terminal events leave completed jobs visually queued. | fixed |
+| A89 | P2 | Gateway | src/app/api/printers/[id]/route.ts:87 | PATCH reads printer config without a row lock shared by heartbeat, so manager promotion can overwrite newer observed transport configuration. | fixed |
+| A92 | P2 | Gateway | src/app/api/printers/[id]/test-connection/route.ts:86 | Cached reachability ignores printer observation age, reporting an old printer status as reachable whenever its Agent remains online. | fixed |
+| A101 | P2 | Gateway | src/server/content-security-policy.ts:17 | Production style-src nonce rejects React style attributes used by progress bars, loading widths, charts and modal overlays. | fixed |
+| A102 | P2 | Gateway | src/components/ui.tsx:1571 | Each open dialog installs its own Escape/Tab handler, so nested dialogs close together and competing focus traps misroute focus. | fixed |
+| A105 | P2 | Gateway | src/components/ThemeToggle.tsx:97 | Theme accessibility labels and login workspace/verification copy bypass the existing English/Arabic translation catalog. | fixed |
+| A108 | P2 | Gateway | src/components/platform/overview-charts.tsx:29 | Throughput lines each normalize against their own maximum while markers use total maximum, misrepresenting successful and failed counts. | fixed |
+| A110 | P2 | Gateway | src/app/dashboard/dashboard-client.tsx:623 | Periodic filtered-job fetch has no rejection handler or request-generation fence, allowing unhandled promises and stale filter results. | fixed |
+| A111 | P2 | Gateway | src/components/JobTimeline.tsx:112 | Job inspector retains a snapshot and its timeline loads once; in-flight outcomes stay stale and job changes briefly show previous events. | fixed |
+| A112 | P2 | Gateway | src/app/release-readiness/release-readiness-client.tsx:55 | Hard-coded runtimeVerified PASS claims have no run evidence and outdated tool availability, misrepresenting deployment readiness. | fixed |
+| A113 | P2 | Gateway | src/app/platform/dashboard/page.tsx:241 | Failed initial statistics and partial list requests render zero/clear signals or empty lists, presenting unavailable monitoring data as healthy. | fixed |
+| A114 | P2 | Gateway | src/app/platform/tenants/page.tsx:65 | Tenant/subscription directories are capped without pagination and search only loaded rows, making older records inaccessible beyond the default limit. | fixed |
+| A115 | P2 | Gateway | src/app/platform/subscriptions/page.tsx:30 | Subscription types and attention filters omit incomplete, incomplete_expired and unpaid states already produced by billing. | fixed |
+| A116 | P2 | Gateway | src/app/platform/plans/page.tsx:145 | Plan save swallows its error into background page state, so the open modal shows no failure or recovery feedback. | fixed |
+| A117 | P2 | Gateway | src/components/LanguageSwitcher.tsx:27 | Locale changes update client state and cookies but never refresh Server Component text, leaving home/pricing/billing headings in the previous language. | fixed |
+| A118 | P2 | Gateway | src/desktop/lib/ipc.ts:655 | Unused HEALTH_TIMEOUT_MS and unused UI imports remain; references and complete module reads prove these declarations are dead. | fixed |
+| A119 | P2 | Gateway | src/desktop/lib/ipc.ts:58 | WHATWG URL hostname retains IPv6 brackets, so HTTP loopback [::1] is incorrectly rejected as a remote insecure Gateway. | fixed |
+| A120 | P2 | Gateway | src/desktop/pages/Overview.tsx:55 | Connected empty printer inventories suppress fetch failures and overview can report all-normal while printer/job data is unavailable. | fixed |
+| A124 | P2 | Gateway | src/desktop/main.tsx:550 | Old in-flight Gateway responses can repopulate cleared inventory/jobs after switching origin; job/printer drawers also retain stale snapshots. | fixed |
+| A125 | P2 | Gateway | src/desktop/main.tsx:682 | Failed job count includes ambiguous outcomes, so its filter and badge disagree; registration alone can mask a failed Gateway health probe. | fixed |
+| A126 | P2 | Gateway | src/desktop/preview/mock-tauri.ts:184 | Browser preview omits gateway_request and manager session IPC, so normal inventory/jobs/auth operations fail instead of exercising the desktop UI. | fixed |
+| A127 | P2 | Gateway | src/i18n/messages/ar.ts:235 | Arabic catalog has incorrect grammar, omitted port 80, untranslated prose and missing two/few/many plural forms across count-aware messages. | fixed |
+| A129 | P2 | Gateway | src/desktop/main.tsx:844 | Desktop shell pins left padding and navigation layout in Arabic, while later desktop CSS forces light native-control color scheme in dark mode. | fixed |
+| A130 | P2 | Tests | tests/discovery-unit.test.ts:59 | Discovery dedupe is hard-coded, trust checks never reach the authorized branch, and the PG claim harness reclaims printing jobs contrary to production safety. | fixed |
+| A132 | P2 | Odoo | odoo_addons/print_gateway/models/ir_actions_report.py:52 | Report acceptance title and computed binding/assignment fallback labels bypass translation extraction. | fixed |
+| A142 | P2 | Odoo | odoo_addons/print_gateway/models/print_router.py:35 | TSPL diagnostic names retain newlines that corrupt command arguments; diagnostic rendering also replaces Arabic PDF text with question marks. | fixed |
+| A146 | P2 | Odoo | odoo_addons/print_gateway/static/src/scss/print_gateway_tokens.scss:137 | Module CSS forces light native controls across the entire dark Odoo backend and animates status without reduced-motion handling. | fixed |
+| A148 | P2 | Tests | odoo_addons/print_gateway/tests/test_architecture_contract.py:342 | Addon source assertions require obsolete retry syntax and absent result.successful text; migration mocks cannot validate SQL/schema behavior. | fixed |
+| A152 | P2 | Tauri | src-tauri/src/commands.rs:1321 | Per-user autostart choice is stored in shared administrator-only ProgramData, coupling users and rejecting ordinary changes. | fixed |
+| A155 | P2 | Operations | scripts/provision-plans.ts:38 | Provisioning leaves the PostgreSQL pool open; concurrency helper prints database secrets and falsely presents instructions as verification. | fixed |
+| A156 | P2 | CI | scripts/generate-icons.mjs:46 | Icon generation swallows failures and retains dead variables; failure-injection script contains an unused channel constant. | fixed |
+| A157 | P2 | Odoo translations | scripts/check-odoo-translations.py:89 | Checker ignores PO import references, field labels/selections and decoded XML text, falsely certifying an unusable Arabic catalog. | fixed |
+| A158 | P2 | Database | drizzle/0029_enforce_tenant_id_not_null.sql:45 | Payload CHECK accepts missing type because its predicate becomes NULL, contrary to the documented database contract. | fixed |
+| A160 | P2 | Documentation | SERVER_FIRST_RUN.md:80 | Deployment guide omits required platform tenant and uses unavailable Argon2 package; printer/lease and migration docs contain stale guarantees. | fixed |
+| U06 | P2 | Tooling verification | FIX_LOG.md:1 | Pyflakes/rustfmt and full dependency vulnerability/dead-code scans unavailable without forbidden installations. | unverified |

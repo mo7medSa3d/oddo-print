@@ -73,7 +73,7 @@ let cachedLocale: Locale | null = null;
 /** Fallback for when storage is unavailable (private mode, blocked cookies). */
 let sessionLocale: Locale | null = null;
 
-function readStoredLocale(): Locale {
+function readStoredLocale(): Locale | null {
   let raw: string | null = null;
   try {
     raw = window.localStorage.getItem(LOCALE_STORAGE_KEY);
@@ -83,7 +83,7 @@ function readStoredLocale(): Locale {
   if (raw === null && sessionLocale) return sessionLocale;
   if (raw === cachedRaw && cachedLocale) return cachedLocale;
   cachedRaw = raw;
-  cachedLocale = resolveLocale(raw);
+  cachedLocale = raw === null ? null : resolveLocale(raw);
   return cachedLocale;
 }
 

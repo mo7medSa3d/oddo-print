@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
-import { printJobs } from "../../../db/schema";
+import { idempotencyDigest } from "../../../lib/print-job-service";
+import { printJobs, printJobReceipts } from "../../../db/schema";
 import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
@@ -156,7 +157,8 @@ export async function DELETE(req: Request) {
   }
 
   const deleted = await db.transaction(async (tx) => {
-    const candidates = await tx.select({ id: printJobs.id }).from(printJobs).where(
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${claims.tenantId}`}))`);
+    const candidates = await tx.select().from(printJobs).where(
       and(
         eq(printJobs.tenantId, claims.tenantId),
         inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]),
@@ -168,8 +170,18 @@ export async function DELETE(req: Request) {
           sql`COALESCE(${printJobs.error}, '') NOT LIKE ${marker + "%"}`,
         ),
       ),
-    ).orderBy(printJobs.createdAt).limit(requestedLimit);
+    ).orderBy(printJobs.createdAt).limit(requestedLimit).for("update");
     if (candidates.length === 0) return 0;
+    for (const row of candidates) {
+      await tx.insert(printJobReceipts).values({
+        id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
+        fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
+        printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
+        destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
+        status: row.status, error: row.error, closedClaimTokenHash: row.closedClaimTokenHash,
+        deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
+      });
+    }
     const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, candidates.map((row) => row.id))));
     return result.rowCount ?? 0;
   });

@@ -11,7 +11,7 @@ import { logError } from "../../../../../lib/log";
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown; email?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   if (!token || token.length > 256 || !email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });

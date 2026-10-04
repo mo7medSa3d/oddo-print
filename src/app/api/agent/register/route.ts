@@ -1,4 +1,4 @@
-import { isTenantBillingError, liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
+import { isTenantBillingError, liveTenantSubscriptionWhere } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
     let body: unknown;
     try {
-      body = await req.json();
+      const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -124,14 +124,11 @@ export async function POST(req: Request) {
       const billingResult = await tx.execute(sql`
         SELECT 1
         FROM tenant_subscriptions ts
-        WHERE ${liveTenantSubscriptionPredicate(sql`${agent.tenantId}`)}
+        WHERE ${liveTenantSubscriptionWhere(sql`${agent.tenantId}`)}
         FOR UPDATE
       `);
-      // Existence check (not a count): the outer SELECT returns one row per
-      // subscription row in the table whenever ANY live subscription exists
-      // for this tenant, so `!== 1` falsely rejects as soon as the database
-      // holds 2+ subscription rows (any multi-tenant gateway, or a staging
-      // database reused across runs).
+      // The canonical row predicate scopes the lock to this tenant's live
+      // subscription. An EXISTS predicate here would lock unrelated rows.
       if (billingResult.rows.length === 0) {
         return { kind: "billing_required" as const };
       }

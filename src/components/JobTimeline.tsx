@@ -94,6 +94,10 @@ function formatWhen(value: string | undefined, formatDateTime: (v: string) => st
  * identifiers and a retry path for transient failures.
  */
 export default function JobTimeline({ jobId }: { jobId: string }) {
+  return <TimelineSession key={jobId} jobId={jobId} />;
+}
+
+function TimelineSession({ jobId }: { jobId: string }) {
   const { t, formatDateTime } = useI18n();
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,7 +113,8 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}/timeline`, {
           cache: "no-store",
@@ -120,14 +125,16 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
         if (controller.signal.aborted) return;
         setEvents(Array.isArray(data.timeline) ? data.timeline : []);
         setCorrelation((data.correlation ?? null) as Correlation | null);
+        if (!["success", "failed", "expired"].includes(String(data.job?.status ?? data.status ?? ""))) timer = setTimeout(() => { void load(); }, 3000);
       } catch (e) {
         if (controller.signal.aborted) return;
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    })();
-    return () => controller.abort();
+    };
+    void load();
+    return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer); };
   }, [jobId, reloadKey, t]);
 
   if (loading) {

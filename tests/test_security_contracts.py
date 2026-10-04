@@ -44,7 +44,11 @@ def test_windows_system_utilities_are_not_path_resolved():
         body = function_body(fn_name)
         assert f'Command::new("{tool}")' not in body
 
-    assert 'system32_exe("sc.exe")' in source
+    assert 'OpenSCManagerW' in source
+    assert 'OpenServiceW' in source
+    assert 'QueryServiceStatusEx' in source
+    assert 'if error == 1060 { Ok(None) }' in source
+    assert 'AGENT_CONTROL.lock()' in source
     assert 'system32_exe("net.exe")' in source
     assert 'system32_exe("tasklist.exe")' in source
     assert 'system32_exe("taskkill.exe")' in source
@@ -359,10 +363,13 @@ def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry(
 def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
     source = read("src-tauri/src/commands.rs")
     assert "refresh_token: String" in source
-    assert "current_manager_refresh_token" in source
+    assert "let (origin, generation, session) = manager_snapshot()?" in source
+    assert "session.as_ref().map(|s| s.refresh_token.clone())" in source
+    assert "guard.generation != generation || guard.origin != origin.as_str()" in source
+    assert "MANAGER_AUTH_FLIGHT" in source
     assert 'request.header("X-Refresh-Token", refresh_token)' in source
-    assert 'object.remove("accessToken");' in source
-    assert 'object.remove("refreshToken");' in source
+    assert 'object.remove("accessToken")' in source
+    assert 'object.remove("refreshToken")' in source
     assert 'path == "/api/auth/manager/refresh" && (status == 401 || status == 403)' in source
     assert "if status == 401 || status == 403" not in source
 

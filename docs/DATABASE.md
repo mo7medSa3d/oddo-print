@@ -1,9 +1,10 @@
 # Gateway database reference
 
-Generated from the only two sources of truth in this repository:
+Derived from the schema and production migration sources in this repository:
 
 - `src/db/schema.ts` — the Drizzle schema every query is written against.
-- `drizzle/*.sql` — the ordered migration history applied by `npm run db:migrate`.
+- `drizzle/*.sql` — immutable historical SQL.
+- `scripts/db-migrate.ts` — hash ledger and versioned forward repairs applied by `npm run db:migrate`.
 
 This file is derived, not hand-maintained: if a table is added, renamed or
 dropped, regenerate the table matrix below so the documentation cannot drift
@@ -13,9 +14,9 @@ from the schema again.
 
 | Metric | Value |
 | --- | --- |
-| Tables in `schema.ts` | 24 |
-| Migration files | 76 (`0000` … `0075`) |
-| Tables created by migrations | 31 |
+| Tables in `schema.ts` | 25 |
+| Migration files | 77 (`0000` … `0076`) plus versioned forward repairs |
+| Tables created by migration history and forward repairs | 32 |
 | Legacy tables later dropped | 7 |
 | Indexes created by migrations | 117 |
 | Foreign keys added after table creation | 67 |
@@ -26,25 +27,26 @@ from the schema again.
 | --- | --- | --- | --- | --- |
 | `agents` | 108 | `0000_simple_tigra.sql` | 6 | 5 |
 | `api_keys` | 177 | `0000_simple_tigra.sql` | 1 | 3 |
-| `audit_events` | 457 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `audit_events` | 466 | `0034_saas_control_plane.sql` | 3 | 0 |
 | `auth_rate_limits` | 266 | `0005_auth_rate_limits.sql` | 4 | 0 |
 | `billing_events` | 254 | `0037_customer_identity_billing.sql` | 2 | 0 |
 | `discovered_devices` | 297 | `0010_discovery.sql` | 12 | 10 |
 | `discovery_sessions` | 277 | `0010_discovery.sql` | 6 | 4 |
 | `email_verification_tokens` | 212 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `gateway_metrics` | 448 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
-| `job_events` | 414 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
+| `gateway_metrics` | 457 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
+| `job_events` | 416 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
 | `manager_sessions` | 197 | `0000_simple_tigra.sql` | 3 | 1 |
 | `password_reset_tokens` | 224 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `plans` | 476 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `plans` | 485 | `0034_saas_control_plane.sql` | 3 | 0 |
 | `platform_sessions` | 43 | `0043_add_platform_owner.sql` | 2 | 0 |
+| `print_job_receipts` | 562 | `scripts/db-migrate.ts` A86 | 1 | 0 |
 | `print_jobs` | 348 | `0000_simple_tigra.sql` | 23 | 15 |
-| `print_usage_periods` | 533 | `0061_print_usage_quota.sql` | 1 | 0 |
+| `print_usage_periods` | 546 | `0061_print_usage_quota.sql` | 1 | 0 |
 | `printers` | 135 | `0000_simple_tigra.sql` | 9 | 6 |
 | `refresh_tokens` | 54 | `0073_refresh_tokens.sql` | 4 | 1 |
 | `tenant_domains` | 18 | `0030_tenant_domains_and_manager_sessions.sql` | 3 | 0 |
 | `tenant_invitations` | 236 | `0037_customer_identity_billing.sql` | 3 | 2 |
-| `tenant_subscriptions` | 497 | `0034_saas_control_plane.sql` | 7 | 0 |
+| `tenant_subscriptions` | 507 | `0034_saas_control_plane.sql` | 7 | 0 |
 | `tenant_users` | 90 | `0028_add_multi_tenancy.sql` | 3 | 2 |
 | `tenants` | 4 | `0028_add_multi_tenancy.sql` | 1 | 0 |
 | `users` | 31 | `0028_add_multi_tenancy.sql` | 1 | 0 |
@@ -107,3 +109,18 @@ cannot express them. The most important ones:
 - `0070_discovered_device_identity.sql`: discovered_devices_tenant_agent_identity_idx; discovered_devices_tenant_agent_identity_unique
 - `0073_refresh_tokens.sql`: refresh_tokens_expires_idx; refresh_tokens_family_idx; refresh_tokens_replaced_by_idx; refresh_tokens_user_idx
 
+
+The production migration entry point is `npm run db:migrate` (`scripts/db-migrate.ts`). It applies missing content hashes in journal index order, under one PostgreSQL advisory transaction lock, so older journal timestamps cannot suppress 0033–0036 or 0074. Historical SQL and hashes remain immutable. The same transaction applies versioned forward audit repairs embedded in that script and records their hashes in the existing Drizzle ledger. Do not substitute the timestamp-only Drizzle migrator for deployment upgrades.
+
+Terminal Agent reports require an immutable attempt claim token. A successful write retains its SHA-256 hash in `print_jobs.closed_claim_token_hash` while clearing the live execution token when appropriate. Retries of exactly the same terminal status and attempt receive `{success:true,status:<terminal status>}` without changing outcome, evidence or timestamps. Other attempts or statuses remain fenced. A new claim clears closed acknowledgement evidence. Agents retain outbox tokens until a bounded JSON acknowledgement confirms both success and the requested status. The database column is installed by the versioned forward repair in `scripts/db-migrate.ts`.
+
+The forward payload constraint repair in `scripts/db-migrate.ts` coalesces both missing type and protocol discriminators. Absent/null type is rejected on new writes; NOT VALID preserves historic rows for explicit review. ORM and newest snapshot mirror this repaired constraint.
+
+`tenant_subscriptions.checkout_request_params` stores immutable form parameters for one checkout intent. A forward repair installs this nullable JSONB column; missing legacy snapshots fail closed during external-mutation recovery.
+
+`tenant_subscriptions.stripe_state_revision` is the monotonic fence for retrieved Stripe snapshots, independent of second-resolution event timestamps and app clocks. All Stripe state producers increment it; the embedded migration installs it at zero.
+
+`plans.stripe_price_history` preserves current and retired Stripe Price IDs under a shared catalog-mutation advisory lock. Price IDs cannot be reassigned to another plan. Webhooks require exactly one current/historical mapping, independent of public/active catalog visibility. The forward migration seeds current IDs; operators must supply lost pre-upgrade historical mappings from Stripe/account evidence.
+
+### `print_job_receipts`
+Payload-free terminal receipts are inserted atomically with history cleanup under the tenant enqueue lock. They retain tenant/key uniqueness, SHA-256 of the canonical admission fingerprint, original job/owner identity, terminal status/error/timestamps and the closed attempt-token hash. They have no printer/agent/API-key foreign keys and survive resource removal. Only tenant deletion removes them; no time-based pruning is safe without an explicit idempotency expiry contract. Odoo single/batch lookups and closed Agent ACKs use the same scoped evidence after payload cleanup. The production hash migrator creates this table via its versioned forward repair.

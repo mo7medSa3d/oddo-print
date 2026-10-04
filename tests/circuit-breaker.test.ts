@@ -36,4 +36,16 @@ describe("CircuitBreaker", () => {
     await firstProbe;
     expect(breaker.getState()).toBe("closed");
   });
+  it("ignores earlier-generation completions after a concurrent failure opens the circuit", async () => {
+    const breaker = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 30_000, name: "generation" });
+    let release!: () => void;
+    const delayed = breaker.execute(() => new Promise<void>(resolve => { release = resolve; }));
+    await expect(breaker.execute(async () => { throw new Error("down"); })).rejects.toThrow("down");
+    release(); await delayed;
+    expect(breaker.getState()).toBe("open");
+    let called = false;
+    await expect(breaker.execute(async () => { called = true; })).rejects.toThrow("suspended");
+    expect(called).toBe(false);
+  });
+
 });

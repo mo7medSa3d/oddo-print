@@ -123,24 +123,8 @@ export function gatewayNow(): Date {
   return new Date(gatewayNowMs());
 }
 
-/**
- * Normalize a database timestamp (Date from typed drizzle rows, or the naive
- * UTC string produced by node-postgres identity parsers on raw `db.execute()`
- * rows) to epoch milliseconds without host-TZ dependence. Returns null for
- * absent/unparseable input. Single shared implementation — do not copy.
- */
-export function parseDbTimeMs(value: Date | string | null | undefined): number | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.getTime();
-  const text = value.trim();
-  if (!text) return null;
-  let iso = text.replace(" ", "T");
-  if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) {
-    iso += /[+-]\d{2}$/.test(iso) ? ":00" : "Z";
-  }
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
+// Preserve the server-side import contract; pure consumers import the parser directly.
+export { parseDbTimeMs } from "./database-timestamp";
 
 /** Test seam: set or clear the cached offset without touching the database. */
 export function __setClockSkewForTests(offsetMs: number | null): void {

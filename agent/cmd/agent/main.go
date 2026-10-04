@@ -316,12 +316,21 @@ func handleServiceControl(rawAction, configPath string) error {
 		return nil
 	case "install":
 		if err := s.Install(); err != nil {
-			return fmt.Errorf("install service failed: %w", err)
+			if updateErr := updateInstalledService(svcConfig); updateErr != nil {
+				return fmt.Errorf("install service failed: %w; updating existing service failed: %v", err, updateErr)
+			}
 		}
 		configureServiceRecovery(svcConfig.Name)
 		fmt.Println("YaseirAgent service installed successfully")
 		return nil
 	case "uninstall":
+		status, err := s.Status()
+		if err != nil {
+			return fmt.Errorf("read service status before removal: %w", err)
+		}
+		if status != service.StatusStopped {
+			return fmt.Errorf("YaseirAgent must be stopped before removal")
+		}
 		if err := s.Uninstall(); err != nil {
 			return fmt.Errorf("uninstall service failed: %w", err)
 		}

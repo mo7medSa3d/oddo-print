@@ -78,22 +78,41 @@ func stableIDFromIdentityKey(key string) string {
 	return fmt.Sprintf("printer_identity_%x", h[:8])
 }
 
+// Hardware identity alone is insufficient on an IPP multi-queue server.
+// Preserve resource path case/query while allowing host/address changes.
+func ippQueueIdentitySuffix(d DeviceInfo) string {
+	protocol := strings.ToLower(d.Protocol)
+	connection := strings.ToLower(d.ConnectionType)
+	if protocol != "ipp" && protocol != "ipps" && connection != "ipp" && connection != "ipps" {
+		return ""
+	}
+	u, err := url.Parse(d.Endpoint)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	path := u.EscapedPath()
+	if path == "" || path == "/" {
+		path = "/ipp/print"
+	}
+	return "|ipp-resource:" + path + "?" + u.RawQuery
+}
+
 // physicalIdentityKey returns a stable, source-independent identity when the
 // discovery source exposes hardware/queue identity that survives endpoint/name
 // changes. It deliberately does not fall back to IP, endpoint or display name.
 func physicalIdentityKey(d DeviceInfo) (string, bool) {
 	if uuid := capabilityIdentityValue(d, "uuid", "printer_uuid"); uuid != "" {
-		return "uuid:" + uuid, true
+		return "uuid:" + uuid + ippQueueIdentitySuffix(d), true
 	}
 
 	if serial := capabilityIdentityValue(d, "serial"); serial != "" {
 		manufacturer := capabilityIdentityValue(d, "manufacturer")
 		model := capabilityIdentityValue(d, "model")
-		return fmt.Sprintf("serial:%s|manufacturer:%s|model:%s", serial, manufacturer, model), true
+		return fmt.Sprintf("serial:%s|manufacturer:%s|model:%s", serial, manufacturer, model) + ippQueueIdentitySuffix(d), true
 	}
 
 	if mac := capabilityIdentityValue(d, "mac", "mac_address", "macAddress"); mac != "" {
-		return "mac:" + mac, true
+		return "mac:" + mac + ippQueueIdentitySuffix(d), true
 	}
 
 	if strings.TrimSpace(d.USBSerial) != "" && usableIdentityValue(d.USBSerial) {
@@ -142,7 +161,7 @@ func StableIDFromUSB(vid, pid, serial, location string) string {
 func StableIDFromUSBFull(vid, pid, serial, location, instanceID string) string {
 	var key string
 	if serial != "" && usableIdentityValue(serial) {
-		key = fmt.Sprintf("usb-sn:%s", normalizeIdentityValue(serial))
+		key = fmt.Sprintf("usb-sn:%s:%s:%s", normalizeIdentityValue(vid), normalizeIdentityValue(pid), normalizeIdentityValue(serial))
 	} else if instanceID != "" {
 		key = fmt.Sprintf("usb-inst:%s", normalizeIdentityValue(instanceID))
 	} else if location != "" {
@@ -173,15 +192,33 @@ func StableIDFromEndpoint(endpoint string) string {
 	return fmt.Sprintf("printer_ep_%x", h[:8])
 }
 
+// StableIDFromIPPURI preserves established default-queue IDs while keeping
+// distinct resource paths (including case) separate on multi-queue servers.
+func StableIDFromIPPURI(endpoint string, host string, port int) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" {
+		return StableIDFromEndpoint(endpoint)
+	}
+	if u.Path == "" || u.Path == "/ipp/print" {
+		if u.RawQuery == "" {
+			return StableIDFromNetwork(host, port)
+		}
+	}
+	key := "ipp-queue:" + strings.ToLower(u.Scheme) + "://" + net.JoinHostPort(strings.ToLower(host), fmt.Sprint(port)) + u.EscapedPath() + "?" + u.RawQuery
+	h := sha256.Sum256([]byte(key))
+	return fmt.Sprintf("printer_ep_%x", h[:8])
+}
+
 // StableIDForDevice returns a deterministic ID using the strongest available
 // physical identity first. Endpoint/name fallbacks remain for devices that do
 // not expose a durable identity.
 func StableIDForDevice(d DeviceInfo) string {
+	if (d.Protocol == "ipp" || d.Protocol == "ipps") && d.Endpoint != "" && d.NetworkAddress != "" && d.Port > 0 {
+		return StableIDFromIPPURI(d.Endpoint, d.NetworkAddress, d.Port)
+	}
 	if key, ok := physicalIdentityKey(d); ok {
-		// Keep the established USB ID namespace for serial-backed manual
-		// registration. This preserves compatibility with existing bindings
-		// while the physical identity key still lets registry reconciliation
-		// recognize the same device across endpoint/name changes.
+		// Scope new serial-backed USB IDs to VID/PID. Registry reconciliation
+		// preserves previously persisted IDs when physical identity matches.
 		if strings.HasPrefix(key, "usb-serial:") {
 			return StableIDFromUSB(d.USBVID, d.USBPID, d.USBSerial, "")
 		}
@@ -215,6 +252,9 @@ func StableIDForDevice(d DeviceInfo) string {
 					port = 443
 				}
 				if host != "" {
+					if strings.HasPrefix(lowerEP, "ipp://") || strings.HasPrefix(lowerEP, "ipps://") || d.Protocol == "ipp" || d.Protocol == "ipps" {
+						return StableIDFromIPPURI(d.Endpoint, host, port)
+					}
 					return StableIDFromNetwork(host, port)
 				}
 			}

@@ -67,7 +67,7 @@ export class RuntimePrinterField extends Component {
             () => {
                 this.load();
             },
-            () => [this.companyId, this.branchId, this.agentId, this.destinationType],
+            () => [this.companyId, this.branchId, this.agentId, this.destinationType, this.reportId, this.documentType],
         );
         onWillStart(() => this.load());
     }
@@ -82,6 +82,14 @@ export class RuntimePrinterField extends Component {
 
     get agentId() {
         return this.props.record?.data?.runtime_agent_id || false;
+    }
+
+    get reportId() {
+        return relationalId(this.props.record?.data?.report_id || this.props.record?.data?.destination_report_id);
+    }
+
+    get documentType() {
+        return this.props.record?.data?.document_type || "";
     }
 
     get destinationType() {
@@ -100,7 +108,7 @@ export class RuntimePrinterField extends Component {
             // the empty message instead.
             return this.state.printers.filter(p => !["laser", "inkjet"].includes((p.deviceClass || "").toLowerCase()));
         }
-        if (dest === "picking_type") {
+        if (dest === "picking_type" && !this.reportId && !["delivery", "invoice", "order", "purchase_order"].includes(this.documentType)) {
             return this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
         }
         return this.state.printers;
@@ -125,7 +133,7 @@ export class RuntimePrinterField extends Component {
     }
 
     scopeKey(companyId, branchId, agentId) {
-        return `${companyId || ""}|${branchId || ""}|${agentId || ""}`;
+        return `${companyId || ""}|${branchId || ""}|${agentId || ""}|${this.destinationType}|${this.reportId}|${this.documentType}`;
     }
 
     async load() {
@@ -144,6 +152,8 @@ export class RuntimePrinterField extends Component {
         this.loadedScopeKey = key;
 
         const reqId = ++this.currentRequestId;
+        // Company and branch are authorization scope, even for the same Agent.
+        this.state.printers = [];
         if (this.loadedAgentId !== agentId) {
             // Another Agent's printers must never stay selectable.
             this.loadedAgentId = agentId;

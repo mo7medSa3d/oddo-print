@@ -25,7 +25,6 @@ def is_in_test_mode(env):
             tools.config.get("test_enable")
             or getattr(env.registry, "in_test", False)
             or (hasattr(env.registry, "in_test_mode") and env.registry.in_test_mode())
-            or env.context.get("test_mode")
         )
     except Exception:
         return False
@@ -363,13 +362,14 @@ class PrintGatewayPolicy(models.Model):
         failures = 0
         for policy in policies:
             try:
-                if not policy.matches_record(record):
-                    continue
-                target_key = policy.effective_target_key(record)
-                if target_key in executed_targets:
-                    continue
+                with self.env.cr.savepoint():
+                    if not policy.matches_record(record):
+                        continue
+                    target_key = policy.effective_target_key(record)
+                    if target_key in executed_targets:
+                        continue
+                    intent_model.create_and_route(policy, record, event_type)
                 executed_targets.add(target_key)
-                intent_model.create_and_route(policy, record, event_type)
                 scheduled += 1
             except Exception as exc:
                 failures += 1

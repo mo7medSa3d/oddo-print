@@ -22,15 +22,17 @@ export async function GET(req: Request) {
   await refreshClockSkew();
   const sub = await db.query.tenantSubscriptions.findFirst({
     where: eq(tenantSubscriptions.tenantId, manager.tenantId),
-    columns: { planId: true, status: true, currentPeriodEnd: true },
+    columns: { planId: true, status: true, currentPeriodEnd: true, entitlementBlocked: true },
   });
 
   const hasSubscription =
-    !!sub && isBillingAccessStatus(sub.status) && isSubscriptionPeriodLive(sub.currentPeriodEnd);
+    !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
+      && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
 
   return NextResponse.json(
     {
       hasSubscription,
+      entitlementBlocked: sub?.entitlementBlocked ?? false,
       status: sub?.status ?? null,
       planId: sub?.planId ?? null,
       currentPeriodEnd: sub?.currentPeriodEnd ?? null,

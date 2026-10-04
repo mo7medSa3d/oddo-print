@@ -6,6 +6,8 @@ const state = vi.hoisted(() => ({
   agents: new Map<string, any>(),
   sessions: new Map<string, any>(),
   managerAuth: true,
+  reportAuth: false,
+  acceptedRows: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../src/db", () => ({
@@ -31,6 +33,15 @@ vi.mock("../src/db", () => ({
       },
       discoveredDevices: { findMany: async () => [], findFirst: async () => null },
     },
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run({
+      execute: async () => ({ rows: [{ id: "ds_trust_probe", status: "running", lifecycle: "active" }] }),
+      insert: () => ({ values: (rows: Array<Record<string, unknown>>) => {
+        state.acceptedRows.push(...rows);
+        const write = { returning: async () => rows.map(row => ({ id: row.id, inserted: true })) };
+        return { onConflictDoUpdate: () => write, onConflictDoNothing: () => write };
+      } }),
+      update: () => ({ set: () => ({ where: async () => {} }) }),
+    }),
     insert: () => ({ values: async () => {} }),
     update: () => ({ set: () => ({ where: async () => {} }) }),
   },
@@ -50,7 +61,7 @@ vi.mock("../src/lib/manager-auth", () => ({
   } as any : null),
 }));
 vi.mock("../src/lib/agent-auth", () => ({
-  validateAgent: async () => null,
+  validateAgent: async () => state.reportAuth ? { id: "agt_branchA", tenantId: "branchA", lifecycle: "active" } : null,
 }));
 
 import { POST as startDiscovery } from "../src/app/api/agents/[id]/discovery/route";
@@ -59,7 +70,7 @@ describe("discovery authorization", () => {
   beforeEach(() => {
     state.agents.clear();
     state.sessions.clear();
-    state.managerAuth = true;
+    state.managerAuth = true; state.reportAuth = false; state.acceptedRows.length = 0;
     state.agents.set("agt_branchA", { id: "agt_branchA", branchId: "branchA", lifecycle: "active" });
     state.agents.set("agt_branchB", { id: "agt_branchB", branchId: "branchB", lifecycle: "active" });
   });
@@ -80,9 +91,9 @@ describe("discovery authorization", () => {
     // BEHAVIORAL (not lifecycle unit tests): the route is the trust
     // boundary — an agent must never be able to self-verify a device.
     const { POST } = await import("../src/app/api/agent/discovery/route");
-    const { db } = await import("../src/db");
+    state.reportAuth = true;
     const report = {
-      sessionId: "ds_trust_probe",
+      discoveryId: "ds_trust_probe",
       devices: [{
         id: "dev_selfdeclared", name: "Fake Verified", protocol: "raw", ipAddress: "10.10.10.10",
         port: 9100, confidence: "high", verification: "verified",
@@ -93,10 +104,9 @@ describe("discovery authorization", () => {
       body: JSON.stringify(report),
     });
     const res = await POST(req);
-    // Whatever the auth outcome (401 unauthenticated / 400-410 for unknown
-    // session), the route must NEVER echo back the agent's claimed
-    // "verified" state as accepted truth.
-    expect([401, 403, 404]).toContain(res.status);
-    void db;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, inserted: 1, verification: "candidate-only" });
+    expect(state.acceptedRows).toHaveLength(1);
+    expect(state.acceptedRows[0]).toMatchObject({ id: "dev_selfdeclared", tenantId: "branchA", agentId: "agt_branchA", verification: "candidate", confidence: "low" });
   });
 });

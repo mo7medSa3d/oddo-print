@@ -822,7 +822,6 @@ class TestBranchRuntimeBinding(TransactionCase):
         self.assertEqual(branch_agents, {branch_agent, cross_branch_agent})
         self.assertEqual(other_branch_agents, {"agent-c-%s" % second_branch.id})
 
-        from odoo.addons.print_gateway.models.print_router import PrintGatewayRouter
         router = self.env["print_gateway.print_router"]
         with self.assertRaises(ValidationError):
             router._assert_branch_agent_assignment(self.company, self.branch, "agent-company-wide")

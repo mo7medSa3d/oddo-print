@@ -1,5 +1,4 @@
 import json
-import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -325,7 +324,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("requestedPrinterIds", source)
         self.assertIn("kitchenRoutes.routes.filter", source)
 
-    def test_kitchen_retry_and_reprint_use_fresh_gateway_operations(self):
+    def test_kitchen_retry_identity_requires_confirmed_rejection(self):
         source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
         self.assertIn("if (reprint || !orderChange.__gateway_print_id)", source)
         # Operation identities go through gatewayUuid() (crypto.randomUUID
@@ -333,7 +332,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # is undefined); the retry prefix itself is unchanged.
         self.assertIn("function gatewayUuid()", source)
         self.assertIn('"kitchen-retry-" + gatewayUuid()', source)
-        self.assertIn("retry: () =>", source)
+        self.assertIn("retry: async () =>", source)
+        self.assertIn('prior?.gatewayOutcome === "failed"', source)
+        self.assertIn("gatewayKitchenOperationIds", source)
         self.assertIn("const retryPrinters = new Set();", source)
         self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
         self.assertNotIn("retryItems", source)
@@ -345,7 +346,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("gatewayOutcome === \"partial\"", source)
         self.assertIn('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"', source)
         ambiguous_idx = source.index('gatewayOutcome === "unknown" || result?.gatewayOutcome === "partial"')
-        ambiguous_block = source[ambiguous_idx:source.index('if (result.successful)', ambiguous_idx)]
+        ambiguous_block = source[ambiguous_idx:source.index('if (result?.successful)', ambiguous_idx)]
         self.assertIn("continue;", ambiguous_block)
         self.assertNotIn("retryPrinters.add(printer)", ambiguous_block)
         # The receipt print counter must use an allowlist of the accepted

@@ -34,7 +34,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   let body: { reason?: unknown };
   try {
-    body = await req.json();
+    const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }

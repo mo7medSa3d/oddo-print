@@ -21,7 +21,7 @@ describe("desktop Agent Gateway response contract", () => {
   it("routes desktop printer tests through the Gateway console path", () => {
     const main = read("src/desktop/main.tsx");
     const ipc = read("src/desktop/lib/ipc.ts");
-    expect(main).toContain("testGatewayPrinter(gatewayUrl, id)");
+    expect(main).toContain("testGatewayPrinter(savedGatewayUrl, id)");
     expect(main).not.toContain("testPrinter(id)");
     expect(ipc).toContain('"/api/printers/" + encodeURIComponent(printerId) + "/test-print"');
   });

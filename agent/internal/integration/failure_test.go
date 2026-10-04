@@ -1,7 +1,11 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"github.com/yaseir-agent/agent/internal/queue"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,24 +29,25 @@ func TestFailureConnectionRefused(t *testing.T) {
 
 func TestFailureTimeout(t *testing.T) {
 	mock := testutil.NewMockTCPPrinter("127.0.0.1:0")
-	mock.SetDelay(1 * time.Second)
-	mock.Start()
+	mock.SetPartialReadLimit(1)
+	if err := mock.Start(); err != nil {
+		t.Fatal(err)
+	}
 	defer mock.Close()
 	p := &printer.NetworkPrinter{Address: mock.Addr}
-	// Use deadline on conn, not DialContext delay — delay on accept does not delay dial.
-	// Instead use context deadline on write.
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
-	// With mock delay after accept, Print may still succeed because dial succeeds before delay.
-	// This test asserts that Print returns within ctx and does not hang forever (no FAIL if it succeeds quickly).
-	done := make(chan error, 1)
-	go func() { done <- p.Print(ctx, []byte("hello timeout")) }()
-	select {
-	case err := <-done:
-		// either err (deadline) or nil (if dial+write beat delay) — both acceptable, just must not hang
-		_ = err
-	case <-time.After(10 * time.Second):
-		t.Fatalf("Print hung beyond 10s")
+	started := time.Now()
+	err := p.Print(ctx, bytes.Repeat([]byte("x"), 5*1024*1024))
+	if err == nil {
+		t.Fatal("stalled large write incorrectly reported success")
+	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatal("write ignored the caller deadline")
+	}
+	captures := mock.WaitForCaptures(1, time.Second)
+	if len(captures) != 1 || len(captures[0]) != 1 {
+		t.Fatalf("server did not stall after exactly one byte: %v", captures)
 	}
 }
 
@@ -104,7 +109,54 @@ func TestMultiplePrintersIndependently(t *testing.T) {
 }
 
 func TestIdempotentDuplicateViaQueue(t *testing.T) {
-	// Proves duplicate job submission does not cause duplicate print: queue IsProcessed guards.
-	// This is unit via queue, but also demonstrates mock captures only once if duplicate skipped.
-	// See agent/agent_test.go TestDuplicateSkippedAfterSuccess for agent-level idempotency.
+	mock := testutil.NewMockTCPPrinter("127.0.0.1:0")
+	if err := mock.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+	q, err := queue.New(filepath.Join(t.TempDir(), "queue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	p := &printer.NetworkPrinter{Address: mock.Addr}
+	for _, token := range []string{"first", "duplicate"} {
+		err := q.BeginPrint("job", "printer", []byte("receipt"), token, false)
+		if token == "duplicate" {
+			if !errors.Is(err, queue.ErrTerminalState) {
+				t.Fatalf("duplicate acquired execution: %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := p.Print(context.Background(), []byte("receipt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.UpdateStatus("job", "success"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if captures := mock.WaitForCaptures(1, time.Second); len(captures) != 1 || string(captures[0]) != "receipt" {
+		t.Fatalf("duplicate physical transmissions: %v", captures)
+	}
+}
+
+func TestMidStreamDisconnectIsAnActualTransportFailure(t *testing.T) {
+	mock := testutil.NewMockTCPPrinter("127.0.0.1:0")
+	mock.SetDisconnectAfter(1)
+	if err := mock.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+	p := &printer.NetworkPrinter{Address: mock.Addr}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Print(ctx, bytes.Repeat([]byte("x"), 5*1024*1024)); err == nil {
+		t.Fatal("mid-stream reset reported success")
+	}
+	if captures := mock.WaitForCaptures(1, time.Second); len(captures) != 1 || len(captures[0]) != 1 {
+		t.Fatalf("disconnect occurred after EOF: %v", captures)
+	}
 }

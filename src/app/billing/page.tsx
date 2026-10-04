@@ -208,17 +208,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
         <div className="space-y-5">
           {checkoutState === "success" && (
             <Callout tone="ok" title={t("billing.checkoutCompleted")}>
-              Payment received. Your plan will update shortly.
+              {t("billing.paymentReceivedBody")}
             </Callout>
           )}
           {checkoutState === "cancelled" && (
             <Callout tone="neutral" title={t("billing.checkoutCancelled")}>
-              No changes made. You can try again anytime.
+              {t("billing.checkoutCancelledBody")}
             </Callout>
           )}
           {sub && (sub.checkoutStatus === "creating" || sub.checkoutStatus === "open") && checkoutState !== "success" && checkoutState !== "cancelled" && (
             <Callout tone="info" title={t("billing.checkoutInProgress")}>
-              Payment in progress. Your plan will update shortly.
+              {t("billing.paymentPendingBody")}
             </Callout>
           )}
           {printUsageUnavailable && (
@@ -309,7 +309,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                     </ul>
                   ) : (
                     <p className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
-                      Plan capacity is managed by Platform Administration.
+                      {t("billing.capacityManagedBody")}
                     </p>
                   )}
                 </div>

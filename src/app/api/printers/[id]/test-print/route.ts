@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { agents, printers } from "../../../../../db/schema";
+import { agents, printers, printJobs, printJobReceipts } from "../../../../../db/schema";
 import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
@@ -39,6 +39,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
+  const idempotencyKey = req.headers.get("Idempotency-Key")?.trim() || null;
+  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
+    return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", retryable: false }, { status: 400 });
+  }
+  if (idempotencyKey) {
+    const existing = await db.query.printJobs.findFirst({ where: and(eq(printJobs.tenantId, tenantId), eq(printJobs.idempotencyKey, idempotencyKey)) }) ?? await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.idempotencyKey, idempotencyKey)) });
+    if (existing) {
+      if (existing.printerId !== printer.id || existing.documentType !== "test_page" || existing.requestedBy !== "manager-test") return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT" }, { status: 409 });
+      return NextResponse.json({ ok: true, jobId: existing.id, printerId: existing.printerId, status: existing.status, isReused: true });
+    }
+  }
+
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 404 });
   if (printer.lifecycle !== "active") return NextResponse.json({ error: "printer disabled" }, { status: 409 });
@@ -60,15 +72,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       protocol: printer.protocol,
       connectionType: printer.connectionType,
       capabilities: printer.capabilities,
-    });
+    }, idempotencyKey ?? undefined);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Test page not supported for this printer", code: "CAPABILITY_MISMATCH", retryable: false }, { status: 422 });
   }
 
-  const idempotencyKey = req.headers.get("Idempotency-Key")?.trim() || null;
-  if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
-    return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", retryable: false }, { status: 400 });
-  }
+
 
   try {
     const result = await createPrintJobForPrinter(printer.id, payload, {

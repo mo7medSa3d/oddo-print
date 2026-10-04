@@ -135,7 +135,7 @@ export default function PlatformPlansPage() {
       closeEditor();
       setNotice(isNew ? t("platform.plans.createdNotice", { name: form.name }) : t("platform.plans.updatedNotice", { name: form.name }));
       refresh(false);
-    } catch (err) { setError(err instanceof Error ? err.message : t("platform.plans.saveFailed")); }
+    } catch (err) { throw new Error(err instanceof Error ? err.message : t("platform.plans.saveFailed")); }
   }
 
   return (

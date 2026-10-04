@@ -5,7 +5,7 @@ import { billingEvents, plans, tenantSubscriptions } from "../../../../db/schema
 import { eq, sql } from "drizzle-orm";
 import { parseDbTimeMs } from "../../../../lib/database-clock";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
-import { stripeRetrieve, verifyStripeSignature } from "../../../../lib/stripe";
+import { stripeRetrieve, stripeSubscriptionPeriod, verifyStripeSignature } from "../../../../lib/stripe";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
@@ -40,7 +40,9 @@ function subscriptionIdForEvent(eventType: string, object: Record<string, unknow
   return undefined;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: Request) { return handleWebhook(req); }
+
+async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextResponse> {
   if (hasBodyOverLimit(req, 2 * 1024 * 1024)) {
     return NextResponse.json({ error: "Webhook payload too large" }, { status: 413 });
   }
@@ -55,7 +57,7 @@ export async function POST(req: Request) {
   if (!secret || !verifyStripeSignature(raw, sig, secret)) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 400 });
 
   let event: StripeEvent;
-  try { event = JSON.parse(raw) as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsed = JSON.parse(raw); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("JSON object required"); event = parsed as StripeEvent; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const eventId = typeof event.id === "string" ? event.id : "";
   const eventType = typeof event.type === "string" ? event.type : "";
   if (!eventId || !eventType || !Number.isSafeInteger(event.created) || Number(event.created) < 0) {
@@ -79,6 +81,7 @@ export async function POST(req: Request) {
   // depends on it. Stripe explicitly does not guarantee webhook ordering and
   // snapshot event timestamps are only second-resolution.
   const obj = event.data?.object ?? {};
+  if (typeof obj !== "object" || !obj || Array.isArray(obj)) return NextResponse.json({ error: "Invalid event object" }, { status: 400 });
   const eventCreatedAt = new Date(Number(event.created) * 1000);
   const eventCreatedUnix = Math.floor(eventCreatedAt.getTime() / 1000);
 
@@ -102,13 +105,15 @@ export async function POST(req: Request) {
 
   let stateObj: Record<string, unknown> = obj;
   let staleSnapshotEvent = false;
+  let fetchedRevision: number | null = null;
   if (currentSnapshotSubscriptionEvents.has(eventType)) {
     const subscriptionId = typeof obj.id === "string" ? obj.id : "";
     if (!subscriptionId) return NextResponse.json({ error: "Subscription event missing subscription id" }, { status: 400 });
     const knownSubscription = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.stripeSubscriptionId, subscriptionId),
-      columns: { stripeLastEventCreatedAt: true },
+      columns: { stripeLastEventCreatedAt: true, stripeStateRevision: true },
     });
+    fetchedRevision = knownSubscription?.stripeStateRevision ?? null;
     const knownEventMs = parseDbTimeMs(knownSubscription?.stripeLastEventCreatedAt);
     const skipStaleSnapshotFetch =
       knownEventMs !== null && eventCreatedAt.getTime() < knownEventMs;
@@ -139,6 +144,8 @@ export async function POST(req: Request) {
   if (eventType === "checkout.session.completed") {
     const checkoutSubscriptionId = typeof obj.subscription === "string" ? obj.subscription : "";
     if (checkoutSubscriptionId) {
+      const known = candidateTenantId ? await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, candidateTenantId), columns: { stripeStateRevision: true } }) : undefined;
+      fetchedRevision = known?.stripeStateRevision ?? null;
       try {
         checkoutSubscription = await stripeRetrieve(`subscriptions/${encodeURIComponent(checkoutSubscriptionId)}`);
       } catch (error) {
@@ -161,6 +168,14 @@ export async function POST(req: Request) {
 
   try {
     const result = await db.transaction(async (tx) => {
+      // Identify first without row locks, then lock tenants before subscriptions.
+      // Checkout/onboarding use the same order; audit FK writes must not invert it.
+      const identities = await tx.execute(sql`SELECT tenant_id AS "tenantId" FROM tenant_subscriptions WHERE (${objectSubscriptionId ? sql`stripe_subscription_id = ${objectSubscriptionId}` : sql`FALSE`}) OR (${customerId ? sql`stripe_customer_id = ${customerId}` : sql`FALSE`})`);
+      const lockTenantIds = [...new Set([
+        ...(identities.rows as Array<{ tenantId: string }>).map(row => row.tenantId),
+        ...(candidateTenantId ? [candidateTenantId] : []),
+      ])].sort();
+      if (lockTenantIds.length) await tx.execute(sql`SELECT id FROM tenants WHERE id IN (${sql.join(lockTenantIds.map(id => sql`${id}`), sql`, `)}) ORDER BY id FOR UPDATE`);
       const payload = {
         ...obj,
         [INTERNAL_EVENT_KEY]: {
@@ -227,17 +242,20 @@ export async function POST(req: Request) {
             SELECT stripe_subscription_id AS "stripeSubscriptionId",
                    stripe_customer_id AS "stripeCustomerId",
                    status,
-                   stripe_last_event_created_at AS "stripeLastEventCreatedAt"
+                   stripe_state_revision AS "stripeStateRevision",
+                 stripe_last_event_created_at AS "stripeLastEventCreatedAt"
             FROM tenant_subscriptions
             WHERE tenant_id = ${tenantId}
             FOR UPDATE
           `);
           const current = currentResult.rows[0] as {
+            stripeStateRevision?: number | string;
             stripeSubscriptionId?: string | null;
             stripeCustomerId?: string | null;
             status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
             stripeLastEventCreatedAt?: Date | string | null;
           } | undefined;
+          if (checkoutSubscription && Number(current?.stripeStateRevision ?? 0) !== (fetchedRevision ?? 0)) throw new Error("BILLING_SNAPSHOT_CHANGED");
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
           if (differentSubscription && current?.status !== "cancelled") {
             await tx.update(billingEvents)
@@ -300,17 +318,18 @@ export async function POST(req: Request) {
             return { kind: "ignored" as const };
           }
           const checkoutSessionId = typeof obj.id === "string" ? obj.id : undefined;
+          const checkoutPeriod = stripeSubscriptionPeriod(checkoutSubscription);
           await tx.update(tenantSubscriptions).set({
             stripeSubscriptionId: differentSubscription ? subId : (current?.stripeSubscriptionId ?? subId),
             stripeCustomerId: current?.stripeCustomerId ?? (customerId ?? null),
             checkoutStatus: "completed",
+            stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
             checkoutSessionId: checkoutSessionId ?? null,
-            currentPeriodStart: typeof checkoutSubscription?.current_period_start === "number"
-              ? new Date(checkoutSubscription.current_period_start * 1000)
-              : undefined,
-            currentPeriodEnd: typeof checkoutSubscription?.current_period_end === "number"
-              ? new Date(checkoutSubscription.current_period_end * 1000)
-              : undefined,
+            // Lifecycle events own current periods once their fence exists.
+            // Checkout completion may arrive after a newer renewal snapshot.
+            currentPeriodStart: differentSubscription || !current?.stripeLastEventCreatedAt ? checkoutPeriod.start ?? undefined : undefined,
+            currentPeriodEnd: differentSubscription || !current?.stripeLastEventCreatedAt ? checkoutPeriod.end ?? undefined : undefined,
+            ...(differentSubscription ? { stripeLastEventCreatedAt: null } : {}),
             updatedAt: sql`clock_timestamp()`,
           }).where(eq(tenantSubscriptions.tenantId, tenantId));
         }
@@ -332,6 +351,7 @@ export async function POST(req: Request) {
                  plan_id AS "planId",
                  entitlement_blocked AS "entitlementBlocked",
                  entitlement_blocked_reason AS "entitlementBlockedReason",
+                 stripe_state_revision AS "stripeStateRevision",
                  stripe_last_event_created_at AS "stripeLastEventCreatedAt"
           FROM tenant_subscriptions
           WHERE tenant_id = ${tenantId}
@@ -339,6 +359,7 @@ export async function POST(req: Request) {
         `) : null;
         const tenantRow = tenantRowResult?.rows[0] as {
           tenantId?: string;
+          stripeStateRevision?: number | string;
           stripeSubscriptionId?: string | null;
           stripeCustomerId?: string | null;
           status?: "trialing" | "active" | "past_due" | "incomplete" | "incomplete_expired" | "unpaid" | "paused" | "cancelled";
@@ -353,10 +374,12 @@ export async function POST(req: Request) {
           entitlementBlockedReason?: string | null;
           stripeLastEventCreatedAt?: Date | string | null;
         } | undefined;
-        const plan = priceId ? await tx.query.plans.findFirst({ where: eq(plans.stripePriceId, priceId), columns: { id: true } }) : undefined;
+        const mappings = priceId ? await tx.query.plans.findMany({ where: sql`${plans.stripePriceId} = ${priceId} OR ${priceId} = ANY(${plans.stripePriceHistory})`, columns: { id: true }, limit: 2 }) : [];
+        const plan = mappings.length === 1 ? mappings[0] : undefined;
         const priceMappingAuthoritative = eventType === "customer.subscription.created" || eventType === "customer.subscription.updated";
         const entitlementBlocked = priceMappingAuthoritative ? !plan : tenantRow?.entitlementBlocked === true;
         if (tenantRow && tenantId) {
+          if (currentSnapshotSubscriptionEvents.has(eventType) && !staleSnapshotEvent && Number(tenantRow.stripeStateRevision ?? 0) !== (fetchedRevision ?? 0)) throw new Error("BILLING_SNAPSHOT_CHANGED");
           const differentSubscription = Boolean(
             tenantRow.stripeSubscriptionId && tenantRow.stripeSubscriptionId !== subId
           );
@@ -398,19 +421,20 @@ export async function POST(req: Request) {
             eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =
             sameOrUnboundSubscription &&
-            (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent);
+            (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent)
+            && !(tenantRow.status === "cancelled" && tenantRow.stripeSubscriptionId === subId && !terminalDelete);
           if (sameSubscriptionCanUpdate || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
-            const currentPeriodStart = typeof stateObj.current_period_start === "number"
-              ? new Date(stateObj.current_period_start * 1000)
-              : parseDbTime(tenantRow.currentPeriodStart);
+            const subscriptionPeriod = stripeSubscriptionPeriod(stateObj);
+            const currentPeriodStart = subscriptionPeriod.start ?? parseDbTime(tenantRow.currentPeriodStart);
             if (!currentPeriodStart) throw new Error("subscription current_period_start is missing or invalid");
             await tx.update(tenantSubscriptions).set({
               stripeCustomerId: typeof stateObj.customer === "string" ? stateObj.customer : tenantRow.stripeCustomerId,
               stripeSubscriptionId: subId || tenantRow.stripeSubscriptionId,
               status: nextStatus,
+              stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
               currentPeriodStart,
-              currentPeriodEnd: typeof stateObj.current_period_end === "number" ? new Date(stateObj.current_period_end * 1000) : parseDbTime(tenantRow.currentPeriodEnd),
+              currentPeriodEnd: subscriptionPeriod.end ?? parseDbTime(tenantRow.currentPeriodEnd),
               cancelAtPeriodEnd: stateObj.cancel_at_period_end === true,
               planId: plan?.id ?? tenantRow.planId,
               entitlementBlocked,
@@ -462,6 +486,10 @@ export async function POST(req: Request) {
     if (result.kind === "ignored") return NextResponse.json({ received: true, ignored: true });
     return NextResponse.json({ received: true });
   } catch (error) {
+    if (error instanceof Error && error.message === "BILLING_SNAPSHOT_CHANGED") {
+      if (snapshotRetry < 2) return handleWebhook(new Request(req.url, { method: "POST", headers: req.headers, body: raw }), snapshotRetry + 1);
+      return NextResponse.json({ error: "Subscription changed while verifying Stripe state; retry safely" }, { status: 503, headers: { "Retry-After": "1" } });
+    }
     logError("billing.webhook_failed", { eventId, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }

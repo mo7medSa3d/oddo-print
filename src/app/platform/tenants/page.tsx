@@ -46,12 +46,14 @@ const LIFECYCLE_META: Record<Tenant["lifecycle"], { tone: Tone; key: MessageKey 
 };
 
 export default function PlatformTenantsPage() {
-  const { t, tc, formatNumber, formatDate } = useI18n();
+  const { t, tc, locale, formatNumber, formatDate } = useI18n();
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [completedQuery, setCompletedQuery] = useState<string | null>(null);
+  const [search, setSearchValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>("suspend");
@@ -59,22 +61,27 @@ export default function PlatformTenantsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const queryKey = JSON.stringify([offset, search, reloadKey, locale]);
+  const loading = completedQuery !== queryKey;
+  function setSearch(value: string) { setSearchValue(value); setOffset(0); }
+
+
   useEffect(() => {
     let ignore = false;
     async function load() {
       try {
-        const res = await fetch("/api/platform/tenants", { cache: "no-store" });
+        const res = await fetch(`/api/platform/tenants?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}`, { cache: "no-store" });
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.tenants.loadFailed"));
         const data = await res.json();
-        if (!ignore) { setTenants(Array.isArray(data.tenants) ? data.tenants : []); setError(null); }
+        if (!ignore) { setTenants(Array.isArray(data.tenants) ? data.tenants : []); setHasMore(data.hasMore === true); setError(null); }
       } catch {
         if (!ignore) setError(t("platform.tenants.loadFailed"));
-      } finally { if (!ignore) setLoading(false); }
+      } finally { if (!ignore) setCompletedQuery(queryKey); }
     }
     void load();
     return () => { ignore = true; };
-  }, [reloadKey, t]);
+  }, [reloadKey, t, offset, search, queryKey]);
 
   function closeDialog() {
     if (actionLoading) return;
@@ -83,7 +90,7 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  function handleRefresh() { setLoading(true); setError(null); setNotice(null); setReloadKey((k) => k + 1); }
+  function handleRefresh() { setError(null); setNotice(null); setReloadKey((k) => k + 1); }
   function openSuspend(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("suspend"); setSuspendReason(""); setActionError(null); }
   function openReactivate(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("reactivate"); setSuspendReason(""); setActionError(null); }
 
@@ -347,6 +354,13 @@ export default function PlatformTenantsPage() {
           </div>
         )}
       </Modal>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + tenants.length) })}</span>
+        <div className="flex gap-2">
+          <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
+          <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>
+        </div>
+      </div>
     </div>
   );
 }

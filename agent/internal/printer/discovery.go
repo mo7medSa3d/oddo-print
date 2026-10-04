@@ -211,6 +211,7 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 	addErr := func(msg string) {
 		mu.Lock()
 		errors = append(errors, msg)
+		log.Printf("[discovery] %s", msg)
 		mu.Unlock()
 	}
 	wg.Add(1)
@@ -234,7 +235,6 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 		infos, err := discoverSpoolerPrinters()
 		if err != nil {
 			addErr(fmt.Sprintf("spooler discovery: %v", err))
-			return
 		}
 		add(infos)
 	}()
@@ -298,7 +298,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		all    []DeviceInfo
 		errors []string
 		wg     sync.WaitGroup
-		seen   = make(map[string]bool)
+		seen   = make(map[string]int)
 	)
 
 	add := func(infos []DeviceInfo) {
@@ -320,38 +320,23 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 				log.Printf("[discovery] hiding non-physical printer: %q class=%s reasons=%v", d.Name, cls.Class, cls.Reasons)
 				continue
 			}
-			// Deduplicate by stable ID
-			if seen[d.ID] {
-				for i, existing := range all {
-					if existing.ID == d.ID {
-						// Merge: prefer newer with more info, but keep ID stable
-						all[i] = mergeDeviceInfo(existing, d)
-						break
-					}
-				}
+			// Aliases retain the index of the merged record, so later updates
+			// from either source reach that record instead of being discarded.
+			if index, ok := seen[d.ID]; ok {
+				all[index] = mergeDeviceInfo(all[index], d)
 				continue
 			}
-			// Cross-source dedup: same physical printer via spooler + network (same IP:port)
-			if d.NetworkAddress != "" && d.Port != 0 {
-				duplicate := false
-				for i, existing := range all {
-					if existing.NetworkAddress != "" && existing.Port != 0 && strings.EqualFold(existing.NetworkAddress, d.NetworkAddress) && existing.Port == d.Port {
-						log.Printf("[discovery] duplicate printer merged (network %s:%d matches %q): %s + %s", d.NetworkAddress, d.Port, existing.SpoolerName, existing.ID, d.ID)
-						all[i] = mergeDeviceInfo(existing, d)
-						seen[d.ID] = true
-						duplicate = true
-						break
-					}
-					if endpointHasNetworkAddress(existing.Endpoint, d.NetworkAddress) {
-						all[i] = mergeDeviceInfo(existing, d)
-						seen[d.ID] = true
-						duplicate = true
-						break
-					}
+			duplicate := false
+			for i, existing := range all {
+				if sameNetworkEndpoint(existing, d) {
+					all[i] = mergeDeviceInfo(existing, d)
+					seen[d.ID] = i
+					duplicate = true
+					break
 				}
-				if duplicate {
-					continue
-				}
+			}
+			if duplicate {
+				continue
 			}
 			// USB dedup requires a strong physical identity. VID/PID only identifies a
 			// device model, not a physical unit; merging two identical USB printers
@@ -363,7 +348,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 					if sameUSBDevice(existing, d) {
 						log.Printf("[discovery] duplicate USB printer merged %s:%s", d.USBVID, d.USBPID)
 						all[i] = mergeDeviceInfo(existing, d)
-						seen[d.ID] = true
+						seen[d.ID] = i
 						duplicate = true
 						break
 					}
@@ -372,13 +357,14 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 					continue
 				}
 			}
-			seen[d.ID] = true
+			seen[d.ID] = len(all)
 			all = append(all, d)
 		}
 	}
 	addErr := func(msg string) {
 		mu.Lock()
 		errors = append(errors, msg)
+		log.Printf("[discovery] %s", msg)
 		mu.Unlock()
 	}
 
@@ -413,7 +399,6 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		infos, err := discoverSpoolerPrinters()
 		if err != nil {
 			addErr(fmt.Sprintf("spooler discovery: %v", err))
-			return
 		}
 		add(infos)
 	}()
@@ -458,7 +443,6 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		infos, err := discoverNetworkPrinters(subCtx)
 		if err != nil {
 			addErr(fmt.Sprintf("network discovery: %v", err))
-			return
 		}
 		if len(infos) > 0 {
 			log.Printf("[discovery] network discovery found %d TCP printers", len(infos))
@@ -482,7 +466,6 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		infos, err := discoverUSBPrinters()
 		if err != nil {
 			addErr(fmt.Sprintf("usb discovery: %v", err))
-			return
 		}
 		if len(infos) > 0 {
 			log.Printf("[discovery] USB discovery found %d devices", len(infos))
@@ -510,7 +493,6 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		infos, err := discoverIPPPrinters(subCtx)
 		if err != nil {
 			addErr(fmt.Sprintf("ipp discovery: %v", err))
-			return
 		}
 		if len(infos) > 0 {
 			log.Printf("[discovery] IPP discovery found %d printers", len(infos))
@@ -535,32 +517,9 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		log.Printf("[discovery] starting LPR discovery")
 		subCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
-		// reuse network targets for 515
-		var lprTargets []string
-		if ifaces, err := net.Interfaces(); err == nil {
-			for _, iface := range ifaces {
-				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-					continue
-				}
-				addrs, err := iface.Addrs()
-				if err != nil {
-					log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
-					continue
-				}
-				for _, addr := range addrs {
-					if ipNet, ok := addr.(*net.IPNet); ok {
-						if ip := ipNet.IP.To4(); ip != nil && ip.IsPrivate() {
-							hosts := generateHosts(ipNet)
-							for _, h := range hosts {
-								lprTargets = append(lprTargets, h.String())
-							}
-						}
-					}
-				}
-			}
-		}
-		if len(lprTargets) > 254 {
-			lprTargets = lprTargets[:254]
+		lprTargets, diagnostics := localPrivateDiscoveryTargets()
+		for _, diagnostic := range diagnostics {
+			addErr("lpr discovery: " + diagnostic)
 		}
 		infos := discoverLPRPrinters(subCtx, lprTargets)
 		if len(infos) > 0 {
@@ -568,7 +527,8 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			// backend is implemented. Never promote protocol=lpr into the
 			// production printer inventory because Gateway/Agent routing
 			// intentionally supports only the implemented protocol vocabulary.
-			addErr(fmt.Sprintf("lpr discovery: found %d LPR/LPD endpoint(s), but LPR execution is not supported; candidates were not registered", len(infos)))
+			add(infos)
+			addErr(fmt.Sprintf("lpr discovery: found %d LPR/LPD endpoint(s); candidates are visible but execution is unsupported", len(infos)))
 		}
 	}()
 
@@ -587,31 +547,9 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		log.Printf("[discovery] starting SNMP discovery")
 		subCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
-		var snmpTargets []string
-		if ifaces, err := net.Interfaces(); err == nil {
-			for _, iface := range ifaces {
-				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-					continue
-				}
-				addrs, err := iface.Addrs()
-				if err != nil {
-					log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
-					continue
-				}
-				for _, addr := range addrs {
-					if ipNet, ok := addr.(*net.IPNet); ok {
-						if ip := ipNet.IP.To4(); ip != nil && ip.IsPrivate() {
-							hosts := generateHosts(ipNet)
-							for _, h := range hosts {
-								snmpTargets = append(snmpTargets, h.String())
-							}
-						}
-					}
-				}
-			}
-		}
-		if len(snmpTargets) > 100 {
-			snmpTargets = snmpTargets[:100]
+		snmpTargets, diagnostics := localPrivateDiscoveryTargets()
+		for _, diagnostic := range diagnostics {
+			addErr("snmp discovery: " + diagnostic)
 		}
 		infos := discoverSNMPPrinters(subCtx, snmpTargets)
 		if len(infos) > 0 {
@@ -639,25 +577,6 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		if err != nil {
 			addErr(fmt.Sprintf("wsd discovery: %v", err))
 		}
-		add(infos)
-	}()
-
-	// 10. mDNS full (224.0.0.251) — supplements IPP mDNS stub
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if ctx.Err() != nil {
-			return
-		}
-		defer func() {
-			if r := recover(); r != nil {
-				addErr(fmt.Sprintf("mdns discovery panic: %v", r))
-			}
-		}()
-		log.Printf("[discovery] starting mDNS discovery")
-		subCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		defer cancel()
-		infos := discoverFullMDNS(subCtx)
 		add(infos)
 	}()
 
@@ -737,25 +656,10 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 		if di.ID == "" {
 			di.ID = StableIDForDevice(di)
 		}
-		// Probe status via factory if possible (non-blocking, but uses 2s dial)
-		if printer, err := New(pc); err == nil {
-			// Run status in goroutine with timeout to avoid blocking discovery
-			statusCh := make(chan string, 1)
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						statusCh <- "error"
-					}
-				}()
-				statusCh <- printer.Status()
-			}()
-			select {
-			case s := <-statusCh:
-				di.Status = s
-			case <-time.After(2500 * time.Millisecond):
-				di.Status = "offline"
-			}
-		} else {
+		// Config entries are inventory declarations, not active discovery probes.
+		// Agent heartbeat probes own bounded concurrency and status caching; doing
+		// serial Status calls here multiplies startup time and leaks stalled RPCs.
+		if _, err := New(pc); err != nil {
 			di.Status = "error"
 		}
 		out = append(out, di)
@@ -765,9 +669,6 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 
 func discoverSpoolerPrinters() ([]DeviceInfo, error) {
 	infos, err := enumSpoolerImpl()
-	if err != nil {
-		return nil, err
-	}
 	for i := range infos {
 		if infos[i].ID == "" && infos[i].SpoolerName != "" {
 			infos[i].ID = StableIDFromSpooler(infos[i].SpoolerName)
@@ -775,35 +676,18 @@ func discoverSpoolerPrinters() ([]DeviceInfo, error) {
 		if infos[i].ID == "" {
 			infos[i].ID = StableIDForDevice(infos[i])
 		}
-		// Probe online/offline via spooler stub/windows fast
-		sp := NewSpooler(infos[i].SpoolerName, infos[i].Name)
-		// Avoid blocking too long: status is fast (OpenPrinter)
-		statusCh := make(chan string, 1)
-		go func(s *SpoolerPrinter) {
-			defer func() {
-				if r := recover(); r != nil {
-					statusCh <- "error"
-				}
-			}()
-			statusCh <- s.Status()
-		}(sp)
-		select {
-		case s := <-statusCh:
-			infos[i].Status = s
-		case <-time.After(2 * time.Second):
-			infos[i].Status = "offline"
+		// Enumeration already provides a bounded status snapshot. Reopening
+		// every remote queue here would add a serial timeout per printer.
+		if infos[i].Status == "" {
+			infos[i].Status = "unknown"
 		}
 	}
-	return infos, nil
+	return infos, err
 }
 
 // enumSpoolerImpl delegates to platform-specific implementation.
 func enumSpoolerImpl() ([]DeviceInfo, error) {
-	infos, err := enumSpoolerPrintersPlatform()
-	if err != nil {
-		return nil, err
-	}
-	return infos, nil
+	return enumSpoolerPrintersPlatform()
 }
 
 // ListPrinters returns the current registry + config view suitable for CLI "printers list".
@@ -834,6 +718,21 @@ func endpointHasNetworkAddress(endpoint, networkAddress string) bool {
 	return false
 }
 
+func sameNetworkEndpoint(a, b DeviceInfo) bool {
+	if a.NetworkAddress == "" || b.NetworkAddress == "" || a.Port <= 0 || b.Port <= 0 {
+		return false
+	}
+	if !strings.EqualFold(a.NetworkAddress, b.NetworkAddress) || a.Port != b.Port {
+		return false
+	}
+	aIPP := a.Protocol == "ipp" || a.Protocol == "ipps"
+	bIPP := b.Protocol == "ipp" || b.Protocol == "ipps"
+	if aIPP || bIPP {
+		return aIPP && bIPP && a.Protocol == b.Protocol && a.Endpoint == b.Endpoint
+	}
+	return true
+}
+
 func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	merged := existing
 	if incoming.Name != "" && incoming.Name != existing.Name {
@@ -842,11 +741,13 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 			merged.DisplayName = incoming.DisplayName
 		}
 	}
-	if incoming.NetworkAddress != "" {
-		merged.NetworkAddress = incoming.NetworkAddress
-	}
-	if incoming.Port != 0 {
-		merged.Port = incoming.Port
+	// Select the complete transport tuple together. Metadata from another
+	// source must never replace just the port while retaining an old URI.
+	preferIncoming := merged.Endpoint == "" || merged.Protocol == "" || merged.Protocol == "unknown" ||
+		(incoming.ConnectionType == "spooler" && merged.ConnectionType != "spooler")
+	if preferIncoming && incoming.Endpoint != "" {
+		merged.Endpoint, merged.ConnectionType, merged.Protocol, merged.Type = incoming.Endpoint, incoming.ConnectionType, incoming.Protocol, incoming.Type
+		merged.NetworkAddress, merged.Port = incoming.NetworkAddress, incoming.Port
 	}
 	if incoming.SpoolerName != "" && merged.SpoolerName == "" {
 		merged.SpoolerName = incoming.SpoolerName
@@ -881,12 +782,7 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	if incoming.PrinterType != "" && incoming.PrinterType != "unknown" && merged.PrinterType == "unknown" {
 		merged.PrinterType = incoming.PrinterType
 	}
-	if incoming.ConnectionType != "" {
-		if merged.ConnectionType == "network" && incoming.ConnectionType == "spooler" {
-			merged.ConnectionType = "spooler"
-			merged.Protocol = "spooler"
-		}
-	}
+
 	if incoming.Capabilities != nil {
 		if merged.Capabilities == nil {
 			merged.Capabilities = make(map[string]interface{})

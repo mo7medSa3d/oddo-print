@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   if (!claims?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasManagerPermission(claims, "tenant.update")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { workspaceName?: unknown; planId?: unknown; trial?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const name = typeof body.workspaceName === "string" ? body.workspaceName.trim() : "";
   const planId = typeof body.planId === "string" ? body.planId.trim() : "";
   const trial = body.trial === true;
@@ -56,8 +56,10 @@ export async function POST(req: Request) {
     if (lockedTenant.rows.length !== 1) throw new Error("TENANT_NOT_FOUND");
     await tx.update(tenants).set({ name, updatedAt: sql`now()` }).where(eq(tenants.id, claims.tenantId));
     if (!trial) return;
+    await tx.execute(sql`SELECT tenant_id FROM tenant_subscriptions WHERE tenant_id = ${claims.tenantId} FOR UPDATE`);
     const existing = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
     if (existing?.trialStartedAt) throw new Error("Trial has already been used for this workspace");
+    if (existing && (existing.stripeSubscriptionId || ["active", "past_due"].includes(existing.status) || ["creating", "open", "completed"].includes(existing.checkoutStatus) || existing.billingOperationId)) throw new Error("Workspace already has billing state");
     if (existing) {
       await tx.update(tenantSubscriptions).set({ planId: plan.id, status: "trialing", currentPeriodEnd: sql`clock_timestamp() + interval '30 days'`, trialStartedAt: sql`clock_timestamp()`, cancelAtPeriodEnd: false, updatedAt: sql`now()` }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
     } else {
@@ -66,6 +68,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     if (error instanceof Error && error.message === "TENANT_NOT_FOUND") return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    if (error instanceof Error && error.message === "Workspace already has billing state") return NextResponse.json({ error: "Trial is unavailable for a workspace with an existing subscription or checkout", code: "TRIAL_NOT_AVAILABLE" }, { status: 409 });
     if (error instanceof Error && error.message === "Trial has already been used for this workspace") return NextResponse.json({ error: "This workspace has already used its trial" }, { status: 409 });
     throw error;
   }

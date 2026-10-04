@@ -49,7 +49,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         <Card className="overflow-hidden lg:col-span-2">
           <CardHeader title={t("desktop.overview.printersTitle")} subtitle={t("desktop.overview.printersOnlineCount", { online, total: shownPrinters.length })} icon={<PrinterIcon className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="secondary" onClick={s.refreshPrinters} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>} />
           <div className="px-5 pb-5">
-            {s.printersLoading ? <LoadingState rows={3} /> : s.printersError && (shownPrinters.length > 0 || !s.gatewayConnected) ? <ErrorState title={t("desktop.overview.unableToLoadPrinters")} message={s.printersError} retry={s.refreshPrinters} /> : shownPrinters.length === 0 ? (
+            {s.printersLoading ? <LoadingState rows={3} /> : s.printersError ? <ErrorState title={t("desktop.overview.unableToLoadPrinters")} message={s.printersError} retry={s.refreshPrinters} /> : shownPrinters.length === 0 ? (
               <EmptyState icon={<PrinterIcon className="h-8 w-8" />} title={t("desktop.overview.noPhysicalPrinters")} description={t("desktop.overview.noPhysicalPrintersBody")} action={<><Button variant="primary" onClick={s.handleDiscover} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.discover")}</Button><Button variant="secondary" onClick={() => s.setShowAdd(true)} icon={<PrinterIcon className="h-4 w-4" />}>{t("desktop.overview.addPrinter")}</Button></>} />
             ) : (
               <div className="space-y-2">

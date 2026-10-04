@@ -14,7 +14,7 @@ import { revokeUserRefreshFamiliesInTransaction } from "../../../../lib/session-
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { token?: unknown; password?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const token = typeof body.token === "string" ? body.token : "";
   const password = typeof body.password === "string" ? body.password : "";
   if (!token || password.length < 12 || password.length > 4096) {
@@ -51,6 +51,8 @@ export async function POST(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
+      // Same user -> token lock order as forgot-password issuance.
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${row.userId} FOR UPDATE`);
       const consumed = await tx
         .update(passwordResetTokens)
         .set({ consumedAt: sql`now()` })

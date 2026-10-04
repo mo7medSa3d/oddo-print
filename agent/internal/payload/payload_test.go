@@ -263,3 +263,18 @@ func TestGatewayPayloadContractIsTheAgentContract(t *testing.T) {
 		}
 	}
 }
+
+func TestPresentPeripheralsMustBeObject(t *testing.T) {
+	for _, value := range []interface{}{nil, "drawer", 1, []interface{}{}, true, map[string]interface{}(nil)} {
+		input := map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": base64.StdEncoding.EncodeToString([]byte("receipt")), "peripherals": value}
+		if _, err := Parse(input); err == nil {
+			t.Fatalf("non-object peripherals accepted: %#v", value)
+		}
+	}
+	for _, value := range []map[string]interface{}{{}, {"drawer": "none"}} {
+		input := map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": base64.StdEncoding.EncodeToString([]byte("receipt")), "peripherals": value}
+		if _, err := Parse(input); err != nil {
+			t.Fatalf("valid object rejected: %v", err)
+		}
+	}
+}

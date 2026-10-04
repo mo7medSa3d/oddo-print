@@ -88,7 +88,7 @@ function isFresh(lastSeenAt?: Date | string | null, now = gatewayNow()): { fresh
  */
 export function normalizePrinterStatus(
   rawStatus?: string | null,
-  evidence?: { lastSeenAt?: Date | null; agentLastSeenAt?: Date | null; agentStatus?: string | null; config?: any; capabilities?: any; error?: string; now?: Date }
+  evidence?: { lastSeenAt?: Date | null; agentLastSeenAt?: Date | null; agentStatus?: string | null; printerLifecycle?: string | null; agentLifecycle?: string | null; config?: any; capabilities?: any; error?: string; now?: Date }
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
   const now = evidence?.now ?? gatewayNow();
   const printerFreshness = isFresh(evidence?.lastSeenAt ?? null, now);
@@ -96,7 +96,9 @@ export function normalizePrinterStatus(
   const freshness = {
     lastSeenAt: evidence?.lastSeenAt ?? undefined,
     ageMs: Math.max(printerFreshness.ageMs ?? Number.POSITIVE_INFINITY, agentFreshness.ageMs ?? Number.POSITIVE_INFINITY),
-    fresh: printerFreshness.fresh && agentFreshness.fresh && evidence?.agentStatus === "online",
+    fresh: printerFreshness.fresh && agentFreshness.fresh && evidence?.agentStatus === "online"
+      && (evidence?.printerLifecycle === undefined || evidence.printerLifecycle === "active")
+      && (evidence?.agentLifecycle === undefined || evidence.agentLifecycle === "active"),
     source: "printers.last_seen_at + agents.status + agents.last_seen_at (observed)",
   };
 
@@ -148,12 +150,13 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
     "getPrinterCapability"
   );
   if (rows.length === 0) return null;
+  const row = rows[0];
+  return row ? buildPrinterCapabilityMatrix(row.printer, row.agent) : null;
+}
+
+export function buildPrinterCapabilityMatrix(p: typeof printers.$inferSelect, agent: typeof agents.$inferSelect | null, now = gatewayNow()): PrinterCapabilityMatrix {
   // Typed row: keep Drizzle's inferred printers type so a renamed/absent
   // column fails to compile instead of silently degrading health output.
-  const row = rows[0];
-  if (!row) return null;
-  const p = row.printer;
-  const agent = row.agent;
   const config = p.config ?? {};
   // Legacy rows may carry keys outside the schema $type (e.g. driver_name);
   // read those through a string bag instead of erasing the whole row to any.
@@ -166,12 +169,16 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
   const documentTypes = getSupportedDocumentTypes(
     p.protocol as ProtocolType,
     p.connectionType as TransportType,
+    p.capabilities,
   );
 
   const statusInfo = normalizePrinterStatus(p.status, {
     lastSeenAt: p.lastSeenAt,
     agentLastSeenAt: agent?.lastSeenAt,
     agentStatus: agent?.status,
+    printerLifecycle: p.lifecycle,
+    agentLifecycle: agent?.lifecycle,
+    now,
     config,
     capabilities: caps,
   });
@@ -183,7 +190,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
   let driverHealth: "ok" | "warn" | "error" | "unknown" = "unknown";
   let driverMessage = "Driver info not reported (ACTUAL DRIVER STATUS unavailable)";
   let driverEvidence = "No driver evidence in capabilities/config (DATABASE STATUS only)";
-  if (driverError) {
+  if (driverError && statusInfo.freshness.fresh) {
     driverHealth = "error";
     driverMessage = `Driver error: ${driverError} (OBSERVED from capabilities.driver_error)`;
     driverEvidence = `capabilities.driver_error present: ${driverError.slice(0, 100)}`;
@@ -211,7 +218,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
       spoolerStatus = "unknown";
       spoolerMessage = "Spooler transport but spooler_name missing (DATABASE STATUS incomplete)";
       spoolerEvidence = "connectionType=spooler but config.spooler_name missing";
-    } else if (spoolerProbe) {
+    } else if (spoolerProbe && statusInfo.freshness.fresh) {
       // Actual spooler status from agent probe
       spoolerStatus = spoolerProbe === "ok" ? "ok" : spoolerProbe === "error" ? "error" : "unknown";
       spoolerMessage = `Spooler ${spoolerName} status ${spoolerProbe} (ACTUAL SPOOLER STATUS from agent)`;
@@ -251,15 +258,13 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
 }
 
 export async function getAllPrintersCapabilityMatrix(tenantId: string): Promise<PrinterCapabilityMatrix[]> {
-  const all = await queryWithTimeout(
-    () => db.select().from(printers).where(eq(printers.tenantId, tenantId)),
+  const rows = await queryWithTimeout(
+    () => db.select({ printer: printers, agent: agents }).from(printers)
+      .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
+      .where(eq(printers.tenantId, tenantId)),
     3000,
-    "getAllPrintersCapability"
+    "getAllPrintersCapability",
   );
-  const results: PrinterCapabilityMatrix[] = [];
-  for (const p of all) {
-    const m = await getPrinterCapabilityMatrix(tenantId, p.id);
-    if (m) results.push(m);
-  }
-  return results;
+  const now = gatewayNow();
+  return rows.map(row => buildPrinterCapabilityMatrix(row.printer, row.agent, now));
 }

@@ -25,12 +25,13 @@ export async function POST(req: Request) {
   if (!claims?.userId || claims.role !== "owner" || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Only the workspace owner can transfer ownership" }, { status: 403 });
   const currentUserId = claims.userId;
   let body: { userId?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const newOwnerId = typeof body.userId === "string" ? body.userId : "";
   if (!newOwnerId || newOwnerId === currentUserId) return NextResponse.json({ error: "A different member is required" }, { status: 400 });
 
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id IN (${currentUserId}, ${newOwnerId}) ORDER BY id FOR UPDATE`);
       // Lock both membership rows in a deterministic user-id order. This
       // serializes transfers with role changes and deletions on the same rows.
       const locked = await tx.execute(sql`
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
         "ownership_transferred",
       );
 
+      await revokeUserTenantRefreshFamiliesInTransaction(tx, newOwnerId, claims.tenantId, "ownership_promoted");
       await writeAuditEvent(
         {
           tenantId: claims.tenantId,

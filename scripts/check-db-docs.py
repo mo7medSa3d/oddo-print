@@ -49,6 +49,11 @@ def main() -> int:
             created.setdefault(name, sql.name)
         dropped.update(DROP_RE.findall(text))
 
+    # The offline audit's forward repair entries are part of the production migrator.
+    repairs = (ROOT / "scripts" / "db-migrate.ts").read_text()
+    for name in CREATE_RE.findall(repairs):
+        if name != "drizzle":
+            created.setdefault(name, "scripts/db-migrate.ts")
     current = set(created) - dropped
 
     for table in sorted(schema_tables - set(created)):

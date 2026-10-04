@@ -105,6 +105,8 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
       await client.query("BEGIN");
       await client.query("SELECT id FROM tenants WHERE id = $1 FOR UPDATE", [f.tenantId]);
 
+      // Observe both outcomes immediately: the rejection can arrive as soon
+      // as COMMIT releases the row lock, before this test resumes awaiting it.
       const creating = createPrintJobForPrinter(f.printerId, payload, {
         tenantId: f.tenantId,
         requestedBy: "tenant-suspension-race",
@@ -112,7 +114,10 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
         destination: f.destination,
         idempotencyKey: "tenant-suspension-race-" + f.tenantId,
         expiresAt: new Date(Date.now() + 60_000),
-      });
+      }).then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason: unknown) => ({ status: "rejected" as const, reason }),
+      );
 
       await new Promise((resolve) => setTimeout(resolve, 20));
       await client.query(
@@ -121,7 +126,9 @@ suite("Tenant Isolation Invariants (Negative Tests)", () => {
       );
       await client.query("COMMIT");
 
-      await expect(creating).rejects.toMatchObject({ code: "TENANT_UNAVAILABLE" });
+      const outcome = await creating;
+      expect(outcome.status).toBe("rejected");
+      if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ code: "TENANT_UNAVAILABLE" });
       const rows = await pool().query("SELECT count(*)::int AS count FROM print_jobs WHERE tenant_id = $1", [f.tenantId]);
       expect(rows.rows[0].count).toBe(0);
     } finally {

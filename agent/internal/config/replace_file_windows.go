@@ -3,7 +3,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"golang.org/x/sys/windows"
+	"os"
 	"syscall"
 	"time"
 	"unsafe"
@@ -55,4 +58,17 @@ func replaceFile(src, dst string) error {
 		}
 	}
 	return fmt.Errorf("MoveFileExW failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+func tryLocalFileLock(file *os.File) (func() error, error) {
+	var overlapped windows.Overlapped
+	handle := windows.Handle(file.Fd())
+	err := windows.LockFileEx(handle, windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlapped)
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return nil, fmt.Errorf("%w: %v", errLocalLockBusy, err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func() error { return windows.UnlockFileEx(handle, 0, 1, 0, &overlapped) }, nil
 }

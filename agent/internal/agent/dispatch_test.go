@@ -35,6 +35,8 @@ func TestRedeliveryAdoptsLiveClaimTokenForReports(t *testing.T) {
 			mu.Lock()
 			patches = append(patches, body)
 			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body["status"]})
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -329,7 +331,7 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body["status"]})
 			return
 		}
 		if r.URL.Path == "/api/agent/jobs" && r.Method == http.MethodGet {

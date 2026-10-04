@@ -214,7 +214,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
               <FlowRow
                 icon={<Printer className="h-4 w-4" />}
                 number="04"
-                title="Printer"
+                title={t("home.flow4Title")}
                 text={t("home.flow4Text")}
               />
             </ol>

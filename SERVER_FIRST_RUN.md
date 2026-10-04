@@ -87,6 +87,7 @@ POSTGRES_USER=odoo_print
 POSTGRES_PASSWORD=<long-random-password>
 
 GATEWAY_DOMAIN=gw.example.com
+PLATFORM_TENANT_ID=<real-platform-workspace-id>
 GATEWAY_JWT_SECRET=<random-32+-character-secret>
 TRUST_PROXY_SECRET=<different-random-32+-character-secret>
 
@@ -107,17 +108,25 @@ openssl rand -base64 48
 # TRUST_PROXY_SECRET (random secret — any base64 string ≥ 32 chars)
 openssl rand -base64 48
 
-# MANAGER_PASSWORD_HASH (MUST be a valid Argon2id hash, NOT a random string).
-# Choose your manager password, then hash it:
-node -e "const argon2 = require('argon2'); argon2.hash(process.argv[1]).then(h => console.log(h))" 'YOUR_MANAGER_PASSWORD'
-# Paste the resulting $argon2id$... string as the value of MANAGER_PASSWORD_HASH.
+# MANAGER_PASSWORD_HASH uses this repository's built-in Node crypto implementation.
+# Run inside the prepared Gateway runtime (Node >=24.15; existing tsx only).
+# Read a password without writing it into shell history or process arguments:
+read -r -s -p 'Manager password: ' YASEIR_HASH_INPUT
+export YASEIR_HASH_INPUT
+./node_modules/.bin/tsx -e 'import { hashPassword } from "./src/lib/password"; hashPassword(process.env.YASEIR_HASH_INPUT ?? "").then(console.log).catch(error => { console.error(error.message); process.exitCode = 1; });'
+unset YASEIR_HASH_INPUT
+# Paste the resulting argon2id$v=19$... value into MANAGER_PASSWORD_HASH.
 ```
 
-> **Warning**: `MANAGER_PASSWORD_HASH` must be an Argon2id hash (starting with
-> `$argon2id$`). A random base64 string will permanently lock you out of the
-> manager login. If you don't have the `argon2` npm package available locally,
-> run `npx argon2-cli 'YOUR_MANAGER_PASSWORD'` or use Docker:
-> `docker run --rm node:24-slim node -e "require('argon2').hash(process.argv[1]).then(h=>console.log(h))" 'YOUR_PASSWORD'`
+Use the exact repository hash format, beginning `argon2id$` without an initial
+`$`. Generic Argon2 npm/CLI tools use a different encoding and are not required.
+If the prepared runtime is unavailable, generate the hash in an existing Gateway
+container; do not download tooling just for this step.
+
+`PLATFORM_TENANT_ID` is required at production startup. Set it to the actual
+platform workspace ID, whose lifecycle must be protected. Bootstrap/migrate that
+workspace through the existing operator workflow before starting production;
+never use the placeholder as a real ID.
 
 Do not commit `.env`.
 
@@ -447,7 +456,7 @@ yaseir-agent-cli.exe printers add --name "Kitchen" --type network --endpoint 192
 Windows spooler:
 
 ```powershell
-yaseir-agent-cli.exe printers add --name "HP LaserJet" --type spooler --spooler-name "HP LaserJet" --protocol spooler --device-class laser
+yaseir-agent-cli.exe printers add --name "HP LaserJet" --type spooler --spooler-name "HP LaserJet" --device-class laser
 ```
 
 List local printers:
@@ -627,3 +636,23 @@ Platform operator:
     ↓
   /platform/dashboard
 ```
+
+## Audit deployment checks
+
+The Windows service runs under its configured service account. Per-user printer
+connections in an interactive session are not automatically visible to
+LocalSystem; install queues for the service account/machine or run an authorized
+user Agent. Discovery diagnostics identify account visibility and source errors.
+A reachable network candidate is not proof of a usable protocol or physical
+printing. Approve only endpoints and printer capabilities verified for the device.
+
+The desktop uses the committed Gateway origin for operations; editing the URL
+requires an explicit connection check. Manager credentials are cleared on origin
+changes. Set `YASEIR_MANAGER_AUTOSTART_AGENT=0` to launch the desktop without
+starting the Agent or applying first-launch autostart, including isolated smoke
+checks. Autostart choices are stored per user under LOCALAPPDATA.
+
+Payload cleanup retains tenant-owned terminal operation receipts. Idempotency
+keys remain reserved for the tenant lifetime; lookup and repeated acknowledgements
+still resolve the original operation after payload/timeline cleanup. Verify all
+versioned repair entries with the production hash-based migrator before rollout.

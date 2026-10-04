@@ -129,3 +129,7 @@ To prevent transport mismatches and uncaught UI exceptions (such as React #441),
 
 The Gateway wire contract has four top-level payload kinds: `raw`, `escpos`, `pdf`, and `image`.
 * **Unsupported / Unknown**: Structured `422 Unprocessable Entity` with `code: "CAPABILITY_MISMATCH"`, gracefully rendered in UI toasts without exception propagation.
+
+New physical dispatch requires an acknowledged, claim-fenced `printing` response (`success: true`, `status: "printing"`). Local delivery receipt age is diagnostic only; a buffered frame may already have a stale claim. An unacknowledged admission sends no hardware bytes. Printing that already crossed this boundary retains its durable outcome reporting through a later disconnect. Repeated admission for the same live printing claim is acknowledged without creating another job or physical attempt.
+
+PDF rendering preserves the caller-assigned deadline and cancellation throughout document dispatch. Kind-specific timeouts apply only without a caller deadline. Windows aborts unfinished GDI documents; an abort does not prove that no physical page was emitted, so post-admission failures remain unknown outcomes.

@@ -27,7 +27,8 @@ describe("print-certification", () => {
     // Byte transports use a deterministic raw ticket; document transports
     // (spooler/ipp) use a deterministic PDF (a raw ticket would 422 there).
     // Neither may embed requestId or wall-clock time.
-    expect(source).toContain("CERTIFICATION ${idempotencyKey}");
+    expect(source).toContain("buildTestPrintPayloadForPrinter");
+    expect(source).toContain("}, idempotencyKey);");
     expect(source).toContain("buildDeterministicCertificationPdf");
   });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
-import { Kbd } from "./ui";
+import { Kbd, useDialog } from "./ui";
 import { useI18n } from "../i18n/react";
 
 export type CommandItem = {
@@ -38,6 +38,8 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [sessionOpen, setSessionOpen] = useState(open);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialog(open, onClose, panelRef);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -73,17 +75,6 @@ export function CommandPalette({
     return focusInput();
   }, [open, focusInput]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -114,6 +105,8 @@ export function CommandPalette({
         aria-hidden
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t("command.ariaLabel")}
@@ -138,8 +131,6 @@ export function CommandPalette({
               } else if (event.key === "Enter") {
                 event.preventDefault();
                 run(results[cursor]);
-              } else if (event.key === "Tab") {
-                event.preventDefault();
               }
             }}
             placeholder={t("command.placeholder")}

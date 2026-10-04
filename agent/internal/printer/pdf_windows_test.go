@@ -147,3 +147,17 @@ func TestEmbeddedPDFErrorClassificationMarker(t *testing.T) {
 		t.Fatalf("missing unknown-outcome wire marker: %v", err)
 	}
 }
+
+func TestBitmapPrintDestinationUsesPrintableOriginAndScalesCappedRender(t *testing.T) {
+	x, y, w, h, err := bitmapPrintDestination(1000, 1500, 4000, 6000)
+	if err != nil || x != 0 || y != 0 || w != 4000 || h != 6000 {
+		t.Fatalf("capped render shrank/shifted: %d,%d %dx%d %v", x, y, w, h, err)
+	}
+	x, y, w, h, err = bitmapPrintDestination(2000, 1000, 4000, 6000)
+	if err != nil || x != 0 || y != 2000 || w != 4000 || h != 2000 {
+		t.Fatalf("aspect/centering: %d,%d %dx%d %v", x, y, w, h, err)
+	}
+	if _, _, _, _, err := bitmapPrintDestination(0, 1, 4000, 6000); err == nil {
+		t.Fatal("invalid image accepted")
+	}
+}

@@ -12,8 +12,8 @@ import { readFileSync } from "node:fs";
  *  4. The "unassigned" jobs filter subqueries must be tenant-fenced so they
  *     use the composite tenant+id indexes instead of full-scanning printers
  *     and agents across every tenant.
- *  5. The cache helper exposes the documented SSA-Vary + stale-while-revalidate
- *     preset for CDN/public reads.
+ *  5. Only caller-independent public reads use the shared-cache preset;
+ *     no fabricated response header may claim to isolate tenant data.
  */
 
 describe("list endpoint bounds (offset guards)", () => {
@@ -84,9 +84,12 @@ describe("tenant-fenced unassigned subqueries", () => {
 });
 
 describe("cache helper presets", () => {
-  it("exposes stale-while-revalidate and SSA-Vary for public reads", () => {
+  it("exposes public revalidation without a fabricated tenant cache header", () => {
     const helper = readFileSync("src/lib/cache.ts", "utf8");
-    expect(helper).toContain("SSA-Vary");
+    expect(helper).not.toContain("SSA-Vary");
+    expect(helper).not.toContain("ssaVaryHeader");
+    expect(helper).toContain("no-store");
+    expect(helper).toContain("identical for every caller");
     expect(helper).toContain("stale-while-revalidate");
   });
 });

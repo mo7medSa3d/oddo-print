@@ -1,7 +1,8 @@
-import { db } from "../src/db";
+import { eq, sql } from "drizzle-orm";
+import { db, pool } from "../src/db";
 import { plans } from "../src/db/schema";
 import { normalizePlanEntitlements } from "../src/lib/entitlements";
-import { validateStripePriceBinding } from "../src/lib/stripe";
+import { validateStripePriceBinding, lockStripePlanCatalog } from "../src/lib/stripe";
 
 /* Provision the public plan catalog from operator-supplied Stripe Price IDs and canonical entitlement limits. */
 async function main() {
@@ -23,10 +24,15 @@ async function main() {
           interval,
           requireActive: true,
         });
-    await db.insert(plans).values({
+    await db.transaction(async tx => {
+    await lockStripePlanCatalog(tx, plan.id, plan.priceId);
+    const current = await tx.query.plans.findFirst({ where: eq(plans.id, plan.id), columns: { stripePriceHistory: true, stripePriceId: true } });
+    const priceHistory = [...new Set([...(current?.stripePriceHistory ?? []), current?.stripePriceId, plan.priceId].filter((value): value is string => typeof value === "string" && !!value))];
+    await tx.insert(plans).values({
       id: plan.id,
       name: plan.name,
       stripePriceId: plan.priceId,
+      stripePriceHistory: priceHistory,
       currency,
       interval,
       entitlements,
@@ -36,9 +42,10 @@ async function main() {
       displayOrder: 0,
       stripeProductId: stripePrice?.productId ?? null,
     })
-      .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: new Date() } });
+      .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, stripePriceHistory: priceHistory, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: sql`clock_timestamp()` } });
+    });
   }
   console.log(`Provisioned ${parsed.length} Stripe-backed plan(s).`);
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => pool.end());

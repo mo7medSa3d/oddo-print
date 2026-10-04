@@ -34,6 +34,7 @@ patch(SaleDetailsButton.prototype, {
             return super.onClick();
         }
 
+        try {
         const enabled = await this.pos.data.call(
             "pos.session",
             "is_gateway_printing_enabled",
@@ -45,7 +46,6 @@ patch(SaleDetailsButton.prototype, {
             return super.onClick();
         }
 
-        try {
             const saleDetails = await this.pos.data.call(
                 "report.point_of_sale.report_saledetails",
                 "get_sale_details",
@@ -67,18 +67,24 @@ patch(SaleDetailsButton.prototype, {
                 true
             );
             if (!result?.gateway_enabled) {
-                throw new Error("Print Gateway returned an invalid Sale Details response.");
+                throw new Error(_t("Print Gateway returned an invalid Sale Details response."));
             }
             if (["unknown", "partial"].includes(result?.status)) {
                 this.env.services.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
-            } else {
+            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
                 this.env.services.notification.add(
                     result.message || _t("Sales Details sent to the printing service."),
                     { type: "success" }
                 );
+            }
+            if (!["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
+                if (!["unknown", "partial"].includes(result?.status)) {
+                    this.env.services.notification.add(result?.message || _t("Sales Details could not be printed."), { type: "danger" });
+                }
+                return false;
             }
             return result;
         } catch (error) {

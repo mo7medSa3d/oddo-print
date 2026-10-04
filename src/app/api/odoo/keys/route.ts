@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let body: unknown = {};
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = keyInputSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid key settings" }, { status: 400 });
@@ -129,7 +129,7 @@ export async function DELETE(req: Request) {
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(manager, "integrations.manage"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   let body: unknown = {};
-  try { body = await req.json(); } catch { /* invalid body handled below */ }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { /* invalid body handled below */ }
   const bodyRecord = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   const id = typeof bodyRecord.id === "string" ? bodyRecord.id.trim() : "";
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -165,7 +165,7 @@ export async function DELETE(req: Request) {
 
   const revoked = await db.transaction(async (tx) => {
     const result = await tx.update(apiKeys)
-      .set({ revokedAt: sql`clock_timestamp()`, odooEnabled: false })
+      .set({ revokedAt: sql`clock_timestamp()`, readOnlyUntil: null, odooEnabled: false })
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
       .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
     if (!result.length) return null;

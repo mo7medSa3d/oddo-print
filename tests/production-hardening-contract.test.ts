@@ -183,8 +183,8 @@ describe("production hardening contracts", () => {
 
   it("keeps the dashboard focused on runtime agents, printers, and jobs", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
-    expect(dashboard).toContain("Runtime Printers");
-    expect(dashboard).toContain("Recent Print Jobs");
+    expect(dashboard).toContain('t("dashboard.tab.printers")');
+    expect(dashboard).toContain('t("dashboard.tab.jobs")');
     expect(dashboard).not.toContain("candidateStatus");
     expect(dashboard).not.toContain("Technical confidence remains unchanged");
   });

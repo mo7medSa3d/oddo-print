@@ -46,9 +46,10 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+  if (typeof password !== "string" || password.length < 1 || password.length > 4096) return false;
   if (typeof encoded !== "string" || !encoded.startsWith("argon2id$")) return false;
   const parts = encoded.split("$");
-  if (parts.length !== 5) return false;
+  if (parts.length !== 5 || parts[1] !== "v=19") return false;
   const params = parts[2];
   const match = /^m=(\d+),t=(\d+),p=(\d+)$/.exec(params);
   if (!match || Number(match[1]) !== ARGON_MEMORY || Number(match[2]) !== ARGON_PASSES || Number(match[3]) !== ARGON_PARALLELISM) return false;

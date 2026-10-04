@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useI18n } from "../i18n/react";
 import { Moon, Sun } from "lucide-react";
 
 type Theme = "light" | "dark";
@@ -96,7 +97,8 @@ export function toggleTheme() {
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  const { t } = useI18n();
+  const label = t(theme === "dark" ? "theme.switchToLight" : "theme.switchToDark");
 
   return (
     <button

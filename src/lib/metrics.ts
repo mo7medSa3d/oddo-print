@@ -1,4 +1,5 @@
-import { agentStaleThresholdSeconds } from "./agent-availability";
+import { logWarn } from "./log";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
 import { pool } from "../db";
 
 type Counter = { value: number };
@@ -24,7 +25,8 @@ export async function incrementMetric(name: string, value = 1): Promise<void> {
       ON CONFLICT (name)
       DO UPDATE SET value = gateway_metrics.value + EXCLUDED.value, updated_at = now()
     `, [safeName, value]);
-  } catch {
+  } catch (error) {
+    logWarn("metrics.persist_failed", { name: safeName, error });
     // Metrics must never break a print/auth/job request when the metrics table
     // is unavailable during startup, migration, or an isolated DB outage.
   }
@@ -42,18 +44,32 @@ async function renderFleetGauges(): Promise<string> {
       `),
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online')::bigint AS online,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND (status = 'offline' OR last_seen_at < now() - make_interval(secs => $1)))::bigint AS stale,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'offline')::bigint AS offline
-        FROM agents
+          COUNT(*) FILTER (WHERE available)::bigint AS online,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT fresh)::bigint AS stale,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT available)::bigint AS offline
+        FROM (
+          SELECT lifecycle,
+            COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS fresh,
+            lifecycle = 'active' AND status = 'online' AND
+              COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS available
+          FROM agents
+        ) observations
       `, [staleSeconds]),
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online')::bigint AS online,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'offline')::bigint AS offline,
+          COUNT(*) FILTER (WHERE available)::bigint AS online,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT available)::bigint AS offline,
           COUNT(*) FILTER (WHERE lifecycle = 'disabled')::bigint AS disabled
-        FROM printers
-      `),
+        FROM (
+          SELECT p.lifecycle,
+            COALESCE(p.lifecycle = 'active' AND p.status IN ('online', 'busy') AND
+              p.last_seen_at BETWEEN now() - make_interval(secs => $1) AND now() AND
+              a.lifecycle = 'active' AND a.status = 'online' AND
+              a.last_seen_at BETWEEN now() - make_interval(secs => $2) AND now(), false) AS available
+          FROM printers p
+          LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
+        ) observations
+      `, [printerStaleThresholdSeconds(), staleSeconds]),
     ]);
 
     const j = jobs.rows[0] as Record<string, string>;
@@ -77,7 +93,8 @@ async function renderFleetGauges(): Promise<string> {
       `# TYPE printers_disabled gauge`,
       `printers_disabled ${p.disabled}`,
     ].join("\n");
-  } catch {
+  } catch (error) {
+    logWarn("metrics.gauges_unavailable", { error });
     return "";
   }
 }
@@ -91,7 +108,8 @@ export async function renderPrometheusMetrics(): Promise<string> {
     if (result.rows.length > 0) {
       counterOutput = result.rows.map((row) => `# TYPE ${row.name} counter\n${row.name} ${row.value}`).join("\n");
     }
-  } catch {
+  } catch (error) {
+    logWarn("metrics.counters_unavailable", { error });
     // Fall back to the local process counters below.
   }
 

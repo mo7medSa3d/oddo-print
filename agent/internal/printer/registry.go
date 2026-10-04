@@ -20,6 +20,23 @@ import (
 // and a lost update that later parses as valid JSON deletes working hardware.
 var registryMu sync.Mutex
 
+// registryMu covers goroutines; this stable sidecar lock covers the service,
+// desktop CLI and other Agent processes through the complete read/write.
+func lockRegistryFile(path string) (func(), error) {
+	if path == "" {
+		return func() {}, nil
+	}
+	unlock, err := config.LockLocalFile(path + ".lock")
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		if err := unlock(); err != nil {
+			log.Printf("registry lock release failed: %v", err)
+		}
+	}, nil
+}
+
 // loadRegistryPrinters reads the registry file and returns the printers that
 // may be surfaced as managed production printers.
 //
@@ -50,6 +67,11 @@ func loadRegistryPartitioned(registryPath string) (production, hidden []DeviceIn
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, lockErr := lockRegistryFile(registryPath)
+	if lockErr != nil {
+		return nil, nil, 0, lockErr
+	}
+	defer unlock()
 	return loadRegistryPartitionedLocked(registryPath)
 }
 
@@ -126,6 +148,11 @@ func concatDevices(a, b []DeviceInfo) []DeviceInfo {
 func SaveRegistry(registryPath string, printers []DeviceInfo) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, lockErr := lockRegistryFile(registryPath)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	return saveRegistryLocked(registryPath, printers)
 }
 
@@ -149,6 +176,7 @@ func saveRegistryLocked(registryPath string, printers []DeviceInfo) error {
 		return err
 	}
 	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
 	if err := tmp.Chmod(0600); err != nil {
 		log.Printf("[registry] could not restrict permissions on %s: %v", tmpName, err)
 	}
@@ -187,6 +215,11 @@ func saveRegistryLocked(registryPath string, printers []DeviceInfo) error {
 func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo, error) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, lockErr := lockRegistryFile(registryPath)
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlock()
 	existing, hidden, _, err := loadRegistryPartitionedLocked(registryPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -198,7 +231,7 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			if rerr := os.Rename(registryPath, quarantine); rerr == nil {
 				log.Printf("[registry] WARNING: %s failed to parse; the damaged file was preserved at %s", registryPath, quarantine)
 			} else {
-				log.Printf("[registry] WARNING: could not quarantine damaged registry: %v", rerr)
+				return nil, fmt.Errorf("refusing to overwrite unreadable registry: %v; quarantine failed: %w", err, rerr)
 			}
 			existing, hidden = nil, nil
 		}
@@ -325,6 +358,11 @@ func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) 
 func RemoveFromRegistry(registryPath, printerID string) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, lockErr := lockRegistryFile(registryPath)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	existing, hidden, _, err := loadRegistryPartitionedLocked(registryPath)
 	if err != nil && !os.IsNotExist(err) {
 		return err

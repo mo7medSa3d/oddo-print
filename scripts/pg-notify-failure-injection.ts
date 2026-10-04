@@ -2,7 +2,6 @@ import { createServer } from "node:http";
 import { Pool } from "pg";
 import { attachAgentWSS, __getNotificationListenerPidForTests } from "../src/server/ws";
 
-const CHANNEL_PREFIX = "print_gateway_agent_";
 const WAIT_MS = 500;
 const MAX_WAIT_MS = 15_000;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateConnectionConfig, assertPrinterMetadataLimits, PRINTER_CONFIG_MAX_BYTES } from "../src/lib/printer-model";
+import { isAllowedPrinterDestination, validateConnectionConfig, assertPrinterMetadataLimits, PRINTER_CONFIG_MAX_BYTES } from "../src/lib/printer-model";
 
 describe("printer destination security policy", () => {
   it("enforces metadata limits by UTF-8 bytes", () => {
@@ -107,4 +107,10 @@ describe("printer destination security policy", () => {
       config: { spooler_name: "HP" },
     })).toThrow(/spooler protocol/i);
   });
+});
+
+it("allows IPv6 ULA printers while rejecting expanded metadata endpoints", () => {
+  expect(isAllowedPrinterDestination("fd12:3456::10")).toBe(true);
+  expect(isAllowedPrinterDestination("fc00::10")).toBe(true);
+  expect(isAllowedPrinterDestination("fd00:0ec2:0000:0000:0000:0000:0000:0254")).toBe(false);
 });

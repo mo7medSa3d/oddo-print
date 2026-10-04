@@ -115,7 +115,7 @@
 }
 
 /* Keep the module on Odoo's light backend surface instead of importing a Gateway dark palette. */
-.o_dark_mode, body.o_dark_mode {
+.o_dark_mode .o_pg_view, .o_dark_mode .o_pg_list, .o_dark_mode .o_pg_dashboard {
     color-scheme: light;
     --pg-bg: #f6f7f8;
     --pg-surface: #ffffff;
@@ -153,4 +153,9 @@
 @keyframes pg-shimmer {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [class*="o_pg_"] { animation: none !important; transition: none !important; }
+    [class*="o_pg_"] * { animation: none !important; transition: none !important; }
 }

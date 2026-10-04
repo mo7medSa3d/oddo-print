@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const inviterUserId = claims.userId;
   let body: { email?: unknown; role?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const role = typeof body.role === "string" ? body.role : "viewer";
   if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });

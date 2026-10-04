@@ -1480,7 +1480,8 @@ export function SegmentedControl<T extends string>({
    Modal / Drawer
    ============================================================ */
 
-const inertedBackground = new Set<HTMLElement>();
+const inertedBackground = new Map<HTMLElement, boolean>();
+const dialogStack: HTMLDivElement[] = [];
 let openDialogCount = 0;
 let bodyLockScrollY = 0;
 let bodyLockStyles: { position: string; top: string; width: string; overflow: string } | null = null;
@@ -1514,37 +1515,23 @@ function unlockBodyScroll(): void {
 
 function refreshBackgroundIsolation(): void {
   if (typeof document === "undefined") return;
-  if (openDialogCount === 0) {
-    inertedBackground.forEach((el) => {
-      el.inert = false;
-    });
-    inertedBackground.clear();
-    return;
-  }
-  document.querySelectorAll<HTMLElement>("[data-dialog-root]").forEach((root) => {
-    let el: HTMLElement | null = root;
-    while (el && el !== document.body) {
-      const parent: HTMLElement | null = el.parentElement;
-      if (!parent) break;
-      [...parent.children].forEach((sib) => {
-        if (
-          sib instanceof HTMLElement &&
-          sib !== el &&
-          !sib.contains(el) &&
-          !sib.hasAttribute("data-dialog-root") &&
-          sib.querySelector("[data-dialog-root]") === null &&
-          !inertedBackground.has(sib)
-        ) {
-          sib.inert = true;
-          inertedBackground.add(sib);
-        }
-      });
-      el = parent;
+  inertedBackground.forEach((wasInert, element) => { element.inert = wasInert; });
+  inertedBackground.clear();
+  const panel = dialogStack[dialogStack.length - 1];
+  let element: HTMLElement | null = panel?.closest<HTMLElement>("[data-dialog-root]") ?? panel ?? null;
+  while (element && element !== document.body) {
+    const parent: HTMLElement | null = element.parentElement;
+    if (!parent) break;
+    for (const sibling of [...parent.children]) {
+      if (sibling instanceof HTMLElement && sibling !== element) {
+        inertedBackground.set(sibling, Boolean(sibling.inert)); sibling.inert = true;
+      }
     }
-  });
+    element = parent;
+  }
 }
 
-function useDialog(
+export function useDialog(
   open: boolean,
   onClose: () => void,
   panelRef: React.RefObject<HTMLDivElement | null>
@@ -1555,8 +1542,11 @@ function useDialog(
   }, [onClose]);
   useEffect(() => {
     if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
     if (openDialogCount === 0) lockBodyScroll();
-    openDialogCount += 1;
+    dialogStack.push(panel);
+    openDialogCount = dialogStack.length;
     refreshBackgroundIsolation();
     const focusables = (): HTMLElement[] => {
       const panel = panelRef.current;
@@ -1568,8 +1558,10 @@ function useDialog(
       return visible.length > 0 ? visible : [...nodes];
     };
     const onKey = (e: KeyboardEvent) => {
+      if (dialogStack[dialogStack.length - 1] !== panel) return;
       if (e.key === "Escape") {
-        e.stopPropagation();
+        e.preventDefault();
+        e.stopImmediatePropagation();
         onCloseRef.current();
         return;
       }
@@ -1581,7 +1573,9 @@ function useDialog(
       }
       const first = items[0];
       const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      if (!panel.contains(document.activeElement)) {
+        e.preventDefault(); first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && document.activeElement === last) {
@@ -1594,10 +1588,13 @@ function useDialog(
     panelRef.current?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
-      openDialogCount = Math.max(0, openDialogCount - 1);
+      const wasTop = dialogStack[dialogStack.length - 1] === panel;
+      const index = dialogStack.indexOf(panel);
+      if (index !== -1) dialogStack.splice(index, 1);
+      openDialogCount = dialogStack.length;
       refreshBackgroundIsolation();
       if (openDialogCount === 0) unlockBodyScroll();
-      prev?.focus?.();
+      if (wasTop && prev?.isConnected && !prev.closest("[inert]")) prev.focus();
     };
   }, [open, panelRef]);
 }

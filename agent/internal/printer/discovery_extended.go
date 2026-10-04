@@ -3,13 +3,15 @@ package printer
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
-	"log"
+	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 )
 
 // Common discovery interfaces and extended discoverers for production-grade coverage.
@@ -129,7 +131,12 @@ func probeSNMPHost(ctx context.Context, host string, timeout time.Duration) *Dev
 		return nil
 	}
 	defer conn.Close()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancellation()
 	deadline := time.Now().Add(timeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
 	if err := conn.SetDeadline(deadline); err != nil {
 		return nil
 	}
@@ -266,30 +273,23 @@ func encodeOID(s string) []byte {
 }
 
 func extractSNMPString(data []byte) string {
-	// Very naive: find first OCTET STRING (0x04) with printable content >5 chars
-	for i := 0; i < len(data)-6; i++ {
-		if data[i] == 0x04 {
-			l := int(data[i+1])
-			if l > 5 && l < 200 && i+2+l <= len(data) {
-				s := string(data[i+2 : i+2+l])
-				printable := true
-				for _, c := range s {
-					if c < 32 || c > 126 {
-						printable = false
-						break
-					}
-				}
-				if printable {
-					return s
-				}
-			}
+	// The community is also an OCTET STRING. Decode the response envelope
+	// and select the requested sysDescr varbind instead of scanning raw bytes.
+	decoder := &gosnmp.GoSNMP{Version: gosnmp.Version1}
+	packet, err := decoder.SnmpDecodePacket(data)
+	if err != nil || packet == nil || packet.PDUType != gosnmp.GetResponse || packet.RequestID != 1 || packet.Community != "public" || packet.Version != gosnmp.Version1 || packet.Error != 0 {
+		return ""
+	}
+	for _, variable := range packet.Variables {
+		if strings.TrimPrefix(variable.Name, ".") == oidSysDescr && variable.Type == gosnmp.OctetString {
+			return strings.TrimSpace(extractSNMPPDUString(variable))
 		}
 	}
 	return ""
 }
 
 // LPR discovery: safe LPD probe on TCP 515.
-// Sends LPD queue name query without submitting job: LPR template \x02 + queue + "\n" then close.
+// Sends the read-only long queue-status command (04), never a receive-job command.
 func discoverLPRPrinters(ctx context.Context, targets []string) []DeviceInfo {
 	if len(targets) == 0 {
 		return nil
@@ -342,215 +342,61 @@ func discoverLPRPrinters(ctx context.Context, targets []string) []DeviceInfo {
 }
 
 func probeLPRHost(ctx context.Context, host string, timeout time.Duration) *DeviceInfo {
+	return probeLPRHostWithPort(ctx, host, 515, timeout)
+}
+
+func probeLPRHostWithPort(ctx context.Context, host string, port int, timeout time.Duration) *DeviceInfo {
 	d := net.Dialer{Timeout: timeout}
 	connCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	conn, err := d.DialContext(connCtx, "tcp", net.JoinHostPort(host, "515"))
+	conn, err := d.DialContext(connCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		return nil
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	stopCancellation := context.AfterFunc(connCtx, func() { _ = conn.Close() })
+	defer stopCancellation()
+	deadline, _ := connCtx.Deadline()
+	if err := conn.SetDeadline(deadline); err != nil {
 		return nil
 	}
-	// LPD: send Receive job query not supported, instead send queue status request: \x04queue\n
-	// Use queue "raw"
+	// RFC 1179 section 5.4 returns a text stream, not a receive-job ACK.
 	if _, err := conn.Write([]byte("\x04raw\n")); err != nil {
 		return nil
 	}
 	buf := make([]byte, 256)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil
+	n, readErr := conn.Read(buf)
+	textResponse := n > 0
+	for _, ch := range buf[:n] {
+		if (ch < 32 && ch != '\n' && ch != '\r' && ch != '\t') || ch > 126 {
+			textResponse = false
+			break
+		}
 	}
-	if n == 0 {
-		// Open port but no LPD banner — still candidate but low confidence
-		return nil
+	caps := map[string]interface{}{"discovered_via": SourceLPR, "queue": "raw", "verification": "candidate_only", "lpr_verified": false}
+	if textResponse {
+		caps["queue_status_response"] = strings.TrimSpace(string(buf[:n]))
+	} else if readErr != nil && readErr != io.EOF {
+		caps["probe_error"] = readErr.Error()
+	} else {
+		caps["probe_error"] = "Queue status was empty or was not an ASCII stream"
 	}
-	// If response starts with \0, LPD acknowledged
-	if buf[0] != 0x00 {
-		// Not LPD, could still be printer but not verified LPR
-		return nil
-	}
-	id := StableIDFromNetwork(host, 515)
+	// An open port or queue-status response cannot prove the queue exists or
+	// that it is routable. Keep the candidate visible with unknown health.
+	id := StableIDFromNetwork(host, port)
 	return &DeviceInfo{
 		ID:             id,
 		Name:           fmt.Sprintf("LPR Printer %s", host),
 		DisplayName:    fmt.Sprintf("LPR Printer %s", host),
 		ConnectionType: "network",
 		Protocol:       "lpr",
-		Endpoint:       net.JoinHostPort(host, "515"),
+		Endpoint:       net.JoinHostPort(host, strconv.Itoa(port)),
 		NetworkAddress: host,
-		Port:           515,
-		Status:         "online",
+		Port:           port,
+		Status:         "unknown",
 		Enabled:        true,
-		Capabilities:   map[string]interface{}{"discovered_via": SourceLPR, "lpr_verified": true, "queue": "raw"},
+		Capabilities:   caps,
 	}
 }
 
 // WSD discovery is implemented in wsd_discovery.go
-
-// mDNS full implementation via UDP multicast 224.0.0.251:5353
-func discoverFullMDNS(ctx context.Context) []DeviceInfo {
-	query := buildMDNSQueryReal("_ipp._tcp.local")
-	if query == nil {
-		return nil
-	}
-	addr, err := net.ResolveUDPAddr("udp4", "224.0.0.251:5353")
-	if err != nil {
-		return nil
-	}
-	conn, err := net.DialUDP("udp4", nil, addr)
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	if err := conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-		return nil
-	}
-	if _, err := conn.Write(query); err != nil {
-		return nil
-	}
-	// also query _ipps._tcp and _printer._tcp
-	for _, svc := range []string{"_ipps._tcp.local", "_printer._tcp.local"} {
-		if q := buildMDNSQueryReal(svc); q != nil {
-			if _, err := conn.Write(q); err != nil {
-				log.Printf("mDNS discovery query write failed for %s: %v", svc, err)
-			}
-		}
-	}
-	buf := make([]byte, 8192)
-	var out []DeviceInfo
-	seenHostPort := make(map[string]bool)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-			log.Printf("mDNS discovery read deadline failed: %v", err)
-			return out
-		}
-		n, _, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				break
-			}
-			continue
-		}
-		data := buf[:n]
-		// Parse DNS response for PTR/SRV/TXT/A records — minimal heuristic: look for printable host and port hints
-		hosts := parseMDNSHosts(data)
-		for _, h := range hosts {
-			if h.IP == "" {
-				continue
-			}
-			key := h.IP + ":" + fmt.Sprint(h.Port)
-			if seenHostPort[key] {
-				continue
-			}
-			seenHostPort[key] = true
-			port := h.Port
-			if port == 0 {
-				port = 631
-			}
-			id := StableIDFromNetwork(h.IP, port)
-			caps := map[string]interface{}{"discovered_via": SourceMDNS, "mdns_verified": true}
-			if h.Model != "" {
-				caps["model"] = h.Model
-			}
-			if h.Manufacturer != "" {
-				caps["manufacturer"] = h.Manufacturer
-			}
-			if h.UUID != "" {
-				caps["uuid"] = h.UUID
-			}
-			name := h.Name
-			if name == "" {
-				name = fmt.Sprintf("mDNS Printer %s", h.IP)
-			}
-			di := DeviceInfo{
-				ID:             id,
-				Name:           name,
-				DisplayName:    name,
-				ConnectionType: "ipp",
-				Protocol:       "ipp",
-				Endpoint:       fmt.Sprintf("ipp://%s:%d/ipp/print", h.IP, port),
-				NetworkAddress: h.IP,
-				Port:           port,
-				Status:         "online",
-				Enabled:        true,
-				Capabilities:   caps,
-			}
-			out = append(out, di)
-		}
-	}
-	if len(out) > 0 {
-		log.Printf("[discovery] mDNS found %d printers", len(out))
-	}
-	return out
-}
-
-type mdnsHost struct {
-	IP           string
-	Port         int
-	Name         string
-	Model        string
-	Manufacturer string
-	UUID         string
-}
-
-func buildMDNSQueryReal(service string) []byte {
-	var buf bytes.Buffer
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // ID 0
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // flags
-	binary.Write(&buf, binary.BigEndian, uint16(1)) // QDCOUNT
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // ANCOUNT
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // NSCOUNT
-	binary.Write(&buf, binary.BigEndian, uint16(0)) // ARCOUNT
-	for _, part := range strings.Split(service, ".") {
-		buf.WriteByte(byte(len(part)))
-		buf.WriteString(part)
-	}
-	buf.WriteByte(0)
-	binary.Write(&buf, binary.BigEndian, uint16(12)) // PTR
-	binary.Write(&buf, binary.BigEndian, uint16(1))  // IN
-	return buf.Bytes()
-}
-
-func parseMDNSHosts(data []byte) []mdnsHost {
-	// Heuristic parser: scan for IPv4 addresses (4 bytes after A record hint) and TXT-like strings
-	var hosts []mdnsHost
-	s := string(data)
-	// Find IPs via simple scan for printable sequences resembling hostnames
-	// For production we would use miekg/dns, but stub parses TXT for product/model
-	// Extract TXT-like model
-	model := ""
-	if idx := strings.Index(strings.ToLower(s), "product="); idx >= 0 {
-		end := strings.Index(s[idx:], "\n")
-		if end < 0 {
-			end = 60
-			if idx+8+end > len(s) {
-				end = len(s) - idx - 8
-			}
-		}
-		model = strings.TrimSpace(s[idx+8 : idx+8+end])
-	}
-	uuid := ""
-	if idx := strings.Index(s, "uuid="); idx >= 0 {
-		end := strings.Index(s[idx:], "\x00")
-		if end > 0 && end < 50 {
-			uuid = strings.TrimSpace(s[idx+5 : idx+end])
-		}
-	}
-	// Find IPv4 in data (A record 4-byte)
-	for i := 0; i < len(data)-4; i++ {
-		if data[i] == 0x00 && data[i+1] == 0x04 { // RDLENGTH 4
-			if i+6 <= len(data) {
-				ip := net.IPv4(data[i+2], data[i+3], data[i+4], data[i+5])
-				if ip.IsPrivate() && !ip.IsLoopback() {
-					hosts = append(hosts, mdnsHost{IP: ip.String(), Model: model, UUID: uuid})
-					break
-				}
-			}
-		}
-	}
-	return hosts
-}

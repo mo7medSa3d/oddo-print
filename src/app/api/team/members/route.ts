@@ -23,13 +23,14 @@ export async function PATCH(req: Request) {
   const claims = await validateWorkspaceManager(req);
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { userId?: unknown; role?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const userId = typeof body.userId === "string" ? body.userId : "";
   const role = typeof body.role === "string" ? body.role : "";
   if (!userId || !ASSIGNABLE_ROLES.includes(role as (typeof ASSIGNABLE_ROLES)[number])) return NextResponse.json({ error: "Invalid member update" }, { status: 400 });
 
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
       const target = await tx.query.tenantUsers.findFirst({
         where: and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)),
         columns: { role: true },
@@ -80,6 +81,7 @@ export async function DELETE(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
       const target = await tx.query.tenantUsers.findFirst({
         where: and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)),
         columns: { role: true },

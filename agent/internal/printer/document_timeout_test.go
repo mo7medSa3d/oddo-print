@@ -7,8 +7,7 @@ import (
 )
 
 func TestDocumentContextUsesKindSpecificTimeout(t *testing.T) {
-	parent, parentCancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer parentCancel()
+	parent := context.Background()
 
 	pdfCtx, pdfCancel := documentContext(parent, KindPDF)
 	defer pdfCancel()
@@ -50,5 +49,21 @@ func TestDocumentContextPDFHonorsLargerParentDeadline(t *testing.T) {
 	remaining := time.Until(deadline)
 	if remaining < 9*time.Minute || remaining > 10*time.Minute {
 		t.Fatalf("PDF context must preserve the larger parent budget, got %s remaining", remaining)
+	}
+}
+
+func TestPDFDocumentContextPreservesShortDeadlineAndCancellation(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	child, childCancel := documentContext(parent, KindPDF)
+	defer childCancel()
+	want, _ := parent.Deadline()
+	got, ok := child.Deadline()
+	if !ok || !got.Equal(want) {
+		t.Fatalf("PDF changed explicit caller deadline: %v want %v", got, want)
+	}
+	cancel()
+	if child.Err() != context.Canceled {
+		t.Fatalf("PDF ignored cancellation: %v", child.Err())
 	}
 }

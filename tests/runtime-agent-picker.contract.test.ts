@@ -52,7 +52,7 @@ describe("Odoo runtime agent picker contract", () => {
 
     const printerSource = source("odoo_addons/print_gateway/static/src/components/runtime_printer_field.js");
     expect(printerSource).not.toMatch(/onWillUpdateProps\s*\(/);
-    expect(printerSource).toContain("() => [this.companyId, this.branchId, this.agentId, this.destinationType],");
+    expect(printerSource).toContain("() => [this.companyId, this.branchId, this.agentId, this.destinationType, this.reportId, this.documentType],");
     expect(printerSource).toContain("agent_id: agentId,");
   });
 

@@ -4,7 +4,7 @@ import { plans } from "../../../../../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../../lib/entitlements";
-import { validateStripePriceBinding, StripePriceBindingError } from "../../../../../lib/stripe";
+import { validateStripePriceBinding, StripePriceBindingError, lockStripePlanCatalog } from "../../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
@@ -14,10 +14,12 @@ function validateId(value: unknown): string {
   return id;
 }
 
-function parsePatch(input: unknown) {
+type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">> & { stripePriceId?: string };
+
+function parsePatch(input: unknown): PlanPatch {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid JSON body.");
   const body = input as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
+  const result: PlanPatch = {};
 
   if (body.name !== undefined) {
     if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) throw new Error("Plan name is required and must be at most 120 characters.");
@@ -79,7 +81,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const { id: rawId } = await context.params;
   let id: string;
-  let patch: Record<string, unknown>;
+  let patch: PlanPatch;
   try {
     id = validateId(rawId);
     patch = parsePatch(await req.json());
@@ -144,6 +146,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       }
     }
   } catch (error) {
+    if (error instanceof Error && error.message === "STRIPE_PRICE_CONFLICT") return NextResponse.json({ error: "This Stripe Price belongs to another plan, including its historical catalog", code: "PLAN_CONFLICT" }, { status: 409 });
     if (error instanceof Error && error.message === "PLAN_NOT_FOUND") {
       return NextResponse.json({ error: "Plan not found.", code: "PLAN_NOT_FOUND" }, { status: 404 });
     }
@@ -158,8 +161,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const result = await db.transaction(async (tx) => {
+      await lockStripePlanCatalog(tx, id, patch.stripePriceId);
       const currentRows = await tx.execute(sql`
-        SELECT id, name, description, entitlements, stripe_price_id AS "stripePriceId",
+        SELECT id, name, description, entitlements, stripe_price_id AS "stripePriceId", stripe_price_history AS "stripePriceHistory",
                stripe_product_id AS "stripeProductId", currency, interval,
                is_active AS "isActive", is_public AS "isPublic", display_order AS "displayOrder"
         FROM plans
@@ -188,7 +192,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       // current Stripe price only changes the price used by future checkout.
       // Existing Stripe subscriptions keep their current Stripe price item.
       const updated = await tx.update(plans)
-        .set({ ...patch, updatedAt: sql`clock_timestamp()` })
+        .set({ ...patch,
+          stripePriceHistory: [...new Set([...(Array.isArray(current.stripePriceHistory) ? current.stripePriceHistory : []), current.stripePriceId, patch.stripePriceId].filter((value): value is string => typeof value === "string" && !!value))],
+          updatedAt: sql`clock_timestamp()` })
         .where(eq(plans.id, id))
         .returning({ id: plans.id, name: plans.name });
 
@@ -207,6 +213,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
     return NextResponse.json({ ok: true, plan: result });
   } catch (error) {
+    if (error instanceof Error && error.message === "STRIPE_PRICE_CONFLICT") return NextResponse.json({ error: "This Stripe Price belongs to another plan, including its historical catalog", code: "PLAN_CONFLICT" }, { status: 409 });
     if (error instanceof Error && error.message === "PLAN_NOT_FOUND") {
       return NextResponse.json({ error: "Plan not found.", code: "PLAN_NOT_FOUND" }, { status: 404 });
     }

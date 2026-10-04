@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
-	_ "image/jpeg"
 	"math"
 )
 
@@ -62,7 +61,7 @@ func jpegToESCPOS(data []byte, sliceHeight, maxWidth int) ([]byte, error) {
 	}
 	outputWidth, outputHeight := cfg.Width, cfg.Height
 	if outputWidth > maxWidth {
-		outputHeight = int(math.Round(float64(outputHeight) * float64(maxWidth) / float64(outputWidth)))
+		outputHeight = max(1, int(math.Round(float64(outputHeight)*float64(maxWidth)/float64(outputWidth))))
 		outputWidth = maxWidth
 	}
 	rowBytes := (outputWidth + 7) / 8
@@ -163,7 +162,7 @@ func resizeNearest(src image.Image, width int) image.Image {
 		return src
 	}
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
-	h := int(math.Round(float64(sh) * float64(width) / float64(sw)))
+	h := max(1, int(math.Round(float64(sh)*float64(width)/float64(sw))))
 	dst := image.NewRGBA(image.Rect(0, 0, width, h))
 	for y := 0; y < h; y++ {
 		sy := src.Bounds().Min.Y + y*sh/h

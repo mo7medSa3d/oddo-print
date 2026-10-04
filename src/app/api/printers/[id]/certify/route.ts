@@ -1,3 +1,4 @@
+import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { NextResponse } from "next/server";
 import type { InferSelectModel } from "drizzle-orm";
 import { db } from "../../../../../db";
@@ -167,7 +168,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         // with defaults, but malformed JSON must not silently become defaults.
         const contentLength = req.headers.get("content-length")?.trim() ?? "";
         const hasBody = contentLength !== "" ? contentLength !== "0" : true;
-        if (hasBody) body = await req.json() as Record<string, unknown>;
+        if (hasBody) { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; }
       } catch {
         setStep("queue", "error", "Malformed JSON body", "invalid-json");
         return NextResponse.json({ error: "Malformed JSON body", code: "INVALID_REQUEST", steps }, { status: 400, headers: { "x-request-id": requestId } });
@@ -206,9 +207,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const isDocumentTransport = declaredConn === "spooler" || declaredConn === "ipp"
         || declaredConn === "ipps" || (!isByteProtocol && declaredProtocol !== "unknown"
           && (declaredProtocol === "spooler" || declaredProtocol === "ipp" || declaredProtocol === "ipps"));
-      const ticketText = testPage
-        ? `YASEIR TEST PAGE\nPrinter: ${printer.name}\nTenant: ${tenantId}\nJob: ${idempotencyKey}\nTransport: ${printer.connectionType}/${printer.protocol}\n\nThis is a diagnostic test page for certification.\nNo credentials are printed.\n`.repeat(2)
-        : `CERTIFICATION ${idempotencyKey}`;
       // `encoding` is a REQUIRED member of the wire contract
       // (contracts/print-payload-contract.json -> payload.ts printJobPayloadSchema
       // `encoding: z.literal("base64")`). Omitting it made validatePrintJobPayload
@@ -216,12 +214,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // request failed at the queue step with a 500 instead of enqueuing a job.
       const payload = isDocumentTransport
         ? { type: "pdf" as const, encoding: "base64" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
-        : {
-            type: "raw" as const,
-            encoding: "base64" as const,
-            protocol: (isByteProtocol ? declaredProtocol : "raw") as "raw" | "escpos" | "zpl" | "tspl",
-            data: Buffer.from(ticketText).toString("base64"),
-          };
+        : buildTestPrintPayloadForPrinter(printer.name, `Tenant ${tenantId}`, {
+            protocol: printer.protocol, connectionType: printer.connectionType, capabilities: printer.capabilities,
+          }, idempotencyKey);
 
       const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);
 

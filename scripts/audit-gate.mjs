@@ -25,12 +25,14 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
 
 // Keep this list as short as its lifetime allows.
-const ALLOWED = [
+export const ALLOWED = [
   {
     id: "GHSA-vfj7-8cjw-p6xm", // CVE-2026-93687
     package: "braces",
@@ -45,10 +47,6 @@ const ALLOWED = [
       "unmerged: https://github.com/micromatch/braces/pull/72",
   },
 ];
-
-const allowedIds = new Set(ALLOWED.map((entry) => entry.id));
-const packageIsDevOnly = (name) =>
-  !(pkg.dependencies && Object.prototype.hasOwnProperty.call(pkg.dependencies, name));
 
 function runAudit() {
   try {
@@ -68,76 +66,67 @@ function runAudit() {
   }
 }
 
-const { status, stdout } = runAudit();
-
-let report;
-try {
-  report = JSON.parse(stdout);
-} catch {
-  console.error("npm audit did not return JSON. Raw output follows:\n");
-  console.error(stdout);
-  process.exit(2);
-}
-
-// npm 7+ reports per-advisory findings under `vulnerabilities`.
-const findings = Object.values(report.vulnerabilities || {}).flatMap((entry) =>
-  (entry.via || [])
-    .filter((via) => typeof via === "object" && via.source !== "npm")
-    .map((via) => ({ id: via.url ? String(via.url).split("/").pop() : via.name, name: entry.name }))
-);
-
-const reported = new Set(findings.map((f) => f.id));
-
-// A previously allowed advisory that is no longer reported means the
-// dependency moved off the vulnerable range. The entry must be deleted.
-const stale = ALLOWED.filter((entry) => !reported.has(entry.id));
-if (stale.length > 0) {
-  console.error("Stale audit allowlist entries (no longer reported; remove them):");
-  for (const entry of stale) {
-    console.error(`  ${entry.id} (${entry.package}) - no longer reported by npm audit`);
+/** Pure policy evaluation also used by regression fixtures. Fail closed on
+ * incomplete registry reports and on runtime/transitive allowlist exposure. */
+export function evaluateAudit(report, status, lock, manifest = pkg, allowed = ALLOWED) {
+  const errors = [];
+  if (report?.error || !report?.vulnerabilities || typeof report.vulnerabilities !== "object" ||
+      !report?.metadata?.vulnerabilities || !lock?.packages) {
+    return ["Incomplete npm audit report or lockfile; cannot establish dependency safety"];
   }
-  process.exit(1);
-}
-
-// Every high/critical finding must be explicitly allowlisted, and every
-// allowlisted finding must actually be dev-only.
-const highOrCritical = Object.entries(report.metadata?.vulnerabilities || {}).filter(
-  ([, count]) => count > 0
-);
-
-const unlisted = findings.filter((f) => !allowedIds.has(f.id));
-const misused = ALLOWED.filter((entry) => !packageIsDevOnly(entry.package));
-
-if (misused.length > 0) {
-  console.error("Allowlisted advisory now sits in `dependencies` and is NOT dev-only:");
-  for (const entry of misused) {
-    console.error(`  ${entry.id} (${entry.package}) is a runtime dependency`);
+  const findings = Object.values(report.vulnerabilities).flatMap((entry) =>
+    (entry.via || []).filter((via) => via && typeof via === "object").map((via) => ({
+      id: via.url ? String(via.url).split("/").pop() : via.name,
+      name: entry.name,
+      severity: via.severity,
+    }))
+  );
+  const reported = new Set(findings.map((f) => f.id));
+  for (const entry of allowed) {
+    if (!reported.has(entry.id)) errors.push(`Stale audit allowlist entry: ${entry.id}`);
+    const finding = report.vulnerabilities[entry.package];
+    const nodes = finding?.nodes;
+    // npm's installed-tree node list and committed lockfile must agree. Absence
+    // from direct dependencies alone says nothing about runtime reachability.
+    if (manifest.dependencies?.[entry.package] || !Array.isArray(nodes) || nodes.length === 0 ||
+        nodes.some((node) => lock.packages[node]?.dev !== true)) {
+      errors.push(`Allowlisted package is not provably dev-only: ${entry.package}`);
+    }
   }
-  console.error("An allowlist entry may never cover a production dependency.");
-  process.exit(1);
-}
-
-if (unlisted.length > 0) {
-  console.error(`npm audit reported ${unlisted.length} unlisted high/critical advisory/advisories:\n`);
-  for (const finding of unlisted) {
-    console.error(`  ${finding.id}  ${finding.name}`);
+  for (const finding of findings) {
+    if (!["high", "critical"].includes(finding.severity)) continue;
+    if (!allowed.some((entry) => entry.id === finding.id && entry.package === finding.name)) {
+      errors.push(`Unlisted ${finding.severity} advisory: ${finding.id} (${finding.name})`);
+    }
   }
-  console.error("\nNo allowlist entry covers these. Fix the dependency, or add a");
-  console.error("documented entry to ALLOWED in scripts/audit-gate.mjs.");
-  process.exit(1);
+  const counts = report.metadata.vulnerabilities;
+  if (!["high", "critical"].every((key) => Number.isSafeInteger(counts[key]) && counts[key] >= 0)) {
+    errors.push("Invalid advisory severity counts");
+  }
+  if ((counts.high > 0 || counts.critical > 0) && !findings.some((f) => ["high", "critical"].includes(f.severity))) {
+    errors.push("High/critical findings have no auditable advisory evidence");
+  }
+  if (status !== 0 && (status !== 1 || !(counts.high > 0 || counts.critical > 0))) {
+    errors.push("npm audit failed without a high/critical vulnerability result");
+  }
+  return errors;
 }
 
-if (status !== 0 && highOrCritical.length === 0) {
-  // npm failed for a reason other than high/critical findings (for example a
-  // transient registry error). Do not silently treat that as a pass.
-  console.error("npm audit exited non-zero without reporting any high/critical findings.");
-  console.error("Treating this as a failure rather than a pass.");
-  process.exit(2);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { status, stdout } = runAudit();
+  let report;
+  try {
+    report = JSON.parse(stdout);
+  } catch {
+    console.error("npm audit did not return valid JSON");
+    process.exit(2);
+  }
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  const errors = evaluateAudit(report, status, lock);
+  if (errors.length) {
+    errors.forEach((error) => console.error(error));
+    process.exit(1);
+  }
+  for (const entry of ALLOWED) console.log(`ALLOWED ${entry.id} ${entry.package}: ${entry.reason}`);
+  console.log("OK: no unlisted high or critical npm advisories; exceptions are lockfile-proven dev-only.");
 }
-
-for (const entry of ALLOWED) {
-  console.log(`ALLOWED  ${entry.id}  ${entry.package} (dev-only, no upstream fix available)`);
-  console.log(`         ${entry.reason}\n`);
-}
-
-console.log("OK: no unlisted high or critical npm advisories.");
