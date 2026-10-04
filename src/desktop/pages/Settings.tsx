@@ -51,7 +51,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
                 catch (error) { s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : t("desktop.settings.autostartFailed"), locale), type: "error" }); }
                 finally { setAutostartBusy(false); }
               }} className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-sm transition-colors ${s.autostart ? "bg-brand" : "bg-surface-3"}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-sm bg-white shadow-xs transition-transform ${s.autostart ? "translate-x-6" : "translate-x-1"}`} />
+                <span className={`inline-block h-4 w-4 transform rounded-sm bg-white shadow-xs transition-transform ${s.autostart ? "ltr:translate-x-6 rtl:-translate-x-6" : "ltr:translate-x-1 rtl:-translate-x-1"}`} />
               </button>
             </div>
           </div>
