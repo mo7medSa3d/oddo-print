@@ -52,11 +52,12 @@ export function normalizeGatewayUrl(raw: string): string {
     // manager session cookie over plain HTTP.
     if (parsed.protocol.toLowerCase() === "http:") {
       const host = parsed.hostname.toLowerCase();
-      const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
+      const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
       if (!local) {
         throw new Error("Gateway URL must use HTTPS for remote Gateways");
       }
     }
+    if (parsed.pathname !== "/") throw new Error("Gateway URL must use the origin root");
     if (parsed.search || parsed.hash) {
       throw new Error("Gateway URL cannot include query strings or fragments");
     }
@@ -466,6 +467,14 @@ function networkConfigFromEndpoint(endpoint: string, protocol = ""): { ip: strin
   return { ip, port };
 }
 
+export function parseUsbIdentifier(value: string): number {
+  const raw = value.trim();
+  if (!/^(?:[0-9]+|0x[0-9a-f]{1,4})$/i.test(raw)) throw new Error("USB identifier must be decimal or 0x-prefixed hexadecimal");
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) throw new Error("USB identifier must be between 0 and 65535");
+  return parsed;
+}
+
 export async function registerGatewayPrinter(
   gatewayUrl: string,
   req: RegisterPrinterRequest & { agentId: string },
@@ -484,8 +493,8 @@ export async function registerGatewayPrinter(
     config.spooler_name = queue;
     config.address = queue;
   } else if (connectionType === "usb") {
-    if (req.usbVid) config.vid = Number(req.usbVid);
-    if (req.usbPid) config.pid = Number(req.usbPid);
+    if (req.usbVid) config.vid = parseUsbIdentifier(req.usbVid);
+    if (req.usbPid) config.pid = parseUsbIdentifier(req.usbPid);
     if (req.usbSerial) config.serial = req.usbSerial;
     if (req.spoolerName) config.spooler_name = req.spoolerName;
     if (req.endpoint) config.address = req.endpoint;
@@ -653,8 +662,6 @@ export function onGatewayConfigChanged(
 ): Promise<UnlistenFn> {
   return listen<string>("gateway:config_changed", (event) => handler(String(event.payload)));
 }
-
-const HEALTH_TIMEOUT_MS = 8000;
 
 /**
  * Bounded gateway health probe. Without an explicit timeout a hung TLS

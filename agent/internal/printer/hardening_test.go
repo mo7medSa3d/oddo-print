@@ -471,3 +471,37 @@ func TestCapabilityNormalization(t *testing.T) {
 	}
 	// Ensure endpointToConfig includes capabilities (tested via agent payload)
 }
+
+func TestRegistryPreservesDistinctIPPResourcesOnSameHardware(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	a := DeviceInfo{Name: "IPP Printer A", ConnectionType: "ipp", Protocol: "ipp", NetworkAddress: "192.168.1.60", Port: 631, Endpoint: "ipp://192.168.1.60:631/printers/A", Enabled: true, Capabilities: map[string]interface{}{"uuid": "same-printer", "ipp_verified": true}}
+	b := a
+	b.Name = "IPP Printer B"
+	b.Endpoint = "ipp://192.168.1.60:631/printers/B"
+	a.ID = StableIDForDevice(a)
+	b.ID = StableIDForDevice(b)
+	merged, err := UpsertRegistry(path, []DeviceInfo{a, b})
+	if err != nil || len(merged) != 2 {
+		t.Fatalf("queues collapsed in registry: %+v %v", merged, err)
+	}
+	moved := a
+	moved.Endpoint = "ipp://192.168.1.70:631/printers/A"
+	moved.NetworkAddress = "192.168.1.70"
+	moved.ID = StableIDForDevice(moved)
+	merged, err = UpsertRegistry(path, []DeviceInfo{moved})
+	if err != nil || len(merged) != 2 {
+		t.Fatalf("address change duplicated/lost queue: %+v %v", merged, err)
+	}
+	found := false
+	for _, item := range merged {
+		if item.Endpoint == moved.Endpoint {
+			found = true
+			if item.ID != a.ID {
+				t.Fatal("identity-preserving move changed persisted queue ID")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("moved endpoint was not persisted")
+	}
+}

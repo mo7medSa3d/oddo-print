@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::Emitter;
 
@@ -54,7 +54,8 @@ pub fn is_running_as_admin() -> bool {
 
         unsafe extern "system" {
             fn GetCurrentProcess() -> HANDLE;
-            fn OpenProcessToken(process: HANDLE, desired_access: DWORD, token: *mut HANDLE) -> BOOL;
+            fn OpenProcessToken(process: HANDLE, desired_access: DWORD, token: *mut HANDLE)
+            -> BOOL;
             fn GetTokenInformation(
                 token: HANDLE,
                 class: DWORD,
@@ -70,7 +71,9 @@ pub fn is_running_as_admin() -> bool {
             if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
                 return false;
             }
-            let mut elevation = TOKEN_ELEVATION { token_is_elevated: 0 };
+            let mut elevation = TOKEN_ELEVATION {
+                token_is_elevated: 0,
+            };
             let mut ret_len: DWORD = 0;
             let ok = GetTokenInformation(
                 token,
@@ -123,17 +126,23 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
 
 #[tauri::command]
 pub async fn start_agent(app: tauri::AppHandle) -> Result<String, String> {
-    run_blocking(move || agent::start(&app)).await.map(|_| "agent started".into())
+    run_blocking(move || agent::start(&app))
+        .await
+        .map(|_| "agent started".into())
 }
 
 #[tauri::command]
 pub async fn stop_agent(app: tauri::AppHandle) -> Result<String, String> {
-    run_blocking(move || agent::stop(&app)).await.map(|_| "agent stopped".into())
+    run_blocking(move || agent::stop(&app))
+        .await
+        .map(|_| "agent stopped".into())
 }
 
 #[tauri::command]
 pub async fn restart_agent(app: tauri::AppHandle) -> Result<String, String> {
-    run_blocking(move || agent::restart(&app)).await.map(|_| "agent restarted".into())
+    run_blocking(move || agent::restart(&app))
+        .await
+        .map(|_| "agent restarted".into())
 }
 
 #[tauri::command]
@@ -155,7 +164,9 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if url.contains(char::is_whitespace) {
         return Err("gateway URL cannot contain whitespace".into());
     }
-    let parsed = url.parse::<url::Url>().map_err(|e| format!("invalid gateway URL: {e}"))?;
+    let parsed = url
+        .parse::<url::Url>()
+        .map_err(|e| format!("invalid gateway URL: {e}"))?;
     let scheme = parsed.scheme();
     if scheme != "https" && scheme != "http" {
         return Err("gateway URL must use http:// or https://".into());
@@ -164,7 +175,7 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     // development without weakening the remote transport policy.
     if scheme == "http" {
         let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+        let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "[::1]");
         if !local {
             return Err("Gateway URL must use HTTPS for remote Gateways".into());
         }
@@ -172,6 +183,7 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
     }
+    if parsed.path() != "/" { return Err("gateway URL must use the origin root".into()); }
     if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err("gateway URL cannot include query strings or fragments".into());
     }
@@ -205,8 +217,7 @@ pub async fn pair_agent(args: PairArgs, app: tauri::AppHandle) -> Result<String,
 fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<String, String> {
     let cli = agent::cli_path(&app)?;
     let config = paths::agent_config_path();
-    paths::ensure_agent_data_root()
-        .map_err(|e| format!("create agent data dir: {e}"))?;
+    paths::ensure_agent_data_root().map_err(|e| format!("create agent data dir: {e}"))?;
 
     logging::info(&format!("pairing agent (server={gateway_url})"));
     let mut cmd = Command::new(&cli);
@@ -222,7 +233,12 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let out = agent::run_bounded_command(cmd, std::time::Duration::from_secs(60), 64 * 1024, 64 * 1024)?;
+    let out = agent::run_bounded_command(
+        cmd,
+        std::time::Duration::from_secs(60),
+        64 * 1024,
+        64 * 1024,
+    )?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -243,30 +259,41 @@ struct ManagerSession {
     refresh_token: String,
 }
 
-static MANAGER_SESSION: OnceLock<Mutex<Option<ManagerSession>>> = OnceLock::new();
+#[derive(Default)]
+struct ManagerState {
+    origin: String,
+    generation: u64,
+    session: Option<ManagerSession>,
+}
 
-fn manager_session_store() -> &'static Mutex<Option<ManagerSession>> {
-    MANAGER_SESSION.get_or_init(|| Mutex::new(None))
+static MANAGER_SESSION: OnceLock<Mutex<ManagerState>> = OnceLock::new();
+static MANAGER_AUTH_FLIGHT: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
+
+fn manager_session_store() -> &'static Mutex<ManagerState> {
+    MANAGER_SESSION.get_or_init(|| Mutex::new(ManagerState::default()))
 }
 
 fn clear_manager_session_inner() {
     if let Ok(mut guard) = manager_session_store().lock() {
-        *guard = None;
+        guard.generation = guard.generation.wrapping_add(1);
+        guard.session = None;
     }
 }
 
-fn current_manager_token() -> Option<String> {
-    manager_session_store()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|s| s.access_token.clone()))
+fn manager_snapshot() -> Result<(url::Url, u64, Option<ManagerSession>), String> {
+    let mut guard = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
+    let origin = configured_gateway_origin()?;
+    let identity = origin.as_str().to_string();
+    if guard.origin != identity {
+        guard.origin = identity;
+        guard.generation = guard.generation.wrapping_add(1);
+        guard.session = None;
+    }
+    Ok((origin, guard.generation, guard.session.clone()))
 }
 
-fn current_manager_refresh_token() -> Option<String> {
-    manager_session_store()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|s| s.refresh_token.clone()))
+fn current_manager_token() -> Option<String> {
+    manager_snapshot().ok().and_then(|(_, _, session)| session.map(|s| s.access_token))
 }
 
 fn is_public_gateway_path(path: &str) -> bool {
@@ -352,21 +379,42 @@ fn configured_gateway_origin() -> Result<url::Url, String> {
     if cfg.url.is_empty() {
         return Err("Gateway URL is not configured".into());
     }
-    normalize_gateway_url(&cfg.url)?.parse::<url::Url>().map_err(|e| format!("invalid configured gateway URL: {e}"))
+    normalize_gateway_url(&cfg.url)?
+        .parse::<url::Url>()
+        .map_err(|e| format!("invalid configured gateway URL: {e}"))
 }
 
 #[tauri::command]
 pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse, String> {
-    let origin = configured_gateway_origin()?;
     let path = args.path.trim();
+    let base_path = path.split('?').next().unwrap_or("");
+    if path.contains('#') || base_path.contains('%') || path.chars().any(|c| c.is_control()) {
+        return Err("Gateway paths must use literal API segments without fragments or controls".into());
+    }
+    let auth_path = base_path.starts_with("/api/auth/");
+    if auth_path && path != base_path {
+        return Err("Authentication paths do not accept query strings".into());
+    }
+    let _auth_flight = if auth_path {
+        Some(MANAGER_AUTH_FLIGHT.get_or_init(|| tauri::async_runtime::Mutex::new(())).lock().await)
+    } else { None };
+    let (origin, generation, session) = manager_snapshot()?;
     if !path.starts_with("/api/") || path.contains("..") || path.contains('\\') {
         return Err("gateway request path must be an API-relative path".into());
     }
-    let target = origin.join(path.trim_start_matches('/')).map_err(|e| format!("invalid gateway request path: {e}"))?;
-    if target.scheme() != origin.scheme() || target.host_str() != origin.host_str() || target.port_or_known_default() != origin.port_or_known_default() {
+    let target = origin
+        .join(path.trim_start_matches('/'))
+        .map_err(|e| format!("invalid gateway request path: {e}"))?;
+    if target.scheme() != origin.scheme()
+        || target.host_str() != origin.host_str()
+        || target.port_or_known_default() != origin.port_or_known_default()
+    {
         return Err("gateway request must stay on the configured Gateway origin".into());
     }
 
+    if target.path() != base_path || target.query_pairs().any(|(key, _)| matches!(key.to_ascii_lowercase().as_str(), "access_token" | "refresh_token" | "token" | "authorization" | "x-refresh-token")) {
+        return Err("Gateway credential queries or nonliteral paths are forbidden".into());
+    }
     // The renderer cannot supply its own Authorization header. Manager bearer
     // credentials are held only in Rust process memory for the packaged app.
     let mut header_budget = 0usize;
@@ -397,10 +445,10 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let manager_token = if is_public_gateway_path(path) {
         None
     } else {
-        current_manager_token()
+        session.as_ref().map(|s| s.access_token.clone())
     };
     let manager_refresh_token = if uses_manager_refresh_credential(path) {
-        current_manager_refresh_token()
+        session.as_ref().map(|s| s.refresh_token.clone())
     } else {
         None
     };
@@ -443,47 +491,44 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         }
         request = request.body(body);
     }
-    let response = request.send().await.map_err(|e| format!("Gateway request failed: {e}"))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Gateway request failed: {e}"))?;
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
-    if path == "/api/auth/manager/refresh" && (status == 401 || status == 403) {
-        clear_manager_session_inner();
-    } else if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
-            let auth_ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            let access_token = value.get("accessToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
-            let refresh_token = value.get("refreshToken").and_then(|v| v.as_str()).filter(|v| !v.is_empty());
-            if auth_ok {
-                if let (Some(access_token), Some(refresh_token)) = (access_token, refresh_token) {
-                    if let Ok(mut guard) = manager_session_store().lock() {
-                        *guard = Some(ManagerSession {
-                            access_token: access_token.to_string(),
-                            refresh_token: refresh_token.to_string(),
-                        });
+    let safe_body = {
+        let mut guard = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
+        if guard.generation != generation || guard.origin != origin.as_str() {
+            return Err("Gateway origin/session changed while the request was in flight; reconcile the original operation before retrying".into());
+        }
+        if path == "/api/auth/manager/logout" || (path == "/api/auth/manager/refresh" && (status == 401 || status == 403)) {
+            guard.session = None;
+            guard.generation = guard.generation.wrapping_add(1);
+        }
+        if auth_path {
+            let mut value: serde_json::Value = serde_json::from_str(&body)
+                .map_err(|_| "Gateway authentication response was invalid JSON")?;
+            let object = value.as_object_mut().ok_or("Gateway authentication response must be an object")?;
+            let access_token = object.remove("accessToken").and_then(|v| v.as_str().map(str::to_string));
+            let refresh_token = object.remove("refreshToken").and_then(|v| v.as_str().map(str::to_string));
+            if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) && object.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                match (access_token, refresh_token) {
+                    (Some(access_token), Some(refresh_token)) if !access_token.is_empty() && !refresh_token.is_empty() => {
+                        guard.generation = guard.generation.wrapping_add(1);
+                        guard.session = Some(ManagerSession { access_token, refresh_token });
                     }
+                    _ => return Err("Gateway authentication response omitted credentials".into()),
                 }
             }
-        }
-    }
-    let safe_body = if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) {
-        // The manager access token is a Rust-only credential in the packaged
-        // desktop app. Store it above, then strip it from the renderer-visible
-        // response so JavaScript cannot read or persist the bearer token.
-        match serde_json::from_str::<serde_json::Value>(&body) {
-            Ok(mut value) => {
-                if let Some(object) = value.as_object_mut() {
-                    object.remove("accessToken");
-                    object.remove("refreshToken");
-                }
-                serde_json::to_string(&value).unwrap_or_else(|_| body.clone())
-            }
-            Err(_) => body.clone(),
-        }
-    } else {
-        body
+            serde_json::to_string(&value).map_err(|_| "could not sanitize authentication response")?
+        } else { body }
     };
-    Ok(GatewayResponse { status, body: safe_body })
+    Ok(GatewayResponse {
+        status,
+        body: safe_body,
+    })
 }
 
 #[derive(Deserialize)]
@@ -496,9 +541,7 @@ pub struct AgentGatewayRequestArgs {
 fn valid_gateway_printer_id(id: &str) -> bool {
     let mut chars = id.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
-        && chars.all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~')
-        })
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '~'))
 }
 
 fn gateway_printer_action_path(path: &str, action: &str) -> bool {
@@ -528,7 +571,10 @@ fn valid_jobs_query(path: &str) -> bool {
         if key.is_empty() || value.len() > 200 {
             return false;
         }
-        if !matches!(key, "limit" | "offset" | "status" | "search" | "q" | "printerId" | "agentId") {
+        if !matches!(
+            key,
+            "limit" | "offset" | "status" | "search" | "q" | "printerId" | "agentId"
+        ) {
             return false;
         }
     }
@@ -543,9 +589,11 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         // console proxy exposes only the agent list, while the operator CLI
         // needs single-agent fetch for diagnostics. Both are read-only.
         "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
-        "POST" => path == "/api/printers"
-            || gateway_printer_action_path(path, "test-connection")
-            || gateway_printer_action_path(path, "test-print"),
+        "POST" => {
+            path == "/api/printers"
+                || gateway_printer_action_path(path, "test-connection")
+                || gateway_printer_action_path(path, "test-print")
+        }
         // Printer desired-state mutation is manager-only at the HTTP
         // boundary, so an Agent bearer must never be able to reach PATCH.
         _ => false,
@@ -553,7 +601,10 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::AppHandle) -> Result<String, String> {
+pub async fn gateway_agent_request(
+    args: AgentGatewayRequestArgs,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
     let path = args.path.trim().to_string();
     let method = args.method.trim().to_ascii_uppercase();
     if !path.starts_with("/api/") || path.contains("..") || path.contains('\\') {
@@ -562,7 +613,12 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
     if !allowed_agent_gateway_path(&path, &method) {
         return Err("gateway request is not permitted for the desktop Agent console".into());
     }
-    if args.body.as_ref().map(|b| b.len() > 8 * 1024 * 1024).unwrap_or(false) {
+    if args
+        .body
+        .as_ref()
+        .map(|b| b.len() > 8 * 1024 * 1024)
+        .unwrap_or(false)
+    {
         return Err("gateway request body exceeds 8 MiB".into());
     }
     run_blocking(move || {
@@ -587,7 +643,12 @@ pub async fn gateway_agent_request(args: AgentGatewayRequestArgs, app: tauri::Ap
             use std::os::windows::process::CommandExt;
             request_cmd.creation_flags(0x0800_0000);
         }
-        let out = agent::run_bounded_command(request_cmd, std::time::Duration::from_secs(20), 256 * 1024, 64 * 1024)?;
+        let out = agent::run_bounded_command(
+            request_cmd,
+            std::time::Duration::from_secs(20),
+            256 * 1024,
+            64 * 1024,
+        )?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
@@ -633,7 +694,10 @@ pub fn get_gateway_config() -> GatewayConfig {
         Ok(c) => c,
         Err(e) => {
             // A corrupt/old settings file must not prevent the app from starting.
-            logging::warn(&format!("settings corrupted, using defaults: {e}; path={}", path.display()));
+            logging::warn(&format!(
+                "settings corrupted, using defaults: {e}; path={}",
+                path.display()
+            ));
             defaults
         }
     }
@@ -642,18 +706,24 @@ pub fn get_gateway_config() -> GatewayConfig {
 #[tauri::command]
 pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, String> {
     let url = normalize_gateway_url(&url)?;
+    let mut state = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
+    let previous = get_gateway_config().url;
     let path = paths::settings_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create settings dir: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create settings dir: {e}"))?;
     }
     let cfg = GatewayConfig { url: url.clone() };
-    let json = serde_json::to_string_pretty(&cfg)
-        .map_err(|e| format!("serialize settings: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("write settings {}: {e}", path.display()))?;
+    let json =
+        serde_json::to_string_pretty(&cfg).map_err(|e| format!("serialize settings: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("write settings {}: {e}", path.display()))?;
     logging::info(&format!("gateway settings saved to {}", path.display()));
-    let _ = app.emit("gateway:config_changed", &url);
+    if previous != url {
+        state.generation = state.generation.wrapping_add(1);
+        state.origin = url.clone();
+        state.session = None;
+        drop(state);
+        app.emit("gateway:config_changed", &url).map_err(|e| format!("Gateway saved but change notification failed: {e}"))?;
+    }
     Ok(format!("saved gateway settings to {}", path.display()))
 }
 
@@ -684,6 +754,8 @@ pub fn get_app_version() -> String {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PrinterInfo {
+    #[serde(rename = "agentId", alias = "agent_id")]
+    pub agent_id: Option<String>,
     pub id: String,
     pub name: String,
     #[serde(rename = "displayName", alias = "display_name")]
@@ -744,7 +816,6 @@ const SOFTWARE_WRITER_TOKENS: &[&str] = &[
     "microsoft print to pdf",
     "microsoft xps document writer",
     "microsoft shared fax",
-    "microsoft enhanced point and print compatibility driver",
     "send to onenote",
     "onenote",
     // Semantic families (language independent)
@@ -884,7 +955,9 @@ fn is_valid_printer_for_ui(p: &PrinterInfo) -> bool {
         return false;
     }
     let name_lower = p.name.to_lowercase();
-    let driver_lower = p.capabilities.as_ref()
+    let driver_lower = p
+        .capabilities
+        .as_ref()
         .and_then(|v| v.get("driver_name").and_then(|x| x.as_str()))
         .unwrap_or("")
         .to_lowercase();
@@ -912,7 +985,13 @@ fn is_valid_printer_for_ui(p: &PrinterInfo) -> bool {
     for g in generic {
         if combined.contains(g) {
             // Allow if driver explicitly says printer (check "printer" not "print" to avoid fingerprint)
-            if driver_lower.contains("printer") || driver_lower.contains("laser") || driver_lower.contains("inkjet") || driver_lower.contains("thermal") || driver_lower.contains("label") || driver_lower.contains("zebra") {
+            if driver_lower.contains("printer")
+                || driver_lower.contains("laser")
+                || driver_lower.contains("inkjet")
+                || driver_lower.contains("thermal")
+                || driver_lower.contains("label")
+                || driver_lower.contains("zebra")
+            {
                 continue;
             }
             return false;
@@ -928,12 +1007,17 @@ pub async fn get_printers(_app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, St
         if !path.exists() {
             return Ok(vec![]);
         }
-        let raw = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {}: {}", path.display(), e))?;
         if raw.trim().is_empty() {
             return Ok(vec![]);
         }
-        let v: Vec<PrinterInfo> = serde_json::from_str(&raw).map_err(|e| format!("parse {}: {}", path.display(), e))?;
-        let filtered: Vec<PrinterInfo> = v.into_iter().filter(|p| is_valid_printer_for_ui(p)).collect();
+        let v: Vec<PrinterInfo> =
+            serde_json::from_str(&raw).map_err(|e| format!("parse {}: {}", path.display(), e))?;
+        let filtered: Vec<PrinterInfo> = v
+            .into_iter()
+            .filter(|p| is_valid_printer_for_ui(p))
+            .collect();
         Ok(filtered)
     })
     .await
@@ -945,7 +1029,8 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
         let cli = agent::cli_path(&app)?;
         let config = paths::agent_config_path();
         let root = paths::agent_data_root();
-        let _ = paths::ensure_agent_data_root().map_err(|e| format!("create agent data dir: {}", e))?;
+        let _ =
+            paths::ensure_agent_data_root().map_err(|e| format!("create agent data dir: {}", e))?;
         let mut discover_cmd = std::process::Command::new(&cli);
         discover_cmd
             .arg("printers")
@@ -959,36 +1044,48 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             use std::os::windows::process::CommandExt;
             discover_cmd.creation_flags(0x0800_0000);
         }
-        let out = agent::run_bounded_command(discover_cmd, std::time::Duration::from_secs(30), 512 * 1024, 64 * 1024)?;
+        let out = agent::run_bounded_command(
+            discover_cmd,
+            std::time::Duration::from_secs(30),
+            512 * 1024,
+            64 * 1024,
+        )?;
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         if !out.status.success() {
-            let msg = if stderr.trim().is_empty() { stdout.clone() } else { stderr.clone() };
+            let msg = if stderr.trim().is_empty() {
+                stdout.clone()
+            } else {
+                stderr.clone()
+            };
             return Err(format!("discover failed: {}", msg));
         }
-        // CLI prints table; also try to read printers.json for structured result
-        let mut errors = if stderr.is_empty() { vec![] } else { vec![stderr] };
-        let printers = {
-            let p = root.join("printers.json");
-            if p.exists() {
-                let raw = std::fs::read_to_string(&p).unwrap_or_default();
-                match serde_json::from_str::<Vec<PrinterInfo>>(&raw) {
-                    Ok(v) => v.into_iter().filter(|x| is_valid_printer_for_ui(x)).collect::<Vec<_>>(),
-                    Err(e) => {
-                        // A corrupt registry file must not silently look like
-                        // "no printers discovered"; surface it to the UI.
-                        errors.push(format!("parse {}: {}", p.display(), e));
-                        vec![]
-                    }
-                }
-            } else {
-                vec![]
-            }
+        let errors = if stderr.is_empty() {
+            vec![]
+        } else {
+            vec![stderr]
         };
+        // --json returns this scan's inventory. Registry persistence can fail;
+        // rereading the file would silently substitute stale or empty results.
+        let printers = parse_discovery_stdout(&stdout)?;
         Ok(DiscoverResult { printers, errors })
     })
     .await
 }
+
+fn parse_discovery_stdout(stdout: &str) -> Result<Vec<PrinterInfo>, String> {
+    // Older CLI builds encoded an empty slice as null. Accept that legacy
+    // representation, but reject corrupt/non-JSON output rather than showing
+    // an unrelated on-disk inventory as a successful discovery.
+    let printers: Option<Vec<PrinterInfo>> = serde_json::from_str(stdout)
+        .map_err(|e| format!("parse discovery JSON: {e}"))?;
+    Ok(printers.unwrap_or_default().into_iter()
+        .filter(is_valid_printer_for_ui).collect())
+}
+
+#[cfg(test)]
+#[path = "audit_discovery_test.rs"]
+mod audit_discovery_test;
 
 #[tauri::command]
 pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<String, String> {
@@ -1020,7 +1117,12 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
             use std::os::windows::process::CommandExt;
             test_cmd.creation_flags(0x0800_0000);
         }
-        let out = agent::run_bounded_command(test_cmd, std::time::Duration::from_secs(30), 64 * 1024, 64 * 1024)?;
+        let out = agent::run_bounded_command(
+            test_cmd,
+            std::time::Duration::from_secs(30),
+            64 * 1024,
+            64 * 1024,
+        )?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
@@ -1054,7 +1156,10 @@ pub struct RegisterPrinterRequest {
 }
 
 #[tauri::command]
-pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHandle) -> Result<String, String> {
+pub async fn register_printer(
+    request: RegisterPrinterRequest,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
     // A value starting with `-` would be parsed by the Go CLI as a FLAG, not
     // a value (no shell is involved, so this is argument smuggling, not
     // injection): reject leading-dash values at the trust boundary.
@@ -1069,7 +1174,10 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
         Ok(v)
     }
     let name = arg_value("printer name", &request.name)?;
-    let conn = request.connection_type_alt.clone().unwrap_or(request.connection_type.clone());
+    let conn = request
+        .connection_type_alt
+        .clone()
+        .unwrap_or(request.connection_type.clone());
     let conn_lower = conn.trim().to_lowercase();
     let valid_conns = ["spooler", "network", "tcp", "usb", "ipp", "ipps"];
     if !valid_conns.contains(&conn_lower.as_str()) {
@@ -1082,18 +1190,34 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
         let config = paths::agent_config_path();
         let root = paths::agent_data_root();
         let mut cmd = std::process::Command::new(&cli);
-        cmd.arg("printers").arg("add").arg("--name").arg(&name).arg("--type").arg(&conn_lower);
+        cmd.arg("printers")
+            .arg("add")
+            .arg("--name")
+            .arg(&name)
+            .arg("--type")
+            .arg(&conn_lower);
         if let Some(ep) = request.endpoint.as_ref().filter(|s| !s.trim().is_empty()) {
             cmd.arg("--endpoint").arg(arg_value("endpoint", ep)?);
         }
-        if let Some(sn) = request.spooler_name.as_ref().filter(|s| !s.trim().is_empty()) {
-            cmd.arg("--spooler-name").arg(arg_value("spooler name", sn)?);
+        if let Some(sn) = request
+            .spooler_name
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            cmd.arg("--spooler-name")
+                .arg(arg_value("spooler name", sn)?);
         }
         if let Some(proto) = request.protocol.as_ref().filter(|s| !s.trim().is_empty()) {
-            cmd.arg("--protocol").arg(arg_value("protocol", proto)?.to_lowercase());
+            cmd.arg("--protocol")
+                .arg(arg_value("protocol", proto)?.to_lowercase());
         }
-        if let Some(pt) = request.printer_type.as_ref().filter(|s| !s.trim().is_empty()) {
-            cmd.arg("--printer-type").arg(arg_value("printer type", pt)?.to_lowercase());
+        if let Some(pt) = request
+            .printer_type
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            cmd.arg("--printer-type")
+                .arg(arg_value("printer type", pt)?.to_lowercase());
         }
         if let Some(vid) = request.usb_vid.as_ref().filter(|s| !s.trim().is_empty()) {
             cmd.arg("--vid").arg(arg_value("USB VID", vid)?);
@@ -1111,7 +1235,12 @@ pub async fn register_printer(request: RegisterPrinterRequest, app: tauri::AppHa
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let out = agent::run_bounded_command(cmd, std::time::Duration::from_secs(30), 64 * 1024, 64 * 1024)?;
+        let out = agent::run_bounded_command(
+            cmd,
+            std::time::Duration::from_secs(30),
+            64 * 1024,
+            64 * 1024,
+        )?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
@@ -1138,7 +1267,10 @@ pub async fn get_autostart(app: tauri::AppHandle) -> Result<AutostartStatus, Str
         #[cfg(windows)]
         {
             use tauri_plugin_autostart::ManagerExt;
-            let enabled = app.autolaunch().is_enabled().unwrap_or(false);
+            let enabled = app
+                .autolaunch()
+                .is_enabled()
+                .map_err(|e| format!("read autostart: {e}"))?;
             Ok(AutostartStatus { enabled })
         }
         #[cfg(not(windows))]
@@ -1157,7 +1289,8 @@ pub async fn get_autostart(app: tauri::AppHandle) -> Result<AutostartStatus, Str
 /// the default-enable - silently reversing an explicit DISABLE.
 fn record_autostart_choice(marker: &Path) -> Result<(), String> {
     if let Some(parent) = marker.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("create marker dir {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create marker dir {}: {e}", parent.display()))?;
     }
     std::fs::write(marker, "1").map_err(|e| format!("write marker {}: {e}", marker.display()))
 }
@@ -1174,6 +1307,7 @@ fn record_autostart_choice(marker: &Path) -> Result<(), String> {
 /// the operator knows the machine needs manual reconciliation.
 fn apply_autostart_choice(
     enabled: bool,
+    previous: bool,
     mut set_os: impl FnMut(bool) -> Result<(), String>,
     persist: impl FnOnce() -> Result<(), String>,
 ) -> Result<String, String> {
@@ -1184,7 +1318,7 @@ fn apply_autostart_choice(
         "autostart disabled"
     };
     if let Err(persist_err) = persist() {
-        return Err(match set_os(!enabled) {
+        return Err(match set_os(previous) {
             Ok(()) => format!(
                 "{state} applied, but the user-choice record could not be persisted ({persist_err}); \
                  the OS change was reverted so a later start cannot silently override it - retry from Settings"
@@ -1206,14 +1340,23 @@ pub async fn set_autostart(enabled: bool, app: tauri::AppHandle) -> Result<Strin
             use tauri_plugin_autostart::ManagerExt;
             // Record that the user has explicitly chosen autostart so the
             // app never re-enables it on a later start (see setup in main.rs).
-            let touched = paths::manager_data_root().join("autostart-user-choice");
+            let touched = paths::autostart_choice_path()?;
+            let previous = app
+                .autolaunch()
+                .is_enabled()
+                .map_err(|e| format!("read autostart: {e}"))?;
             apply_autostart_choice(
                 enabled,
+                previous,
                 |on| {
                     if on {
-                        app.autolaunch().enable().map_err(|e| format!("enable autostart: {}", e))
+                        app.autolaunch()
+                            .enable()
+                            .map_err(|e| format!("enable autostart: {}", e))
                     } else {
-                        app.autolaunch().disable().map_err(|e| format!("disable autostart: {}", e))
+                        app.autolaunch()
+                            .disable()
+                            .map_err(|e| format!("disable autostart: {}", e))
                     }
                 },
                 || record_autostart_choice(&touched),
@@ -1237,6 +1380,7 @@ mod autostart_choice_tests {
         let mut os_calls: Vec<bool> = Vec::new();
         let res = apply_autostart_choice(
             true,
+            false,
             |on| {
                 os_calls.push(on);
                 Ok(())
@@ -1252,6 +1396,7 @@ mod autostart_choice_tests {
         let mut os_calls: Vec<bool> = Vec::new();
         let res = apply_autostart_choice(
             false,
+            true,
             |on| {
                 os_calls.push(on);
                 Ok(())
@@ -1267,6 +1412,7 @@ mod autostart_choice_tests {
         let mut persist_called = false;
         let res = apply_autostart_choice(
             true,
+            false,
             |_| Err("registry denied".to_string()),
             || {
                 persist_called = true;
@@ -1275,7 +1421,10 @@ mod autostart_choice_tests {
         );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("registry denied"));
-        assert!(!persist_called, "a failed OS change must not attempt marker persistence");
+        assert!(
+            !persist_called,
+            "a failed OS change must not attempt marker persistence"
+        );
     }
 
     #[test]
@@ -1286,6 +1435,7 @@ mod autostart_choice_tests {
         let mut os_calls: Vec<bool> = Vec::new();
         let res = apply_autostart_choice(
             false,
+            true,
             |on| {
                 os_calls.push(on);
                 Ok(())
@@ -1293,9 +1443,37 @@ mod autostart_choice_tests {
             || Err("disk full writing marker".to_string()),
         );
         let err = res.expect_err("divergence must surface, never succeed silently");
-        assert!(err.contains("disk full writing marker"), "original persistence error must survive: {err}");
-        assert!(err.contains("reverted"), "message must state the rollback: {err}");
-        assert_eq!(os_calls, vec![false, true], "OS change must be rolled back exactly once");
+        assert!(
+            err.contains("disk full writing marker"),
+            "original persistence error must survive: {err}"
+        );
+        assert!(
+            err.contains("reverted"),
+            "message must state the rollback: {err}"
+        );
+        assert_eq!(
+            os_calls,
+            vec![false, true],
+            "OS change must be rolled back exactly once"
+        );
+    }
+
+    #[test]
+    fn marker_failure_restores_idempotent_requests_to_the_actual_previous_state() {
+        for enabled in [true, false] {
+            let mut calls = Vec::new();
+            let result = apply_autostart_choice(
+                enabled,
+                enabled,
+                |on| {
+                    calls.push(on);
+                    Ok(())
+                },
+                || Err("disk full".into()),
+            );
+            assert!(result.is_err());
+            assert_eq!(calls, vec![enabled, enabled]);
+        }
     }
 
     #[test]
@@ -1305,6 +1483,7 @@ mod autostart_choice_tests {
         let mut calls = 0;
         let res = apply_autostart_choice(
             true,
+            false,
             |_| {
                 calls += 1;
                 if calls == 1 {
@@ -1316,10 +1495,12 @@ mod autostart_choice_tests {
             || Err("disk full writing marker".to_string()),
         );
         let err = res.expect_err("must still report failure");
-        assert!(err.contains("disk full writing marker"), "persist error: {err}");
+        assert!(
+            err.contains("disk full writing marker"),
+            "persist error: {err}"
+        );
         assert!(err.contains("rollback denied"), "rollback error: {err}");
     }
-
 
     #[test]
     fn successful_choice_record_persists_the_marker() {
@@ -1327,7 +1508,10 @@ mod autostart_choice_tests {
         let marker = dir.join("nested").join("autostart-user-choice");
         let _ = std::fs::remove_dir_all(&dir);
         record_autostart_choice(&marker).expect("marker must persist");
-        assert!(marker.exists(), "explicit user choice must be durably recorded");
+        assert!(
+            marker.exists(),
+            "explicit user choice must be durably recorded"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1341,8 +1525,12 @@ mod autostart_choice_tests {
         let marker = dir.join("autostart-user-choice");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&marker).unwrap();
-        let err = record_autostart_choice(&marker).expect_err("write onto a directory must surface an error");
-        assert!(err.contains("write marker"), "error must identify the failed persistence: {err}");
+        let err = record_autostart_choice(&marker)
+            .expect_err("write onto a directory must surface an error");
+        assert!(
+            err.contains("write marker"),
+            "error must identify the failed persistence: {err}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -1353,12 +1541,30 @@ mod agent_console_path_tests {
 
     #[test]
     fn printer_action_paths_are_strictly_scoped() {
-        assert!(gateway_printer_action_path("/api/printers/p1/test-print", "test-print"));
-        assert!(gateway_printer_action_path("/api/printers/p1/test-connection", "test-connection"));
-        assert!(!gateway_printer_action_path("/api/other/p1/test-print", "test-print"));
-        assert!(!gateway_printer_action_path("/api/printers/p1/test-print/extra", "test-print"));
-        assert!(!gateway_printer_action_path("/api/printers/../agents/test-print", "test-print"));
-        assert!(!gateway_printer_action_path("/api/printers/-p1/test-print", "test-print"));
+        assert!(gateway_printer_action_path(
+            "/api/printers/p1/test-print",
+            "test-print"
+        ));
+        assert!(gateway_printer_action_path(
+            "/api/printers/p1/test-connection",
+            "test-connection"
+        ));
+        assert!(!gateway_printer_action_path(
+            "/api/other/p1/test-print",
+            "test-print"
+        ));
+        assert!(!gateway_printer_action_path(
+            "/api/printers/p1/test-print/extra",
+            "test-print"
+        ));
+        assert!(!gateway_printer_action_path(
+            "/api/printers/../agents/test-print",
+            "test-print"
+        ));
+        assert!(!gateway_printer_action_path(
+            "/api/printers/-p1/test-print",
+            "test-print"
+        ));
     }
 
     #[test]
@@ -1366,7 +1572,9 @@ mod agent_console_path_tests {
         assert!(valid_jobs_query("/api/jobs"));
         assert!(valid_jobs_query("/api/jobs?limit=50"));
         assert!(valid_jobs_query("/api/jobs?limit=50&search=invoice"));
-        assert!(valid_jobs_query("/api/jobs?status=queued&offset=10&printerId=p1&agentId=a1"));
+        assert!(valid_jobs_query(
+            "/api/jobs?status=queued&offset=10&printerId=p1&agentId=a1"
+        ));
         assert!(!valid_jobs_query("/api/jobs?evil=https://example.com"));
         assert!(!valid_jobs_query("/api/jobs?limit=50&evil=x"));
         assert!(!valid_jobs_query("/api/jobs?limit"));
@@ -1376,19 +1584,40 @@ mod agent_console_path_tests {
     #[test]
     fn agent_console_allowlist_matches_desktop_jobs_requests() {
         assert!(allowed_agent_gateway_path("/api/printers", "POST"));
-        assert!(allowed_agent_gateway_path("/api/printers/p1/test-print", "POST"));
-        assert!(allowed_agent_gateway_path("/api/printers/p1/test-connection", "POST"));
+        assert!(allowed_agent_gateway_path(
+            "/api/printers/p1/test-print",
+            "POST"
+        ));
+        assert!(allowed_agent_gateway_path(
+            "/api/printers/p1/test-connection",
+            "POST"
+        ));
         assert!(allowed_agent_gateway_path("/api/jobs?limit=50", "GET"));
-        assert!(allowed_agent_gateway_path("/api/jobs?limit=50&search=invoice", "GET"));
-        assert!(!allowed_agent_gateway_path("/api/other/p1/test-print", "POST"));
-        assert!(!allowed_agent_gateway_path("/api/jobs/p1/test-print", "POST"));
-        assert!(!allowed_agent_gateway_path("/api/jobs?next=/api/other", "GET"));
+        assert!(allowed_agent_gateway_path(
+            "/api/jobs?limit=50&search=invoice",
+            "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/other/p1/test-print",
+            "POST"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/jobs/p1/test-print",
+            "POST"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/jobs?next=/api/other",
+            "GET"
+        ));
         assert!(!allowed_agent_gateway_path("/api/printers/p1", "PATCH"));
     }
 }
 #[cfg(test)]
 mod security_tests {
-    use super::{is_public_gateway_path, is_valid_code, normalize_gateway_url, uses_manager_refresh_credential};
+    use super::{
+        is_public_gateway_path, is_valid_code, normalize_gateway_url,
+        uses_manager_refresh_credential,
+    };
 
     #[test]
     fn only_health_and_manager_login_are_public_gateway_paths() {
@@ -1404,6 +1633,8 @@ mod security_tests {
     fn remote_http_gateway_is_rejected() {
         assert!(normalize_gateway_url("http://gateway.example.com").is_err());
         assert!(normalize_gateway_url("http://127.0.0.1:3000").is_ok());
+        assert!(normalize_gateway_url("http://[::1]:3000").is_ok());
+        assert!(normalize_gateway_url("http://[2001:db8::1]:3000").is_err());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
     }
 

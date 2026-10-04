@@ -1,4 +1,3 @@
-from unittest.mock import patch
 
 # Hard imports: this module only runs under the Odoo test runner; a fallback
 # previously degraded the whole file into silent skips with a green exit.

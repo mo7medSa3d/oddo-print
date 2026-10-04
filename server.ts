@@ -167,7 +167,7 @@ app.prepare().then(() => {
         if (value == null) continue;
         headers.set(key, Array.isArray(value) ? value.join(", ") : value);
       }
-      const protocolReq = new Request(`http://${req.headers.host ?? "127.0.0.1"}${req.url ?? "/"}`, {
+      const protocolReq = new Request("http://127.0.0.1/", {
         method: req.method ?? "GET",
         headers,
       });
@@ -185,7 +185,7 @@ app.prepare().then(() => {
     guardApiRequest(req, res)
       .then((guarded) => {
         if (!guarded) return;
-        handle(guarded as any, res as any);
+        return handle(guarded as any, res as any);
       })
       .catch((error) => {
         logError("[request-guard] failed to process request", { error: error });

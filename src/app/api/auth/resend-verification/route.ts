@@ -20,7 +20,7 @@ export async function POST(req: Request) {
 
   let body: { email?: unknown; planId?: unknown };
   try {
-    body = await req.json();
+    const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -86,7 +86,8 @@ export async function POST(req: Request) {
       return true;
     });
     if (!persisted) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
-  } catch {
+  } catch (error) {
+    logError("auth.resend_verification.persistence_failed", { error: error instanceof Error ? error.message : "unknown" });
     // Keep this endpoint enumeration-safe even when token persistence is
     // temporarily unavailable. No token is sent unless persistence succeeds.
     return NextResponse.json(GENERIC, { status: 202 });
@@ -101,7 +102,8 @@ export async function POST(req: Request) {
       html: `<p>${t("mail.verify.body")}</p><p><a href="${url}">${t("mail.verify.cta")}</a></p><p>${t("mail.verify.expires")}</p>`,
       text: t("mail.verify.text", { url }),
     });
-  } catch {
+  } catch (error) {
+    logError("auth.resend_verification.email_failed", { error: error instanceof Error ? error.message : "unknown" });
     // Suppress email delivery error in response to preserve anti-enumeration
   }
 

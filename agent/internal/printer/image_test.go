@@ -66,3 +66,19 @@ func TestAdaptiveRasterBanding(t *testing.T) {
 		t.Fatalf("expected 5 raster bands for 600px image with sliceHeight=128, got %d", countLow)
 	}
 }
+
+func TestWideOneRowJPEGStillEmitsRasterData(t *testing.T) {
+	data := createTestJPEG(16384, 1)
+	output, err := JPEGToESCPOSWithMaxWidth(data, 256, 384)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := []byte{0x1d, 0x76, 0x30, 0x00}
+	offset := bytes.Index(output, marker)
+	if offset < 0 || offset+8+48 > len(output) {
+		t.Fatalf("image became initialization-only output: %d bytes", len(output))
+	}
+	if output[offset+6] != 1 || output[offset+7] != 0 {
+		t.Fatal("resized one-row image lacks a raster row")
+	}
+}

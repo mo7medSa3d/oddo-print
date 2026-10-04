@@ -52,6 +52,8 @@ export default function PlatformTenantsPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>("suspend");
@@ -59,22 +61,25 @@ export default function PlatformTenantsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  useEffect(() => { setOffset(0); }, [search]);
+
   useEffect(() => {
     let ignore = false;
+    setLoading(true);
     async function load() {
       try {
-        const res = await fetch("/api/platform/tenants", { cache: "no-store" });
+        const res = await fetch(`/api/platform/tenants?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}`, { cache: "no-store" });
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.tenants.loadFailed"));
         const data = await res.json();
-        if (!ignore) { setTenants(Array.isArray(data.tenants) ? data.tenants : []); setError(null); }
+        if (!ignore) { setTenants(Array.isArray(data.tenants) ? data.tenants : []); setHasMore(data.hasMore === true); setError(null); }
       } catch {
         if (!ignore) setError(t("platform.tenants.loadFailed"));
       } finally { if (!ignore) setLoading(false); }
     }
     void load();
     return () => { ignore = true; };
-  }, [reloadKey, t]);
+  }, [reloadKey, t, offset, search]);
 
   function closeDialog() {
     if (actionLoading) return;
@@ -347,6 +352,13 @@ export default function PlatformTenantsPage() {
           </div>
         )}
       </Modal>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + tenants.length) })}</span>
+        <div className="flex gap-2">
+          <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
+          <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>
+        </div>
+      </div>
     </div>
   );
 }

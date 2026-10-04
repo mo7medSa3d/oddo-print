@@ -182,6 +182,7 @@ export async function claimJobForDelivery(
           claimed_at = now(),
           updated_at = now(),
           claim_token = gen_random_uuid()::text,
+          closed_claim_token_hash = NULL,
           delivered_at = NULL,
           acked_at = NULL,
           error = ${claimError},

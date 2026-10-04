@@ -82,6 +82,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ipp: { protocol: "ipp", connectionType: "ipp" },
       ipps: { protocol: "ipps", connectionType: "ipps" },
       raw: { protocol: "raw", connectionType: "network" },
+      zpl: { protocol: "zpl", connectionType: "network" },
+      tspl: { protocol: "tspl", connectionType: "network" },
       escpos: { protocol: "escpos", connectionType: "network" },
       spooler: { protocol: "spooler", connectionType: "spooler" },
       windows_spooler: { protocol: "spooler", connectionType: "spooler" },
@@ -96,7 +98,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const rawProtocol = (device.protocol ?? "").toLowerCase();
     const transport = protocolMap[rawProtocol];
     if (!transport) return { kind: "unsupported_transport" as const, protocol: device.protocol ?? "unknown" };
-    if (["ipp", "ipps", "raw"].includes(transport.protocol) && (!device.ipAddress || !device.port)) {
+    if (["ipp", "ipps", "raw", "escpos", "zpl", "tspl"].includes(transport.protocol) && (!device.ipAddress || !device.port)) {
       return { kind: "missing_endpoint" as const };
     }
 
@@ -106,7 +108,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // ip/port-only comparison never converges for IPP and re-provisioning
       // duplicates the row.
       const expectedIppAddress = device.uri
-        ?? (transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print");
+        ?? (transport.protocol + "://" + (device.ipAddress.includes(":") ? `[${device.ipAddress}]` : device.ipAddress) + ":" + String(device.port) + "/ipp/print");
       const all = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
       for (const p of all) {
         const cfg = p.config as { ip?: string; address?: string; port?: number } | null;
@@ -139,7 +141,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const ippAddress = device.uri
       ?? (device.ipAddress && device.port
-        ? transport.protocol + "://" + device.ipAddress + ":" + String(device.port) + "/ipp/print"
+        ? transport.protocol + "://" + (device.ipAddress.includes(":") ? `[${device.ipAddress}]` : device.ipAddress) + ":" + String(device.port) + "/ipp/print"
         : undefined);
     const printerConfig = transport.connectionType === "spooler"
       ? { spooler_name: device.spoolerName ?? device.deviceName ?? undefined, address: device.spoolerName ?? device.deviceName ?? undefined }
@@ -148,6 +150,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : { ip: device.ipAddress ?? undefined, port: device.port ?? undefined };
     const configError = validateConnectionConfig(transport.connectionType, printerConfig, transport.protocol);
     if (configError) return { kind: "invalid_endpoint" as const, error: configError };
+
+    // Spooler queues and stable Agent identities need convergence as well as
+    // network endpoint dedupe; never create a second runtime target for one queue.
+    const existingPrinters = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
+    const existing = existingPrinters.find(p => p.connectionType === transport.connectionType && p.protocol === transport.protocol && (
+      (transport.connectionType === "spooler" && (p.config as { spooler_name?: string; address?: string } | null)?.spooler_name === (printerConfig as { spooler_name?: string }).spooler_name)
+      || ((p.id === device.identityKey || p.id === device.id) && JSON.stringify(p.config) === JSON.stringify(printerConfig))
+    ));
+    if (existing) {
+      await tx.update(discoveredDevices).set({ candidateStatus: "provisioned", provisionedPrinterId: existing.id, updatedAt: sql`now()` })
+        .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.candidateStatus, "verified")));
+      return { kind: "already" as const, printerId: existing.id };
+    }
 
     const printerId = `printer_${nanoid(10)}`;
     await tx.insert(printers).values({
@@ -161,6 +176,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       protocol: transport.protocol,
       status: "unknown",
       lifecycle: "active",
+      managementSource: "manager",
+      desiredRevision: 1,
       config: printerConfig,
       capabilities: {
         ...(device.capabilities as Record<string, unknown> | null ?? {}),

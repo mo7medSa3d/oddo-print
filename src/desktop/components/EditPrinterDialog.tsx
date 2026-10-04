@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Button, Field, Input, Modal, Select } from "../../components/ui";
 import { friendlyGatewayError } from "../lib/printers";
-import { updateGatewayPrinter, type PrinterInfo } from "../lib/ipc";
+import { updateGatewayPrinter, parseUsbIdentifier, type PrinterInfo } from "../lib/ipc";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
@@ -33,9 +33,10 @@ function protocolOptions(connectionType: ConnectionType, t: Translator): Array<{
     case "ipp":
       return [{ value: "ipp", label: t("desktop.connection.ipp") }, { value: "unknown", label: t("desktop.edit.deviceUnknown") }];
     case "ipps":
-      return [{ value: "ipps", label: "IPPS" }, { value: "unknown", label: "Unknown" }];
+      return [{ value: "ipps", label: "IPPS" }, { value: "unknown", label: t("desktop.edit.deviceUnknown") }];
     case "usb":
       return [
+        { value: "spooler", label: t("desktop.connection.spooler") },
         { value: "raw", label: "RAW" },
         { value: "escpos", label: "ESC/POS" },
         { value: "zpl", label: "ZPL" },
@@ -85,13 +86,13 @@ export function EditPrinterDialog({
   ));
   const [host, setHost] = useState(() => stringConfig(initialConfig, "ip"));
   const [port, setPort] = useState(() => typeof initialConfig.port === "number" ? String(initialConfig.port) : "9100");
-  const [address, setAddress] = useState(() => stringConfig(initialConfig, "address"));
+  const [address, setAddress] = useState(() => stringConfig(initialConfig, "address") || stringConfig(initialConfig, "device_path"));
   const [spoolerName, setSpoolerName] = useState(() => stringConfig(initialConfig, "spooler_name"));
   const [usbVid, setUsbVid] = useState(() =>
-    printer?.usbVid ?? (initialConfig.vid != null ? String(initialConfig.vid) : "")
+    initialConfig.vid != null ? String(initialConfig.vid) : printer?.usbVid ? "0x" + printer.usbVid.replace(/^0x/i, "") : ""
   );
   const [usbPid, setUsbPid] = useState(() =>
-    printer?.usbPid ?? (initialConfig.pid != null ? String(initialConfig.pid) : "")
+    initialConfig.pid != null ? String(initialConfig.pid) : printer?.usbPid ? "0x" + printer.usbPid.replace(/^0x/i, "") : ""
   );
   const [usbSerial, setUsbSerial] = useState(() =>
     printer?.usbSerial ?? stringConfig(initialConfig, "serial")
@@ -120,6 +121,7 @@ export function EditPrinterDialog({
     delete nextConfig.port;
     delete nextConfig.address;
     delete nextConfig.spooler_name;
+    delete nextConfig.vid; delete nextConfig.pid; delete nextConfig.serial; delete nextConfig.device_path;
 
     if (connectionType === "network") {
       const n = Number(port);
@@ -141,24 +143,16 @@ export function EditPrinterDialog({
       nextConfig.spooler_name = spoolerName.trim();
       nextConfig.address = spoolerName.trim();
     } else if (connectionType === "usb") {
-      const vid = Number(usbVid);
-      const pid = Number(usbPid);
-      if (!usbVid.trim() || !Number.isInteger(vid) || vid < 0 || vid > 65535) {
-        onError(t("desktop.edit.usbVidRequired"));
-        return;
+      if (protocol === "spooler") {
+        if (!spoolerName.trim()) { onError(t("desktop.edit.spoolerRequired")); return; }
+        nextConfig.spooler_name = spoolerName.trim(); nextConfig.address = spoolerName.trim();
+      } else {
+        try { nextConfig.vid = parseUsbIdentifier(usbVid); } catch { onError(t("desktop.edit.usbVidRequired")); return; }
+        try { nextConfig.pid = parseUsbIdentifier(usbPid); } catch { onError(t("desktop.edit.usbPidRequired")); return; }
+        if (!address.trim()) { onError(t("desktop.edit.usbPathRequired")); return; }
+        nextConfig.address = address.trim();
       }
-      if (!usbPid.trim() || !Number.isInteger(pid) || pid < 0 || pid > 65535) {
-        onError(t("desktop.edit.usbPidRequired"));
-        return;
-      }
-      if (!address.trim()) {
-        onError(t("desktop.edit.usbPathRequired"));
-        return;
-      }
-      nextConfig.vid = vid;
-      nextConfig.pid = pid;
       if (usbSerial.trim()) nextConfig.serial = usbSerial.trim();
-      nextConfig.address = address.trim();
     } else {
       if (!address.trim()) {
         onError(t("desktop.edit.ippUrlRequired"));
@@ -258,6 +252,16 @@ export function EditPrinterDialog({
             <Field label={t("desktop.edit.windowsPrinterName")} htmlFor="edit-printer-spooler">
               <Input id="edit-printer-spooler" value={spoolerName} onChange={(e) => setSpoolerName(e.target.value)} />
             </Field>
+          )}
+          {connectionType === "usb" && (
+            <div className="space-y-4">
+              {protocol === "spooler" ? <Field label={t("desktop.edit.windowsPrinterName")} htmlFor="edit-usb-spooler"><Input id="edit-usb-spooler" value={spoolerName} onChange={e => setSpoolerName(e.target.value)} /></Field> : <>
+                <Field label={t("desktop.edit.usbVid")} htmlFor="edit-usb-vid"><Input id="edit-usb-vid" value={usbVid} onChange={e => setUsbVid(e.target.value)} placeholder="0x04b8" /></Field>
+                <Field label={t("desktop.edit.usbPid")} htmlFor="edit-usb-pid"><Input id="edit-usb-pid" value={usbPid} onChange={e => setUsbPid(e.target.value)} placeholder="0x0202" /></Field>
+                <Field label={t("desktop.edit.usbPath")} htmlFor="edit-usb-path"><Input id="edit-usb-path" value={address} onChange={e => setAddress(e.target.value)} /></Field>
+              </>}
+              <Field label={t("desktop.edit.usbSerial")} htmlFor="edit-usb-serial"><Input id="edit-usb-serial" value={usbSerial} onChange={e => setUsbSerial(e.target.value)} /></Field>
+            </div>
           )}
           {(connectionType === "ipp" || connectionType === "ipps") && (
             <Field label={t("desktop.edit.printerUrl")} htmlFor="edit-printer-address">

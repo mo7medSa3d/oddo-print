@@ -280,7 +280,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
   agentId: text("agent_id").notNull(),
   status: text("status").notNull().default("running"),
   config: jsonb("config").$type<{ cidr?: string; protocols?: string[]; timeoutMs?: number; concurrency?: number; }>().default({}).notNull(),
-  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; updated?: number; skipped?: number; verified?: number; errors?: number; durationMs?: number; }>().default({}).notNull(),
+  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; updated?: number; skipped?: number; verified?: number; errors?: string[]; durationMs?: number; }>().default({}).notNull(),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -362,6 +362,8 @@ export const printJobs = pgTable("print_jobs", {
   retries: integer("retries").notNull().default(0),
   claimedAt: timestamp("claimed_at"),
   claimToken: text("claim_token"),
+  // Only acknowledges the same closed outcome; never authorizes execution.
+  closedClaimTokenHash: text("closed_claim_token_hash"),
   deliveryAttempts: integer("delivery_attempts").notNull().default(0),
   deliveredAt: timestamp("delivered_at"),
   ackedAt: timestamp("acked_at"),
@@ -403,10 +405,10 @@ export const printJobs = pgTable("print_jobs", {
   // COALESCE keeps this predicate two-valued: an absent/NULL protocol must
   // FAIL raw/escpos rows, never evaluate to UNKNOWN (CHECKs accept UNKNOWN).
   payloadContractCheck: check("print_jobs_payload_contract_check", sql`jsonb_typeof(${table.payload}) = 'object' AND (
-    (${table.payload}->>'type' = 'raw' AND COALESCE(${table.payload}->>'protocol', '') in ('raw','escpos','zpl','tspl'))
-    OR (${table.payload}->>'type' = 'escpos' AND COALESCE(${table.payload}->>'protocol', '') = 'escpos')
-    OR (${table.payload}->>'type' = 'pdf' AND COALESCE(${table.payload}->>'protocol', '') = '')
-    OR (${table.payload}->>'type' = 'image' AND COALESCE(${table.payload}->>'protocol', '') = '')
+    (COALESCE(${table.payload}->>'type', '') = 'raw' AND COALESCE(${table.payload}->>'protocol', '') in ('raw','escpos','zpl','tspl'))
+    OR (COALESCE(${table.payload}->>'type', '') = 'escpos' AND COALESCE(${table.payload}->>'protocol', '') = 'escpos')
+    OR (COALESCE(${table.payload}->>'type', '') = 'pdf' AND COALESCE(${table.payload}->>'protocol', '') = '')
+    OR (COALESCE(${table.payload}->>'type', '') = 'image' AND COALESCE(${table.payload}->>'protocol', '') = '')
   )`),
 }));
 
@@ -486,6 +488,7 @@ export const plans = pgTable("plans", {
   description: text("description").notNull().default(""),
   entitlements: jsonb("entitlements").$type<Record<string, number | boolean | string>>().default({}).notNull(),
   stripePriceId: text("stripe_price_id"),
+  stripePriceHistory: text("stripe_price_history").array().notNull().default(sql`ARRAY[]::text[]`),
   stripeProductId: text("stripe_product_id"),
   currency: text("currency"),
   interval: text("interval"),
@@ -511,10 +514,13 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   currentPeriodEnd: timestamp("current_period_end"),
   trialStartedAt: timestamp("trial_started_at"),
   stripeLastEventCreatedAt: timestamp("stripe_last_event_created_at"),
+  stripeStateRevision: bigint("stripe_state_revision", { mode: "number" }).notNull().default(0),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
   checkoutStatus: text("checkout_status").notNull().default("none"),
   checkoutPlanId: text("checkout_plan_id").references(() => plans.id),
   checkoutIdempotencyKey: text("checkout_idempotency_key"),
+  checkoutRequestParams: jsonb("checkout_request_params").$type<Record<string, string>>(),
+  checkoutIntentCreatedAt: timestamp("checkout_intent_created_at"),
   checkoutSessionId: text("checkout_session_id"),
   checkoutSessionUrl: text("checkout_session_url"),
   checkoutSessionExpiresAt: timestamp("checkout_session_expires_at"),
@@ -551,3 +557,27 @@ export const printUsagePeriods = pgTable("print_usage_periods", {
   periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
 }));
 
+
+// Payload-free, durable evidence survives terminal history cleanup.
+export const printJobReceipts = pgTable("print_job_receipts", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  idempotencyKey: text("idempotency_key"),
+  fingerprint: text("fingerprint").notNull(),
+  printerId: text("printer_id").notNull(),
+  agentId: text("agent_id").notNull(),
+  apiKeyId: text("api_key_id"),
+  destination: text("destination"),
+  documentType: text("document_type"),
+  requestedBy: text("requested_by"),
+  status: text("status").notNull(),
+  error: text("error"),
+  closedClaimTokenHash: text("closed_claim_token_hash"),
+  deliveredAt: timestamp("delivered_at"),
+  ackedAt: timestamp("acked_at"),
+  createdAt: timestamp("created_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+}, (table) => ({
+  idempotencyUnique: uniqueIndex("print_job_receipts_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey),
+  statusCheck: check("print_job_receipts_status_check", sql`${table.status} in ('success','failed','expired')`),
+}));

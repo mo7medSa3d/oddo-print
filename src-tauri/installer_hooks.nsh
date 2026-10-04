@@ -6,7 +6,9 @@
 !macro NSIS_HOOK_PREINSTALL
   DetailPrint "Stopping existing Yaseir Agent and Manager..."
   nsExec::Exec 'net stop YaseirAgent'
+  Pop $R0
   nsExec::Exec 'sc stop YaseirAgent'
+  Pop $R0
   ; Never mass-kill by image name: a per-machine installer must not terminate
   ; an unrelated process that happens to share the executable name. The
   ; YaseirAgent service is stopped explicitly below; the desktop manager is
@@ -15,42 +17,67 @@
   ; Legacy service cleanup for smooth upgrade (service identity is explicit):
   ; pre-migration installs registered YasserAgent and OdooPrintAgent.
   nsExec::Exec 'net stop YasserAgent'
+  Pop $R0
   nsExec::Exec 'sc stop YasserAgent'
+  Pop $R0
   nsExec::Exec 'net stop OdooPrintAgent'
+  Pop $R0
   nsExec::Exec 'sc stop OdooPrintAgent'
+  Pop $R0
 !macroend
 
 
 !macro NSIS_HOOK_POSTINSTALL
   DetailPrint "Configuring Yaseir Agent Windows Service..."
   ReadEnvStr $0 "PROGRAMDATA"
-  IfErrors 0 +2
+  StrCmp $0 "" 0 +2
     StrCpy $0 "C:\ProgramData"
 
-  IfFileExists "$INSTDIR\resources\YaseirAgent.exe" 0 +4
-    nsExec::Exec '"$INSTDIR\resources\YaseirAgent.exe" -service install -config "$0\YaseirAgent\config.yaml"'
-    nsExec::Exec '"$INSTDIR\resources\YaseirAgent.exe" -service start'
-    Goto +3
+  StrCpy $1 "$INSTDIR\resources\YaseirAgent.exe"
+  IfFileExists "$1" agent_resource_found 0
+  StrCpy $1 "$INSTDIR\YaseirAgent.exe"
+  IfFileExists "$1" agent_resource_found 0
+  SetErrorLevel 1
+  Abort "Agent executable is missing. Reinstall the complete signed package."
 
+  agent_resource_found:
+  nsExec::ExecToStack '"$1" -service install -config "$0\YaseirAgent\config.yaml"'
+  Pop $R0
+  Pop $R1
+  StrCmp $R0 "0" agent_installed 0
+  DetailPrint "Agent service install failed ($R0): $R1"
+  SetErrorLevel 1
+  Abort "Agent service installation failed. See installer details."
 
-  IfFileExists "$INSTDIR\YaseirAgent.exe" 0 +3
-    nsExec::Exec '"$INSTDIR\YaseirAgent.exe" -service install -config "$0\YaseirAgent\config.yaml"'
-    nsExec::Exec '"$INSTDIR\YaseirAgent.exe" -service start'
+  agent_installed:
+  nsExec::ExecToStack '"$1" -service start'
+  Pop $R0
+  Pop $R1
+  StrCmp $R0 "0" agent_started 0
+  DetailPrint "Agent service start failed ($R0): $R1"
+  SetErrorLevel 1
+  Abort "Agent service startup failed. See installer details."
+  agent_started:
 !macroend
 
 
 !macro NSIS_HOOK_PREUNINSTALL
   DetailPrint "Stopping and removing Yaseir Agent Windows Service..."
   nsExec::Exec 'net stop YaseirAgent'
-  nsExec::Exec 'sc stop YaseirAgent'
-  ; Do not use image-name taskkill here. The service lifecycle commands below
-  ; target only the named YaseirAgent Windows service.
-  IfFileExists "$INSTDIR\resources\YaseirAgent.exe" 0 +4
-    nsExec::Exec '"$INSTDIR\resources\YaseirAgent.exe" -service stop'
-    nsExec::Exec '"$INSTDIR\resources\YaseirAgent.exe" -service uninstall'
-    Goto +3
-
-  IfFileExists "$INSTDIR\YaseirAgent.exe" 0 +2
-    nsExec::Exec '"$INSTDIR\YaseirAgent.exe" -service stop'
-    nsExec::Exec '"$INSTDIR\YaseirAgent.exe" -service uninstall'
+  Pop $R0
+  StrCpy $1 "$INSTDIR\resources\YaseirAgent.exe"
+  IfFileExists "$1" agent_uninstall_found 0
+  StrCpy $1 "$INSTDIR\YaseirAgent.exe"
+  IfFileExists "$1" agent_uninstall_found 0
+  SetErrorLevel 1
+  Abort "Agent executable is missing; service removal requires repair first."
+  agent_uninstall_found:
+  nsExec::ExecToStack '"$1" -service uninstall'
+  Pop $R0
+  Pop $R1
+  StrCmp $R0 "0" agent_removed 0
+  DetailPrint "Agent service removal failed ($R0): $R1"
+  SetErrorLevel 1
+  Abort "Agent service removal failed. See installer details."
+  agent_removed:
 !macroend

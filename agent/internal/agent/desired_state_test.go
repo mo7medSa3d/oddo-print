@@ -513,3 +513,59 @@ func TestPrinterStatusPayloadPersistsObservedCapabilities(t *testing.T) {
 		t.Fatalf("heartbeat capability observation was not persisted: %#v", persisted)
 	}
 }
+
+func TestUnobservedUnchangedDesiredStateRetainsBackend(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	desired := testDesiredPrinter("same-backend", 1, "active")
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{desired})
+	first, ok := a.getPrinter(desired.ID)
+	if !ok {
+		t.Fatal("initial backend not initialized")
+	}
+	if a.desiredStates[desired.ID].ObservedDesiredRevision != 0 {
+		t.Fatal("configuration alone claimed observation")
+	}
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{desired})
+	second, ok := a.getPrinter(desired.ID)
+	if !ok || first != second {
+		t.Fatal("unobserved configuration replaced backend and its safety gates")
+	}
+	a.printersMu.Lock()
+	delete(a.printers, desired.ID)
+	a.printersMu.Unlock()
+	a.reconcileGatewayDesiredState([]desiredPrinterWire{desired})
+	if recovered, ok := a.getPrinter(desired.ID); !ok || recovered == nil {
+		t.Fatal("missing backend was not recovered")
+	}
+}
+
+func TestDesiredNumericUSBIdentifiersReachBackendAsCorrectNumbers(t *testing.T) {
+	row := desiredPrinterRecord{Desired: desiredPrinterWire{ID: "usb-numeric", Name: "USB Printer", ConnectionType: "usb", Protocol: "raw", Lifecycle: "active", Config: map[string]interface{}{"vid": float64(1208), "pid": float64(514), "address": `\\?\usb#printer`}}}
+	pc := desiredPrinterConfig(row)
+	if pc.USBVID != "04b8" || pc.USBPID != "0202" {
+		t.Fatalf("numeric identifiers misencoded: %+v", pc)
+	}
+	backend, err := printer.New(pc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usb, ok := backend.(*printer.USBPrinter)
+	if !ok || usb.VID != 1208 || usb.PID != 514 {
+		t.Fatalf("USB backend opened wrong identity: %+v", backend)
+	}
+	row.Desired.Config["vid"] = "04B8"
+	if desiredPrinterConfig(row).USBVID != "04B8" {
+		t.Fatal("legacy hexadecimal identity changed")
+	}
+}
+
+func TestDesiredULAValidationMatchesGatewayPrivateNetworkPolicy(t *testing.T) {
+	for _, host := range []string{"fd12:3456::10", "fc00::10"} {
+		if err := validateDesiredNetworkDestination(map[string]interface{}{"ip": host, "port": 9100}); err != nil {
+			t.Fatalf("private IPv6 printer rejected: %v", err)
+		}
+	}
+	if err := validateDesiredNetworkDestination(map[string]interface{}{"ip": "fd00:0ec2:0000:0000:0000:0000:0000:0254", "port": 9100}); err == nil {
+		t.Fatal("metadata endpoint accepted via alternate spelling")
+	}
+}

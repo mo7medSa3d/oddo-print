@@ -261,7 +261,6 @@ export async function reservePairingAttempt(ip: string): Promise<RateLimitDecisi
 
 export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {
   const keys = [accountKey(username)];
-  if (trustProxyEnabled() && ip !== "unknown") keys.push(ipKey(ip));
   keys.sort();
 
   return db.transaction(async (tx) => {
@@ -345,9 +344,8 @@ export async function cleanupAuthRateLimits(): Promise<number> {
   return result.rows.length;
 }
 
-export async function recordAuthSuccess(ip: string, username: string): Promise<void> {
+export async function recordAuthSuccess(_ip: string, username: string): Promise<void> {
   const keys = [accountKey(username)];
-  if (trustProxyEnabled() && ip !== "unknown") keys.push(ipKey(ip));
   await db.execute(sql`
     DELETE FROM auth_rate_limits
     WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})

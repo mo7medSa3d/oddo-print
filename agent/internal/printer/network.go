@@ -123,6 +123,10 @@ func (p *NetworkPrinter) SupportsKind(kind string) bool {
 }
 
 func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address string) (int, error) {
+	// Closing the owned print connection interrupts a blocked Write even
+	// for contexts cancelled without a deadline.
+	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancellation()
 	written := 0
 	for written < len(data) {
 		select {
@@ -137,7 +141,14 @@ func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address 
 		if len(chunk) > networkWriteChunkSize {
 			chunk = chunk[:networkWriteChunkSize]
 		}
-		if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {
+		deadline := time.Now().Add(writeStallTimeout)
+		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+			deadline = contextDeadline
+		}
+		if err := conn.SetWriteDeadline(deadline); err != nil {
+			if written > 0 {
+				return written, MarkUnknown("set printer write deadline after %d/%d bytes: %v", written, len(data), err)
+			}
 			return written, fmt.Errorf("set printer write deadline: %w", err)
 		}
 		n, err := conn.Write(chunk)

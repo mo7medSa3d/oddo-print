@@ -36,7 +36,7 @@ def _tspl_text(value):
     """Sanitize free text for a TSPL quoted TEXT argument: strip quotes and
     C0 controls so names cannot terminate the argument early."""
     text = str(value or "")
-    return "".join(ch for ch in text if ch != '"' and (ch >= " " or ch in "\n\t")).strip()[:80]
+    return "".join(ch for ch in text if ch != '"' and " " <= ch != "\x7f").strip()[:80]
 
 
 def _escpos_text(value):
@@ -231,7 +231,7 @@ class PrintGatewayRouter(models.AbstractModel):
         if not records:
             raise ValidationError(_("Cannot print an empty report."))
         try:
-            pdf_content, _ = report._render_qweb_pdf(report, res_ids=records.ids, data=data)
+            pdf_content, report_format = report._render_qweb_pdf(report, res_ids=records.ids, data=data)
         except Exception as exc:
             raise ValidationError(_("Failed to render %s for Gateway printing.") % report.display_name) from exc
         return {
@@ -245,7 +245,7 @@ class PrintGatewayRouter(models.AbstractModel):
         try:
             renderer = self.env["ir.actions.report"].with_context(**(context_values or {}))
             res_ids = render_target.ids if hasattr(render_target, "ids") and render_target.ids else False
-            pdf_content, _ = renderer._render_qweb_pdf(report_ref, res_ids=res_ids, data=context_values)
+            pdf_content, report_format = renderer._render_qweb_pdf(report_ref, res_ids=res_ids, data=context_values)
         except Exception as exc:
             report = self.env.ref(report_ref, raise_if_not_found=False)
             label = report.display_name if report else report_ref
@@ -766,7 +766,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
         now_str = fields.Datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         company_name = binding.company_id.name
-        branch_name = binding.branch_id.name if binding.branch_id else "Default / Root"
+        branch_name = binding.branch_id.name if binding.branch_id else _("Default / Root")
         printer_name = binding.printer_id
 
         # SPOOLER: real PDF through the Windows driver path.
@@ -803,7 +803,7 @@ class PrintGatewayRouter(models.AbstractModel):
         # characters stripped as well.
         sanitize = {"zpl": _zpl_text, "tspl": _tspl_text}.get(proto, _escpos_text)
         company_name = sanitize(binding.company_id.name)
-        branch_name = sanitize(binding.branch_id.name) if binding.branch_id else "Default / Root"
+        branch_name = sanitize(binding.branch_id.name) if binding.branch_id else _("Default / Root")
         printer_name = sanitize(binding.printer_id)
 
         if proto == "zpl":
@@ -930,6 +930,18 @@ class PrintGatewayRouter(models.AbstractModel):
         Offsets and stream Length are computed from actual content; text is
         PDF-escaped so operator names cannot break document syntax.
         """
+        if any(not str(value or "").isascii() for value in (company_name, branch_name, printer_name)):
+            # Unicode names require font shaping; the ASCII diagnostic writer
+            # cannot represent Arabic using its built-in Type1 font.
+            pdf, report_type = self.env["ir.actions.report"].with_context(force_report_rendering=True)._render_qweb_pdf(
+                "print_gateway.action_diagnostic_report", res_ids=[],
+                data={"company_name": company_name, "branch_name": branch_name,
+                      "printer_name": printer_name, "now_str": now_str},
+            )
+            if report_type != "pdf" or not pdf.startswith(b"%PDF-"):
+                raise ValidationError(_("The diagnostic PDF renderer did not return a valid PDF document."))
+            return pdf
+
         def _pdf_text(value):
             text = str(value or "")
             text = "".join(ch for ch in text if ch >= " " or ch in "\n\t").strip()[:80]

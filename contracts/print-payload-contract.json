@@ -2,16 +2,52 @@
   "version": 1,
   "encoding": "base64",
   "maxPayloadBytes": 5242880,
-  "wireTypes": ["raw", "escpos", "pdf", "image"],
-  "rawProtocols": ["raw", "escpos", "zpl", "tspl"],
+  "wireTypes": [
+    "raw",
+    "escpos",
+    "pdf",
+    "image"
+  ],
+  "rawProtocols": [
+    "raw",
+    "escpos",
+    "zpl",
+    "tspl"
+  ],
   "escposProtocol": "escpos",
   "peripherals": {
-    "drawer": ["pin2", "pin5", "none"],
-    "cutter": ["partial", "full", "none"],
-    "buzzer": ["epson_pulse", "star_bel", "none"]
+    "drawer": [
+      "pin2",
+      "pin5",
+      "none"
+    ],
+    "cutter": [
+      "partial",
+      "full",
+      "none"
+    ],
+    "buzzer": [
+      "epson_pulse",
+      "star_bel",
+      "none"
+    ]
   },
   "signatures": {
     "pdfPrefix": "%PDF-",
     "jpegHexPrefix": "ffd8ff"
+  },
+  "discoveryReport": {
+    "endpoint": "/api/agent/discovery",
+    "optionalFields": "Omit absent port, manufacturer, capabilities, ipAddress and uri; do not send null or port 0.",
+    "protocolFallback": "unknown",
+    "devices": "array, including empty array",
+    "errors": {
+      "type": "string[]",
+      "optional": true,
+      "maxItems": 64,
+      "maxStringLength": 2048,
+      "persistedAt": "discovery_sessions.stats.errors"
+    },
+    "verification": "Gateway observations stay candidates until manager approval"
   }
 }

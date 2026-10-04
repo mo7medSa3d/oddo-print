@@ -312,6 +312,20 @@ func desiredStringValue(m map[string]interface{}, key string) string {
 	}
 }
 
+// Gateway numeric USB identifiers are decimal numbers; the backend expects
+// hexadecimal strings. Legacy/operator strings already use hexadecimal.
+func desiredUSBIdentity(m map[string]interface{}, key string) string {
+	if value, ok := m[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	decimal := desiredStringValue(m, key)
+	value, err := strconv.ParseUint(decimal, 10, 16)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%04x", value)
+}
+
 func desiredNumberValue(m map[string]interface{}, key string) int {
 	v, err := strconv.Atoi(desiredStringValue(m, key))
 	if err != nil || v < 0 {
@@ -362,12 +376,8 @@ func validateDesiredNetworkDestination(c map[string]interface{}) error {
 	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || !(ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
 		return fmt.Errorf("network printer destination must be a private or link-local IP address")
 	}
-	if host == "169.254.169.254" || strings.EqualFold(host, "fd00:ec2::254") {
+	if ip.String() == "169.254.169.254" || strings.EqualFold(ip.String(), "fd00:ec2::254") {
 		return fmt.Errorf("network printer destination must not be a metadata endpoint")
-	}
-	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8)
-	if ip.To4() == nil && len(ip) >= 2 && ip[0] == 0xfd {
-		return fmt.Errorf("network printer destination must not be a ULA address")
 	}
 	canonical := net.JoinHostPort(host, strconv.Itoa(port))
 	if supplied := desiredStringValue(c, "address"); supplied != "" {
@@ -397,8 +407,8 @@ func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
 		SpoolerName:    desiredStringValue(p.Config, "spooler_name"),
 		ConnectionType: p.ConnectionType,
 		PrinterType:    p.PrinterType,
-		USBVID:         desiredStringValue(p.Config, "vid"),
-		USBPID:         desiredStringValue(p.Config, "pid"),
+		USBVID:         desiredUSBIdentity(p.Config, "vid"),
+		USBPID:         desiredUSBIdentity(p.Config, "pid"),
 		USBSerial:      desiredStringValue(p.Config, "serial"),
 		Capabilities:   capabilities,
 		PaperWidthMM:   desiredPaperWidthMM(p.Config),
@@ -431,14 +441,20 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 		}
 	}
 	pc := desiredPrinterConfig(row)
+	lock := a.getPrinterLock(pc.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	a.printersMu.RLock()
+	_, initialized := a.printers[pc.ID]
+	unchanged := initialized && reflect.DeepEqual(a.printerConfigs[pc.ID], pc)
+	a.printersMu.RUnlock()
+	if unchanged {
+		return nil
+	}
 	backend, err := printer.New(pc)
 	if err != nil {
 		return fmt.Errorf("initialize printer %s at desired revision %d: %w", pc.ID, row.Desired.DesiredRevision, err)
 	}
-
-	lock := a.getPrinterLock(pc.ID)
-	lock.Lock()
-	defer lock.Unlock()
 
 	a.printersMu.Lock()
 	a.printers[pc.ID] = backend
@@ -485,10 +501,13 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 
 		a.markGatewayOwned(id)
 
+		a.printersMu.RLock()
+		_, initialized := a.printers[id]
+		runtimeUnchanged := initialized && reflect.DeepEqual(a.printerConfigs[id], desiredPrinterConfig(row))
+		a.printersMu.RUnlock()
 		if desired.Lifecycle == "active" &&
-			exists &&
+			runtimeUnchanged && exists &&
 			current.AppliedDesiredRevision >= desired.DesiredRevision &&
-			current.ObservedDesiredRevision >= desired.DesiredRevision &&
 			current.ApplyError == "" {
 			continue
 		}

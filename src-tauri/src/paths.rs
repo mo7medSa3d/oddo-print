@@ -153,6 +153,13 @@ fn agent_data_root_candidate() -> PathBuf {
     }
 }
 
+/// Autostart belongs to the logged-in user, independently of shared service data.
+pub fn autostart_choice_path() -> Result<PathBuf, String> {
+    let root = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA is unavailable; cannot persist a per-user autostart choice")?;
+    if root.trim().is_empty() { return Err("LOCALAPPDATA is empty".into()); }
+    Ok(PathBuf::from(root).join("YaseirManager").join("autostart-user-choice"))
+}
+
 pub fn settings_path() -> PathBuf {
     manager_data_root().join("settings.json")
 }

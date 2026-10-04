@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { validateManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
 import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -13,12 +13,12 @@ import { clientIpFrom } from "../../../../lib/auth-rate-limit";
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   let body: { tenantId?: unknown; selectionToken?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const tenantId = typeof body.tenantId === "string" ? body.tenantId.trim() : "";
   if (!tenantId) return NextResponse.json({ error: "tenantId is required" }, { status: 400 });
 
   const selectionToken = typeof body.selectionToken === "string" ? body.selectionToken.trim() : "";
-  const claims = await validateManager(req);
+  const claims = await validateWorkspaceManager(req);
 
   let userId: string | null = null;
   let isSelectionToken = false;
@@ -38,6 +38,7 @@ export async function POST(req: Request) {
 
   try {
     const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
       if (isSelectionToken && tokenJti) {
         const consumed = await tx.insert(authRateLimits).values({
           key: `tsel_used_${tokenJti}`,

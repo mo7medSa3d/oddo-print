@@ -61,7 +61,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const tenantId = auth.claims.tenantId;
   const { id } = await params;
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   if (body && typeof body === "object" && ("branchId" in body || "branch_id" in body || "enabled" in body || "type" in body || "status" in body || "capabilities" in body)) {
     return NextResponse.json({ error: "Unsupported legacy/observed field" }, { status: 400 });
   }
@@ -76,20 +76,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     result = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
-    const existing = await tx.query.printers.findFirst({
-      where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+    const owner = await tx.query.printers.findFirst({
+      where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)), columns: { agentId: true },
     });
+    if (!owner) return { kind: "not_found" as const };
+    const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${owner.agentId} AND tenant_id = ${tenantId} FOR UPDATE`);
+    const ownerLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
+    if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
+    await tx.execute(sql`SELECT id FROM printers WHERE id = ${id} AND tenant_id = ${tenantId} AND agent_id = ${owner.agentId} FOR UPDATE`);
+    const existing = await tx.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, owner.agentId)) });
     if (!existing) return { kind: "not_found" as const };
-
     if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) {
       return { kind: "conflict" as const, message: `invalid lifecycle transition: ${existing.lifecycle} -> ${parsed.data.lifecycle}` };
     }
-
-    if (parsed.data.lifecycle === "active") {
-      const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${existing.agentId} AND tenant_id = ${tenantId} FOR UPDATE`);
-      const ownerLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
-      if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
-      if (ownerLifecycle !== "active") return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
+    if (parsed.data.lifecycle === "active" && ownerLifecycle !== "active") {
+      return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
     await requireActiveTenantInTransaction(tx, tenantId);

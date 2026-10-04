@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { migrateByHash } from "../scripts/db-migrate";
 import { hashPairingCode } from "../src/lib/agent-auth";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -84,7 +85,9 @@ suite("production-like PostgreSQL migration upgrade", () => {
       await pool.query(`INSERT INTO api_keys (id, branch_id, scope, name, hashed_key) VALUES ($1, $2, 'standard', 'Legacy API key', $3)`, [apiKeyId, branchId, hash]);
       await pool.query(`INSERT INTO print_jobs (id, branch_id, destination_id, agent_id, printer_id, status, payload, expires_at, created_at, updated_at, idempotency_key, retries, delivery_attempts) VALUES ($1, $2, $3, $4, $5, 'queued', '{"type":"raw","encoding":"base64","data":"aA=="}'::jsonb, now() + interval '1 hour', now(), now(), 'legacy-upgrade-key', 0, 0)`, [jobId, branchId, destinationId, agentId, printerId]);
 
-      await migrate(db, { migrationsFolder: currentDir });
+      const migrationClient = await pool.connect();
+      try { await migrateByHash(migrationClient, currentDir); }
+      finally { migrationClient.release(); }
 
       const legacy = await pool.query(`
         SELECT table_name FROM information_schema.tables

@@ -104,6 +104,11 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		return defaultConfig(), nil
 	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path: %w", err)
+	}
+	path = absolutePath
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -126,11 +131,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	dir := filepath.Dir(path)
-	if dir == "" || dir == "." {
-		if d, err := ExecutableDir(); err == nil {
-			dir = d
-		}
-	}
 	store := storage.NewStore(dir)
 	if sealed, serr := store.GetSecret(secretStoreKey); serr == nil && sealed != "" {
 		cfg.Agent.Secret = sealed
@@ -167,6 +167,11 @@ func Ensure(path string) error {
 	if path == "" {
 		return fmt.Errorf("config path is empty")
 	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve config path: %w", err)
+	}
+	path = absolutePath
 	dir := filepath.Dir(path)
 	if dir == "" {
 		dir = "."
@@ -214,12 +219,12 @@ func (c *Config) Save(path string) error {
 	if path == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	dir := filepath.Dir(path)
-	if dir == "" || dir == "." {
-		if d, err := ExecutableDir(); err == nil {
-			dir = d
-		}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve config path: %w", err)
 	}
+	path = absolutePath
+	dir := filepath.Dir(path)
 	// 0700 from the start (see Ensure above): never a world-readable window
 	// for the config/secret directory, even transiently.
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -433,15 +438,6 @@ func isAllowedPrinterIP(ip net.IP) bool {
 	if strings.EqualFold(ip.String(), "fd00:ec2::254") {
 		return false
 	}
-	// Explicitly reject IPv6 Unique Local Addresses (fd00::/8) in addition to
-	// IsPrivate() which covers fc00::/7. This makes the ULA rejection visible
-	// in the code rather than relying on the Go version's IsPrivate behavior.
-	if ip.To4() == nil {
-		// IPv6: check for ULA prefix (fd00::/8)
-		if len(ip) >= 2 && ip[0] == 0xfd {
-			return false
-		}
-	}
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
@@ -510,11 +506,11 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				}
 			}
 			u, err := url.Parse(normalizedEndpoint)
+			if err != nil || u == nil || u.Hostname() == "" {
+				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
+			}
 			if u.User != nil {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)
-			}
-			if err != nil || u.Hostname() == "" {
-				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
 			}
 			if u.RawQuery != "" || u.Fragment != "" {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)

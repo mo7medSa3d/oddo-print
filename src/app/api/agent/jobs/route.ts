@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { db } from "../../../../db";
-import { printJobs } from "../../../../db/schema";
+import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -211,6 +212,7 @@ export async function GET(req: Request) {
         claimed_at = now(),
         updated_at = now(),
         claim_token = gen_random_uuid()::text,
+        closed_claim_token_hash = NULL,
         acked_at = NULL,
         delivered_at = NULL,
         error = ${DELIVERY_EVIDENCE_PENDING},
@@ -264,7 +266,7 @@ export async function PATCH(req: Request) {
   if (hasBodyOverLimit(req, 64 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
   let body: { jobId?: unknown; status?: unknown; error?: unknown; reason?: unknown; claimToken?: unknown; spoolerJobId?: unknown; attemptId?: unknown; transport?: unknown };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
 
   const { jobId, status: requestedStatus, error: rawError, reason: rawReason, claimToken: rawClaimToken, spoolerJobId: rawSpoolerJobId, attemptId: rawAttemptId, transport: rawTransport } = body;
   if (typeof jobId !== "string" || !jobId) return NextResponse.json({ error: "jobId is required" }, { status: 400 });
@@ -278,9 +280,27 @@ export async function PATCH(req: Request) {
 
   const whereClause = and(eq(printJobs.id, jobId), eq(printJobs.tenantId, agent.tenantId), eq(printJobs.agentId, agent.id));
   const job = await db.query.printJobs.findFirst({ where: whereClause });
-  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  if (!job) {
+    const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.id, jobId), eq(printJobReceipts.tenantId, agent.tenantId), eq(printJobReceipts.agentId, agent.id)) });
+    if (receipt && claimToken && receipt.status === requestedStatus && receipt.closedClaimTokenHash === createHash("sha256").update(claimToken).digest("hex")) {
+      return NextResponse.json({ success: true, status: receipt.status, physicalOutcome: derivePhysicalOutcome(receipt.status, receipt.error) });
+    }
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
 
   const currentStatus = job.status as JobStatus;
+  const closedClaimTokenHash = claimToken ? createHash("sha256").update(claimToken).digest("hex") : null;
+  if (claimToken && closedClaimTokenHash && isTerminal(currentStatus) && requestedStatus === currentStatus) {
+    // Replay acknowledges durable evidence only. It cannot reopen execution,
+    // replace an outcome, extend the late-success window, or alter spooler data.
+    const acknowledged = await db.update(printJobs)
+      .set({ status: currentStatus })
+      .where(and(whereClause, eq(printJobs.status, currentStatus), eq(printJobs.closedClaimTokenHash, closedClaimTokenHash)))
+      .returning({ status: printJobs.status, error: printJobs.error });
+    if (acknowledged.length === 1) {
+      return NextResponse.json({ success: true, status: acknowledged[0].status, physicalOutcome: derivePhysicalOutcome(acknowledged[0].status, acknowledged[0].error) });
+    }
+  }
   if (requestedStatus !== "expired") {
     // Every non-expiry lifecycle report must prove ownership of an actual
     // Gateway claim. A tokenless queued/legacy row is never a valid basis for
@@ -291,6 +311,22 @@ export async function PATCH(req: Request) {
       logWarn("job.status.stale_or_missing_claim", { requestId, jobId, agentId: agent.id, currentStatus });
       return NextResponse.json({ error: "A valid claim token is required for this status transition", code: "CLAIM_REQUIRED", status: currentStatus }, { status: 409 });
     }
+  }
+
+  // A lost acknowledgement can leave this same attempt already printing.
+  // Reconfirm its live fence atomically so an Agent can safely retry admission.
+  if (requestedStatus === "printing" && currentStatus === "printing") {
+    const confirmed = await db.update(printJobs)
+      .set({ updatedAt: sql`now()` })
+      .where(and(
+        fencedJobWrite(jobId, agent.tenantId, agent.id, "printing", claimToken),
+        sql`${printJobs.expiresAt} > now()`,
+      ))
+      .returning({ status: printJobs.status });
+    if (confirmed.length !== 1) {
+      return NextResponse.json({ error: "Printing claim expired or changed", code: "STALE_CLAIM" }, { status: 409 });
+    }
+    return NextResponse.json({ success: true, status: "printing", physicalOutcome: "unknown" });
   }
 
   if (requestedStatus === "expired") {
@@ -367,6 +403,7 @@ export async function PATCH(req: Request) {
       .set({
         status: "queued",
         claimToken: null,
+        closedClaimTokenHash: null,
         claimedAt: null,
         deliveredAt: null,
         ackedAt: null,
@@ -417,12 +454,14 @@ export async function PATCH(req: Request) {
       .set({
         status: "queued",
         claimToken: null,
+        closedClaimTokenHash: null,
         deliveredAt: null,
         ackedAt: null,
         claimedAt: null,
         error: `Agent returned job before execution (${reason})`,
         updatedAt: sql`now()`,
-        // This is a provably pre-execution hand-back: no printer bytes were
+        // claimed has not crossed printing admission, even when WS delivery
+        // and ACK evidence exist. This is a pre-execution hand-back: no printer bytes were
         // sent. Refund the delivery attempt so the physical-delivery budget
         // reflects only real hand-offs, while still incrementing retries to
         // bound repeated admission/requeue loops.
@@ -431,8 +470,8 @@ export async function PATCH(req: Request) {
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
-        isNull(printJobs.deliveredAt),
-        isNull(printJobs.ackedAt),
+        sql`${printJobs.expiresAt} > now()`,
+        sql`${printJobs.retries} < ${MAX_RETRIES}`,
       ))
       .returning({ status: printJobs.status, error: printJobs.error });
     if (updated.length !== 1) {
@@ -510,6 +549,7 @@ export async function PATCH(req: Request) {
         // Invalidate the claim token on terminal success: completed jobs must
         // not retain a live token that could confuse future status checks.
         claimToken: sql`NULL`,
+        closedClaimTokenHash,
         // DB-native now() to stay on the same clock as the sweeper.
         updatedAt: sql`now()`,
         deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
@@ -544,6 +584,7 @@ export async function PATCH(req: Request) {
     .set({
       status: requestedStatus,
       error: nextError,
+      ...(isTerminal(requestedStatus) ? { closedClaimTokenHash } : {}),
       ...(isTerminal(requestedStatus) && !retainsLateSuccessFence ? { claimToken: sql`NULL` } : {}),
       updatedAt: sql`now()`,
       // deliveredAt is delivery EVIDENCE: it must only be stamped when the

@@ -71,6 +71,7 @@ export default function Forgot() {
           {error && <ErrorState title={t("auth.forgot.failed")} message={error} />}
 
           <Button
+            type="submit"
             variant="primary"
             className="w-full"
             size="lg"

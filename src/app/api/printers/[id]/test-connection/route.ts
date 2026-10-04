@@ -4,7 +4,7 @@ import { printers, agents } from "../../../../../db/schema";
 import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
-import { getAgentAvailability } from "../../../../../lib/agent-availability";
+import { getAgentAvailability, isPrinterObservationFresh } from "../../../../../lib/agent-availability";
 
 export const dynamic = "force-dynamic";
 
@@ -74,13 +74,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
-  const reachable = (printer.status === "online" || printer.status === "busy") && agentOnline;
+  const printerFresh = isPrinterObservationFresh(printer.lastSeenAt);
+  const reachable = (printer.status === "online" || printer.status === "busy") && agentOnline && printerFresh;
   return NextResponse.json({
     reachable,
     latencyMs: null,
     live: false,
     lastHeartbeatAt,
     agentOnline: true,
-    error: reachable ? null : `last heartbeat printer.status=${printer.status}`,
+    printerLastSeenAt: printer.lastSeenAt,
+    printerObservationFresh: printerFresh,
+    error: reachable ? null : !printerFresh ? "printer observation is stale or missing" : `last heartbeat printer.status=${printer.status}`,
   });
 }

@@ -2,7 +2,7 @@
 
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
-import { showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
+import { showGatewayBillingLimitDialog, gatewayServerMessage } from "./gateway_limit_dialog";
 
 /**
  * OWL 3 silent report interceptor.
@@ -117,7 +117,7 @@ async function silentPrintReportHandler(action, options, env) {
                 );
             } else {
                 notification.add(
-                    res.message || _t("Document sent to %s. Check Print Activity for the final status.", res.printer_name || "Printer"),
+                    res.message || _t("Document sent to %s. Check Print Activity for the final status.", res.printer_name || _t("Printer")),
                     { type: "success", buttons: [openJobs] }
                 );
             }
@@ -131,7 +131,7 @@ async function silentPrintReportHandler(action, options, env) {
         // must stay visible until dismissed, with the Jobs list one click
         // away for verification.
         notification.add(
-            _t("Printing service error: %s", err?.message || err),
+            _t("Printing service error: %s", gatewayServerMessage(err) || _t("We couldn't complete this print request. Native PDF download cancelled. Check Print Activity for details.")),
             { type: "danger", sticky: true, buttons: [openJobsButton(env)] }
         );
         return true; // FAIL-CLOSED: Dispatch call failed, cancel native PDF dialog

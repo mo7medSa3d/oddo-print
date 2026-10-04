@@ -123,3 +123,11 @@ describe("printer-capability-matrix", () => {
     expect(source).toContain("type TransportType");
     expect(source).not.toContain("switch (p.protocol)");
   });
+
+  it("honors authoritative capability lists and physical backend limits", () => {
+    expect(getSupportedDocumentTypes("spooler", "spooler", { supported_protocols: [] })).toEqual([]);
+    expect(getSupportedDocumentTypes("spooler", "spooler", { supported_protocols: ["escpos"] })).toEqual(["image", "raw", "escpos"]);
+    expect(getSupportedDocumentTypes("escpos", "usb", { supported_protocols: ["image", "escpos"] })).not.toContain("image");
+    expect(getSupportedDocumentTypes("raw", "network", { supported_protocols: ["pdf"] })).toEqual([]);
+    expect(getSupportedDocumentTypes("ipp", "ipp", { supported_protocols: ["image"] })).toEqual([]);
+  });

@@ -49,7 +49,11 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0074 | 1 | Token-table delete cascades and drop of the dead applications table |
 | 0075 | 1 | Discovery state-machine CHECKs and drop of the redundant device-identity index |
 
-**Total**: 76 migrations (0000–0075)
+| 0076 | 1 | Candidate provisioning discovery CHECK |
+
+**Total**: 77 historical migrations (0000–0076), followed by hash-versioned forward repairs in `scripts/db-migrate.ts`.
+
+The production migrator applies every unapplied hash under one advisory lock, regardless of regressing historical timestamps. Forward repairs add retained terminal receipts, Stripe revision/checkout intent fields and price history, terminal claim hashes, and the payload null-check repair; existing SQL and repair hashes must never be rewritten.
 
 ## Migration Policy
 

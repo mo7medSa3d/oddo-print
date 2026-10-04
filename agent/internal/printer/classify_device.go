@@ -266,7 +266,6 @@ var softwareWriterTokens = []string{
 	"microsoft print to pdf",
 	"microsoft xps document writer",
 	"microsoft shared fax",
-	"microsoft enhanced point and print compatibility driver",
 	"send to onenote",
 	"onenote",
 	// ---- Fax software queues (any vendor): PC-FAX dials a modem, never paper ----

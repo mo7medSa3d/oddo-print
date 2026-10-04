@@ -31,8 +31,7 @@ function rate(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
 }
 
-function linePath(values: number[], width: number, height: number, top: number, bottom: number) {
-  const max = Math.max(1, ...values);
+function linePath(values: number[], width: number, height: number, top: number, bottom: number, max: number) {
   const plotHeight = height - top - bottom;
   const step = values.length > 1 ? width / (values.length - 1) : width;
   return values
@@ -44,9 +43,8 @@ function linePath(values: number[], width: number, height: number, top: number, 
     .join(" ");
 }
 
-function areaPath(values: number[], width: number, height: number, top: number, bottom: number) {
+function areaPath(values: number[], width: number, height: number, top: number, bottom: number, max: number) {
   if (!values.length) return "";
-  const max = Math.max(1, ...values);
   const plotHeight = height - top - bottom;
   const step = values.length > 1 ? width / (values.length - 1) : width;
   const points = values.map((value, index) => {
@@ -102,10 +100,10 @@ export function PrintThroughputChart({
               />
             );
           })}
-          <path d={areaPath(totals, width, height, top, bottom)} className="fill-brand-solid" fillOpacity="0.08" />
-          <path d={linePath(totals, width, height, top, bottom)} className="fill-none stroke-brand-solid" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-          <path d={linePath(success, width, height, top, bottom)} className="fill-none stroke-ok-solid" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-          <path d={linePath(failed, width, height, top, bottom)} className="fill-none stroke-bad-solid" strokeWidth="1.75" vectorEffect="non-scaling-stroke" />
+          <path d={areaPath(totals, width, height, top, bottom, max)} className="fill-brand-solid" fillOpacity="0.08" />
+          <path d={linePath(totals, width, height, top, bottom, max)} className="fill-none stroke-brand-solid" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
+          <path d={linePath(success, width, height, top, bottom, max)} className="fill-none stroke-ok-solid" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+          <path d={linePath(failed, width, height, top, bottom, max)} className="fill-none stroke-bad-solid" strokeWidth="1.75" vectorEffect="non-scaling-stroke" />
           {data.map((point, index) => {
             const x = data.length > 1 ? (index / (data.length - 1)) * width : width / 2;
             const y = top + (height - top - bottom) * (1 - point.total / max);

@@ -15,6 +15,7 @@
 const demoPrinters = [
   {
     id: "printer_hp_m404",
+    agentId: "agent-preview",
     name: "HP LaserJet Pro M404",
     displayName: "HP LaserJet Pro M404",
     printerType: "physical",
@@ -29,6 +30,7 @@ const demoPrinters = [
   },
   {
     id: "printer_zebra_zd421",
+    agentId: "agent-preview",
     name: "Zebra ZD421",
     displayName: "Zebra ZD421",
     printerType: "physical",
@@ -43,13 +45,14 @@ const demoPrinters = [
   },
   {
     id: "printer_epson_tm_t82",
+    agentId: "agent-preview",
     name: "Epson TM-T82II",
     displayName: "Epson TM-T82II",
     printerType: "physical",
     deviceClass: "thermal",
     connectionType: "usb",
     protocol: "escpos",
-    endpoint: "usb://04b8:0202",
+    endpoint: "\\\\?\\USB#VID_04B8&PID_0202#PREVIEW",
     status: "busy",
     enabled: true,
     usbVid: "04b8",
@@ -57,6 +60,7 @@ const demoPrinters = [
   },
   {
     id: "printer_brother_hl",
+    agentId: "agent-preview",
     name: "Brother HL-L2360D",
     displayName: "Brother HL-L2360D",
     printerType: "physical",
@@ -71,6 +75,7 @@ const demoPrinters = [
   // if an older registry file still contains one.
   {
     id: "printer_ms_pdf",
+    agentId: "agent-preview",
     name: "Microsoft Print to PDF",
     printerType: "virtual",
     connectionType: "spooler",
@@ -137,6 +142,9 @@ function transformCallback(callback?: (...args: unknown[]) => void, once = false
   return id;
 }
 
+let mockManagerAuthenticated = true;
+let mockListenerId = 0;
+const mockListenerSubscriptions = new Map<number, { event: string; handler: (event: unknown) => void }>();
 let mockGatewayUrl = "https://print.example.com";
 const mockEventListeners = new Map<string, Set<(event: unknown) => void>>();
 
@@ -167,10 +175,37 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
         }
         mockEventListeners.get(eventName)!.add(handler);
       }
-      return 1 as unknown as T;
+      const id = ++mockListenerId;
+      if (handler) mockListenerSubscriptions.set(id, { event: eventName, handler });
+      return id as unknown as T;
     }
-    case "plugin:event|unlisten":
+    case "plugin:event|unlisten": {
+      const id = Number(args.eventId);
+      const subscription = mockListenerSubscriptions.get(id);
+      if (subscription) mockEventListeners.get(subscription.event)?.delete(subscription.handler);
+      mockListenerSubscriptions.delete(id);
       return undefined as unknown as T;
+    }
+    case "has_manager_session": return mockManagerAuthenticated as unknown as T;
+    case "clear_manager_session": mockManagerAuthenticated = false; return undefined as unknown as T;
+    case "gateway_request":
+    case "gateway_agent_request": {
+      const request = args.args as { path?: string; method?: string; body?: string } | undefined;
+      const path = request?.path ?? "";
+      let status = 200;
+      let body: unknown;
+      if (path === "/api/health") body = { ok: true };
+      else if (path === "/api/auth/manager/login" || path === "/api/auth/manager/refresh") { mockManagerAuthenticated = true; body = { ok: true, expiresAt: new Date(Date.now() + 15 * 60000).toISOString() }; }
+      else if (!mockManagerAuthenticated) { status = 401; body = { error: "Preview manager is signed out" }; }
+      else if (path === "/api/auth/manager/me") body = { authenticated: true, exp: Math.floor(Date.now() / 1000) + 900 };
+      else if (path.startsWith("/api/agents")) body = [{ id: "agent-preview", name: "Preview Agent", lifecycle: "active", status: "online" }];
+      else if (path.startsWith("/api/jobs")) body = demoJobs;
+      else if (path.endsWith("/test-print")) body = { ok: true, jobId: "preview-test", status: "queued" };
+      else if (path.startsWith("/api/printers")) body = request?.method === "GET" ? demoPrinters : { ok: true };
+      else { status = 404; body = { error: "Unsupported preview request" }; }
+      const envelope = { status, body: JSON.stringify(body) };
+      return (cmd === "gateway_agent_request" ? JSON.stringify(envelope) : envelope) as unknown as T;
+    }
     case "get_agent_status":
       return {
         running: true,
@@ -241,7 +276,7 @@ export function installPreviewBackend(): void {
   (w as Record<string, unknown>).__TAURI_INTERNALS__ = {
     invoke: mockInvoke,
     transformCallback,
-    unregisterCallback: () => {},
+    unregisterCallback: (id: number) => { delete (w as Record<string, unknown>)[`_preview_cb_${id}`]; },
     convertFileSrc: (p: string) => p,
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
   };

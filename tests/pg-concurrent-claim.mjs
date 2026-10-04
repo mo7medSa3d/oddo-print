@@ -1,7 +1,8 @@
 // Real PG concurrency verification harness — requires DATABASE_URL and seeded jobs.
 // Run: DATABASE_URL=... node tests/pg-concurrent-claim.mjs
-// Proves each job is claimed by at most one concurrent Agent request (FOR UPDATE SKIP LOCKED).
+// SQL-lock probe, not an HTTP/production admission test. Use a test database.
 import { Pool } from "pg";
+import { randomUUID } from "node:crypto";
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -9,24 +10,30 @@ if (!url) {
   process.exit(2);
 }
 const pool = new Pool({ connectionString: url });
-const AGENT_ID = process.env.AGENT_ID ?? "agt_concurrent_test";
-const PRINTER_ID = process.env.PRINTER_ID ?? "printer_concurrent";
+const fixtureSuffix = randomUUID().replaceAll("-", "");
+const AGENT_ID = `agt_cc_${fixtureSuffix}`;
+const PRINTER_ID = `printer_cc_${fixtureSuffix}`;
+const tenantId = `tenant_cc_${fixtureSuffix}`;
+const jobPrefix = `job_cc_${fixtureSuffix}_`;
 
 async function ensureFixture() {
   // Tenant contract (migrations 0028-0031): runtime rows are tenant-owned.
-  const tenantId = process.env.TENANT_ID ?? "tenant_concurrent";
-  await pool.query(`INSERT INTO tenants (id, name) VALUES ($1, 'concurrent-claim tenant') ON CONFLICT (id) DO NOTHING`, [tenantId]);
+  await pool.query(`INSERT INTO tenants (id, name) VALUES ($1, 'concurrent-claim tenant')`, [tenantId]);
   // ensure agent and printer exist for FK
-  await pool.query(`INSERT INTO agents (id, tenant_id, name, status, lifecycle) VALUES ($1, $2, 'concurrent-test', 'online', 'active') ON CONFLICT (id) DO NOTHING`, [AGENT_ID, tenantId]);
-  await pool.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config) VALUES ($1, $2, $3, 'concurrent', 'physical', 'other', 'network', 'raw', 'online', 'active', '{"ip":"127.0.0.1","port":9100}'::jsonb) ON CONFLICT (id) DO NOTHING`, [PRINTER_ID, tenantId, AGENT_ID]);
-  await pool.query(`DELETE FROM print_jobs WHERE agent_id=$1 AND id LIKE 'job_cc_%'`, [AGENT_ID]);
+  await pool.query(`INSERT INTO agents (id, tenant_id, name, status, lifecycle) VALUES ($1, $2, 'concurrent-test', 'online', 'active')`, [AGENT_ID, tenantId]);
+  await pool.query(`INSERT INTO printers (id, tenant_id, agent_id, name, printer_type, device_class, connection_type, protocol, status, lifecycle, config) VALUES ($1, $2, $3, 'concurrent', 'physical', 'other', 'network', 'raw', 'online', 'active', '{"ip":"127.0.0.1","port":9100}'::jsonb)`, [PRINTER_ID, tenantId, AGENT_ID]);
   for (let i = 0; i < 20; i++) {
     await pool.query(
       `INSERT INTO print_jobs (id, tenant_id, agent_id, printer_id, status, payload, expires_at) VALUES ($1,$2,$3,$4,'queued','{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb, now()+interval '1 hour')`,
-      [`job_cc_${String(i).padStart(2,"0")}`, tenantId, AGENT_ID, PRINTER_ID]
+      [`${jobPrefix}${String(i).padStart(2,"0")}`, tenantId, AGENT_ID, PRINTER_ID]
     );
   }
-  console.log("Seeded 20 queued jobs");
+  await pool.query(`INSERT INTO print_jobs (id,tenant_id,agent_id,printer_id,status,payload,expires_at,updated_at,delivered_at,error)
+      VALUES ($1,$2,$3,$4,'printing','{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,now()+interval '1 hour',now()-interval '5 minutes',NULL,NULL),
+             ($5,$2,$3,$4,'claimed','{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,now()+interval '1 hour',now()-interval '5 minutes',now(),NULL),
+             ($6,$2,$3,$4,'claimed','{"type":"raw","protocol":"raw","encoding":"base64","data":"aGVsbG8="}'::jsonb,now()+interval '1 hour',now()-interval '5 minutes',NULL,'DELIVERY_EVIDENCE_PENDING')`,
+      [jobPrefix+'printing',tenantId,AGENT_ID,PRINTER_ID,jobPrefix+'delivered',jobPrefix+'evidence']);
+  console.log("Seeded 20 queued jobs and three nonreclaimable execution/evidence records");
 }
 
 async function claim() {
@@ -38,13 +45,13 @@ async function claim() {
       SELECT id FROM print_jobs
       WHERE agent_id = $1
         AND expires_at > now()
-        AND (status = 'queued' OR (status IN ('claimed','printing') AND updated_at < now() - interval '90 seconds' AND retries < 5))
+        AND (status = 'queued' OR (status = 'claimed' AND delivered_at IS NULL AND acked_at IS NULL AND COALESCE(error, '') <> 'DELIVERY_EVIDENCE_PENDING' AND updated_at < now() - interval '90 seconds' AND retries < 5))
       ORDER BY created_at ASC
       LIMIT 20
       FOR UPDATE SKIP LOCKED
     )
     UPDATE print_jobs SET status='claimed', claimed_at=now(), updated_at=now(),
-      retries = CASE WHEN print_jobs.status IN ('claimed','printing') THEN retries+1 ELSE retries END
+      retries = CASE WHEN print_jobs.status = 'claimed' THEN retries+1 ELSE retries END
     FROM claimable WHERE print_jobs.id=claimable.id
     RETURNING print_jobs.id
   `, [AGENT_ID]);
@@ -61,20 +68,26 @@ async function main() {
   if (all.length !== uniq.size) {
     const dups = all.filter((x,i) => all.indexOf(x) !== i);
     console.error("FAILED: duplicate ids across concurrent claims:", dups);
-    process.exit(1);
+    throw new Error("SQL claim safety assertion failed");
   }
   if (uniq.size !== 20) {
     console.error(`FAILED: expected 20 uniq claimed, got ${uniq.size}. All:`, all);
-    process.exit(1);
+    throw new Error("SQL claim safety assertion failed");
   }
   // second round should claim 0
   const second = await claim();
   if (second.length !== 0) {
     console.error("FAILED: second round should claim 0, got", second);
-    process.exit(1);
+    throw new Error("SQL claim safety assertion failed");
   }
-  console.log("VERIFIED: each job claimed by at most one concurrent requester (FOR UPDATE SKIP LOCKED works).");
-  await pool.query(`DELETE FROM print_jobs WHERE agent_id=$1 AND id LIKE 'job_cc_%'`, [AGENT_ID]);
-  await pool.end();
+  console.log("VERIFIED SQL lock probe: no duplicate queued claims; production route evidence requires the integration suite.");
 }
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch(e => { console.error(e); process.exitCode = 1; }).finally(async () => {
+  try {
+    await pool.query('DELETE FROM print_jobs WHERE tenant_id=$1', [tenantId]);
+    await pool.query('DELETE FROM printers WHERE tenant_id=$1', [tenantId]);
+    await pool.query('DELETE FROM agents WHERE tenant_id=$1', [tenantId]);
+    await pool.query('DELETE FROM tenants WHERE id=$1', [tenantId]);
+  } catch (error) { console.error("Fixture cleanup failed", error); process.exitCode = 1; }
+  finally { await pool.end(); }
+});

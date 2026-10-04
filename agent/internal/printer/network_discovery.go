@@ -104,25 +104,6 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		}
 	}
 
-	// 1. Concurrently launch WSD multicast probe
-	var wsdDevices []DeviceInfo
-	var wsdWg sync.WaitGroup
-	wsdWg.Add(1)
-	go func() {
-		defer wsdWg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[discovery] WSD discovery panic: %v", r)
-			}
-		}()
-		devs, err := discoverWSDPrinters(ctx)
-		if err != nil {
-			log.Printf("[discovery] WSD discovery error: %v", err)
-		} else {
-			wsdDevices = devs
-		}
-	}()
-
 	var tcpDevices []DeviceInfo
 	if len(targets) == 0 {
 		log.Printf("[discovery] network discovery: no private subnets found, skipping TCP scan")
@@ -283,15 +264,10 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		}
 	}
 
-	// Wait for WSD probe completion
-	wsdWg.Wait()
-
-	// Merge all devices using dedupeKey and StableIDForDevice
-	allFound := append(tcpDevices, wsdDevices...)
-	out := mergeNetworkDevices(allFound)
-
-	log.Printf("[discovery] network discovery completed: %d printers found (TCP+SNMP: %d, WSD: %d)",
-		len(out), len(tcpDevices), len(wsdDevices))
+	// WSD has one independently accounted source in DiscoverAll. Keeping it
+	// out of the TCP scanner preserves partial results and diagnostics there.
+	out := mergeNetworkDevices(tcpDevices)
+	log.Printf("[discovery] network discovery completed: %d printers found (TCP+SNMP)", len(out))
 	return out, nil
 }
 
@@ -456,4 +432,80 @@ func ipToUint32(ip net.IP) uint32 {
 }
 func uint32ToIP(n uint32) net.IP {
 	return net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
+}
+
+// privateDiscoveryTargets fairly schedules every local subnet. Wide networks
+// are bounded to the local /24 rather than the first /24 of a /8 or /16.
+func privateDiscoveryTargets(subnets []*net.IPNet) []string {
+	var groups [][]string
+	seenSubnets := make(map[string]bool)
+	for _, subnet := range subnets {
+		ip := subnet.IP.To4()
+		if ip == nil || !ip.IsPrivate() || ip.IsLoopback() {
+			continue
+		}
+		mask := subnet.Mask
+		if len(mask) == 16 {
+			mask = mask[12:]
+		}
+		ones, bits := mask.Size()
+		if bits != 32 {
+			continue
+		}
+		if ones < 24 {
+			mask = net.CIDRMask(24, 32)
+		}
+		local := &net.IPNet{IP: ip, Mask: mask}
+		key := ip.Mask(mask).String() + "/" + fmt.Sprint(mask)
+		if seenSubnets[key] {
+			continue
+		}
+		seenSubnets[key] = true
+		var group []string
+		for _, host := range generateHosts(local) {
+			if !host.Equal(ip) {
+				group = append(group, host.String())
+			}
+		}
+		groups = append(groups, group)
+	}
+	var targets []string
+	for offset := 0; ; offset++ {
+		added := false
+		for _, group := range groups {
+			if offset < len(group) {
+				targets = append(targets, group[offset])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return targets
+}
+
+func localPrivateDiscoveryTargets() ([]string, []string) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, []string{fmt.Sprintf("network interfaces: %v", err)}
+	}
+	var subnets []*net.IPNet
+	var diagnostics []string
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			diagnostics = append(diagnostics, fmt.Sprintf("addresses for %s: %v", iface.Name, err))
+			continue
+		}
+		for _, address := range addresses {
+			if subnet, ok := address.(*net.IPNet); ok {
+				subnets = append(subnets, subnet)
+			}
+		}
+	}
+	return privateDiscoveryTargets(subnets), diagnostics
 }

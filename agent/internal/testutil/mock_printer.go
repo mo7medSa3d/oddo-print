@@ -28,6 +28,9 @@ type MockTCPPrinter struct {
 	acceptFail       bool
 	partialReadLimit int // if >0, read only N bytes then stall
 	closed           bool
+	closeCh          chan struct{}
+	connections      map[net.Conn]struct{}
+	handlers         sync.WaitGroup
 }
 
 type captureEntry struct {
@@ -39,7 +42,7 @@ func NewMockTCPPrinter(addr string) *MockTCPPrinter {
 	if addr == "" {
 		addr = "127.0.0.1:9100"
 	}
-	return &MockTCPPrinter{Addr: addr}
+	return &MockTCPPrinter{Addr: addr, closeCh: make(chan struct{}), connections: make(map[net.Conn]struct{})}
 }
 
 func (m *MockTCPPrinter) Start() error {
@@ -59,42 +62,67 @@ func (m *MockTCPPrinter) acceptLoop() {
 		if err != nil {
 			return
 		}
-		if m.acceptFail {
+		m.mu.Lock()
+		if m.closed || m.acceptFail {
+			m.mu.Unlock()
 			conn.Close()
 			continue
 		}
-		m.mu.Lock()
 		seq := m.nextSeq
 		m.nextSeq++
+		m.connections[conn] = struct{}{}
+		m.handlers.Add(1)
 		m.mu.Unlock()
 		go m.handle(conn, seq)
 	}
 }
 
 func (m *MockTCPPrinter) handle(conn net.Conn, seq int) {
-	defer conn.Close()
-	if m.delay > 0 {
-		time.Sleep(m.delay)
+	defer m.handlers.Done()
+	defer func() { _ = conn.Close(); m.mu.Lock(); delete(m.connections, conn); m.mu.Unlock() }()
+	m.mu.Lock()
+	delay, disconnect, partial := m.delay, m.disconnectAfter, m.partialReadLimit
+	m.mu.Unlock()
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-m.closeCh:
+			return
+		}
 	}
-	// read all, capture. A read failure used to be discarded entirely, which
-	// made a truncated/failed capture look like a legitimately short payload in
-	// assertion failures. The bytes read are still recorded unchanged (tests
-	// rely on partial-capture behaviour); the error is now visible.
-	data, readErr := io.ReadAll(conn)
+	var reader io.Reader = conn
+	limit := disconnect
+	if partial > 0 && (limit <= 0 || partial < limit) {
+		limit = partial
+	}
+	if limit > 0 {
+		// Bound the real socket read BEFORE consuming the rest of the stream.
+		// A tiny receive window forces large production writes to stall.
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetReadBuffer(1024)
+		}
+		reader = io.LimitReader(conn, int64(limit))
+	}
+	data, readErr := io.ReadAll(reader)
 	if readErr != nil {
 		log.Printf("mock printer: read from %s failed after %d bytes: %v", conn.RemoteAddr(), len(data), readErr)
-	}
-	if m.disconnectAfter > 0 && len(data) > m.disconnectAfter {
-		data = data[:m.disconnectAfter]
-	}
-	if m.partialReadLimit > 0 && len(data) > m.partialReadLimit {
-		data = data[:m.partialReadLimit]
-		// stall to simulate timeout
-		time.Sleep(100 * time.Millisecond)
 	}
 	m.mu.Lock()
 	m.captured = append(m.captured, captureEntry{seq: seq, data: data})
 	m.mu.Unlock()
+	if disconnect > 0 && len(data) >= disconnect {
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetLinger(0)
+		}
+		return
+	}
+	if partial > 0 && len(data) >= partial {
+		// Keep the connection open without reading until explicit shutdown.
+		<-m.closeCh
+	}
+
 }
 
 // sortedCaptured returns a copy of m.captured ordered by accept sequence
@@ -141,16 +169,37 @@ func (m *MockTCPPrinter) Reset() {
 	m.mu.Unlock()
 }
 
-func (m *MockTCPPrinter) SetDelay(d time.Duration) { m.delay = d }
+func (m *MockTCPPrinter) SetDelay(d time.Duration) { m.mu.Lock(); m.delay = d; m.mu.Unlock() }
+func (m *MockTCPPrinter) SetDisconnectAfter(n int) { m.mu.Lock(); m.disconnectAfter = n; m.mu.Unlock() }
+func (m *MockTCPPrinter) SetPartialReadLimit(n int) {
+	m.mu.Lock()
+	m.partialReadLimit = n
+	m.mu.Unlock()
+}
 
 func (m *MockTCPPrinter) Close() error {
 	m.mu.Lock()
-	m.closed = true
-	m.mu.Unlock()
-	if m.ln != nil {
-		return m.ln.Close()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
 	}
-	return nil
+	m.closed = true
+	close(m.closeCh)
+	connections := make([]net.Conn, 0, len(m.connections))
+	for conn := range m.connections {
+		connections = append(connections, conn)
+	}
+	listener := m.ln
+	m.mu.Unlock()
+	var err error
+	if listener != nil {
+		err = listener.Close()
+	}
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	m.handlers.Wait()
+	return err
 }
 
 // WaitForCaptures blocks until at least want captures or timeout.

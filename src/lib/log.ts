@@ -19,29 +19,25 @@ export function redactClaimToken(value: unknown): string | null | undefined {
 
 export type LogFields = Record<string, unknown>;
 
-function normalizeLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (value instanceof Error) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
-    const out: Record<string, unknown> = {
-      name: value.name,
-      message: value.message,
-    };
-    if (value.stack) out.stack = value.stack;
-    const cause = (value as Error & { cause?: unknown }).cause;
-    if (cause !== undefined) out.cause = normalizeLogValue(cause, seen);
-    for (const [key, nested] of Object.entries(value)) {
-      if (!(key in out)) out[key] = normalizeLogValue(nested, seen);
-    }
-    return out;
-  }
+function normalizeLogValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (depth > 6) return "[depth-limit]";
+  if (typeof value === "bigint") return String(value);
+  if (typeof value === "string" && value.length > 500) return `${value.slice(0, 200)}…(${value.length} chars)`;
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return "[Circular]";
   seen.add(value);
-  if (Array.isArray(value)) return value.map((entry) => normalizeLogValue(entry, seen));
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? "[invalid-date]" : value.toISOString();
+  if (Array.isArray(value)) return value.slice(0, 100).map((entry) => normalizeLogValue(entry, seen, depth + 1));
   const out: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = normalizeLogValue(nested, seen);
+  if (value instanceof Error) {
+    out.name = value.name;
+    out.message = normalizeLogValue(value.message, seen, depth + 1);
+    if (value.stack) out.stack = normalizeLogValue(value.stack, seen, depth + 1);
+    if (value.cause !== undefined) out.cause = normalizeLogValue(value.cause, seen, depth + 1);
+  }
+  for (const [key, nested] of Object.entries(value).slice(0, 100)) {
+    if (key === "claimId" || key === "claim_id") out[key] = redactClaimToken(nested);
+    else out[key] = SENSITIVE.test(key) ? "[redacted]" : normalizeLogValue(nested, seen, depth + 1);
   }
   return out;
 }
@@ -55,24 +51,7 @@ export function requestIdFrom(req: Request): string {
 }
 
 function sanitize(fields: LogFields): LogFields {
-  const out: LogFields = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (key === "claimId" || key === "claim_id") {
-      out[key] = redactClaimToken(value);
-      continue;
-    }
-    if (SENSITIVE.test(key)) {
-      out[key] = "[redacted]";
-      continue;
-    }
-    if (value === undefined) continue;
-    if (typeof value === "string" && value.length > 500) {
-      out[key] = `${value.slice(0, 200)}…(${value.length} chars)`;
-      continue;
-    }
-    out[key] = normalizeLogValue(value);
-  }
-  return out;
+  return normalizeLogValue(fields) as LogFields;
 }
 
 function emit(level: "debug" | "info" | "warn" | "error", event: string, fields: LogFields): void {

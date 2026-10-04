@@ -4,7 +4,6 @@
 from urllib.parse import urlparse
 
 import logging
-import os
 import requests
 
 from psycopg2 import sql
@@ -307,7 +306,7 @@ class PrintGatewayConfig(models.Model):
                     "error": (record.last_gateway_migration_sync_error or "")[:500],
                 }
                 continue
-            if int(record.last_enabled_sync_revision or -1) != int(record.enabled_sync_revision or 0):
+            if int(record.last_enabled_sync_revision) != int(record.enabled_sync_revision or 0):
                 # The Gateway has not confirmed the current revision yet. The
                 # staleness fence is bound to the pending revision's own start
                 # timestamp, never to write_date: any unrelated write would
@@ -524,7 +523,7 @@ class PrintGatewayConfig(models.Model):
         try:
             env = api.Environment(cr, api.SUPERUSER_ID, {})
             config = env["print_gateway.gateway_config"].browse(self.id).exists()
-            if config and int(config.pending_disable_revision or -1) == int(revision):
+            if config and int(config.pending_disable_revision) == int(revision):
                 config.with_context(skip_enabled_sync=True).write({
                     "pending_disable_gateway_url": False,
                     "pending_disable_gateway_api_key": False,
@@ -611,14 +610,14 @@ class PrintGatewayConfig(models.Model):
         has_pending_disable_state = bool(
             self.pending_disable_gateway_url
             or self.pending_disable_gateway_api_key
-            or int(self.pending_disable_revision or -1) >= 0
+            or int(self.pending_disable_revision) >= 0
         )
         if not has_pending_disable_state:
             return None
         if not (
             self.pending_disable_gateway_url
             and self.pending_disable_gateway_api_key
-            and int(self.pending_disable_revision or -1) >= 0
+            and int(self.pending_disable_revision) >= 0
         ):
             raise ValidationError(
                 _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
@@ -1124,7 +1123,7 @@ class PrintGatewayConfig(models.Model):
                 remote_may_still_be_enabled = bool(
                     record.enabled
                     or record.last_enabled_sync_error
-                    or int(record.last_enabled_sync_revision or -1) != before_revision[record.id]
+                    or int(record.last_enabled_sync_revision) != before_revision[record.id]
                 )
                 if remote_may_still_be_enabled and record.last_test_status == "revoked":
                     # The old credential is already known to be unusable. It
@@ -1163,7 +1162,7 @@ class PrintGatewayConfig(models.Model):
                 needs_old_disable = bool(
                     record.enabled
                     or record.last_enabled_sync_error
-                    or int(record.last_enabled_sync_revision or -1) != before_revision[record.id]
+                    or int(record.last_enabled_sync_revision) != before_revision[record.id]
                 )
                 if needs_old_disable and not record.gateway_api_key:
                     raise ValidationError(
@@ -1445,8 +1444,6 @@ class PrintGatewayConfig(models.Model):
                 tools.config.get("test_enable")
                 or getattr(self.env.registry, "in_test", False)
                 or (hasattr(self.env.registry, "in_test_mode") and self.env.registry.in_test_mode())
-                or self.env.context.get("test_mode")
-                or self.env.context.get("test_queue_job_no_delay")
             )
         except Exception:
             in_test = False
@@ -1522,7 +1519,7 @@ class PrintGatewayConfig(models.Model):
                 if (
                     record.enabled
                     or record.last_enabled_sync_error
-                    or int(record.last_enabled_sync_revision or -1)
+                    or int(record.last_enabled_sync_revision)
                     != int(record.enabled_sync_revision or 0)
                     or (
                         record.pending_sync_revision is not None
@@ -1572,7 +1569,7 @@ class PrintGatewayConfig(models.Model):
             if (
                 config.pending_disable_gateway_url
                 and config.pending_disable_gateway_api_key
-                and int(config.pending_disable_revision or -1) >= 0
+                and int(config.pending_disable_revision) >= 0
             ):
                 try:
                     pending_disable = config._pending_disable_credentials()
@@ -1632,7 +1629,7 @@ class PrintGatewayConfig(models.Model):
                 config.gateway_url
                 and config.gateway_api_key
                 and (
-                    int(config.last_enabled_sync_revision or -1) != int(config.enabled_sync_revision or 0)
+                    int(config.last_enabled_sync_revision) != int(config.enabled_sync_revision or 0)
                     or bool(config.last_enabled_sync_error)
                 )
             ):
@@ -1880,12 +1877,13 @@ class PrintGatewayConfig(models.Model):
             # form displaying a stale "Syncing" state until the next manual
             # refresh. The same fenced revision/idempotent Gateway endpoint is
             # used by the normal post-commit sync path.
-            sync_succeeded = self._sync_enabled_state_to_gateway(
-                self._gateway_base(for_request=True),
-                self._gateway_api_key_plaintext(),
-                self.env.cr.dbname,
-                current_revision,
-                bool(self.enabled),
+            sync_succeeded = self._run_postcommit_enabled_sync(
+                gateway_url=self._gateway_base(for_request=True),
+                api_key=self._gateway_api_key_plaintext(),
+                dbname=self.env.cr.dbname,
+                revision=current_revision,
+                enabled=bool(self.enabled),
+                pending_disable=self._pending_disable_credentials(),
             )
             if not sync_succeeded:
                 self.invalidate_recordset([
@@ -1952,7 +1950,7 @@ class PrintGatewayConfig(models.Model):
                 "tag": "display_notification",
                 "params": {"title": _("Gateway Connection"), "message": msg, "type": "danger", "sticky": True},
             }
-        except ValueError as exc:
+        except ValueError:
             msg = _("Gateway returned an invalid health response.")
             if not self._write_test_result_if_current(expected_revision, {
                 "last_test_at": fields.Datetime.now(),

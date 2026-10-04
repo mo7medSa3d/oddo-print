@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { printJobs } from "../../../../../db/schema";
+import { printJobs, printJobReceipts } from "../../../../../db/schema";
 import { validateOdooKey } from "../../../../../lib/odoo-auth";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { and, inArray, eq, isNotNull } from "drizzle-orm";
@@ -14,7 +14,7 @@ const batchQuerySchema = z.object({
   jobIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100),
 }).strict();
 
-function responseForRow(row: typeof printJobs.$inferSelect) {
+function responseForRow(row: Pick<typeof printJobs.$inferSelect, "id" | "status" | "printerId" | "agentId" | "destination" | "documentType" | "error" | "deliveredAt" | "ackedAt" | "updatedAt">) {
   return {
     jobId: row.id,
     status: row.status,
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   let body: unknown;
   try {
-    body = await req.json();
+    const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body", code: "INVALID_BODY", retryable: false }, { status: 400 });
   }
@@ -55,7 +55,10 @@ export async function POST(req: Request) {
     ),
   });
 
-  const jobs = rows.map(responseForRow);
+  const found = new Set(rows.map(row => row.id));
+  const missing = uniqueIds.filter(id => !found.has(id));
+  const receipts = missing.length ? await db.query.printJobReceipts.findMany({ where: and(inArray(printJobReceipts.id, missing), eq(printJobReceipts.tenantId, odoo.tenantId), isNotNull(printJobReceipts.apiKeyId)) }) : [];
+  const jobs = [...rows.map(responseForRow), ...receipts.map(responseForRow)];
 
   return NextResponse.json({ jobs }, { status: 200 });
 }

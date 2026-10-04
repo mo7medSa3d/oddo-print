@@ -97,7 +97,7 @@ export type DerivedTimelineEntry = {
   message?: string;
 };
 
-export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): DerivedTimelineEntry[] {
+export function buildTimelineFromJobRow(job: Pick<typeof printJobs.$inferSelect, "status" | "createdAt" | "updatedAt" | "agentId" | "claimedAt" | "deliveredAt" | "ackedAt" | "attemptId" | "deliveryAttempts" | "spoolerJobId" | "error" | "expiresAt">): DerivedTimelineEntry[] {
   const timeline: DerivedTimelineEntry[] = [];
   if (job.createdAt) {
     timeline.push({ stage: "created", status: "ok", at: job.createdAt, messageKey: "job.timeline.created" });
@@ -118,11 +118,8 @@ export function buildTimelineFromJobRow(job: typeof printJobs.$inferSelect): Der
     timeline.push({ stage: "printing", status: "pending", at: job.deliveredAt, messageKey: "job.timeline.printing" });
   }
   if (job.status === "success") {
-    // ackedAt is only stamped on the acknowledged execution path. Late-success
-    // reconciliations (expired/failed -> success) preserve delivery evidence
-    // via deliveredAt/updatedAt but never set ackedAt, so fall back to the
-    // durable timestamps instead of rendering an undefined time.
-    const successAt = job.ackedAt ?? job.updatedAt ?? job.deliveredAt ?? null;
+    // ackedAt records delivery acknowledgement, not terminal execution.
+    const successAt = job.updatedAt ?? job.deliveredAt ?? null;
     timeline.push({ stage: "delivery", status: "ok", at: successAt, messageKey: "job.timeline.delivered" });
     timeline.push({ stage: "success", status: "ok", at: successAt, messageKey: "job.timeline.successUnverified" });
   }

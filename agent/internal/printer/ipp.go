@@ -283,7 +283,7 @@ func (p *IPPPrinter) Status() string {
 		return "unknown"
 	}
 	if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
-		return "busy"
+		return "offline"
 	}
 	if state, ok := attrs["printer-state"]; ok {
 		switch state {
@@ -317,6 +317,11 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/ipp")
+	if p.creds != nil {
+		if pass, ok := p.creds.Password(); ok {
+			req.SetBasicAuth(p.creds.Username(), pass)
+		}
+	}
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		// Status probes must stay bound to the configured printer endpoint.
@@ -381,8 +386,8 @@ func buildIPPGetPrinterAttributes(printerURI string) []byte {
 	writeIPPAttribute(&buf, 0x45, "printer-uri", printerURI)
 	writeIPPAttribute(&buf, 0x42, "requesting-user-name", "odoo-agent")
 	writeIPPAttribute(&buf, 0x44, "requested-attributes", "printer-state")
-	writeIPPAttribute(&buf, 0x44, "requested-attributes", "printer-state-reasons")
-	writeIPPAttribute(&buf, 0x44, "requested-attributes", "printer-is-accepting-jobs")
+	writeIPPAttribute(&buf, 0x44, "", "printer-state-reasons")
+	writeIPPAttribute(&buf, 0x44, "", "printer-is-accepting-jobs")
 	buf.WriteByte(0x03)
 	return buf.Bytes()
 }
@@ -395,9 +400,51 @@ func writeIPPAttribute(buf *bytes.Buffer, tag byte, name, value string) {
 	buf.WriteString(value)
 }
 
+// completeIPPResponse validates framing before a success status can be used
+// as submission evidence. A status header alone is not a complete response.
+func completeIPPResponse(data []byte) bool {
+	if len(data) < 9 || (data[0] != 1 && data[0] != 2) || binary.BigEndian.Uint32(data[4:8]) != 1 {
+		return false
+	}
+	inGroup := false
+	hasName := false
+	for i := 8; i < len(data); {
+		tag := data[i]
+		i++
+		if tag == 0x03 {
+			return i == len(data)
+		}
+		if tag <= 0x0f {
+			if tag == 0 {
+				return false
+			}
+			inGroup = true
+			hasName = false
+			continue
+		}
+		if !inGroup || i+2 > len(data) {
+			return false
+		}
+		nameLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if i+nameLen+2 > len(data) || (nameLen == 0 && !hasName) {
+			return false
+		}
+		hasName = true
+		i += nameLen
+		valueLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if i+valueLen > len(data) {
+			return false
+		}
+		i += valueLen
+	}
+	return false
+}
+
 func parseIPPStatus(data []byte) (uint16, string) {
-	if len(data) < 8 {
-		return 0xFFFF, "too short"
+	if !completeIPPResponse(data) {
+		return 0xFFFF, "invalid or truncated IPP response"
 	}
 	status := binary.BigEndian.Uint16(data[2:4])
 	attrs := parseIPPAttributes(data)

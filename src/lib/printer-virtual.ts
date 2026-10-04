@@ -71,7 +71,6 @@ const SOFTWARE_WRITER_TOKENS = [
   "microsoft print to pdf",
   "microsoft xps document writer",
   "microsoft shared fax",
-  "microsoft enhanced point and print compatibility driver",
   "send to onenote",
   "onenote",
   // Semantic families (language independent)

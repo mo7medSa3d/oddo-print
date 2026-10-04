@@ -36,6 +36,9 @@ Exit status is non-zero when any of these invariants break.
 from __future__ import annotations
 
 import re
+import ast
+import xml.etree.ElementTree as ET
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -77,31 +80,112 @@ def unquote(literal_blob: str) -> str:
     return "".join(out)
 
 
-def extract_terms() -> dict[str, str]:
-    """Map every translatable term to the file it was found in."""
-    terms: dict[str, str] = {}
-
-    def add(term: str, path: Path) -> None:
-        if term:
-            terms.setdefault(term, str(path.relative_to(ADDON)))
-
-    for path in sorted(ADDON.rglob("*.py")):
-        source = path.read_text(encoding="utf-8")
-        for match in re.finditer(r"\b_\(\s*" + CONCATENATION, source):
-            add(unquote(match.group(1)), path)
-
-    for path in sorted(ADDON.rglob("*.xml")):
-        source = path.read_text(encoding="utf-8")
+def extract_occurrences(addon: Path = ADDON) -> dict[str, set[str]]:
+    """Extract source terms and the importable Odoo 19 occurrence for each."""
+    terms: dict[str, set[str]] = {}
+    def add(term, occurrence):
+        if isinstance(term, str) and term and any(ch.isalpha() for ch in term):
+            terms.setdefault(term, set()).add(occurrence)
+    def literal(node, constants):
+        if isinstance(node, ast.Name):
+            node = constants.get(node.id, node)
+        if isinstance(node, ast.Call) and node.args and (getattr(node.func, "id", "") == "_" or getattr(node.func, "attr", "") == "_"):
+            node = node.args[0]
+        try:
+            return ast.literal_eval(node)
+        except (ValueError, TypeError, SyntaxError):
+            return None
+    for path in sorted(addon.rglob("*.py")):
+        if "tests" in path.relative_to(addon).parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        constants = {n.targets[0].id: n.value for n in tree.body if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)}
+        code = f"code:addons/{addon.name}/{path.relative_to(addon).as_posix()}:0"
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call) and n.args and (getattr(n.func, "id", "") == "_" or getattr(n.func, "attr", "") == "_"):
+                add(literal(n.args[0], constants), code)
+        for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+            attrs = {n.targets[0].id: n.value for n in cls.body if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)}
+            model = literal(attrs.get("_name") or attrs.get("_inherit"), constants)
+            if not isinstance(model, str):
+                continue
+            model_id = model.replace(".", "_")
+            if "_name" in attrs:
+                add(literal(attrs.get("_description"), constants), f"model:ir.model,name:{addon.name}.model_{model_id}")
+            for name, node in attrs.items():
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or getattr(node.func.value, "id", "") != "fields":
+                    continue
+                kw = {k.arg: literal(k.value, constants) for k in node.keywords if k.arg}
+                # Relational/selection first positional argument is not a label.
+                index = 1 if node.func.attr in {"Many2one", "One2many", "Many2many", "Selection", "Reference"} else 0
+                label = kw.get("string") or (literal(node.args[index], constants) if len(node.args) > index else None) or name.replace("_", " ").capitalize()
+                field_id = f"{addon.name}.field_{model_id}__{name}"
+                add(label, f"model:ir.model.fields,field_description:{field_id}")
+                add(kw.get("help"), f"model:ir.model.fields,help:{field_id}")
+                selection = kw.get("selection") or (literal(node.args[0], constants) if node.func.attr in {"Selection", "Reference"} and node.args else None)
+                if isinstance(selection, (list, tuple)):
+                    for item in selection:
+                        if isinstance(item, (list, tuple)) and len(item) == 2:
+                            value, label = item
+                            add(label, f"model:ir.model.fields.selection,name:{addon.name}.selection__{model_id}__{name}__{str(value).replace('.', '_')}")
+    def xml_terms(node, ref, disabled=False):
+        disabled = disabled or node.attrib.get("t-translation") == "off"
+        if disabled or node.tag in {"script", "style"}:
+            return
         for attr in XML_ATTRS:
-            for match in re.finditer(attr + r'="([^"]*)"', source):
-                add(match.group(1).strip(), path)
-
-    for path in sorted(ADDON.rglob("*.js")):
-        source = path.read_text(encoding="utf-8")
-        for match in re.finditer(r'_t\(\s*"((?:[^"\\]|\\.)*)"', source):
-            add(match.group(1), path)
-
+            add(node.attrib.get(attr, "").strip(), ref)
+        add((node.text or "").strip(), ref)
+        for child in node:
+            xml_terms(child, ref, disabled)
+            add((child.tail or "").strip(), ref)
+    for path in sorted(addon.rglob("*.xml")):
+        tree = ET.parse(path).getroot()
+        code = f"code:addons/{addon.name}/{path.relative_to(addon).as_posix()}:0"
+        if "static" in path.relative_to(addon).parts:
+            xml_terms(tree, code)
+            continue
+        for record in tree.iter("record"):
+            xmlid = record.attrib.get("id", "")
+            xmlid = xmlid if "." in xmlid else f"{addon.name}.{xmlid}"
+            model = record.attrib.get("model", "")
+            for field in record.findall("field"):
+                name = field.attrib.get("name", "")
+                if name == "arch" and model == "ir.ui.view":
+                    for child in field:
+                        xml_terms(child, f"model_terms:ir.ui.view,arch_db:{xmlid}")
+                elif name in {"name", "help"} and model in {"ir.actions.act_window", "ir.actions.report", "ir.ui.menu", "res.groups", "ir.module.category"}:
+                    add((field.text or "").strip(), f"model:{model},{name}:{xmlid}")
+        for template in tree.iter("template"):
+            xmlid = template.attrib.get("id", "")
+            xmlid = xmlid if "." in xmlid else f"{addon.name}.{xmlid}"
+            xml_terms(template, f"model_terms:ir.ui.view,arch_db:{xmlid}")
+        for menu in tree.iter("menuitem"):
+            xmlid = menu.attrib.get("id", "")
+            xmlid = xmlid if "." in xmlid else f"{addon.name}.{xmlid}"
+            add(menu.attrib.get("name"), f"model:ir.ui.menu,name:{xmlid}")
+    for path in sorted(addon.rglob("*.js")):
+        code = f"code:addons/{addon.name}/{path.relative_to(addon).as_posix()}:0"
+        for match in re.finditer(r'_t\(\s*"((?:[^"\\]|\\.)*)"', path.read_text(encoding="utf-8")):
+            add(unescape(match.group(1)), code)
     return terms
+
+
+def extract_terms() -> dict[str, str]:
+    return {term: sorted(refs)[0] for term, refs in extract_occurrences().items()}
+
+
+def catalog_occurrences(text: str) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for block in re.split(r"\n\s*\n", text):
+        entries = parse_catalog(block)
+        refs = {ref for line in block.splitlines() if line.startswith("#:") for ref in line[2:].split()}
+        for msgid, _ in entries:
+            result.setdefault(msgid, set()).update(refs)
+    return result
+
+
+def valid_occurrence(ref: str) -> bool:
+    return bool(re.fullmatch(r"code:[\w/.]+:[0-9]+", ref) or re.fullmatch(r"model(?:_terms)?:[\w.]+,[\w]+:[\w]+\.[^ ]+", ref))
 
 
 def unescape(po_text: str) -> str:
@@ -166,6 +250,15 @@ def main() -> int:
     terms = extract_terms()
     catalog = parse_catalog(CATALOG.read_text(encoding="utf-8"))
     catalog_ids = {msgid for msgid, _ in catalog}
+    expected_refs = extract_occurrences()
+    actual_refs = catalog_occurrences(CATALOG.read_text(encoding="utf-8"))
+    for msgid, refs in actual_refs.items():
+        for ref in refs:
+            if not valid_occurrence(ref):
+                fail(f"unimportable Odoo occurrence {ref!r} for {msgid!r}")
+        required = expected_refs.get(msgid, set())
+        if required - refs:
+            fail(f"missing typed Odoo occurrence for {msgid!r}: {sorted(required - refs)[0]}")
 
     print(f"source terms : {len(terms)}")
     print(f"catalog      : {len(catalog)} entries")
@@ -191,14 +284,8 @@ def main() -> int:
             fail(f"translation is identical to English: {msgid!r}")
         if not ARABIC.search(msgstr):
             fail(f"translation contains no Arabic text: {msgid!r}")
-        for placeholder in PLACEHOLDER.findall(msgid):
-            if placeholder not in msgstr:
-                fail(f"placeholder {placeholder} lost in translation of {msgid!r}")
-                break
-        for placeholder in PLACEHOLDER.findall(msgstr):
-            if placeholder not in msgid:
-                fail(f"translation of {msgid!r} invents placeholder {placeholder}")
-                break
+        if Counter(PLACEHOLDER.findall(msgid)) != Counter(PLACEHOLDER.findall(msgstr)):
+            fail(f"placeholder counts differ in translation of {msgid!r}")
         if msgid != msgid.strip() and msgstr == msgstr.strip():
             fail(f"boundary whitespace lost in translation of {msgid!r}")
 

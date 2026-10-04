@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -115,6 +116,36 @@ type JobDiagInfo struct {
 	Note string `json:"note"`
 }
 
+// One stalled synchronous spooler RPC may remain until Windows returns.
+// Keep its slot occupied so later diagnostics cannot accumulate helpers.
+var diagnosticSpoolerSlot = make(chan struct{}, 1)
+
+func probeSpoolerDiagnostic(ctx context.Context, name string, probe func(string) printer.SpoolerProbe) printer.SpoolerProbe {
+	unknown := printer.SpoolerProbe{QueueName: name, Verdict: printer.SpoolerStatusUnknown}
+	if ctx.Err() != nil {
+		unknown.VerdictReason = "diagnostic budget exhausted: " + ctx.Err().Error()
+		return unknown
+	}
+	select {
+	case diagnosticSpoolerSlot <- struct{}{}:
+	default:
+		unknown.VerdictReason = "previous spooler diagnostic RPC is still pending"
+		return unknown
+	}
+	result := make(chan printer.SpoolerProbe, 1)
+	go func() {
+		defer func() { <-diagnosticSpoolerSlot }()
+		result <- probe(name)
+	}()
+	select {
+	case value := <-result:
+		return value
+	case <-ctx.Done():
+		unknown.VerdictReason = "spooler diagnostic timed out: " + ctx.Err().Error()
+		return unknown
+	}
+}
+
 func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticReport {
 	report := DiagnosticReport{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -144,6 +175,8 @@ func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticRe
 	for _, e := range result.Errors {
 		report.Errors = append(report.Errors, e)
 	}
+	probeBudget, cancelProbes := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelProbes()
 	for _, p := range result.Printers {
 		q := QueueInfo{
 			Name:           p.Name,
@@ -163,7 +196,12 @@ func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticRe
 		q.Classification = string(cls.Class)
 		q.ClassificationReason = strings.Join(cls.Reasons, ";")
 		if p.SpoolerName != "" {
-			probe := printer.ProbeSpoolerQueue(p.SpoolerName)
+			probeCtx, cancelProbe := context.WithTimeout(probeBudget, 2*time.Second)
+			probe := probeSpoolerDiagnostic(probeCtx, p.SpoolerName, printer.ProbeSpoolerQueue)
+			cancelProbe()
+			if probe.Verdict == printer.SpoolerStatusUnknown {
+				report.Errors = append(report.Errors, p.SpoolerName+": "+probe.VerdictReason)
+			}
 			q.Driver = firstNonEmpty(q.Driver, probe.DriverName)
 			q.Port = firstNonEmpty(q.Port, probe.PortName)
 			q.SpoolerVerdict = probe.Verdict

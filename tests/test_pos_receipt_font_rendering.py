@@ -89,7 +89,9 @@ def test_render_receipt_image_uses_resilient_html_to_canvas_pipeline():
     assert "renderer.toJpeg" in source
     assert "renderer.toCanvas" in source
     assert "renderer.toHtml" in source
-    assert 'renderToElement("point_of_sale.pos_order_receipt"' in source
+    assert 'receiptComponent.template || "point_of_sale.OrderReceipt"' in source
+    assert "data: typeof currentOrder.export_for_printing" not in source
+    assert "formatCurrency: pos.env" not in source
 
     # Each renderer step is guarded so a failure falls through to the next.
     assert source.count("console.warn(") >= 3

@@ -7,7 +7,7 @@ import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { isDefinitiveStripeMutationError, stripeRequest } from "../../../../lib/stripe";
-import { gatewayNowMs, refreshClockSkew } from "../../../../lib/database-clock";
+import { gatewayNowMs, refreshClockSkew, parseDbTimeMs } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
@@ -34,6 +34,14 @@ function checkoutIntentExpired(expiresAt: Date | string | null | undefined): boo
   return Number.isFinite(value) && value <= nowMs;
 }
 
+function requireCheckoutSnapshot(snapshot: Record<string, string> | null, createdAt: Date | string | null): Record<string, string> {
+  const createdMs = parseDbTimeMs(createdAt);
+  const ageMs = createdMs === null ? Number.POSITIVE_INFINITY : gatewayNowMs() - createdMs;
+  if (ageMs < 0 || ageMs >= 23 * 60 * 60 * 1000) throw new Error("CHECKOUT_SNAPSHOT_MISSING");
+  if (!snapshot || !Object.keys(snapshot).length || Object.values(snapshot).some(value => typeof value !== "string")) throw new Error("CHECKOUT_SNAPSHOT_MISSING");
+  return snapshot;
+}
+
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -50,14 +58,14 @@ export async function POST(req: Request) {
 
   let body: { planId?: unknown } = {};
   try {
-    body = await req.json();
+    const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const planId = typeof body.planId === "string" ? body.planId.trim() : "";
-  const plan = await db.query.plans.findFirst({ where: and(eq(plans.id, planId), eq(plans.isActive, true), eq(plans.isPublic, true)) });
-  if (!plan?.stripePriceId) {
+  const plan = await db.query.plans.findFirst({ where: eq(plans.id, planId) });
+  if (!plan) {
     return NextResponse.json({ error: "Plan is not billable" }, { status: 400 });
   }
 
@@ -68,7 +76,7 @@ export async function POST(req: Request) {
     // one mid-flight are the same outcome, so one kind carries both.
     | { kind: "in_progress"; url?: string }
     | { kind: "plan_conflict"; openPlanId: string }
-    | { kind: "proceed"; intentId: string; idempotencyKey: string; customerId: string | null };
+    | { kind: "proceed"; intentId: string; idempotencyKey: string; customerId: string | null; requestParams: Record<string, string> };
 
   let state: CheckoutState;
   try {
@@ -151,6 +159,7 @@ export async function POST(req: Request) {
           intentId: sub.checkoutIdempotencyKey.replace(/^checkout-intent-/, ""),
           idempotencyKey: sub.checkoutIdempotencyKey,
           customerId: sub.stripeCustomerId ?? null,
+          requestParams: requireCheckoutSnapshot(sub.checkoutRequestParams, sub.checkoutIntentCreatedAt),
         };
       }
 
@@ -161,6 +170,16 @@ export async function POST(req: Request) {
         return { kind: "subscription_needs_attention" as const, status: sub.status };
       }
 
+      if (!plan.isActive || !plan.isPublic || !plan.stripePriceId) throw new Error("PLAN_NOT_BILLABLE");
+      const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
+      const requestParams: Record<string, string> = {
+        mode: "subscription", client_reference_id: claims.tenantId,
+        success_url: `${base}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${base}/billing?checkout=cancelled`,
+        "line_items[0][price]": plan.stripePriceId, "line_items[0][quantity]": "1",
+        "subscription_data[metadata][tenant_id]": claims.tenantId,
+        "subscription_data[metadata][plan_id]": plan.id,
+      };
       const intentId = `chk_${randomUUID()}`;
       const idempotencyKey = `checkout-intent-${intentId}`;
 
@@ -178,6 +197,8 @@ export async function POST(req: Request) {
           checkoutStatus: "creating",
           checkoutPlanId: plan.id,
           checkoutIdempotencyKey: idempotencyKey,
+          checkoutRequestParams: requestParams,
+          checkoutIntentCreatedAt: sql`clock_timestamp()`,
         });
         sub = await tx.query.tenantSubscriptions.findFirst({
           where: eq(tenantSubscriptions.tenantId, claims.tenantId),
@@ -197,6 +218,8 @@ export async function POST(req: Request) {
               checkoutStatus: "creating",
               checkoutPlanId: plan.id,
               checkoutIdempotencyKey: idempotencyKey,
+              checkoutRequestParams: requestParams,
+              checkoutIntentCreatedAt: sql`clock_timestamp()`,
               checkoutSessionId: null,
               checkoutSessionUrl: null,
               checkoutSessionExpiresAt: null,
@@ -209,6 +232,7 @@ export async function POST(req: Request) {
             intentId: sub.checkoutIdempotencyKey.replace(/^checkout-intent-/, ""),
             idempotencyKey: sub.checkoutIdempotencyKey,
             customerId: sub.stripeCustomerId ?? null,
+            requestParams: requireCheckoutSnapshot(sub.checkoutRequestParams, sub.checkoutIntentCreatedAt),
           };
         }
       }
@@ -218,9 +242,12 @@ export async function POST(req: Request) {
         intentId,
         idempotencyKey,
         customerId: sub?.stripeCustomerId ?? null,
+        requestParams,
       };
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "PLAN_NOT_BILLABLE") return NextResponse.json({ error: "Plan is not billable", code: "PLAN_NOT_BILLABLE" }, { status: 400 });
+    if (error instanceof Error && error.message === "CHECKOUT_SNAPSHOT_MISSING") return NextResponse.json({ error: "This legacy checkout requires reconciliation with Stripe before retrying", code: "CHECKOUT_RECONCILIATION_REQUIRED" }, { status: 409 });
     if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -316,18 +343,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
-    const params = new URLSearchParams({
-      mode: "subscription",
-      customer: customerId,
-      client_reference_id: claims.tenantId,
-      success_url: `${base}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${base}/billing?checkout=cancelled`,
-      "line_items[0][price]": plan.stripePriceId,
-      "line_items[0][quantity]": "1",
-      "subscription_data[metadata][tenant_id]": claims.tenantId,
-      "subscription_data[metadata][plan_id]": plan.id,
-    });
+    const params = new URLSearchParams({ ...state.requestParams, customer: customerId });
 
     const session = await stripeRequest(
       "checkout/sessions",
@@ -426,6 +442,8 @@ export async function POST(req: Request) {
             checkoutStatus: "none",
             checkoutPlanId: null,
             checkoutIdempotencyKey: null,
+            checkoutRequestParams: null,
+            checkoutIntentCreatedAt: null,
             checkoutSessionId: null,
             checkoutSessionUrl: null,
             checkoutSessionExpiresAt: null,

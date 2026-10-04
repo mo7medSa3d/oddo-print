@@ -64,15 +64,9 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 				a.executeDiscoverySession(ctx, id, session)
 			})
 		default:
-			// A skipped session must not linger as "running" on the
-			// gateway until its 60s expiry: report it cancelled now so
-			// dashboards and operators see the truth immediately. The
-			// gateway accepts "cancelled" as a terminal session status
-			// and the next 30s poll tick picks up fresh work.
+			// Polling sees the same running session as the WS trigger. A busy
+			// semaphore is deferral, not cancellation of the worker that owns it.
 			log.Printf("[discovery] session %s deferred: a discovery session is already running", id)
-			a.launchTracked(func() {
-				a.reportDiscoveryResult(ctx, id, "cancelled", nil)
-			})
 		}
 	}
 }
@@ -204,68 +198,9 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 		return
 	}
 
-	var devices []map[string]interface{}
+	devices := make([]map[string]interface{}, 0, len(result.Printers))
 	for _, di := range result.Printers {
-		verification := discoveryVerification(di)
-
-		sources := []string{}
-		if di.Capabilities != nil {
-			if v, ok := di.Capabilities["discovered_via"]; ok {
-				sources = append(sources, fmt.Sprint(v))
-			}
-		}
-		if di.Protocol == "ipp" || di.Protocol == "ipps" {
-			sources = append(sources, di.Protocol)
-		}
-
-		deviceClass := normalizeDeviceClass(di.PrinterType)
-
-		confidence := "low"
-		if verification == "verified" && len(sources) >= 1 {
-			confidence = "medium"
-			if di.Name != "" && len(sources) >= 2 {
-				confidence = "high"
-			}
-		}
-
-		uri := ""
-		if di.Protocol == "ipp" || di.Protocol == "ipps" {
-			uri = di.Endpoint
-		}
-		dev := map[string]interface{}{
-			// Keep the discovery row identity stable across repeated scans, while
-			// scoping it to this Agent so two Agents observing similar hardware
-			// cannot collide on the Gateway's global discovery-device ID.
-			"id":          discoveryDeviceID(a.cfg.Agent.ID, di.ID),
-			"stableId":    di.ID,
-			"source":      sources,
-			"protocol":    di.Protocol,
-			"ipAddress":   di.NetworkAddress,
-			"port":        di.Port,
-			"uri":         uri,
-			"deviceName":  di.Name,
-			"spoolerName": di.SpoolerName,
-			"deviceClass": deviceClass,
-			"transport":   di.ConnectionType,
-			"manufacturer": func() interface{} {
-				if di.Capabilities != nil {
-					return di.Capabilities["manufacturer"]
-				}
-				return nil
-			}(),
-			"model":        di.Name,
-			"confidence":   confidence,
-			"verification": verification,
-			"capabilities": di.Capabilities,
-			"rawMetadata":  map[string]interface{}{"endpoint": di.Endpoint, "connectionType": di.ConnectionType},
-		}
-
-		if di.Capabilities != nil {
-			if m, ok := di.Capabilities["model"]; ok && m != nil {
-				dev["model"] = fmt.Sprint(m)
-			}
-		}
-		devices = append(devices, dev)
+		devices = append(devices, discoveryDevicePayload(a.cfg.Agent.ID, di))
 	}
 
 	status := "completed"
@@ -275,16 +210,82 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 		status = "failed"
 	}
 
-	a.reportDiscoveryResult(ctx, discoveryID, status, devices)
+	a.reportDiscoveryResult(ctx, discoveryID, status, devices, result.Errors)
 	<-a.discoverySem
+}
+
+// boundedDiscoveryText counts UTF-16 units to match the Gateway's string limits.
+func boundedDiscoveryText(value string, max int) string {
+	units := 0
+	for index, r := range value {
+		n := 1
+		if r > 0xffff {
+			n = 2
+		}
+		if units+n > max {
+			return value[:index]
+		}
+		units += n
+	}
+	return value
+}
+
+func discoveryDevicePayload(agentID string, di printer.DeviceInfo) map[string]interface{} {
+	sources := []string{}
+	if v, ok := di.Capabilities["discovered_via"].(string); ok && v != "" {
+		sources = append(sources, boundedDiscoveryText(v, 64))
+	}
+	protocol := strings.TrimSpace(di.Protocol)
+	if protocol == "" {
+		protocol = "unknown"
+	}
+	verification := discoveryVerification(di)
+	confidence := "low"
+	if verification == "verified" {
+		confidence = "medium"
+	}
+	dev := map[string]interface{}{
+		"id": discoveryDeviceID(agentID, di.ID), "stableId": di.ID,
+		"source": sources, "protocol": protocol,
+		"deviceName":  boundedDiscoveryText(di.Name, 255),
+		"deviceClass": normalizeDeviceClass(di.PrinterType),
+		"transport":   di.ConnectionType, "model": boundedDiscoveryText(di.Name, 255),
+		"confidence": confidence, "verification": verification,
+		"rawMetadata": map[string]interface{}{"endpoint": di.Endpoint, "connectionType": di.ConnectionType},
+	}
+	if di.NetworkAddress != "" {
+		dev["ipAddress"] = di.NetworkAddress
+	}
+	if di.Port > 0 && di.Port <= 65535 {
+		dev["port"] = di.Port
+	}
+	if (protocol == "ipp" || protocol == "ipps") && di.Endpoint != "" {
+		dev["uri"] = di.Endpoint
+	}
+	if di.SpoolerName != "" {
+		dev["spoolerName"] = di.SpoolerName
+	}
+	if di.Capabilities != nil {
+		dev["capabilities"] = di.Capabilities
+		if manufacturer, ok := di.Capabilities["manufacturer"].(string); ok && manufacturer != "" {
+			dev["manufacturer"] = boundedDiscoveryText(manufacturer, 120)
+		}
+		if model, ok := di.Capabilities["model"].(string); ok && model != "" {
+			dev["model"] = boundedDiscoveryText(model, 255)
+		}
+	}
+	return dev
 }
 
 func discoveryVerification(di printer.DeviceInfo) string {
 	verification := "candidate"
-	if di.Protocol == "ipp" || di.Protocol == "ipps" || di.ConnectionType == "spooler" {
+	if di.ConnectionType == "spooler" {
 		verification = "verified"
 	}
 	if di.Capabilities != nil {
+		if v, ok := di.Capabilities["ipp_verified"].(bool); ok && v {
+			verification = "verified"
+		}
 		if v, ok := di.Capabilities["snmp_verified"].(bool); ok && v {
 			verification = "verified"
 		}
@@ -303,11 +304,24 @@ func discoveryDeviceID(agentID, stableID string) string {
 	return fmt.Sprintf("dev_%x", h[:16])
 }
 
-func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status string, devices []map[string]interface{}) {
+func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status string, devices []map[string]interface{}, sourceErrors ...[]string) {
+	if devices == nil {
+		devices = []map[string]interface{}{}
+	}
+	diagnostics := []string{}
+	for _, batch := range sourceErrors {
+		for _, message := range batch {
+			log.Printf("[discovery] session %s: %s", discoveryID, message)
+			if len(diagnostics) < 64 {
+				diagnostics = append(diagnostics, boundedDiscoveryText(message, 2048))
+			}
+		}
+	}
 	payload := map[string]interface{}{
 		"discoveryId": discoveryID,
 		"status":      status,
 		"devices":     devices,
+		"errors":      diagnostics,
 	}
 	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
 	body, err := json.Marshal(payload)
@@ -330,7 +344,8 @@ func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status s
 		resp, err := a.client.Do(req)
 		if err == nil {
 			statusCode := resp.StatusCode
-			if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10)); drainErr != nil {
+			responseBody, drainErr := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+			if drainErr != nil {
 				log.Printf("[discovery] gateway response drain failed for %s: %v", discoveryID, drainErr)
 			}
 			_ = resp.Body.Close()
@@ -341,7 +356,7 @@ func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status s
 			// 4xx responses are authoritative state/auth/input failures and
 			// retrying them only amplifies load. 429/5xx remain recoverable.
 			if statusCode < 500 && statusCode != http.StatusTooManyRequests {
-				log.Printf("[discovery] gateway rejected results for %s: HTTP %d", discoveryID, statusCode)
+				log.Printf("[discovery] gateway rejected results for %s: HTTP %d: %s", discoveryID, statusCode, firstLineOfBody(responseBody))
 				return
 			}
 			log.Printf("[discovery] transient gateway response for %s: HTTP %d (attempt %d/%d)", discoveryID, statusCode, attempt, maxAttempts)

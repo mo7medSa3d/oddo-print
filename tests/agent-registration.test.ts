@@ -85,6 +85,38 @@ suite("agent registration contract", () => {
     expect(body.secret).toMatch(/.+/);
   });
 
+  it("does not block pairing on an unrelated tenant's subscription lock", async () => {
+    const f = await seedFixture();
+    const other = await seedFixture();
+    const pairingCode = "GH66JK";
+    await pool().query(
+      `UPDATE agents SET pairing_code_hash = $1, pairing_code_expires_at = now() + interval '30 minutes', secret = NULL WHERE id = $2`,
+      [hashPairingCode(pairingCode), f.agentId],
+    );
+    const blocker = await pool().connect();
+    await blocker.query("BEGIN");
+    await blocker.query("SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 FOR UPDATE", [other.tenantId]);
+    const pending = registerPOST(new Request("http://gateway.test/api/agent/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-real-ip": "127.0.0.53" },
+      body: JSON.stringify({ pairingCode }),
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([
+        pending,
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2000); }),
+      ]);
+      expect(response, "pairing must finish before the unrelated lock is released").not.toBeNull();
+      expect(response?.status).toBe(200);
+    } finally {
+      clearTimeout(timer);
+      await blocker.query("ROLLBACK");
+      blocker.release();
+      await pending;
+    }
+  }, 10000);
+
   it("pairs using only the one-time pairing code and preserves runtime-only agent ownership", async () => {
     const f = await seedFixture();
     const pairingCode = "AB22CD";

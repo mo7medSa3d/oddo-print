@@ -211,6 +211,8 @@ export default function PlatformDashboardPage() {
           <PageSkeleton />
           <span className="sr-only">{t("platform.dashboard.loadingShort")}</span>
         </div>
+      ) : !stats ? (
+        <ErrorState title={t("platform.dashboard.statsUnavailable")} message={error ?? t("platform.dashboard.loadError")} retry={() => { setLoading(true); setReloadKey(value => value + 1); }} />
       ) : (
         <>
           {error && (

@@ -184,7 +184,6 @@ class TestControlPlane(TransactionCase):
         self.assertEqual(intent2.id, intent1.id, "Duplicate trigger must return existing intent and suppress duplicate job creation")
 
     def test_billing_retry_uses_relative_retry_after_not_gateway_absolute_period_end(self):
-        source = (self.env["print_gateway.print_job"]._original_module_path if False else None)
         from pathlib import Path
         print_job_source = (
             Path(__file__).resolve().parents[1] / "models" / "print_job.py"
@@ -549,7 +548,7 @@ class TestControlPlane(TransactionCase):
             "binding_id": self.zpl_binding.id,
             "active": True,
         })
-        intent = intent_model.create({
+        intent_model.create({
             "intent_key": "stale_intent_test_key_01",
             "policy_id": policy.id,
             "res_model": model.model,
@@ -1803,7 +1802,6 @@ class TestControlPlane(TransactionCase):
         corrupted persisted payload and a contract-violating Gateway reply
         must terminalize immediately (failed, no next_retry_at) instead of
         burning five backoff attempts on identical bytes."""
-        import requests
         ConfigClass = type(self.gateway_config)
 
         corrupted = self.env["print_gateway.print_job"].create({
@@ -1844,10 +1842,15 @@ class TestControlPlane(TransactionCase):
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
              patch("requests.post", return_value=mock_resp):
             garbage.action_submit()
-            self.assertEqual(garbage.status, "failed")
+            self.assertEqual(garbage.status, "unknown")
             self.assertEqual(garbage.attempts, 1)
             self.assertFalse(garbage.next_retry_at)
-            self.assertIn("GATEWAY_INVALID_RESPONSE", garbage.last_error or "")
+            self.assertIn("UNKNOWN_SUBMISSION_OUTCOME", garbage.last_error or "")
+            self.assertFalse(garbage.gateway_job_id)
+            self.assertEqual(garbage.printer_id, self.primary_binding.printer_id)
+            with patch("requests.post") as duplicate_post:
+                garbage.action_submit()
+                duplicate_post.assert_not_called()
 
     def test_30_direct_binding_enforces_resolution_scope_parity(self):
         """Direct binding= must satisfy the EXACT same scope model as

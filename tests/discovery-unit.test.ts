@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { isPrivateCIDR, confidenceFor, DISCOVERY_SOURCES, DISCOVERY_PROTOCOLS } from "../src/lib/discovery";
+
+import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, pool, closePool } from "./helpers/pg";
+import { POST as discoveryReport } from "../src/app/api/agent/discovery/route";
 
 describe("discovery taxonomy", () => {
   it("canonical sources include all required", () => {
@@ -50,13 +53,21 @@ describe("confidence scoring deterministic", () => {
   });
 });
 
-describe("deduplication mental model", () => {
-  it("mDNS + IPP + SNMP for same printer should deduplicate (simulated via sources array)", () => {
-    const sources = [["mdns"],["ipp"],["snmp"]];
-    const merged = Array.from(new Set(sources.flat()));
-    expect(merged.length).toBe(3);
-    // single logical device after dedup would be 1, not 3
-    const deduped = 1;
-    expect(deduped).toBe(1);
+describe.skipIf(!hasTestDatabase)("discovery identity deduplication at the actual ingestion boundary", () => {
+  beforeAll(async () => { await applyMigrations(); });
+  afterAll(async () => { await closePool(); });
+  it("stores one logical device for multiple observations with the same stable identity", async () => {
+    await truncateAll();
+    const fixture = await seedFixture();
+    await pool().query("INSERT INTO discovery_sessions (id, tenant_id, agent_id, status, config, stats) VALUES ('disc_identity_dedupe', $1, $2, 'running', '{}'::jsonb, '{}'::jsonb)", [fixture.tenantId, fixture.agentId]);
+    const response = await discoveryReport(new Request("https://gateway.test/api/agent/discovery", { method: "POST", headers: { Authorization: fixture.agentAuth, "Content-Type": "application/json" }, body: JSON.stringify({ discoveryId: "disc_identity_dedupe", status: "completed", devices: ["mdns", "ipp", "snmp"].map(source => ({ id: "observed-" + source, stableId: "same-physical-printer", source: [source], protocol: "ipp", ipAddress: "192.168.1.50", port: 631 })) }) }));
+    expect(response.status).toBe(200);
+    const rows = await pool().query("SELECT identity_key, source FROM discovered_devices WHERE tenant_id=$1 AND agent_id=$2", [fixture.tenantId, fixture.agentId]);
+    expect(rows.rows).toEqual([{ identity_key: "same-physical-printer", source: ["snmp"] }]);
   });
 });
+
+  it("rejects nondecimal CIDR octets/prefixes instead of numeric coercion", () => {
+    for (const cidr of ["10..1.0/24", "10.0x10.0.0/24", "10.1.5e1.0/24", "10.1.1.0/0x18", "10.1.1.0/2.4e1", "10.01.1.0/24", "10.1.1.0/ 24"]) expect(isPrivateCIDR(cidr)).toBe(false);
+    expect(isPrivateCIDR("10.255.254.0/24")).toBe(true);
+  });

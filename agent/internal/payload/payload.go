@@ -147,6 +147,12 @@ func Parse(raw interface{}) (*Payload, error) {
 		return nil, fmt.Errorf("PDF bytes cannot be labeled as raw/escpos")
 	}
 
+	if value, present := m["peripherals"]; present {
+		peripherals, ok := value.(map[string]interface{})
+		if !ok || peripherals == nil {
+			return nil, fmt.Errorf("payload.peripherals must be an object")
+		}
+	}
 	var periph Peripherals
 	if periphMap, ok := m["peripherals"].(map[string]interface{}); ok {
 		// A present-but-non-string peripheral is a contract violation, not

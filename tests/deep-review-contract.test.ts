@@ -182,7 +182,7 @@ describe("deep production review contracts", () => {
   it("redacts explicit claim correlation fields in the logger", () => {
     const source = read("src/lib/log.ts");
     expect(source).toContain('if (key === "claimId" || key === "claim_id")');
-    expect(source).toContain("redactClaimToken(value)");
+    expect(source).toContain("redactClaimToken(nested)");
   });
 
   it("scrubs legacy raw UUID claim ids from the timeline during migration", () => {
@@ -268,7 +268,7 @@ describe("deep production review contracts", () => {
     expect(odooAgents).toContain("TenantSubscriptionRequiredError");
     expect(odooAgents).toContain('code: "SUBSCRIPTION_REQUIRED"');
     expect(register).toContain("SUBSCRIPTION_REQUIRED");
-    expect(register).toContain("liveTenantSubscriptionPredicate");
+    expect(register).toContain("liveTenantSubscriptionWhere");
     expect(lifecycle).toContain("requireTenantBillingAccess(tx, tenantId)");
     expect(entitlements).toContain("requireTenantBillingAccess");
     expect(entitlements).toContain("status IN ('trialing', 'active', 'past_due')");

@@ -250,6 +250,7 @@ export async function runBillingOperation(
       await tx.update(tenantSubscriptions)
         .set({
           cancelAtPeriodEnd: operation.cancelAtPeriodEnd,
+          stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
           billingOperationId: null,
           billingOperationType: null,
           billingOperationIdempotencyKey: null,

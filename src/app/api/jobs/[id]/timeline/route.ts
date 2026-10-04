@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { jobEvents, printJobs } from "../../../../../db/schema";
+import { jobEvents, printJobs, printJobReceipts } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
@@ -47,6 +47,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   return runWithCorrelation(correlation, async () => {
     const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id))).limit(1);
     if (rows.length === 0) {
+      const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.id, id)) });
+      if (receipt) return NextResponse.json({ jobId: id, tenantId, status: receipt.status, archived: true,
+        timeline: [
+          { id: `${id}:created`, stage: "created", status: "ok", at: receipt.createdAt, messageKey: "job.timeline.created" },
+          { id: `${id}:${receipt.status}`, stage: receipt.status, status: receipt.status === "success" ? "ok" : "error", at: receipt.updatedAt, messageKey: receipt.status === "success" ? "job.timeline.successUnverified" : receipt.status === "expired" ? "job.timeline.expired" : "job.timeline.failed" },
+        ], correlation: { requestId, jobId: id, tenantId, agentId: receipt.agentId, printerId: receipt.printerId },
+      }, { headers: { "x-request-id": requestId } });
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });
     }
     const job: JobRow = rows[0];
@@ -80,7 +87,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         metadata: e.metadata,
       }));
     } else {
-      timeline = buildTimelineFromJobRow(job).map((t, idx) => ({
+      timeline = [];
+    }
+    const persisted = timeline;
+    const missing = buildTimelineFromJobRow(job).filter(entry => !persisted.some(event =>
+      event.stage === entry.stage && (!["success", "failed", "expired"].includes(entry.stage) || (event.at && job.updatedAt && event.at.getTime() >= job.updatedAt.getTime()))
+    ));
+    timeline = [...persisted, ...missing.map((t, idx) => ({
         id: `derived_${idx}`,
         stage: t.stage,
         status: t.status,
@@ -96,8 +109,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         printerId: job.printerId,
         requestId: job.requestId,
         metadata: {},
-      }));
-    }
+      }))];
+    timeline.sort((a, b) => a.at && b.at ? a.at.getTime() - b.at.getTime() : 0);
 
     const res = NextResponse.json(
       {

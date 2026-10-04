@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Backend report interception through the single Print Gateway router."""
 
-from odoo import models
+from odoo import models, _
 
 from .binding import _assert_report_usage_access
 
@@ -50,7 +50,7 @@ class IrActionsReportGateway(models.Model):
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
-                    "title": "Print Job Accepted",
+                    "title": _("Print Job Accepted"),
                     "message": route["message"],
                     "type": "success",
                     "sticky": False,

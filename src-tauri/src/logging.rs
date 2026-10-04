@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::paths;
 
-static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
+struct LogWriter { file: Option<File>, path: PathBuf }
+static LOG_FILE: OnceLock<Mutex<LogWriter>> = OnceLock::new();
 
 /// Rotate the log once it grows past this size; rotated copies are kept under
 /// `name.1` … `name.3` next to the live file.
@@ -20,23 +21,25 @@ pub fn init() -> Option<PathBuf> {
     let root = paths::ensure_manager_data_root().ok()?;
     let dir = root.join("logs");
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("[yaseir-manager] unable to create log dir {}: {e}", dir.display());
+        eprintln!(
+            "[yaseir-manager] unable to create log dir {}: {e}",
+            dir.display()
+        );
         return None;
     }
     let path = dir.join("yaseir-manager.log");
     rotate_if_full(&path);
-    let file = match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
+    let file = match OpenOptions::new().create(true).append(true).open(&path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("[yaseir-manager] unable to open log {}: {e}", path.display());
+            eprintln!(
+                "[yaseir-manager] unable to open log {}: {e}",
+                path.display()
+            );
             return None;
         }
     };
-    let _ = LOG_FILE.set(Mutex::new(file));
+    let _ = LOG_FILE.set(Mutex::new(LogWriter { file: Some(file), path: path.clone() }));
     info("application logger initialized");
     Some(path)
 }
@@ -160,10 +163,18 @@ fn write_line(level: &str, msg: &str) {
     let line = format!("[{}] [{}] {}\n", timestamp(), level, msg);
     {
         if let Some(m) = LOG_FILE.get() {
-            if let Ok(mut file) = m.lock() {
-                let _ = file.write_all(line.as_bytes());
-                let _ = file.flush();
-                return;
+            if let Ok(mut logger) = m.lock() {
+                let full = logger.file.as_ref().and_then(|file| file.metadata().ok())
+                    .is_some_and(|meta| meta.len() > MAX_LOG_BYTES);
+                if full {
+                    // Close the handle before rename, including on Windows.
+                    drop(logger.file.take());
+                    rotate_if_full(&logger.path);
+                    logger.file = OpenOptions::new().create(true).append(true).open(&logger.path).ok();
+                }
+                if let Some(file) = logger.file.as_mut() {
+                    if file.write_all(line.as_bytes()).and_then(|_| file.flush()).is_ok() { return; }
+                }
             }
         }
     }

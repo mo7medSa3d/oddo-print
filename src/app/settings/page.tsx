@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiMessageKey } from "../../lib/api-error-keys";
 import { useI18n } from "../../i18n/react";
 import {
   Building2,
@@ -67,7 +68,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ name }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? t("settings.saveFailed"));
+      if (!r.ok) throw new Error(t(apiMessageKey(d.code, r.status, "settings.saveFailed")));
       setMessage({ text: t("settings.nameUpdated"), type: "ok" });
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : t("settings.saveFailed"), type: "err" });
@@ -147,7 +148,7 @@ export default function SettingsPage() {
                 <KeyValueList
                   rows={[
                     { label: t("settings.signedInAs"), value: email || "—" },
-                    { label: t("settings.role"), value: <span className="capitalize">{role || "—"}</span> },
+                    { label: t("settings.role"), value: <span>{["owner", "admin", "operator", "viewer"].includes(role) ? t(`team.role.${role}` as import("../../i18n/messages/en").MessageKey) : t("common.unknown")}</span> },
                     {
                       label: t("settings.workspaceCreated"),
                       value: tenantCreatedAt ? formatDate(tenantCreatedAt) : "—",
@@ -157,7 +158,7 @@ export default function SettingsPage() {
                 <div className="mt-3 flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
                   <Shield className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                   <p className="text-sm leading-relaxed text-ink-3">
-                    Role changes apply immediately.
+                    {t("settings.roleChangesImmediate")}
                   </p>
                 </div>
               </div>

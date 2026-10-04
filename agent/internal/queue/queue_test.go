@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -90,7 +91,7 @@ func TestTerminalStatusRetainsClaimTokenUntilGatewayAck(t *testing.T) {
 	if got := q.ClaimTokenFor("success-token"); got != "gateway-claim-success" {
 		t.Fatalf("terminal success must retain claim token until Gateway acknowledgement, got %q", got)
 	}
-	if err := q.ClearClaimToken("success-token"); err != nil {
+	if err := q.ClearClaimToken("success-token", "gateway-claim-success"); err != nil {
 		t.Fatalf("ClearClaimToken(success-token): %v", err)
 	}
 	if got := q.ClaimTokenFor("success-token"); got != "" {
@@ -109,7 +110,7 @@ func TestTerminalStatusRetainsClaimTokenUntilGatewayAck(t *testing.T) {
 	if got := q.ClaimTokenFor("failed-token"); got != "gateway-claim-failed" {
 		t.Fatalf("terminal failure must retain claim token until Gateway acknowledgement, got %q", got)
 	}
-	if err := q.ClearClaimToken("failed-token"); err != nil {
+	if err := q.ClearClaimToken("failed-token", "gateway-claim-failed"); err != nil {
 		t.Fatalf("ClearClaimToken(failed-token): %v", err)
 	}
 }
@@ -154,7 +155,7 @@ func TestPendingTerminalReportsSurviveRestartUntilGatewayAck(t *testing.T) {
 	if len(reports) != 1 || reports[0].ID != "pending-terminal" || reports[0].ClaimToken != "claim-terminal" || reports[0].Status != "failed" {
 		t.Fatalf("unexpected pending terminal reports: %#v", reports)
 	}
-	if err := q.ClearClaimToken("pending-terminal"); err != nil {
+	if err := q.ClearClaimToken("pending-terminal", "claim-terminal"); err != nil {
 		t.Fatalf("ClearClaimToken: %v", err)
 	}
 	reports, err = q.PendingTerminalReports(8)
@@ -540,5 +541,71 @@ func TestTerminalStatusWithErrorClearsClaimTimestampButRetainsReportToken(t *tes
 	}
 	if token != "claim-terminal-error" || claimedAt != nil {
 		t.Fatalf("terminal row should retain report token but clear lease timestamp: token=%v claimed_at=%v", token, claimedAt)
+	}
+}
+
+func TestOldTerminalAcknowledgementCannotClearNewAttemptToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("reused-job", "p1", []byte("data")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET status = 'failed', claim_token = 'new-token' WHERE id = 'reused-job'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("reused-job", "old-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("reused-job"); got != "new-token" {
+		t.Fatalf("stale ACK cleared the current attempt: %q", got)
+	}
+	if err := q.ClearClaimToken("reused-job", "new-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("reused-job"); got != "" {
+		t.Fatalf("matching ACK not cleared: %q", got)
+	}
+}
+
+func TestNonemptyLegacyQueueMigratesDurablyWithoutLosingRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacy, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = legacy.Exec(`CREATE TABLE print_jobs (id TEXT PRIMARY KEY, printer_id TEXT NOT NULL, payload BLOB NOT NULL, status TEXT NOT NULL, retries INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP); INSERT INTO print_jobs (id, printer_id, payload, status) VALUES ('old', 'p1', X'61', 'success')`)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if !q.IsProcessed("old") {
+		t.Fatal("migration lost terminal execution fence")
+	}
+	var durability int
+	if err := q.db.QueryRow(`PRAGMA synchronous`).Scan(&durability); err != nil || durability < 2 {
+		t.Fatalf("ledger lacks power-loss durability: %d %v", durability, err)
+	}
+	if err := q.Push("new", "p1", []byte("receipt")); err != nil {
+		t.Fatal(err)
+	}
+	var missing int
+	if err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE updated_at IS NULL`).Scan(&missing); err != nil || missing != 0 {
+		t.Fatalf("legacy/new rows lack timestamps: %d %v", missing, err)
+	}
+	if err := q.BeginPrint("next", "p1", []byte("receipt"), "claim", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatus("next", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.BeginPrint("next", "p1", []byte("receipt"), "replacement", true); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("migration broke terminal idempotency: %v", err)
 	}
 }

@@ -80,8 +80,11 @@ for (const locale of LOCALES) {
     // defect. Every other form must expose exactly the source placeholders.
     const allowsNumeralAsWord = /\.(one|two)$/.test(key);
     if (allowsNumeralAsWord) {
-      const unknown = got.filter((name) => !wanted.includes(name));
-      if (unknown.length > 0) fail(`${locale}: "${key}" uses placeholders absent from English: ${unknown.join(", ")}`);
+      const required = wanted.filter((name) => name !== "count");
+      const actual = got.filter((name) => name !== "count");
+      if (required.join(",") !== actual.join(",") || got.filter((name) => name === "count").length > wanted.filter((name) => name === "count").length) {
+        fail(`${locale}: "${key}" must preserve every non-count placeholder`);
+      }
       continue;
     }
     if (wanted.join(",") !== got.join(",")) {

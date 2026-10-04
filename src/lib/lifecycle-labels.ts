@@ -20,6 +20,7 @@ const LIFECYCLE_KEYS: Record<string, MessageKey> = {
 
 /** Translate a stored `lifecycle` value for display. */
 export function lifecycleLabel(t: Translator, lifecycle: string | null | undefined): string {
-  const key = LIFECYCLE_KEYS[lifecycle ?? "active"];
+  const value = lifecycle ?? "active";
+  const key = Object.prototype.hasOwnProperty.call(LIFECYCLE_KEYS, value) ? LIFECYCLE_KEYS[value] : undefined;
   return t(key ?? "lifecycle.active");
 }

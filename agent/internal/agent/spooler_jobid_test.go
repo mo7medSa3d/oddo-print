@@ -26,7 +26,7 @@ func capturingJobsServer(t *testing.T, bodies *[]map[string]interface{}) *httpte
 			*bodies = append(*bodies, body)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body["status"]})
 			return
 		}
 		http.NotFound(w, r)

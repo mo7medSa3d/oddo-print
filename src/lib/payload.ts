@@ -109,10 +109,10 @@ function safeTsplQuotedText(value: string): string {
   return safeTestText(value).replace(/["\\]/g, "_");
 }
 
-export function buildTestPdfPayload(printerName: string, agentName: string): string {
+export function buildTestPdfPayload(printerName: string, agentName: string, operationId?: string): string {
   const safeName = escapePdfText(safeTestText(printerName));
   const safeAgent = escapePdfText(safeTestText(agentName));
-  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const stamp = operationId ? `Operation ${safeTestText(operationId)}` : new Date().toISOString().replace("T", " ").slice(0, 19);
 
   const streamContent = [
     "BT",
@@ -125,7 +125,7 @@ export function buildTestPdfPayload(printerName: string, agentName: string): str
     "0 -20 Td",
     `(Agent: ${safeAgent}) Tj`,
     "0 -20 Td",
-    `(Status: OK | ${stamp}) Tj`,
+    `(Status: OK | ${escapePdfText(stamp)}) Tj`,
     "ET",
   ].join("\n");
 
@@ -177,6 +177,7 @@ export function buildTestPrintPayloadForPrinter(
   printerName: string,
   agentName: string,
   printer: { protocol?: string | null; connectionType?: string | null; capabilities?: { supported_protocols?: string[] } | null },
+  operationId?: string,
 ): PrintJobPayload {
   const declared = (printer.protocol ?? "").toLowerCase().trim();
   const conn = (printer.connectionType ?? "").toLowerCase().trim();
@@ -199,7 +200,7 @@ export function buildTestPrintPayloadForPrinter(
     "";
   const plainName = safeTestText(printerName);
   const plainAgent = safeTestText(agentName);
-  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const stamp = operationId ? `Operation ${safeTestText(operationId)}` : new Date().toISOString().replace("T", " ").slice(0, 19);
 
   if (byteProto === "escpos") {
     return buildTestPrintPayload(printerName, agentName);
@@ -213,7 +214,7 @@ export function buildTestPrintPayloadForPrinter(
       "^FO50,100^GB700,2,2^FS",
       `^FO50,120^A0N,28,28^FDPrinter : ${name}^FS`,
       `^FO50,160^A0N,28,28^FDAgent   : ${agent}^FS`,
-      `^FO50,200^A0N,28,28^FDStatus  : OK | ${stamp}^FS`,
+      `^FO50,200^A0N,28,28^FDStatus  : OK | ${safeZplField(stamp)}^FS`,
       "^XZ",
     ].join("\n");
     if (Buffer.byteLength(zpl, "utf-8") > TEST_PAGE_BYTES) throw new Error("test page exceeds limit");
@@ -230,7 +231,7 @@ export function buildTestPrintPayloadForPrinter(
       'TEXT 50,40,"3",0,1,1,"YASEIR TEST PAGE"',
       `TEXT 50,80,"2",0,1,1,"Printer : ${name}"`,
       `TEXT 50,110,"2",0,1,1,"Agent   : ${agent}"`,
-      `TEXT 50,140,"2",0,1,1,"Status  : OK | ${stamp}"`,
+      `TEXT 50,140,"2",0,1,1,"Status  : OK | ${safeTsplQuotedText(stamp)}"`,
       "PRINT 1,1",
     ].join("\n");
     if (Buffer.byteLength(tspl, "utf-8") > TEST_PAGE_BYTES) throw new Error("test page exceeds limit");
@@ -257,7 +258,7 @@ export function buildTestPrintPayloadForPrinter(
   const pdfAllowed = !hasExplicitCaps || supported.includes("pdf") || supported.includes("spooler") || supported.includes("ipp") || supported.includes("ipps");
 
   if (physicalDocumentTransport && pdfAllowed) {
-    const pdf = buildTestPdfPayload(plainName, plainAgent);
+    const pdf = buildTestPdfPayload(plainName, plainAgent, operationId);
     return {
       type: "pdf",
       encoding: "base64",

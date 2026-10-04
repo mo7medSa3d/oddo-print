@@ -92,7 +92,7 @@ export function statusMessageKey(status: number): MessageKey | null {
  * need to distinguish "no key for this code" from "use a generic one".
  */
 export function codeMessageKey(code: string | undefined): MessageKey | null {
-  if (code && code in CODE_KEYS) return CODE_KEYS[code];
+  if (code && Object.prototype.hasOwnProperty.call(CODE_KEYS, code)) return CODE_KEYS[code];
   return null;
 }
 

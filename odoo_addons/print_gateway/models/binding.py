@@ -25,7 +25,7 @@ def _assert_report_usage_access(env, report):
         raise ValidationError(_("The requested report is unavailable."))
     if str(report.report_type or "").strip() != "qweb-pdf":
         raise ValidationError(_("Only QWeb PDF reports can be sent to the Print Gateway."))
-    if env.is_superuser:
+    if env.is_superuser():
         return report
     allowed_group_ids = set(report.group_ids.ids)
     if allowed_group_ids and not allowed_group_ids.intersection(env.user.all_group_ids.ids):
@@ -246,11 +246,11 @@ class PrintGatewayBinding(models.Model):
     @api.depends("company_id", "branch_id", "destination_ref", "document_type", "runtime_agent_id", "printer_id")
     def _compute_name(self):
         for record in self:
-            destination = record.destination_ref.display_name if record.destination_ref else "Destination"
+            destination = record.destination_ref.display_name if record.destination_ref else _("Destination")
             scope = record.branch_id.display_name if record.branch_id else record.company_id.display_name
-            agent = record.runtime_agent_id or "Agent"
-            printer = record.printer_id or "Printer"
-            record.name = "%s / %s / %s → %s / %s" % (scope or "Odoo Context", destination, record.document_type or "document", agent, printer)
+            agent = record.runtime_agent_id or _("Agent")
+            printer = record.printer_id or _("Printer")
+            record.name = "%s / %s / %s → %s / %s" % (scope or _("Odoo Context"), destination, record.document_type or _("document"), agent, printer)
 
     @api.onchange("destination_type")
     def _onchange_destination_type(self):
@@ -311,8 +311,8 @@ class PrintGatewayBinding(models.Model):
         else:
             root_company = self.company_id
         config = self.env["print_gateway.gateway_config"].search([("company_id", "=", root_company.id)], limit=1)
-        if not config or not config.enabled:
-            raise ValidationError(_("An enabled Print Gateway configuration is required for this Odoo Company."))
+        if not config:
+            raise ValidationError(_("A Print Gateway configuration is required for this Odoo Company."))
         return config
 
     def _validate_runtime_target(self):
@@ -346,7 +346,7 @@ class PrintGatewayBinding(models.Model):
                 % (agent_match.get("name") or self.runtime_agent_id, agent_match.get("lifecycle"))
             )
         try:
-            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
+            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), params={"agent_id": self.runtime_agent_id}, headers=config._gateway_headers(), timeout=10, allow_redirects=False)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway printer discovery failed (HTTP %s).") % response.status_code)
             body = response.json()
@@ -622,7 +622,6 @@ class PrintGatewayBinding(models.Model):
         try:
             gateway_company, branch = router._binding_scope(binding_model.env.company)
             dtype = router._document_type(report=report, record=records[0] if records else None)
-            destination = router.destination_for(report=report, record=records[0] if records else None)
             binding = binding_model.find_for(
                 gateway_company,
                 dtype,
@@ -682,4 +681,3 @@ class PrintGatewayBinding(models.Model):
                 "error": "Print dispatch failed. Open Print Jobs for the reason; the document was not sent.",
                 "fail_closed": True,
             }
-

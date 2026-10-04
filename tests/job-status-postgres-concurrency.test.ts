@@ -58,6 +58,27 @@ suite("atomic Agent job status transitions", () => {
     });
   });
 
+  it("re-acknowledges a lost terminal response without reopening or changing evidence", async () => {
+    await insertQueuedJob(f, "job_closed_ack");
+    await pool().query(`UPDATE print_jobs SET status='printing', claim_token='tok-closed', claimed_at=now(), delivered_at=now() WHERE id='job_closed_ack'`);
+    const patch = (token: string, status = "success", spoolerJobId = "first") => jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+      method: "PATCH", headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({ jobId: "job_closed_ack", status, claimToken: token, spoolerJobId }),
+    }));
+    expect((await patch("tok-closed")).status).toBe(200);
+    const before = await jobRow("job_closed_ack");
+    expect(before.claim_token).toBeNull();
+    const replay = await patch("tok-closed", "success", "replacement");
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ success: true, status: "success" });
+    const after = await jobRow("job_closed_ack");
+    expect(after.updated_at).toEqual(before.updated_at);
+    expect(after.spooler_job_id).toBe("first");
+    expect((await patch("different-attempt")).status).toBe(409);
+    expect((await patch("tok-closed", "failed")).status).toBe(409);
+    expect((await patch("tok-closed", "printing")).status).toBe(409);
+  });
+
   it("allows at most one of two concurrent printing->terminal transitions", async () => {
     await insertQueuedJob(f, "job_race");
     await pool().query(`UPDATE print_jobs SET status='printing' WHERE id='job_race'`);
@@ -115,16 +136,29 @@ suite("atomic Agent job status transitions", () => {
     expect((await patch("printing", "tok-live")).status).toBe(200);
   });
 
-  it("refuses claimed -> queued requeue after delivery evidence exists", async () => {
+  it("allows delivered claimed hand-back but rejects printing or stale attempts", async () => {
     await insertQueuedJob(f, "job_post_delivery_requeue");
-    await pool().query(`UPDATE print_jobs SET status='claimed', claim_token='tok-delivered', delivered_at=now(), claimed_at=now() WHERE id='job_post_delivery_requeue'`);
+    await pool().query(`UPDATE print_jobs SET status='claimed', claim_token='tok-delivered', delivered_at=now(), acked_at=now(), claimed_at=now() WHERE id='job_post_delivery_requeue'`);
     const patch = await jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
       method: "PATCH",
       headers: { Authorization: f.agentAuth, "content-type": "application/json" },
       body: JSON.stringify({ jobId: "job_post_delivery_requeue", status: "queued", reason: "pending_full", claimToken: "tok-delivered" }),
     }));
-    expect(patch.status).toBe(409);
-    expect((await jobRow("job_post_delivery_requeue")).status).toBe("claimed");
+    expect(patch.status).toBe(200);
+    const returned = await jobRow("job_post_delivery_requeue");
+    expect(returned.status).toBe("queued");
+    expect(returned.claim_token).toBeNull();
+    expect(returned.delivered_at).toBeNull();
+    expect(returned.acked_at).toBeNull();
+    await pool().query(`UPDATE print_jobs SET status='printing', claim_token='tok-new', claimed_at=now() WHERE id='job_post_delivery_requeue'`);
+    for (const token of ["tok-delivered", "tok-new"]) {
+      const rejected = await jobStatusPATCH(new Request("http://gateway.test/api/agent/jobs", {
+        method: "PATCH", headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+        body: JSON.stringify({ jobId: "job_post_delivery_requeue", status: "queued", reason: "pending_full", claimToken: token }),
+      }));
+      expect(rejected.status).toBe(409);
+    }
+    expect((await jobRow("job_post_delivery_requeue")).status).toBe("printing");
   });
 
   it("expired late success requires the preserved delivered claim fence", async () => {

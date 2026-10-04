@@ -15,7 +15,7 @@ import {
 } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 
-type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE";
+type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE" | "UNVERIFIED";
 type Row = {
   area: string;
   implemented: Status;
@@ -34,6 +34,7 @@ type SystemHealthPayload = {
 type Filter = "all" | "attention" | "pass";
 
 const STATUS_TONE: Record<Status, Tone> = {
+  UNVERIFIED: "warn",
   PASS: "ok",
   FAIL: "bad",
   BLOCKED: "warn",
@@ -43,126 +44,30 @@ const STATUS_TONE: Record<Status, Tone> = {
 export default function ReleaseReadinessClient() {
   const { t } = useI18n();
   const STATUS_LABEL: Record<Status, string> = {
+    UNVERIFIED: t("release.status.unverified"),
     PASS: t("release.status.pass"),
     FAIL: t("release.status.fail"),
     BLOCKED: t("release.status.blocked"),
     "NOT APPLICABLE": t("release.status.na"),
   };
-  const [rows] = useState<Row[]>([
-    {
-      area: "Real Print Certification Mode (canonical pipeline + idempotency + state-driven)",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "POST /api/printers/[id]/certify uses createPrintJobForPrinter (tenant validation, lifecycle, virtual rejection, executable status, agent ownership, protocol/capability, entitlements, queue limits, idempotency, transactional admission, runtime revalidation, notification). Idempotency-Key header supported, autoKey cert:printer:tenant:minuteBucket. Wizard state-driven from job row status (queued→pending, claimed→ok, etc.), not inferred from lastSeenAt. Physical BLOCKED in sandbox.",
-      rootCause: "Previous direct db.insert bypassed canonical admission — fixed to use createPrintJobForPrinter",
-    },
-    {
-      area: "Printer Capability Matrix (Transport/Protocol/Document/Duplex/Color/Status + driver/spooler evidence)",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "GET /api/printers/capabilities, printer-health.ts normalizePrinterStatus evidence-based with freshness check, driver health from capabilities.driver_name + fresh, spooler health requires capabilities.spooler_status not just DB status. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "Agent Health ONLINE/DEGRADED/OFFLINE/STARTING (evidence-based, observed vs inferred)",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "lib/agent-health.ts computeAgentHealthStatus with STARTING (createdAt<5min, never seen), ONLINE <90s, DEGRADED 90s-5m, OFFLINE >5m. Checks: Gateway observed, Queue observed, Printers observed, Version observed, Heartbeat inferred labeled. failureCount null with note NOT MEASURED. RECOVERING removed (requires history). Covered by automated regression tests; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "Windows Service Recovery (SCM lifecycle, failure actions, state/start type/recovery/last restart/failure count/exit code)",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "docs/WINDOWS_SERVICE_RECOVERY.md, /api/agents/service-status returns BLOCKED explicit with instructions, code hardened system32_exe, run_bounded_command. Runtime requires Windows host with sc.exe — BLOCKED in sandbox.",
-    },
-    {
-      area: "Printer Queue Health + Gateway↔Spooler Job linking (evidence-based statuses)",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "printer-health.ts statuses ONLINE/IDLE/PRINTING/PAPER_OUT/OFFLINE/ERROR/DRIVER_ERROR/SPOOLER_ERROR/UNREACHABLE/UNKNOWN with freshness check, spoolerJobId column + job_events.spooler_job_id, agent/jobs PATCH persists spoolerJobId, timeline includes connection stage.",
-    },
-    {
-      area: "Job Timeline (Created/Queued/Claimed/Accepted/Connection/Printing/Delivery/Success + failure path)",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "GET /api/jobs/[id]/timeline returns timeline from job_events or derived, claim token REDACTED (sha256 hash), not raw. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "Distributed Trace correlation IDs (request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id)",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "src/server/correlation.ts AsyncLocalStorage, X-Request-Id header, log.ts auto-enrichment, docs/DISTRIBUTED_TRACING.md documents the application-specific OTel-inspired fields. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "System Health tenant-safe + overall policy",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "lib/system-health.ts checkQueue now requires tenantId (tenant-safe), checkAgents/Printers require tenantId, overall policy: CRITICAL ERROR→error, UNKNOWN→unknown, IMPORTANT ERROR→error, UNKNOWN→unknown, EXTERNAL ERROR→error, UNKNOWN/WARN→warn (intentionally unverified externals cap overall at WARN, never OK — prevents false OK). Policy documented. Odoo/Billing UNKNOWN honest. Covered by automated regression tests; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "Tenant isolation",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "Composite foreign keys, tenant_id scoping in the APIs, and tenant-safe system-health regression coverage are present; current CI status is reported by GitHub Actions.",
-    },
-    {
-      area: "Claim tokens not exposed",
-      implemented: "PASS",
-      runtimeVerified: "PASS",
-      status: "PASS",
-      evidence: "timeline route redacts claimToken via sha256 hash, regression test ensures raw token never returned.",
-    },
-    {
-      area: "IPP support / driverless direction (not claiming full IPP Everywhere certification)",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "printer-capability.ts has IPP/IPPS support, capability matrix, but NOT claiming IPP Everywhere conformance without conformance testing. Marked as IPP support / driverless direction.",
-    },
-    {
-      area: "Tauri updater signed",
-      implemented: "FAIL",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "Audit src-tauri/Cargo.toml and tauri.conf.json — no updater plugin/config/signing pipeline found. Marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS.",
-    },
-    {
-      area: "Physical printing",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "Test-print creates real job row but paper outcome unverified, certification Physical BLOCKED by design in sandbox. Requires hardware.",
-    },
-    {
-      area: "Odoo runtime",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "Odoo addon views fixed (invisible), but no real Odoo 19 deployment, cannot test buttons. System health Odoo UNKNOWN honest.",
-    },
-    {
-      area: "PostgreSQL integration (tenant-isolation, concurrency)",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "Code inspected, but integration tests skipped without DB. Marked BLOCKED.",
-    },
-    {
-      area: "Go agent race detector",
-      implemented: "PASS",
-      runtimeVerified: "BLOCKED",
-      status: "BLOCKED",
-      evidence: "No Go toolchain in sandbox, go test -race cannot run, manual grep audit only.",
-    },
-  ]);
+  const rows: Row[] = [
+    { area: t("release.area.certification"), evidence: t("release.evidence.certification"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.capabilities"), evidence: t("release.evidence.capabilities"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.agentHealth"), evidence: t("release.evidence.agentHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.serviceRecovery"), evidence: t("release.evidence.serviceRecovery"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.queueHealth"), evidence: t("release.evidence.queueHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.timeline"), evidence: t("release.evidence.timeline"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.trace"), evidence: t("release.evidence.trace"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.systemHealth"), evidence: t("release.evidence.systemHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.tenantIsolation"), evidence: t("release.evidence.tenantIsolation"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.claimPrivacy"), evidence: t("release.evidence.claimPrivacy"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.ipp"), evidence: t("release.evidence.ipp"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.updater"), evidence: t("release.evidence.updater"), implemented: "FAIL", runtimeVerified: "UNVERIFIED", status: "BLOCKED" },
+    { area: t("release.area.physical"), evidence: t("release.evidence.physical"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.odoo"), evidence: t("release.evidence.odoo"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.postgres"), evidence: t("release.evidence.postgres"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.goRace"), evidence: t("release.evidence.goRace"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+  ];
 
   const [systemHealth, setSystemHealth] = useState<SystemHealthPayload | null>(null);
   const [showRawHealth, setShowRawHealth] = useState(false);
@@ -192,13 +97,14 @@ export default function ReleaseReadinessClient() {
     ? "FAIL"
     : rows.some((r) => r.status === "BLOCKED")
       ? "BLOCKED (explicit)"
-      : "PASS";
+      : rows.some((r) => r.status === "UNVERIFIED") ? "UNVERIFIED" : "PASS";
 
   const counts = useMemo(
     () => ({
       pass: rows.filter((r) => r.status === "PASS").length,
       blocked: rows.filter((r) => r.status === "BLOCKED").length,
       fail: rows.filter((r) => r.status === "FAIL").length,
+      unverified: rows.filter((r) => r.status === "UNVERIFIED").length,
     }),
     [rows],
   );
@@ -222,7 +128,7 @@ export default function ReleaseReadinessClient() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-md font-[620] tracking-[-0.015em] text-ink">
-                {t("release.decision", { overall })}
+                {t("release.decision", { overall: STATUS_LABEL[overall] })}
               </h2>
               <StatusBadge tone={tone} label={tone === "ok" ? t("release.badge.ship") : tone === "warn" ? t("release.badge.conditional") : t("release.badge.blocked")} />
             </div>
@@ -230,11 +136,12 @@ export default function ReleaseReadinessClient() {
               {t("release.summaryBody")}
             </p>
           </div>
-          <div className="grid shrink-0 grid-cols-3 gap-px overflow-hidden rounded-sg border border-edge bg-edge-subtle">
+          <div className="grid shrink-0 grid-cols-4 gap-px overflow-hidden rounded-sg border border-edge bg-edge-subtle">
             {[
               { label: t("release.count.pass"), value: counts.pass, tone: "text-ok" },
               { label: t("release.count.blocked"), value: counts.blocked, tone: "text-warn" },
               { label: t("release.count.fail"), value: counts.fail, tone: "text-bad" },
+              { label: t("release.count.unverified"), value: counts.unverified, tone: "text-ink-3" },
             ].map((item) => (
               <div key={item.label} className="bg-surface px-4 py-2.5 text-center">
                 <div className={`text-lg font-[660] leading-none tabular ${item.tone}`}>{item.value}</div>

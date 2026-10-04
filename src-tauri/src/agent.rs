@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Manager;
 
-use crate::paths;
 use crate::logging;
+use crate::paths;
 
 const SERVICE_NAME: &str = "YaseirAgent";
 const BACKGROUND_PID_FILE: &str = "agent.pid";
@@ -26,7 +26,9 @@ pub(crate) fn run_bounded_command(
     max_stderr: usize,
 ) -> Result<std::process::Output, String> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("spawn command failed: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn command failed: {e}"))?;
     let stdout = match child.stdout.take() {
         Some(pipe) => pipe,
         None => {
@@ -51,22 +53,22 @@ pub(crate) fn run_bounded_command(
     let out_thread = std::thread::spawn(move || {
         let mut reader = stdout.take((max_stdout as u64).saturating_add(1));
         let mut buf = Vec::with_capacity(max_stdout.min(64 * 1024));
-        let _ = reader.read_to_end(&mut buf);
+        let read_result = reader.read_to_end(&mut buf);
         if buf.len() > max_stdout {
             overflow_out.store(true, Ordering::Release);
             buf.truncate(max_stdout);
         }
-        buf
+        read_result.map(|_| buf).map_err(|error| format!("read command output: {error}"))
     });
     let err_thread = std::thread::spawn(move || {
         let mut reader = stderr.take((max_stderr as u64).saturating_add(1));
         let mut buf = Vec::with_capacity(max_stderr.min(64 * 1024));
-        let _ = reader.read_to_end(&mut buf);
+        let read_result = reader.read_to_end(&mut buf);
         if buf.len() > max_stderr {
             overflow_err.store(true, Ordering::Release);
             buf.truncate(max_stderr);
         }
-        buf
+        read_result.map(|_| buf).map_err(|error| format!("read command output: {error}"))
     });
 
     let deadline = std::time::Instant::now() + timeout;
@@ -76,7 +78,10 @@ pub(crate) fn run_bounded_command(
             let _ = child.wait();
             let _ = out_thread.join();
             let _ = err_thread.join();
-            return Err(format!("command output exceeded the {} byte stream budget", max_stdout.max(max_stderr)));
+            return Err(format!(
+                "command output exceeded the {} byte stream budget",
+                max_stdout.max(max_stderr)
+            ));
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -86,7 +91,10 @@ pub(crate) fn run_bounded_command(
                     let _ = child.wait();
                     let _ = out_thread.join();
                     let _ = err_thread.join();
-                    return Err(format!("command exceeded timeout of {} seconds", timeout.as_secs()));
+                    return Err(format!(
+                        "command exceeded timeout of {} seconds",
+                        timeout.as_secs()
+                    ));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
@@ -106,8 +114,15 @@ pub(crate) fn run_bounded_command(
         return Err("command output exceeded the configured stream budget".to_string());
     }
 
-    let stdout = out_thread.join().map_err(|_| "stdout reader thread panicked".to_string())?;
-    let stderr = err_thread.join().map_err(|_| "stderr reader thread panicked".to_string())?;
+    let stdout = out_thread
+        .join()
+        .map_err(|_| "stdout reader thread panicked".to_string())??;
+    let stderr = err_thread
+        .join()
+        .map_err(|_| "stderr reader thread panicked".to_string())??;
+    if overflow.load(Ordering::Acquire) {
+        return Err("command output exceeded the configured stream budget".to_string());
+    }
     Ok(std::process::Output {
         status,
         stdout,
@@ -120,7 +135,10 @@ fn resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 fn current_exe_dir() -> Option<PathBuf> {
-    std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(|p| p.to_path_buf())
 }
 
 #[cfg(windows)]
@@ -133,7 +151,10 @@ fn system32_exe(name: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| "Windows SystemRoot is unavailable".to_string())?;
     let path = PathBuf::from(root).join("System32").join(name);
     if !path.is_file() {
-        return Err(format!("Windows system executable not found: {}", path.display()));
+        return Err(format!(
+            "Windows system executable not found: {}",
+            path.display()
+        ));
     }
     Ok(path)
 }
@@ -163,48 +184,79 @@ fn resolve_executable(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, Str
     }
     #[cfg(debug_assertions)]
     {
-        let dev_base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("agent");
+        let dev_base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("agent");
         candidates.push(dev_base.join(name));
     }
 
     let path = candidates
         .into_iter()
         .find(|p| p.is_file())
-        .ok_or_else(|| format!("bundled executable {name} not found; checked resource/current-exe/dev paths"))?;
+        .ok_or_else(|| {
+            format!("bundled executable {name} not found; checked resource/current-exe/dev paths")
+        })?;
     logging::info(&format!("resolved executable {name}: {}", path.display()));
     Ok(path)
 }
 
 #[cfg(windows)]
-fn sc_query() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let sc = system32_exe("sc.exe").ok()?;
-    let mut cmd = Command::new(sc);
-    cmd.args(["query", SERVICE_NAME]).creation_flags(CREATE_NO_WINDOW);
-    let out = run_bounded_command(cmd, std::time::Duration::from_secs(5), 16 * 1024, 16 * 1024).ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
-}
-
-#[cfg(not(windows))]
-fn sc_query() -> Option<String> {
-    None
-}
-
-#[cfg(windows)]
-fn is_running(app: &tauri::AppHandle) -> bool {
-    if let Some(q) = sc_query() {
-        if q.to_ascii_uppercase().contains("RUNNING") {
-            return true;
-        }
+fn sc_query() -> Result<Option<u32>, String> {
+    use std::ffi::c_void;
+    type Handle = *mut c_void;
+    #[repr(C)]
+    #[derive(Default)]
+    struct ServiceStatusProcess {
+        service_type: u32, current_state: u32, controls_accepted: u32,
+        win32_exit_code: u32, service_specific_exit_code: u32,
+        checkpoint: u32, wait_hint: u32, process_id: u32, service_flags: u32,
     }
-    is_process_running(app)
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenSCManagerW(machine: *const u16, database: *const u16, access: u32) -> Handle;
+        fn OpenServiceW(manager: Handle, name: *const u16, access: u32) -> Handle;
+        fn QueryServiceStatusEx(service: Handle, level: u32, buffer: *mut u8, size: u32, needed: *mut u32) -> i32;
+        fn CloseServiceHandle(handle: Handle) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" { fn GetLastError() -> u32; }
+    let name: Vec<u16> = SERVICE_NAME.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let manager = OpenSCManagerW(std::ptr::null(), std::ptr::null(), 0x0001);
+        if manager.is_null() { return Err(format!("OpenSCManagerW failed: {}", GetLastError())); }
+        let service = OpenServiceW(manager, name.as_ptr(), 0x0004);
+        if service.is_null() {
+            let error = GetLastError();
+            CloseServiceHandle(manager);
+            return if error == 1060 { Ok(None) } else { Err(format!("OpenServiceW failed: {error}")) };
+        }
+        let mut status = ServiceStatusProcess::default();
+        let mut needed = 0;
+        let ok = QueryServiceStatusEx(service, 0, &mut status as *mut _ as *mut u8, std::mem::size_of::<ServiceStatusProcess>() as u32, &mut needed);
+        let error = if ok == 0 { Some(GetLastError()) } else { None };
+        CloseServiceHandle(service); CloseServiceHandle(manager);
+        if let Some(error) = error { Err(format!("QueryServiceStatusEx failed: {error}")) } else { Ok(Some(status.current_state)) }
+    }
 }
 
 #[cfg(not(windows))]
-fn is_running(_app: &tauri::AppHandle) -> bool {
-    false
+fn sc_query() -> Result<Option<u32>, String> { Ok(None) }
+
+fn wait_service_state(expected: u32) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        match sc_query()? {
+            Some(state) if state == expected => return Ok(()),
+            None => return Err("service disappeared during control operation".into()),
+            Some(state) if state != 2 && state != 3 => return Err(format!("service reached unexpected state {state}; expected {expected}")),
+            _ => {}
+        }
+        if std::time::Instant::now() >= deadline { return Err("service state transition timed out; background fallback is blocked".into()); }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }
+
+static AGENT_CONTROL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(windows)]
 fn is_process_running(app: &tauri::AppHandle) -> bool {
@@ -224,8 +276,14 @@ fn run_net(action: &str) -> Result<String, String> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let net = system32_exe("net.exe")?;
     let mut cmd = Command::new(net);
-    cmd.args([action, SERVICE_NAME]).creation_flags(CREATE_NO_WINDOW);
-    let out = run_bounded_command(cmd, std::time::Duration::from_secs(30), 64 * 1024, 64 * 1024)?;
+    cmd.args([action, SERVICE_NAME])
+        .creation_flags(CREATE_NO_WINDOW);
+    let out = run_bounded_command(
+        cmd,
+        std::time::Duration::from_secs(30),
+        64 * 1024,
+        64 * 1024,
+    )?;
     if !out.status.success() {
         return Err(format!(
             "net {action} {SERVICE_NAME} failed: {}",
@@ -275,7 +333,11 @@ fn read_background_record() -> Option<BackgroundProcessRecord> {
     let raw = std::fs::read_to_string(meta_path).ok();
     let Some(raw) = raw else {
         let (image, creation_time) = process_identity(pid).ok()?;
-        return Some(BackgroundProcessRecord { pid, creation_time, image });
+        return Some(BackgroundProcessRecord {
+            pid,
+            creation_time,
+            image,
+        });
     };
 
     let mut creation_time = None;
@@ -326,7 +388,7 @@ fn pid_permission_guidance(path: &std::path::Path, op: &str, e: &std::io::Error)
 
 #[cfg(windows)]
 fn process_identity(pid: u32) -> Result<(String, u64), String> {
-    use std::ffi::{c_void, OsString};
+    use std::ffi::{OsString, c_void};
     use std::os::windows::ffi::OsStringExt;
 
     type Handle = *mut c_void;
@@ -366,9 +428,7 @@ fn process_identity(pid: u32) -> Result<(String, u64), String> {
     let result = (|| {
         let mut buf = vec![0u16; 1024];
         let mut len = buf.len() as Dword;
-        let ok = unsafe {
-            QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len)
-        };
+        let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) };
         if ok == 0 || len == 0 {
             return Err(format!("QueryFullProcessImageNameW({pid}) failed"));
         }
@@ -380,9 +440,8 @@ fn process_identity(pid: u32) -> Result<(String, u64), String> {
         let mut exit = FileTime { low: 0, high: 0 };
         let mut kernel = FileTime { low: 0, high: 0 };
         let mut user = FileTime { low: 0, high: 0 };
-        let ok = unsafe {
-            GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user)
-        };
+        let ok =
+            unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) };
         if ok == 0 {
             return Err(format!("GetProcessTimes({pid}) failed"));
         }
@@ -390,7 +449,9 @@ fn process_identity(pid: u32) -> Result<(String, u64), String> {
         Ok((image, creation_time))
     })();
 
-    unsafe { CloseHandle(handle); }
+    unsafe {
+        CloseHandle(handle);
+    }
     result
 }
 
@@ -445,31 +506,45 @@ fn terminate_owned_background_process(
         )
     };
     if handle.is_null() {
-        return Err(format!("OpenProcess({}) failed while stopping the owned agent", record.pid));
+        return Err(format!(
+            "OpenProcess({}) failed while stopping the owned agent",
+            record.pid
+        ));
     }
 
     let result = (|| {
         let mut buf = vec![0u16; 1024];
         let mut len = buf.len() as Dword;
-        if unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) } == 0 || len == 0 {
-            return Err(format!("cannot verify image path for owned agent PID {}", record.pid));
+        if unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) } == 0
+            || len == 0
+        {
+            return Err(format!(
+                "cannot verify image path for owned agent PID {}",
+                record.pid
+            ));
         }
-        let image = <std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(&buf[..len as usize])
-            .to_string_lossy()
-            .to_string();
+        let image = <std::ffi::OsString as std::os::windows::ffi::OsStringExt>::from_wide(
+            &buf[..len as usize],
+        )
+        .to_string_lossy()
+        .to_string();
 
         let mut creation = FileTime { low: 0, high: 0 };
         let mut exit = FileTime { low: 0, high: 0 };
         let mut kernel = FileTime { low: 0, high: 0 };
         let mut user = FileTime { low: 0, high: 0 };
-        if unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
-            return Err(format!("cannot verify creation time for owned agent PID {}", record.pid));
+        if unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0
+        {
+            return Err(format!(
+                "cannot verify creation time for owned agent PID {}",
+                record.pid
+            ));
         }
         let creation_time = ((creation.high as u64) << 32) | creation.low as u64;
         let expected = expected_agent_image(app)?;
-        if !image.eq_ignore_ascii_case(&expected)
+        if !process_images_match(&image, &expected)
             || creation_time != record.creation_time
-            || !record.image.eq_ignore_ascii_case(&expected)
+            || !process_images_match(&record.image, &expected)
         {
             return Err(format!(
                 "refusing to terminate PID {} because process identity does not match the owned YaseirAgent.exe",
@@ -482,13 +557,36 @@ fn terminate_owned_background_process(
         }
         match unsafe { WaitForSingleObject(handle, 5000) } {
             WAIT_OBJECT_0 => Ok(()),
-            WAIT_TIMEOUT => Err(format!("owned YaseirAgent.exe PID {} did not exit within 5 seconds", record.pid)),
-            other => Err(format!("waiting for owned YaseirAgent.exe PID {} failed with status 0x{other:08x}", record.pid)),
+            WAIT_TIMEOUT => Err(format!(
+                "owned YaseirAgent.exe PID {} did not exit within 5 seconds",
+                record.pid
+            )),
+            other => Err(format!(
+                "waiting for owned YaseirAgent.exe PID {} failed with status 0x{other:08x}",
+                record.pid
+            )),
         }
     })();
 
-    unsafe { CloseHandle(handle); }
+    unsafe {
+        CloseHandle(handle);
+    }
     result
+}
+
+fn normalized_process_image(image: &str) -> String {
+    let path = image.replace('/', "\\");
+    if path.get(..8).is_some_and(|prefix| prefix.eq_ignore_ascii_case(r"\\?\UNC\")) {
+        return format!(r"\\{}", &path[8..]);
+    }
+    if let Some(drive) = path.strip_prefix(r"\\?\") {
+        if drive.as_bytes().get(1) == Some(&b':') { return drive.to_string(); }
+    }
+    path
+}
+
+fn process_images_match(actual: &str, expected: &str) -> bool {
+    normalized_process_image(actual).eq_ignore_ascii_case(&normalized_process_image(expected))
 }
 
 #[cfg(windows)]
@@ -500,11 +598,15 @@ fn expected_agent_image(app: &tauri::AppHandle) -> Result<String, String> {
 
 #[cfg(windows)]
 fn background_record_matches(app: &tauri::AppHandle, record: &BackgroundProcessRecord) -> bool {
-    let Ok(expected) = expected_agent_image(app) else { return false; };
-    let Ok((actual, creation_time)) = process_identity(record.pid) else { return false; };
-    actual.eq_ignore_ascii_case(&expected)
+    let Ok(expected) = expected_agent_image(app) else {
+        return false;
+    };
+    let Ok((actual, creation_time)) = process_identity(record.pid) else {
+        return false;
+    };
+    process_images_match(&actual, &expected)
         && creation_time == record.creation_time
-        && record.image.eq_ignore_ascii_case(&expected)
+        && process_images_match(&record.image, &expected)
 }
 
 #[cfg(windows)]
@@ -533,14 +635,14 @@ fn write_background_pid(pid: u32) -> Result<(), String> {
         .and_then(|_| {
             std::fs::rename(&meta_tmp, &meta_path)
                 .map_err(|e| pid_permission_guidance(&meta_path, "commit", &e))
-        }) {
+        })
+    {
         let _ = std::fs::remove_file(&meta_tmp);
         let _ = std::fs::remove_file(&pid_path);
         return Err(e);
     }
     Ok(())
 }
-
 
 /// Spawn a background agent and record ownership metadata for it. If the
 /// PID cannot be persisted the child is terminated and reaped BEFORE the
@@ -562,7 +664,12 @@ fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
         cmd.args(["/PID", &pid_arg, "/T"]);
     }
     cmd.creation_flags(CREATE_NO_WINDOW);
-    run_bounded_command(cmd, std::time::Duration::from_secs(30), 32 * 1024, 32 * 1024)
+    run_bounded_command(
+        cmd,
+        std::time::Duration::from_secs(30),
+        32 * 1024,
+        32 * 1024,
+    )
 }
 
 #[cfg(windows)]
@@ -592,8 +699,8 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let path = agent_path(app)?;
-    let root = paths::ensure_agent_data_root()
-        .map_err(|e| format!("create agent data dir: {e}"))?;
+    let root =
+        paths::ensure_agent_data_root().map_err(|e| format!("create agent data dir: {e}"))?;
     let config = root.join("config.yaml");
 
     let mut cmd = Command::new(&path);
@@ -604,13 +711,20 @@ fn spawn_background(app: &tauri::AppHandle) -> Result<u32, String> {
 
     let pid = spawn_persist_or_reconcile(
         || {
-            cmd
-                .spawn()
-                .map_err(|e| format!("spawn agent {} (config {}) : {e}", path.display(), config.display()))
+            cmd.spawn().map_err(|e| {
+                format!(
+                    "spawn agent {} (config {}) : {e}",
+                    path.display(),
+                    config.display()
+                )
+            })
         },
         write_background_pid,
     )?;
-    logging::info(&format!("started YaseirAgent.exe pid={pid} config={}", config.display()));
+    logging::info(&format!(
+        "started YaseirAgent.exe pid={pid} config={}",
+        config.display()
+    ));
     Ok(pid)
 }
 
@@ -619,105 +733,108 @@ fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
     Err("YaseirAgent.exe can only be launched on Windows".into())
 }
 
-pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
-    if is_running(app) {
-        logging::info("agent is already running");
-        return Ok(());
-    }
-    start(app)
-}
+pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> { start(app) }
 
 pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
-    if is_running(app) {
-        return Ok(());
-    }
-    if sc_query().is_some() {
-        match run_net("start") {
-            Ok(_) => {
-                logging::info("agent service started via net start");
-                return Ok(());
-            }
-            Err(e) => logging::warn(&format!("could not start agent service ({e}); falling back to background process")),
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    start_inner(app)
+}
+
+fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
+    match sc_query()? {
+        Some(4) => Ok(()),
+        Some(2) => wait_service_state(4),
+        Some(3) => { wait_service_state(1)?; run_net("start")?; wait_service_state(4) }
+        Some(1) => { if is_process_running(app) { stop_inner(app)?; } run_net("start")?; wait_service_state(4) }
+        Some(state) => Err(format!("installed service is in state {state}; fix the service before starting another Agent")),
+        None => {
+            if is_process_running(app) { return Ok(()); }
+            spawn_background(app).map(|_| ())
         }
     }
-    spawn_background(app).map(|_| ())
 }
 
 pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
-    if is_running(app) {
-        if sc_query().map(|q| q.to_ascii_uppercase().contains("RUNNING")).unwrap_or(false) {
-            run_net("stop")?;
-        } else {
-            #[cfg(windows)]
-            {
-                let record = read_background_record().ok_or_else(|| {
-                    "background agent is running but its secure ownership record is missing or legacy; refusing to kill arbitrary YaseirAgent.exe processes".to_string()
-                })?;
-                if !background_record_matches(app, &record) {
-                    return Err(format!(
-                        "refusing to stop PID {} because its image path or creation time no longer matches the owned YaseirAgent.exe",
-                        record.pid
-                    ));
-                }
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    stop_inner(app)
+}
 
-                // Preserve the previous graceful-stop behavior, but only
-                // after verifying that the recorded PID still denotes our exact
-                // executable instance. If the process ignores graceful stop,
-                // re-verify identity and then use the same exact PID for force
-                // termination.
-                let out = taskkill_pid(record.pid, false)?;
-                if !out.status.success() {
-                    logging::warn(&format!(
-                        "graceful taskkill for owned agent pid={} reported: {}",
-                        record.pid,
-                        String::from_utf8_lossy(&out.stderr).trim()
-                    ));
-                } else {
-                    logging::info(&format!(
-                        "graceful shutdown requested for owned agent pid={}",
-                        record.pid
-                    ));
-                }
+fn stop_inner(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(state) = sc_query()? {
+        if state == 2 { wait_service_state(4)?; }
+        if state == 3 { wait_service_state(1)?; }
+        else if state != 1 { run_net("stop")?; wait_service_state(1)?; }
+    }
+    #[cfg(windows)]
+    if is_process_running(app) {
+    let record = read_background_record().ok_or_else(|| {
+        "background agent is running but its secure ownership record is missing or legacy; refusing to kill arbitrary YaseirAgent.exe processes".to_string()
+    })?;
+    if !background_record_matches(app, &record) {
+        return Err(format!(
+            "refusing to stop PID {} because its image path or creation time no longer matches the owned YaseirAgent.exe",
+            record.pid
+        ));
+    }
 
-                for _ in 0..5 {
-                    if !background_record_matches(app, &record) {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                }
+    // Preserve the previous graceful-stop behavior, but only
+    // after verifying that the recorded PID still denotes our exact
+    // executable instance. If the process ignores graceful stop,
+    // re-verify identity and then use the same exact PID for force
+    // termination.
+    let out = taskkill_pid(record.pid, false)?;
+    if !out.status.success() {
+        logging::warn(&format!(
+            "graceful taskkill for owned agent pid={} reported: {}",
+            record.pid,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    } else {
+        logging::info(&format!(
+            "graceful shutdown requested for owned agent pid={}",
+            record.pid
+        ));
+    }
 
-                if background_record_matches(app, &record) {
-                    terminate_owned_background_process(app, &record)?;
-                    logging::warn(&format!(
-                        "owned agent pid={} did not exit within the grace window; force-terminated after identity re-verification",
-                        record.pid
-                    ));
-                }
-                if background_record_matches(app, &record) {
-                    return Err(format!(
-                        "owned YaseirAgent.exe PID {} is still running after forced termination",
-                        record.pid
-                    ));
-                }
-                clear_background_pid();
-            }
+    for _ in 0..5 {
+        if !background_record_matches(app, &record) {
+            break;
         }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+
+    if background_record_matches(app, &record) {
+        terminate_owned_background_process(app, &record)?;
+        logging::warn(&format!(
+            "owned agent pid={} did not exit within the grace window; force-terminated after identity re-verification",
+            record.pid
+        ));
+    }
+    if background_record_matches(app, &record) {
+        return Err(format!(
+            "owned YaseirAgent.exe PID {} is still running after forced termination",
+            record.pid
+        ));
+    }
+    clear_background_pid();
     }
     logging::info("agent stopped");
     Ok(())
 }
 
 pub fn restart(app: &tauri::AppHandle) -> Result<(), String> {
-    stop(app)?;
-    start(app)
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    stop_inner(app)?;
+    start_inner(app)
 }
 
 pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
-    let service_running = sc_query()
-        .map(|q| q.to_ascii_uppercase().contains("RUNNING"))
-        .unwrap_or(false);
+    let service_state = sc_query();
+    let service_running = matches!(service_state, Ok(Some(4)));
     let process_running = is_process_running(app);
-    let note = if service_running {
+    let note = if let Err(error) = service_state {
+        format!("service state unavailable: {error}; background fallback is blocked")
+    } else if service_running {
         format!("Windows service {SERVICE_NAME} is running")
     } else if process_running {
         format!("background process YaseirAgent.exe is running (service not detected)")
@@ -728,8 +845,10 @@ pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
 }
 
 pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, String> {
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
     match action {
         "install" | "uninstall" | "start" | "stop" | "restart" => {
+            if matches!(action, "install" | "start" | "restart") && is_process_running(app) { stop_inner(app)?; }
             let path = agent_path(app)?;
             let config = paths::agent_config_path();
             let _ = paths::ensure_agent_data_root()
@@ -754,12 +873,22 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if !out.status.success() {
-                let msg = if stderr.is_empty() { stdout.clone() } else { stderr.clone() };
+                let msg = if stderr.is_empty() {
+                    stdout.clone()
+                } else {
+                    stderr.clone()
+                };
                 return Err(format!(
                     "service action {action} failed (administrator may be required): {msg}"
                 ));
             }
-            let msg = if !stdout.is_empty() { stdout } else { format!("service action {action} completed") };
+            if matches!(action, "start" | "restart") { wait_service_state(4)?; }
+            if action == "stop" { wait_service_state(1)?; }
+            let msg = if !stdout.is_empty() {
+                stdout
+            } else {
+                format!("service action {action} completed")
+            };
             logging::info(&format!("service control {action}: {msg}"));
             return Ok(msg);
         }
@@ -800,10 +929,15 @@ mod spawn_tests {
 
     #[test]
     fn successful_persistence_keeps_the_spawned_agent_owned_and_alive() {
-        let pid = spawn_persist_or_reconcile(|| Ok(sleeper()), |_| Ok(())).expect("spawn+persist must succeed");
-        assert!(pid_alive(pid), "the agent child must remain running when ownership was recorded");
+        let pid = spawn_persist_or_reconcile(|| Ok(sleeper()), |_| Ok(()))
+            .expect("spawn+persist must succeed");
+        assert!(
+            pid_alive(pid),
+            "the agent child must remain running when ownership was recorded"
+        );
         // Exact-PID cleanup of this TEST's own child (never a name kill).
-        let taskkill = system32_exe("taskkill.exe").unwrap_or_else(|_| PathBuf::from("taskkill.exe"));
+        let taskkill =
+            system32_exe("taskkill.exe").unwrap_or_else(|_| PathBuf::from("taskkill.exe"));
         let _ = Command::new(taskkill)
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
@@ -816,20 +950,32 @@ mod spawn_tests {
         // processes it cannot attribute to itself.
         use std::cell::Cell;
         let spawned_pid = Cell::new(0u32);
-        let result = spawn_persist_or_reconcile(|| Ok(sleeper()), |pid| {
-            spawned_pid.set(pid);
-            Err("disk full writing agent.pid".to_string())
-        });
+        let result = spawn_persist_or_reconcile(
+            || Ok(sleeper()),
+            |pid| {
+                spawned_pid.set(pid);
+                Err("disk full writing agent.pid".to_string())
+            },
+        );
         let err = result.expect_err("the original persistence error must be returned");
-        assert_eq!(err, "disk full writing agent.pid", "error must be surfaced verbatim");
+        assert_eq!(
+            err, "disk full writing agent.pid",
+            "error must be surfaced verbatim"
+        );
 
         let pid = spawned_pid.get();
-        assert_ne!(pid, 0, "a child must actually have been spawned before persist was called");
+        assert_ne!(
+            pid, 0,
+            "a child must actually have been spawned before persist was called"
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
         while pid_alive(pid) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(!pid_alive(pid), "spawned child must be terminated and reaped when its PID write fails");
+        assert!(
+            !pid_alive(pid),
+            "spawned child must be terminated and reaped when its PID write fails"
+        );
     }
 }
 
@@ -843,5 +989,17 @@ mod tests {
             let path = system32_exe(name).expect("Windows system executable must exist");
             assert!(path.ends_with(["System32", name].iter().collect::<std::path::PathBuf>()));
         }
+    }
+}
+
+#[cfg(test)]
+mod image_identity_audit_tests {
+    use super::*;
+    #[test]
+    fn extended_paths_retain_executable_identity() {
+        assert!(process_images_match(r"\\?\C:\Program Files\Yaseir\YaseirAgent.exe", r"c:\Program Files\Yaseir\YaseirAgent.exe"));
+        assert!(process_images_match(r"\\?\UNC\server\share\YaseirAgent.exe", r"\\server\share\YaseirAgent.exe"));
+        assert!(!process_images_match(r"C:\other\YaseirAgent.exe", r"C:\Yaseir\YaseirAgent.exe"));
+        assert!(!process_images_match("طابعة مختلفة", "different"));
     }
 }

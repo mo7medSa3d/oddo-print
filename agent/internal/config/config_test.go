@@ -262,3 +262,49 @@ func TestConfigLoadMigratesLegacyPlaintextSecret(t *testing.T) {
 		t.Fatalf("secret not restored after migration: %q", again.Agent.Secret)
 	}
 }
+
+func TestMalformedIPPEndpointsReturnValidationErrors(t *testing.T) {
+	for _, endpoint := range []string{"ipp://[192.168.1.10/ipp/print", "ipp://192.168.1.10/%zz", "ipp://192.168.1.10:bad/ipp/print"} {
+		t.Run(endpoint, func(t *testing.T) {
+			if err := ValidatePrinterConfig(PrinterConfig{ID: "malformed-ipp", Name: "Printer", Type: "ipp", Protocol: "ipp", Endpoint: endpoint}); err == nil {
+				t.Fatal("malformed URL accepted")
+			}
+		})
+	}
+}
+
+func TestPrivateULAPrintersRemainAllowedWithoutMetadataAccess(t *testing.T) {
+	for _, endpoint := range []string{"[fd12:3456::10]:9100", "[fc00::10]:9100"} {
+		if err := ValidatePrinterConfig(PrinterConfig{ID: "private-v6", Name: "IPv6 Printer", Type: "network", Protocol: "raw", Endpoint: endpoint}); err != nil {
+			t.Fatalf("ULA printer rejected: %v", err)
+		}
+	}
+	if err := ValidatePrinterConfig(PrinterConfig{ID: "metadata-v6", Name: "Unsafe", Type: "network", Protocol: "raw", Endpoint: "[fd00:0ec2:0000:0000:0000:0000:0000:0254]:9100"}); err == nil {
+		t.Fatal("expanded metadata endpoint accepted")
+	}
+}
+
+func TestBareConfigFilenameKeepsSecretsAndInventoryInWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cfg := defaultConfig()
+	cfg.Agent.ID = "agent-cwd"
+	cfg.Agent.Secret = "secret-cwd"
+	if err := cfg.Save("agent.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load("agent.yaml")
+	if err != nil || loaded.Agent.ID != cfg.Agent.ID || loaded.Agent.Secret != cfg.Agent.Secret {
+		t.Fatalf("relative config/secret round trip failed: %+v %v", loaded, err)
+	}
+	if got := RegistryPath("agent.yaml"); got != filepath.Join(dir, "printers.json") {
+		t.Fatalf("registry split from config: %s", got)
+	}
+	if got := QueueDBPath("agent.yaml"); got != filepath.Join(dir, "queue.db") {
+		t.Fatalf("queue split from config: %s", got)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(dir, "agent.yaml"))
+	if err != nil || bytes.Contains(onDisk, []byte(cfg.Agent.Secret)) {
+		t.Fatal("secret was not sealed beside relative config")
+	}
+}

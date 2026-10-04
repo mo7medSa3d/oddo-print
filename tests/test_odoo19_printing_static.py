@@ -230,20 +230,22 @@ def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
     source = (ROOT / "src" / "lib" / "print-job-service.ts").read_text(encoding="utf-8")
     service_start = source.index("export async function createPrintJobForPrinter")
     service = source[service_start:]
-    assert 'ownerAgent.lifecycle !== "active"' in service
+    assert 'owner.agent_lifecycle !== "active"' in source
     assert "isAgentAvailableForJob(ownerAgent)" not in service
     assert 'owner.agent_status !== "online"' not in service
     assert "owner.agent_last_seen_at" not in service
 
-def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
+def test_gateway_config_form_exposes_guarded_connection_and_recovery_actions():
     source = read("views/gateway_config_views.xml")
     form_start = source.index('id="view_print_gateway_config_form"')
     form_end = source.index('<record id="view_print_gateway_config_search"', form_start)
     form = source[form_start:form_end]
-    assert '<header/>' in form
+    assert '<header>' in form
+    assert 'name="action_test_connection"' in form
+    assert 'name="action_retry_enabled_sync"' in form
+    assert 'name="action_reset_stale_sync_state"' in form
+    assert 'confirm="Recover synchronization state' in form
     for action in (
-        'name="action_retry_enabled_sync"',
-        'name="action_reset_stale_sync_state"',
         'name="action_open_pairing_wizard"',
         'name="action_open_runtime_assignments"',
         'name="action_clear_api_key"',
@@ -253,8 +255,8 @@ def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
     assert 'field name="gateway_api_key"' in form
     assert 'field name="enabled" widget="boolean_toggle"' in form
     assert 'field name="last_test_status"' in form
-    assert 'field name="gateway_sync_state"' not in form
-    assert 'field name="gateway_sync_message"' not in form
+    assert 'field name="gateway_sync_state"' in form
+    assert 'field name="gateway_sync_message"' in form
     assert "Odoo owns business context and print intent." not in form
 
 
@@ -308,8 +310,11 @@ def test_gateway_sale_details_uses_odoo19_generator_and_template():
 
 def test_gateway_receipt_uses_odoo19_receipt_template():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
-    assert 'renderToElement("point_of_sale.pos_order_receipt", props)' in source
-    assert 'renderToElement("point_of_sale.OrderReceipt"' not in source
+    assert 'renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props)' in source
+    assert '"point_of_sale.pos_order_receipt"' not in source
+    assert 'const receiptComponent = pos.orderReceiptComponent || OrderReceipt' in source
+    assert 'formatCurrency: pos.env' not in source
+    assert 'data: typeof currentOrder.export_for_printing' not in source
 
 
 def test_gateway_kitchen_uses_odoo19_preparation_receipt_template():

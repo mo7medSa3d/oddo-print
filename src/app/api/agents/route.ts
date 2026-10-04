@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   if (claims) { try { requireManagerPermission(claims, "agents.pair"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); } }
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const parsed = createAgentSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "agent name is required" }, { status: 400 });
   try {

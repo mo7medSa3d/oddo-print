@@ -18,7 +18,7 @@ import {
 import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
 
-type SubscriptionStatus = "trialing" | "active" | "past_due" | "paused" | "cancelled";
+type SubscriptionStatus = "trialing" | "active" | "past_due" | "paused" | "cancelled" | "incomplete" | "incomplete_expired" | "unpaid";
 
 type Subscription = {
   tenantId: string;
@@ -40,6 +40,9 @@ const STATUS_META: Record<SubscriptionStatus, { tone: Tone; key: MessageKey }> =
   trialing: { tone: "brand", key: "platform.subs.status.trialing" },
   past_due: { tone: "bad", key: "platform.subs.status.past_due" },
   paused: { tone: "warn", key: "platform.subs.status.paused" },
+  incomplete: { tone: "warn", key: "platform.subs.status.incomplete" },
+  incomplete_expired: { tone: "neutral", key: "platform.subs.status.incomplete_expired" },
+  unpaid: { tone: "bad", key: "platform.subs.status.unpaid" },
   cancelled: { tone: "neutral", key: "platform.subs.status.cancelled" },
 };
 
@@ -57,24 +60,29 @@ export default function PlatformSubscriptionsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => { setOffset(0); }, [search, filter]);
 
   useEffect(() => {
     let ignore = false;
+    setLoading(true);
     async function load() {
       try {
-        const res = await fetch("/api/platform/subscriptions");
+        const res = await fetch(`/api/platform/subscriptions?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}&filter=${filter}`);
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.subs.loadFailed"));
         const data = await res.json();
-        if (!ignore) { setSubscriptions(data.subscriptions || []); setError(null); }
+        if (!ignore) { setSubscriptions(data.subscriptions || []); setHasMore(data.hasMore === true); setError(null); }
       } catch {
         if (!ignore) setError(t("platform.subs.loadError"));
       } finally { if (!ignore) setLoading(false); }
     }
     load();
     return () => { ignore = true; };
-  }, [reloadKey, t]);
+  }, [reloadKey, t, offset, search, filter]);
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
@@ -82,8 +90,8 @@ export default function PlatformSubscriptionsPage() {
     () => ({
       all: subscriptions.length,
       active: subscriptions.filter((s) => s.status === "active" || s.status === "trialing").length,
-      attention: subscriptions.filter((s) => s.status === "past_due" || s.status === "paused").length,
-      other: subscriptions.filter((s) => s.status === "cancelled").length,
+      attention: subscriptions.filter((s) => ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)).length,
+      other: subscriptions.filter((s) => ["cancelled", "incomplete_expired"].includes(s.status)).length,
     }),
     [subscriptions],
   );
@@ -101,8 +109,8 @@ export default function PlatformSubscriptionsPage() {
         : filter === "active"
           ? s.status === "active" || s.status === "trialing"
           : filter === "attention"
-            ? s.status === "past_due" || s.status === "paused"
-            : s.status === "cancelled";
+            ? ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)
+            : ["cancelled", "incomplete_expired"].includes(s.status);
     return matchesSearch && matchesFilter;
   });
 
@@ -231,6 +239,13 @@ export default function PlatformSubscriptionsPage() {
           </div>
         )}
       </Card>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + subscriptions.length) })}</span>
+        <div className="flex gap-2">
+          <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
+          <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>
+        </div>
+      </div>
     </div>
   );
 }

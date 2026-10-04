@@ -274,7 +274,7 @@ export default function ApiKeysPage() {
                     <StatusBadge tone="warn" label={t("apiKeys.disabledInOdoo")} />
                   )}
                 </div>
-                <div className="mt-1.5 text-xs text-ink-3">Scoped to this workspace only.</div>
+                <div className="mt-1.5 text-xs text-ink-3">{t("apiKeys.workspaceScopeOnly")}</div>
               </div>
             </div>
           </section>
@@ -331,7 +331,7 @@ export default function ApiKeysPage() {
                 />
 
                 {loading ? (
-                  <div className="space-y-3 px-5 py-5" role="status" aria-label="Loading credentials">
+                  <div className="space-y-3 px-5 py-5" role="status" aria-label={t("apiKeys.loadingCredentials")}>
                     {[0, 1, 2].map((i) => (
                       <div key={i} className="flex items-center justify-between gap-4">
                         <div className="space-y-2">
@@ -473,7 +473,7 @@ export default function ApiKeysPage() {
           </Callout>
         ) : (
           <Callout tone="bad" title={t("common.cannotUndo")}>
-            The credential record is deleted permanently. Only revoked keys can be removed.
+            {t("apiKeys.removeRecordBody")}
           </Callout>
         )}
       </Modal>

@@ -20,6 +20,9 @@ import (
 const maxWSDResults = 512
 
 func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
+	if ctx.Err() != nil {
+		return nil, nil
+	}
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
 		return nil, fmt.Errorf("net.ListenUDP: %w", err)

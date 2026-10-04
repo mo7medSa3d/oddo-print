@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Callout,
@@ -10,6 +10,8 @@ import {
   StatusBadge,
   type Tone,
 } from "./ui";
+import JobTimeline from "./JobTimeline";
+import { derivePhysicalOutcome } from "../lib/job-status";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
@@ -111,16 +113,62 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
   const [error, setError] = useState<string | null>(null);
   const [timelineUrl, setTimelineUrl] = useState<string | null>(null);
 
+  const operationKey = useRef<string | null>(null);
+  const [terminal, setTerminal] = useState(false);
+  const [inspectBeforeRepeat, setInspectBeforeRepeat] = useState(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    operationKey.current = null;
+    setSteps(null); setJobId(null); setTerminal(false); setInspectBeforeRepeat(false); setLoading(false);
+    return () => { controllerRef.current?.abort(); };
+  }, [printerId]);
+  useEffect(() => {
+    if (!jobId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error(t("cert.failedBody"));
+        const job = await response.json();
+        if (controller.signal.aborted) return;
+        const done = ["success", "failed", "expired"].includes(job.status);
+        setTerminal(done);
+        setInspectBeforeRepeat(derivePhysicalOutcome(job.status, job.error) === "unknown");
+        if (!done) timer = setTimeout(() => { void poll(); }, 3000);
+      } catch { if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, 5000); }
+    };
+    void poll();
+    return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer); };
+  }, [jobId, t]);
+
   async function runCertification() {
+    if (loading || (jobId && !terminal)) return;
+    const storageKey = `certification-operation:${printerId}`;
+    if (jobId && terminal) {
+      if (inspectBeforeRepeat && !window.confirm(t("job.reprintClearPrinter"))) return;
+      operationKey.current = null;
+      try { sessionStorage.removeItem(storageKey); } catch { /* in-memory operation remains available */ }
+      setJobId(null); setSteps(null); setTerminal(false);
+    }
+    if (!operationKey.current) {
+      try { operationKey.current = sessionStorage.getItem(storageKey); } catch { /* storage unavailable */ }
+      operationKey.current ??= `cert:${crypto.randomUUID()}`;
+      try { sessionStorage.setItem(storageKey, operationKey.current); } catch { /* preserve in-memory key */ }
+    }
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/printers/${printerId}/certify`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operationKey.current },
         body: JSON.stringify({ testPage: true }),
+        signal: controller.signal,
       });
       const data = await res.json();
+      if (controller.signal.aborted) return;
       if (!res.ok) throw new Error(t("cert.failedBody"));
       setSteps(data.steps);
       setJobId(data.jobId);
@@ -129,9 +177,10 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
       setBlocked(data.blocked);
       setTimelineUrl(data.timelineUrl ?? (data.jobId ? `/api/jobs/${data.jobId}/timeline` : null));
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(e instanceof Error ? e.message : t("cert.failedBody"));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
@@ -160,7 +209,7 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
             variant="primary"
             onClick={runCertification}
             loading={loading}
-            disabled={loading}
+            disabled={loading || (!!jobId && !terminal)}
             icon={<Printer className="h-4 w-4" aria-hidden />}
             className="shrink-0"
           >
@@ -201,6 +250,8 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
           <span className="sr-only">{t("cert.runningCta")}</span>
         </section>
       )}
+
+      {jobId && <JobTimeline key={jobId} jobId={jobId} />}
 
       {steps && (
         <>

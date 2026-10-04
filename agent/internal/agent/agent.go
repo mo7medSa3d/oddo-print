@@ -338,11 +338,26 @@ func (a *Agent) observeDesiredRevision(printerID, status string) {
 	}
 }
 
+func (a *Agent) legacyPrinterDisabled(id string) bool {
+	if a.cfg == nil {
+		return false
+	}
+	for _, pc := range a.cfg.Printers {
+		if pc.ID == id && !pc.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
+
 // Printer map accessors. The printer map is mutated by the async discovery
 // goroutine started in New and by Discover/RegisterManual, while heartbeat
 // status payloads and job dispatch read it concurrently — all access must go
 // through these helpers.
 func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {
+	if !pc.IsEnabled() || a.legacyPrinterDisabled(id) {
+		return false
+	}
 	lock := a.getPrinterLock(id)
 	lock.Lock()
 	defer lock.Unlock()
@@ -469,6 +484,9 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 
 	// 1. Load configured printers from YAML (legacy, still supported for backward compat)
 	for _, pc := range cfg.Printers {
+		if !pc.IsEnabled() {
+			continue
+		}
 		p, err := printer.New(pc)
 		if err != nil {
 			log.Printf("WARNING: printer %q (%s) not initialized: %v", pc.ID, pc.Name, err)
@@ -488,10 +506,15 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		}
 	}
 	if len(quick.Printers) > 0 {
-		if merged, err := printer.UpsertRegistry(registryPath, quick.Printers); err == nil {
+		merged, persistErr := a.persistDiscoveredPrinters(quick.Printers)
+		if persistErr == nil {
 			a.reconcileRegistryPrinters(merged)
 		} else {
-			log.Printf("WARNING: failed to persist discovery registry: %v", err)
+			for _, di := range merged {
+				if _, err := a.mergeDiscoveredPrinter(di); err != nil {
+					log.Printf("WARNING: discovered printer %q not initialized: %v", di.ID, err)
+				}
+			}
 		}
 	}
 
@@ -502,6 +525,25 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	}
 
 	return a, nil
+}
+
+// A persistence failure must not discard successfully observed hardware.
+// The inventory capability carries the failure until a later successful scan.
+func (a *Agent) persistDiscoveredPrinters(infos []printer.DeviceInfo) ([]printer.DeviceInfo, error) {
+	merged, err := printer.UpsertRegistry(a.registryPath, infos)
+	if err == nil {
+		return merged, nil
+	}
+	log.Printf("WARNING: failed to persist discovery registry; retaining %d runtime observations: %v", len(infos), err)
+	for index := range infos {
+		caps := make(map[string]interface{}, len(infos[index].Capabilities)+1)
+		for key, value := range infos[index].Capabilities {
+			caps[key] = value
+		}
+		caps["registry_persistence_error"] = boundedDiscoveryText(err.Error(), 2048)
+		infos[index].Capabilities = caps
+	}
+	return infos, err
 }
 
 // ListPrinters returns the current discovered/configured printer inventory.
@@ -519,16 +561,18 @@ func (a *Agent) Discover() printer.DiscoveryResult {
 	result := printer.Discover(a.cfg, a.registryPath)
 	result.Printers = a.filterGatewayOwned(result.Printers)
 	if len(result.Printers) > 0 {
-		if merged, err := printer.UpsertRegistry(a.registryPath, result.Printers); err == nil {
-			// Refresh in-memory printers with merged registry.
-			for _, di := range merged {
-				if _, err := a.mergeDiscoveredPrinter(di); err != nil {
-					log.Printf("WARNING: discovered printer %q (%s) not initialized: %v", di.ID, di.Name, err)
-				}
-			}
-			result.Printers = merged
+		merged, persistErr := a.persistDiscoveredPrinters(result.Printers)
+		if persistErr != nil {
+			result.Errors = append(result.Errors, "registry persistence: "+persistErr.Error())
 		}
+		for _, di := range merged {
+			if _, err := a.mergeDiscoveredPrinter(di); err != nil {
+				log.Printf("WARNING: discovered printer %q (%s) not initialized: %v", di.ID, di.Name, err)
+			}
+		}
+		result.Printers = merged
 	}
+
 	log.Printf("Discovery completed: %d printers found", len(result.Printers))
 	return result
 }
@@ -569,24 +613,22 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 	}
 
 	if len(full.Printers) > 0 {
-		if merged, err := printer.UpsertRegistry(a.registryPath, full.Printers); err == nil {
-			for _, di := range merged {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-				changed, err := a.mergeDiscoveredPrinter(di)
-				if err != nil {
-					log.Printf("WARNING: async printer %q (%s) not initialized: %v", di.ID, di.Name, err)
-					continue
-				}
-				if changed {
-					log.Printf("[discovery] async added or refreshed printer: %s (%s) type=%s", di.ID, di.Name, di.ConnectionType)
-				}
+		merged, _ := a.persistDiscoveredPrinters(full.Printers)
+		for _, di := range merged {
+			if ctx.Err() != nil {
+				return
+			}
+			changed, err := a.mergeDiscoveredPrinter(di)
+			if err != nil {
+				log.Printf("WARNING: async printer %q (%s) not initialized: %v", di.ID, di.Name, err)
+				continue
+			}
+			if changed {
+				log.Printf("[discovery] async added or refreshed printer: %s (%s) type=%s", di.ID, di.Name, di.ConnectionType)
 			}
 		}
 	}
+
 	log.Printf("[discovery] async discovery completed: %d printers", len(full.Printers))
 }
 
@@ -680,7 +722,7 @@ func (a *Agent) beginShutdown() {
 //
 //   - 401: the credential is dead (revoked/rotated). Re-pair semantics are
 //     unchanged (doAuthorizedRequest already logs the re-pair directive);
-//     additionally back off job-acquisition polls so a dead credential does
+//     additionally fence new dispatch and back off job-acquisition polls so a dead credential does
 //     not hammer the Gateway on the 5s cadence. Heartbeats continue at 30s
 //     as presence.
 //   - 409: the Gateway refused this agent's lifecycle (disabled/retired).
@@ -694,8 +736,10 @@ func (a *Agent) noteHeartbeatRejection(statusCode int, body []byte) {
 	now := time.Now()
 	switch {
 	case statusCode == http.StatusUnauthorized:
+		a.execFenceReason.Store("gateway heartbeat 401: credential rejected; re-pair the Agent")
+		a.execFence.Store(true)
 		a.execFenceBackoffUntil.Store(now.Add(lifecycleFenceBackoff).UnixNano())
-		log.Printf("Heartbeat rejected (401): credential rejected; job-acquisition polls backed off for %v", lifecycleFenceBackoff)
+		log.Printf("Heartbeat rejected (401): credential rejected; new dispatch fenced and polls backed off for %v", lifecycleFenceBackoff)
 	case statusCode == http.StatusConflict:
 		reason := fmt.Sprintf("gateway heartbeat 409: %s", firstLineOfBody(body))
 		a.execFence.Store(true)
@@ -944,7 +988,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 			// terminal row remains only as physical-ambiguity evidence until the
 			// next delivery; clear its old execution token so it cannot be mistaken
 			// for the next attempt's fence.
-			if err := a.queue.ClearClaimToken(job.ID); err != nil {
+			if err := a.queue.ClearClaimToken(job.ID, job.ClaimToken); err != nil {
 				log.Printf("Job %s: failed to clear old claim token after crash requeue: %v", job.ID, err)
 			}
 			continue
@@ -1129,15 +1173,17 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 			// Trigger discovery immediately, don't wait for 10s poll
 			select {
 			case a.discoverySem <- struct{}{}:
-				session := a.loadDiscoverySession(ctx, discoveryID)
 				a.launchTracked(func() {
+					session := a.loadDiscoverySession(ctx, discoveryID)
+					if session == nil {
+						<-a.discoverySem
+						return
+					}
 					a.executeDiscoverySession(ctx, discoveryID, session)
 				})
 			default:
 				log.Printf("[discovery] session %s deferred: a discovery session is already running", discoveryID)
-				a.launchTracked(func() {
-					a.reportDiscoveryResult(ctx, discoveryID, "cancelled", nil)
-				})
+
 			}
 			continue
 		}
@@ -1525,11 +1571,8 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 	return true
 }
 
-// staleClaimSafetyWindow mirrors the gateway's STALE_CLAIM_SECONDS
-// (src/lib/job-maintenance.ts). The sweep only requeues a claim observed
-// stale for a full window past its claim commit, so a delivery received
-// less than a window ago cannot have been reclaimed yet. Both sides must
-// be changed together if the lease ever changes.
+// staleClaimSafetyWindow is used only to describe delayed deliveries in
+// diagnostics. Receipt age cannot establish Gateway claim ownership.
 const staleClaimSafetyWindow = 90 * time.Second
 
 // authorizeDispatchAfterReportFailure decides whether physical dispatch may
@@ -1538,15 +1581,16 @@ const staleClaimSafetyWindow = 90 * time.Second
 //   - Fence rejection (ErrStaleClaim) or any other explicit gateway
 //     rejection (ErrTransitionRejected): the gateway evaluated our claim
 //     and refused it. Another attempt may own the job. HARD STOP.
-//   - Transport failure: the gateway said nothing. Dispatch may proceed
-//     ONLY if ownership is still provable: the delivery was received less
-//     than a full lease window ago (no reclaim could have completed) and
-//     the job TTL has not passed while we held it. Otherwise the job may
-//     already belong to a reclaimed attempt: HARD STOP.
+//   - Transport failure: the Gateway said nothing. A freshly received frame
+//     may have waited in a proxy or socket buffer after its claim expired.
+//     Never start hardware until the Gateway acknowledges printing.
 //   - Unknown receipt time (zero): freshness cannot be proven. HARD STOP.
 //
 // The returned reason is recorded in the aborted ledger row for forensics.
 func authorizeDispatchAfterReportFailure(receivedAt time.Time, now time.Time, reportErr error) (bool, string) {
+	if reportErr == nil {
+		return true, ""
+	}
 	if errors.Is(reportErr, ErrStaleClaim) {
 		return false, "claim fence rejected by gateway"
 	}
@@ -1563,7 +1607,7 @@ func authorizeDispatchAfterReportFailure(receivedAt time.Time, now time.Time, re
 	if now.Sub(receivedAt) >= staleClaimSafetyWindow {
 		return false, "delivery older than the claim-lease window; a reclaim may have completed"
 	}
-	return true, ""
+	return false, "printing transition was not acknowledged; receipt age cannot prove claim ownership"
 }
 
 // authorizeDispatchAfterReportFailure is the processJob-facing wrapper that
@@ -1644,9 +1688,6 @@ func (a *Agent) inFlightJobIDs(limit int) []map[string]string {
 // 'exceeded max retries'. Best-effort — the gateway's 90s claim-lease
 // reclaim remains the backstop if this request fails or races.
 func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) error {
-	if live := a.currentClaimToken(jobID); live != "" {
-		token = live
-	}
 	return a.rejectJobExact(ctx, jobID, token, reason)
 }
 
@@ -2048,8 +2089,8 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		// Build payload with all required fields for Gateway inventory
 		entry := map[string]interface{}{
 			"id":             id,
-			"name":           pc.Name,
-			"displayName":    pc.Name,
+			"name":           heartbeatPrinterName(pc.Name, id),
+			"displayName":    boundedDiscoveryText(pc.Name, 255),
 			"printerType":    printerType,
 			"deviceClass":    deviceClass,
 			"connectionType": nt,
@@ -2148,6 +2189,16 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	return result
 }
 
+// Heartbeat names are display metadata, bounded to the Gateway's UTF-16
+// limit. Keep the full spooler name/endpoint in config for hardware identity.
+func heartbeatPrinterName(name, id string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = id
+	}
+	return boundedDiscoveryText(name, 100)
+}
+
 // endpointToConfig normalizes the agent's local endpoint into the gateway's
 // printer.config shape. Handles tcp, spooler, usb, ipp and includes USB metadata.
 func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
@@ -2174,11 +2225,15 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 		cfgMap["address"] = spoolerName
 		// Include underlying USB info if spooler is USB-backed
 		if pc.USBVID != "" {
-			cfgMap["vid"] = pc.USBVID
+			if vid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBVID, "0x"), "0X"), 16, 16); err == nil {
+				cfgMap["vid"] = int(vid)
+			}
 			cfgMap["usb_vid"] = pc.USBVID
 		}
 		if pc.USBPID != "" {
-			cfgMap["pid"] = pc.USBPID
+			if pid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBPID, "0x"), "0X"), 16, 16); err == nil {
+				cfgMap["pid"] = int(pid)
+			}
 			cfgMap["usb_pid"] = pc.USBPID
 		}
 		if pc.USBSerial != "" {
@@ -2191,11 +2246,15 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 			cfgMap["spooler_name"] = pc.SpoolerName
 		}
 		if pc.USBVID != "" {
-			cfgMap["vid"] = pc.USBVID
+			if vid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBVID, "0x"), "0X"), 16, 16); err == nil {
+				cfgMap["vid"] = int(vid)
+			}
 			cfgMap["usb_vid"] = pc.USBVID
 		}
 		if pc.USBPID != "" {
-			cfgMap["pid"] = pc.USBPID
+			if pid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBPID, "0x"), "0X"), 16, 16); err == nil {
+				cfgMap["pid"] = int(pid)
+			}
 			cfgMap["usb_pid"] = pc.USBPID
 		}
 		if pc.USBSerial != "" {
@@ -2610,7 +2669,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			}
 			return
 		}
-		log.Printf("Job %s: printing report unacknowledged (%v); ownership still provable, proceeding with ledger-tracked outcome", jobID, err)
 	}
 	log.Printf("print.trace printing_report request_id=%s job_id=%s printer_id=%s report_latency_ms=%d", requestID, jobID, printerID, time.Since(reportStart).Milliseconds())
 
@@ -2804,16 +2862,6 @@ var ErrStaleClaim = errors.New("gateway rejected claim fence: stale or reclaimed
 // evaluated our transition and refused it, so physical dispatch must stop.
 var ErrTransitionRejected = errors.New("gateway rejected status transition")
 
-// currentClaimToken returns the immutable claim token recorded for the
-// active local execution. Duplicate deliveries never replace this token;
-// status reports from this physical attempt therefore remain fenced to the
-// claim that admitted the execution.
-func (a *Agent) currentClaimToken(jobID string) string {
-	a.inFlightMu.Lock()
-	defer a.inFlightMu.Unlock()
-	return a.inFlightTokens[jobID]
-}
-
 func redactClaimTokenForLog(token string) string {
 	if token == "" {
 		return "claim_empty"
@@ -2823,12 +2871,7 @@ func redactClaimTokenForLog(token string) string {
 }
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
-	if live := a.currentClaimToken(jobID); live != "" {
-		if claimToken != "" && claimToken != live {
-			log.Printf("Job %s: claim token override (passed %s, using live %s)", jobID, redactClaimTokenForLog(claimToken), redactClaimTokenForLog(live))
-		}
-		claimToken = live
-	}
+	// The caller owns this immutable attempt token; never substitute a newer delivery.
 	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
 	body := map[string]interface{}{
 		"jobId":  jobID,
@@ -2869,8 +2912,24 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
 	}
+	if status == "printing" || status == "success" || status == "failed" {
+		var accepted struct {
+			Success bool   `json:"success"`
+			Status  string `json:"status"`
+		}
+		ackBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes+1))
+		if readErr != nil || len(ackBody) > maxGatewayErrorBodyBytes {
+			return fmt.Errorf("%w: unreadable or oversized status acknowledgement", ErrTransitionRejected)
+		}
+		if err := json.Unmarshal(ackBody, &accepted); err != nil {
+			return fmt.Errorf("%w: invalid status acknowledgement: %v", ErrTransitionRejected, err)
+		}
+		if !accepted.Success || accepted.Status != status {
+			return fmt.Errorf("%w: Gateway did not acknowledge %q (status %q)", ErrTransitionRejected, status, accepted.Status)
+		}
+	}
 	if status == "success" || status == "failed" {
-		if err := a.queue.ClearClaimToken(jobID); err != nil {
+		if err := a.queue.ClearClaimToken(jobID, claimToken); err != nil {
 			// The Gateway already acknowledged the terminal outcome; retain the
 			// local token if SQLite cleanup fails so a later scan can retry the
 			// harmless cleanup without reprinting.

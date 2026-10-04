@@ -22,7 +22,12 @@ export default function LoginPage() {
 
   const postAuthDestination = useCallback((): string => {
     const next = new URLSearchParams(window.location.search).get("next");
-    if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+    if (next && next.startsWith("/") && !/[\\\u0000-\u001f\u007f]/.test(next)) {
+      try {
+        const destination = new URL(next, window.location.origin);
+        if (destination.origin === window.location.origin && !["/login", "/logout", "/register"].includes(destination.pathname)) return destination.pathname + destination.search + destination.hash;
+      } catch { /* use the safe workspace destination */ }
+    }
     return "/dashboard";
   }, []);
 
@@ -181,7 +186,7 @@ export default function LoginPage() {
               {t("auth.signIn.chooseWorkspace")}
             </div>
             <p className="mt-1 text-sm text-ink-2">
-              You belong to multiple workspaces. Choose one to continue.
+              {t("auth.signIn.chooseWorkspaceDescription")}
             </p>
             <div className="mt-3 grid gap-2">
               {workspaces.map((id) => (
@@ -192,7 +197,7 @@ export default function LoginPage() {
                   onClick={() => void chooseWorkspace(id)}
                   className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
                 >
-                  <span className="truncate font-mono text-[13px]" title={id}>Workspace …{id.slice(-6)}</span>
+                  <span className="truncate font-mono text-[13px]" title={id}>{t("auth.signIn.workspaceSuffix", { suffix: id.slice(-6) })}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
                 </button>
               ))}

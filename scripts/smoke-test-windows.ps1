@@ -56,19 +56,16 @@ if (-not $InstallDir) {
   }
 }
 
-$agentDataDir = if ($env:YASEIR_AGENT_DATA_DIR) {
-  $env:YASEIR_AGENT_DATA_DIR
-} elseif ($env:YASSER_AGENT_DATA_DIR) {
-  $env:YASSER_AGENT_DATA_DIR  # legacy fallback
-} else {
-  Join-Path $env:ProgramData "YaseirAgent"
-}
+# Each run owns an isolated data root; never reuse production ProgramData.
+$smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yaseir-smoke-" + [guid]::NewGuid().ToString("N"))
+$agentDataDir = Join-Path $smokeRoot "agent"
+$managerDataDir = Join-Path $smokeRoot "manager"
 
 function Assert-Path {
   param([string]$Path, [string]$Label)
   if (-not (Test-Path -LiteralPath $Path)) {
     Write-Error "FAIL: $Label not found: $Path"
-    exit 1
+    throw "Smoke assertion failed"
   }
   Write-Host "PASS: $Label exists -> $Path"
 }
@@ -78,12 +75,12 @@ function Assert-NotExited {
   Start-Sleep -Seconds $WaitSeconds
   if ($Process.HasExited) {
     Write-Error "FAIL: $Label exited early (code $($Process.ExitCode))"
-    exit 1
+    throw "Smoke assertion failed"
   }
   Write-Host "PASS: $Label is still running after $WaitSeconds seconds (pid $($Process.Id))"
 }
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
 Write-Host "== Yaseir Print Manager Windows smoke test =="
 Write-Host "Install dir: $InstallDir"
@@ -131,8 +128,14 @@ Assert-Path $appExe "Installed desktop executable"
 Assert-Path $agentExe "Bundled agent executable"
 Assert-Path $cliExe "Bundled CLI executable"
 
-# Start from a deterministic state so the run does not create duplicates.
-Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# The desktop UI check must not start, stop, or register a production service.
+$oldAgentData = $env:YASEIR_AGENT_DATA_DIR
+$oldManagerData = $env:YASEIR_MANAGER_DATA_DIR
+$oldAutostart = $env:YASEIR_MANAGER_AUTOSTART_AGENT
+$env:YASEIR_AGENT_DATA_DIR = $agentDataDir
+$env:YASEIR_MANAGER_DATA_DIR = $managerDataDir
+$env:YASEIR_MANAGER_AUTOSTART_AGENT = "0"
+try {
 
 # 2. Desktop application process ----------------------------------------------
 $desktop = $null
@@ -140,13 +143,11 @@ try {
   $desktop = Start-Process -FilePath $appExe -PassThru
   Assert-NotExited $desktop "Yaseir Print Manager desktop process"
 } finally {
-  if ($desktop -and -not $desktop.HasExited) {
+  if (-not $KeepRunning -and $desktop -and -not $desktop.HasExited) {
     Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue
     Write-Host "PASS: desktop process stopped cleanly (forced process termination)."
   }
-  # The desktop starts the agent detached; clean it up before the direct test.
-  Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Get-Process -Name "YaseirAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
 }
 
 # 3. CLI help ----------------------------------------------------------------
@@ -154,22 +155,16 @@ Write-Host "== CLI help =="
 $cliOut = & $cliExe --help 2>&1
 if ($LASTEXITCODE -ne 0) {
   Write-Error "FAIL: yaseir-agent-cli.exe --help returned exit code $LASTEXITCODE"
-  exit 1
+  throw "Smoke assertion failed"
 }
 $cliText = ($cliOut | Out-String)
 if ($cliText -notmatch "-pair" -or $cliText -notmatch "-server" -or $cliText -notmatch "-config") {
   Write-Error "FAIL: CLI help did not mention -pair/-server/-config"
-  exit 1
+  throw "Smoke assertion failed"
 }
 Write-Host "PASS: CLI help lists -pair, -server, -config"
 
 # 4. Go agent first-run directory/database creation ---------------------------
-# Remove only a deliberately empty temp data dir when the caller asks for a
-# fully clean run. Never delete production ProgramData state implicitly.
-if (($env:YASEIR_AGENT_DATA_DIR -or $env:YASSER_AGENT_DATA_DIR) -and (Test-Path $agentDataDir)) {
-  Write-Host "Using existing overridden agent data dir: $agentDataDir"
-}
-
 $agent = $null
 try {
   $configPath = Join-Path $agentDataDir "config.yaml"
@@ -179,7 +174,7 @@ try {
   Start-Sleep -Seconds 4
   if ($agent.HasExited) {
     Write-Error "FAIL: agent exited early (code $($agent.ExitCode)); inspect $agentDataDir"
-    exit 1
+    throw "Smoke assertion failed"
   }
   Assert-Path $agentDataDir "Agent writable data directory"
   Assert-Path $configPath "Agent default config file"
@@ -187,14 +182,22 @@ try {
   Assert-Path (Join-Path $agentDataDir "queue.db") "Agent SQLite database"
   Write-Host "PASS: agent first-run initialization completed without manual directory creation."
 } finally {
-  if ($agent -and -not $agent.HasExited) {
+  if (-not $KeepRunning -and $agent -and -not $agent.HasExited) {
     Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
     Write-Host "PASS: agent process stopped."
   }
 }
 
 if ($KeepRunning) {
-  Write-Host "NOTE: KeepRunning set; no desktop cleanup after next steps."
+  Write-Host "PASS: isolated smoke processes kept running: desktop PID=$($desktop.Id), Agent PID=$($agent.Id); data=$smokeRoot"
 } else {
-  Write-Host "PASS: all smoke checks completed."
+  Write-Host "PASS: UI startup and direct Agent initialization checks completed. Windows service control and physical printing were not exercised."
+}
+} finally {
+  $env:YASEIR_AGENT_DATA_DIR = $oldAgentData
+  $env:YASEIR_MANAGER_DATA_DIR = $oldManagerData
+  $env:YASEIR_MANAGER_AUTOSTART_AGENT = $oldAutostart
+  if (-not $KeepRunning -and (Test-Path -LiteralPath $smokeRoot)) {
+    Remove-Item -LiteralPath $smokeRoot -Recurse -Force
+  }
 }

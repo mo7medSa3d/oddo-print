@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, pool, closePool } from "./helpers/pg";
+import { renderPrometheusMetrics } from "../src/lib/metrics";
 import { getAgentHealth } from "../src/lib/agent-health";
 
 /**
@@ -66,6 +67,25 @@ suite("agent health (database-backed)", () => {
     const inferred = health!.checks.find((c) => c.name.startsWith("Heartbeat (inferred"));
     expect(inferred).toBeDefined();
     expect(inferred!.lastOk).toBeNull();
+  });
+
+  it("reports fleet availability using both printer and agent freshness", async () => {
+    const f = await seedFixture();
+    await pool().query("UPDATE printers SET status = 'busy' WHERE id = $1", [f.printerId]);
+    const metric = (text: string, name: string) => Number(text.match(new RegExp(`^${name} ([0-9]+)$`, "m"))?.[1]);
+    let output = await renderPrometheusMetrics();
+    expect(metric(output, "agents_online")).toBe(1);
+    expect(metric(output, "printers_online")).toBe(1);
+    await pool().query("UPDATE agents SET last_seen_at = now() - interval '1 day' WHERE id = $1", [f.agentId]);
+    output = await renderPrometheusMetrics();
+    expect(metric(output, "agents_online")).toBe(0);
+    expect(metric(output, "agents_stale")).toBe(1);
+    expect(metric(output, "printers_online")).toBe(0);
+    await pool().query("UPDATE agents SET lifecycle = 'disabled', last_seen_at = now() WHERE id = $1", [f.agentId]);
+    output = await renderPrometheusMetrics();
+    expect(metric(output, "agents_online")).toBe(0);
+    expect(metric(output, "agents_stale")).toBe(0);
+    expect(metric(output, "printers_online")).toBe(0);
   });
 
   it("returns null for an unknown agent id", async () => {

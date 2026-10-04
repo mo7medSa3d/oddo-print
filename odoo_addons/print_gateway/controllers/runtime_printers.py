@@ -11,40 +11,30 @@ class PrintGatewayRuntimePrinterController(http.Controller):
     @staticmethod
     def _require_runtime_admin():
         if not request.env.user.has_group("base.group_system"):
-            raise Forbidden("Access Denied: Runtime printer discovery is restricted to Odoo system administrators.")
+            raise Forbidden(request.env._("Access Denied: Runtime printer discovery is restricted to Odoo system administrators."))
 
     def _scope(self, company_id=None, branch_id=None, env=None):
         env = env if env is not None else request.env
-        # NOTE: the errors below are deliberately NOT wrapped in _(). Odoo 19
-        # resolves _() by walking the call stack for self.env
-        # (odoo/tools/translate.py _get_uid); a controller instance carries
-        # env=None outside a request, so _() raises
-        # AttributeError: 'NoneType' object has no attribute 'uid' instead of
-        # the intended ValidationError. This broke
-        # test_controller_rejects_root_company_as_branch and
-        # test_runtime_printer_scope_rejects_root_company_branch_parameter
-        # on Odoo 19 (CI run 37014129056). Model code keeps _() — recordsets
-        # always carry a real env.
         if company_id:
             try:
                 company = env["res.company"].browse(int(company_id)).exists()
             except (TypeError, ValueError):
-                raise Forbidden("Access Denied: Invalid Odoo Company.")
+                raise Forbidden(env._("Access Denied: Invalid Odoo Company."))
             if not company or company not in env.companies:
-                raise Forbidden("Access Denied: The selected Odoo Company is not available to the current user.")
+                raise Forbidden(env._("Access Denied: The selected Odoo Company is not available to the current user."))
         else:
             company = env.company
             if not company or company not in env.companies:
-                raise Forbidden("Access Denied: The active Odoo Company is not available to the current user.")
+                raise Forbidden(env._("Access Denied: The active Odoo Company is not available to the current user."))
 
         branch = False
         if branch_id:
             try:
                 branch = env["res.company"].browse(int(branch_id)).exists()
             except (TypeError, ValueError):
-                raise Forbidden("Access Denied: Invalid Odoo Branch.")
+                raise Forbidden(env._("Access Denied: Invalid Odoo Branch."))
             if not branch or branch not in env.companies:
-                raise Forbidden("Access Denied: The selected Odoo Branch is not available to the current user.")
+                raise Forbidden(env._("Access Denied: The selected Odoo Branch is not available to the current user."))
 
         if company.parent_id:
             # Tolerate branch-scoped callers (e.g. a branch cashier whose
@@ -53,15 +43,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not branch:
                 branch = company
             elif branch.id != company.id and branch.parent_id.id != company.id:
-                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+                raise ValidationError(env._("Odoo Branch must belong directly to the selected Odoo Company."))
             company = company.parent_id
 
         if branch and branch == company:
-            raise ValidationError("Odoo Branch must be a child Branch, not the selected root Company.")
+            raise ValidationError(env._("Odoo Branch must be a child Branch, not the selected root Company."))
 
         if branch:
             if not branch.parent_id or branch.parent_id.id != company.id:
-                raise ValidationError("Odoo Branch must belong directly to the selected Odoo Company.")
+                raise ValidationError(env._("Odoo Branch must belong directly to the selected Odoo Company."))
 
         return company, branch
 
@@ -91,23 +81,23 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if not config:
             return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         try:
+            gateway_base = config._gateway_base(for_request=True)
+            gateway_headers = config._gateway_headers()
+        except ValidationError:
+            raise
+        try:
             response = requests.get(
-                '%s/api/odoo/agents' % config._gateway_base(for_request=True),
-                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
+                '%s/api/odoo/agents' % gateway_base,
+                headers=gateway_headers, timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % response.status_code)
+                raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
-        except ValidationError:
-            # Missing/invalid server-side configuration is not a client-side
-            # secret error; render an empty dropdown and let the form explain
-            # that the Gateway connection needs attention.
-            return {'enabled': False, 'selectedAgentId': False, 'agents': []}
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
+            raise ValidationError(request.env._('Gateway agent discovery is unavailable.')) from exc
         agents = body.get('agents') if isinstance(body, dict) else None
         if not isinstance(agents, list):
-            raise ValidationError(_('Gateway returned an invalid agent discovery response.'))
+            raise ValidationError(request.env._('Gateway returned an invalid agent discovery response.'))
         sanitized = []
         for agent in agents:
             if not isinstance(agent, dict):
@@ -143,7 +133,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         if not isinstance(agent_id, str) or not agent_id.strip():
             return {'enabled': True, 'selectedAgentId': False, 'printers': []}
         config, root_company = self._get_config(company)
-        if not config or not config.enabled:
+        if not config:
             return {'enabled': False, 'selectedAgentId': False, 'printers': []}
 
         selected_agent_id = agent_id.strip()
@@ -158,7 +148,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)
         if selected_agent_id not in allowed_agent_ids:
             raise Forbidden(
-                'Access Denied: The selected Gateway Agent is not assigned to this Odoo scope.'
+                request.env._('Access Denied: The selected Gateway Agent is not assigned to this Odoo scope.')
             )
 
         # Validate that the selected Agent is active and belongs to the same
@@ -170,19 +160,19 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
             if agent_response.status_code != 200:
-                raise ValidationError(_('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
+                raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
             agent_body = agent_response.json() if agent_response.content else {}
             all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError(_('Gateway agent discovery is unavailable.')) from exc
+            raise ValidationError(request.env._('Gateway agent discovery is unavailable.')) from exc
         matched_agent = next(
             (a for a in all_agents or [] if isinstance(a, dict) and a.get('id') == selected_agent_id and a.get('lifecycle') == 'active'),
             None,
         )
         if not matched_agent:
-            raise Forbidden('Access Denied: The selected Gateway Agent is not active in this tenant.')
+            raise Forbidden(request.env._('Access Denied: The selected Gateway Agent is not active in this tenant.'))
 
         try:
             response = requests.get(
@@ -192,15 +182,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 timeout=5, allow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValidationError(_('Gateway printer discovery failed (HTTP %s).') % response.status_code)
+                raise ValidationError(request.env._('Gateway printer discovery failed (HTTP %s).') % response.status_code)
             body = response.json()
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
-            raise ValidationError(_('Gateway printer discovery is unavailable.')) from exc
+            raise ValidationError(request.env._('Gateway printer discovery is unavailable.')) from exc
         printers = body.get('printers') if isinstance(body, dict) else None
         if not isinstance(printers, list):
-            raise ValidationError(_('Gateway returned an invalid printer discovery response.'))
+            raise ValidationError(request.env._('Gateway returned an invalid printer discovery response.'))
         sanitized = []
         for printer in printers:
             if not isinstance(printer, dict):

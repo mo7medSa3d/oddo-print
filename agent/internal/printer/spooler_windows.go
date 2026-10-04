@@ -1050,7 +1050,7 @@ const (
 	// and warns it can make an application unresponsive
 	// (https://learn.microsoft.com/en-us/windows/win32/printdocs/enumprinters).
 	// Discovery must therefore bound it itself instead of trusting the API.
-	printerEnumTimeout = 30 * time.Second
+	printerEnumTimeout = 5 * time.Second
 	// printerEnumMaxAttempts bounds the two-call buffer sizing loop. The
 	// printer list can grow between the sizing call and the fetch, which
 	// makes the fetch fail with ERROR_INSUFFICIENT_BUFFER again and again;
@@ -1060,7 +1060,7 @@ const (
 	queueDetailTimeout = 3 * time.Second
 	// queueDetailBudget bounds the TOTAL time spent reading queue details so
 	// a machine with dozens of stalled queues still finishes discovery.
-	queueDetailBudget = 30 * time.Second
+	queueDetailBudget = 8 * time.Second
 )
 
 // printerInfo4 is PRINTER_INFO_4 (pPrinterName, pServerName, Attributes).
@@ -1092,12 +1092,18 @@ type printerQueueRef struct {
 //
 // Level 4 supports exactly the flags used here (PRINTER_ENUM_LOCAL and
 // PRINTER_ENUM_CONNECTIONS) and requires a NULL Name, as documented.
+var enumerationActive atomic.Bool
+var queueDetailsActive sync.Map
+
 func enumPrinterQueues() ([]printerQueueRef, error) {
 	const (
 		printerEnumLocal       = 0x00000002
 		printerEnumConnections = 0x00000004
 		printerEnumLevel       = 4
 	)
+	if !enumerationActive.CompareAndSwap(false, true) {
+		return nil, fmt.Errorf("previous spooler enumeration is still pending")
+	}
 	flags := uintptr(printerEnumLocal | printerEnumConnections)
 	structSize := unsafe.Sizeof(printerInfo4{})
 
@@ -1111,6 +1117,7 @@ func enumPrinterQueues() ([]printerQueueRef, error) {
 	// returns) and the caller falls back to the registry.
 	done := make(chan enumResult, 1)
 	go func() {
+		defer enumerationActive.Store(false)
 		for attempt := 0; attempt < printerEnumMaxAttempts; attempt++ {
 			var needed, returned uint32
 			ret, _, lastErr := procEnumPrintersW.Call(
@@ -1193,12 +1200,19 @@ func enumPrinterQueues() ([]printerQueueRef, error) {
 // runs on a helper goroutine the caller abandons on timeout; the handle is
 // opened and closed inside that helper, so nothing is left dangling.
 func queueDetail(name string) (queueDetails, error) {
+	gateValue, _ := queueDetailsActive.LoadOrStore(name, &atomic.Bool{})
+	gate := gateValue.(*atomic.Bool)
+	if !gate.CompareAndSwap(false, true) {
+		return queueDetails{}, fmt.Errorf("previous queue detail for %q is still pending", name)
+	}
+
 	type detailResult struct {
 		detail queueDetails
 		err    error
 	}
 	done := make(chan detailResult, 1)
 	go func() {
+		defer func() { queueDetailsActive.Delete(name); gate.Store(false) }()
 		namePtr, err := syscall.UTF16PtrFromString(name)
 		if err != nil {
 			done <- detailResult{err: fmt.Errorf("encode queue name %q: %w", name, err)}
@@ -1256,12 +1270,32 @@ func queueDetail(name string) (queueDetails, error) {
 // "unknown" status rather than a fabricated "online" — because EnumPrinters
 // proved it exists.
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
+	infos, err := enumerateSpoolerPrintersWindows()
+	// EnumPrinters CONNECTIONS is scoped to the calling account, not the
+	// interactive desktop. Surface the limitation in the discovery report.
+	token, tokenErr := windows.OpenCurrentProcessToken()
+	if tokenErr != nil {
+		return infos, errors.Join(err, fmt.Errorf("read discovery account: %w", tokenErr))
+	}
+	defer token.Close()
+	user, userErr := token.GetTokenUser()
+	if userErr != nil {
+		return infos, errors.Join(err, fmt.Errorf("read discovery account SID: %w", userErr))
+	}
+	if user.User.Sid.String() == "S-1-5-18" {
+		err = errors.Join(err, fmt.Errorf("LocalSystem printer discovery cannot see interactive users' per-user connections; install shared queues for this service account/machine or run the service under the authorized print account"))
+	}
+	return infos, err
+}
+
+func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level 4 + bounded GetPrinterW level 2)")
 
 	queues, err := enumPrinterQueues()
 	if err != nil {
 		log.Printf("[discovery] EnumPrintersW unusable (%v) — falling back to registry", err)
-		return fallbackRegistryPrinters()
+		infos, regErr := fallbackRegistryPrinters()
+		return infos, errors.Join(err, regErr)
 	}
 	if len(queues) == 0 {
 		// An empty answer is only trustworthy if the registry agrees: a
@@ -1330,5 +1364,8 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		})
 	}
 	log.Printf("[discovery] spooler discovery completed: %d queues (%d with unreadable details)", len(out), unreadable)
+	if unreadable > 0 {
+		return out, fmt.Errorf("%d spooler queues have unreadable details; queue identities were retained", unreadable)
+	}
 	return out, nil
 }

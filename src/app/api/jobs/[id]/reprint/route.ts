@@ -1,10 +1,11 @@
+import { logError } from "../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { printJobs } from "../../../../../db/schema";
 import { validateConsoleAuth } from "../../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { isTerminal, type JobStatus } from "../../../../../lib/job-status";
-import { createPrintJobForPrinter } from "../../../../../lib/print-job-service";
+import { createPrintJobForPrinter, PrintJobInputError, PrintJobCapabilityError, AgentQueueFullError, AgentQueuedJobsFullError } from "../../../../../lib/print-job-service";
 import {
   TenantEntitlementError,
   TenantPrintQuotaExceededError,
@@ -93,6 +94,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (error instanceof TenantSubscriptionRequiredError || error instanceof TenantEntitlementConfigError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     }
+    if (error instanceof PrintJobInputError) return NextResponse.json({ error: error.message, code: error.code, retryable: error.status >= 500 }, { status: error.status });
+    if (error instanceof PrintJobCapabilityError) return NextResponse.json({ error: error.message, code: error.code, retryable: false }, { status: 422 });
+    if (error instanceof AgentQueueFullError || error instanceof AgentQueuedJobsFullError) return NextResponse.json({ error: error.message, code: error.code, retryable: true }, { status: 503, headers: { "Retry-After": "5" } });
+    if (error instanceof Error && "code" in error && error.code === "IDEMPOTENCY_CONFLICT") return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", retryable: false }, { status: 409 });
+    logError("print.job.reprint_failed", { jobId, error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }
 }

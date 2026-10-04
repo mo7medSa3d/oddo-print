@@ -146,8 +146,8 @@ def test_ci_carries_failing_supply_chain_gates():
     gate = read("scripts/audit-gate.mjs")
     assert '"--audit-level=high"' in gate
     assert "const ALLOWED = [" in gate
-    assert "packageIsDevOnly" in gate
-    assert "is NOT dev-only" in gate
+    assert "lock.packages[node]?.dev !== true" in gate
+    assert "Allowlisted package is not provably dev-only" in gate
     assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
     assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
     assert "- name: Rust supply-chain audit" in workflow
@@ -316,7 +316,10 @@ def test_tauri_production_csp_is_strict_and_dev_exceptions_are_isolated():
 
     assert "script-src 'self';" in production
     assert "style-src 'self';" in production
-    assert "'unsafe-inline'" not in production
+    directives = {parts[0]: parts[1:] for item in production.split(';') if (parts := item.split())}
+    assert directives["script-src"] == ["'self'"]
+    assert directives["style-src"] == ["'self'"]
+    assert directives["style-src-attr"] == ["'unsafe-inline'"]
     assert "localhost:*" not in production
     assert "127.0.0.1:*" not in production
     assert "ipc:" in production
@@ -406,13 +409,19 @@ def test_operator_reprint_excludes_gateway_success_jobs():
     assert 'selectedJob.status.toLowerCase() !== "success"' in dashboard
 
 
-def test_agent_pre_execution_requeue_requires_no_delivery_evidence():
+def test_claimed_handback_requires_live_attempt_before_execution():
     jobs_route = read("src/app/api/agent/jobs/route.ts")
     anchor = jobs_route.index('if (requestedStatus === "queued" && currentStatus === "claimed")')
     block_end = jobs_route.index('return NextResponse.json({ success: true, status: "queued"', anchor)
     block = jobs_route[anchor:block_end]
-    assert 'isNull(printJobs.deliveredAt)' in block
-    assert 'isNull(printJobs.ackedAt)' in block
+    assert "AGENT_REQUEUE_REASONS.includes" in block
+    assert "fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken)" in block
+    assert "deliveredAt: null" in block
+    assert "ackedAt: null" in block
+    assert "sql`${printJobs.retries} < ${MAX_RETRIES}`" in block
+    integration = read("tests/job-status-postgres-concurrency.test.ts")
+    assert 'allows delivered claimed hand-back but rejects printing or stale attempts' in integration
+    assert 'expect((await jobRow("job_post_delivery_requeue")).status).toBe("printing")' in integration
 
 
 def test_late_success_failure_markers_preserve_the_attempt_fence():
@@ -438,10 +447,13 @@ def test_odoo_transport_fallback_fails_closed_after_dispatch_ambiguity():
     assert "break" in generic
 
 
-def test_odoo_terminal_reconciliation_accepts_only_explicit_gateway_markers():
+def test_odoo_reconciliation_requires_original_reconcilable_operation():
     jobs = read("odoo_addons/print_gateway/models/print_job.py")
     assert "def _needs_gateway_status_reconciliation" in jobs
-    assert "LATE_SUCCESS_POST_EXPIRATION:" in jobs
+    assert "self._lock_status_row(job)" in jobs
+    assert "job.gateway_job_id != expected_remote_id" in jobs
+    assert "not job.gateway_job_id or not self._needs_gateway_status_reconciliation(job)" in jobs
+    assert 'job.physical_outcome != "unknown"' in jobs
     assert "job.status == \"unknown\"" in jobs
     assert "AGENT_EXECUTION_TIMEOUT" in jobs
     assert "UNKNOWN_SUBMISSION_OUTCOME" in jobs

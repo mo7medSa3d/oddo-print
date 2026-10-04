@@ -1,3 +1,6 @@
+import { DELETE as cleanupJobs } from "../src/app/api/jobs/route";
+import { createManagerSession } from "../src/lib/manager-auth";
+import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   hasTestDatabase,
@@ -118,6 +121,33 @@ suite("print idempotency (Odoo → Gateway)", () => {
       headers: { Authorization: `Bearer ${f.odooKey}` },
     }));
     expect(statusRes.status).toBe(404);
+  });
+
+  it("preserves terminal operation identity and conflicts after payload cleanup", async () => {
+    process.env.GATEWAY_JWT_SECRET = gatewayTestSigningKey();
+    const key = "retained-operation";
+    const created = await create(jobBody(key));
+    expect(created.status).toBe(201);
+    const { jobId } = await created.json();
+    await pool().query("UPDATE print_jobs SET status = 'success', created_at = clock_timestamp() - interval '40 days', updated_at = clock_timestamp() WHERE id = $1", [jobId]);
+    const manager = await createManagerSession(f.tenantId);
+    const cleaned = await cleanupJobs(new Request(`http://gateway.test/api/jobs?before=${encodeURIComponent(new Date(Date.now() - 86400000).toISOString())}&confirm=1`, { method: "DELETE", headers: { Authorization: `Bearer ${manager.token}` } }));
+    expect(cleaned.status).toBe(200);
+    expect(await jobCount()).toBe(0);
+    const receipts = await pool().query("SELECT id FROM print_job_receipts WHERE tenant_id = $1", [f.tenantId]);
+    expect(receipts.rows).toEqual([{ id: jobId }]);
+    const retry = await create(jobBody(key));
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ jobId, status: "success" });
+    expect(await jobCount()).toBe(0);
+    const conflict = await create(jobBody(key, { payload: { type: "pdf", encoding: "base64", data: pdfBase64("changed") } }));
+    expect(conflict.status).toBe(409);
+    const status = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?idempotencyKey=${key}`, { headers: { Authorization: `Bearer ${f.odooKey}` } }));
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ jobId, status: "success" });
+    const other = await seedFixture();
+    const foreign = await printJobsGET(new Request(`http://gateway.test/api/print/jobs?id=${jobId}`, { headers: { Authorization: `Bearer ${other.odooKey}` } }));
+    expect(foreign.status).toBe(404);
   });
 
   it("first request creates one durable job", async () => {

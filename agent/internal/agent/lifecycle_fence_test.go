@@ -34,13 +34,15 @@ func TestHeartbeat409RetiredFencesExecution(t *testing.T) {
 	}
 }
 
-// A 401 keeps re-pair semantics (no fence — the credential, not the
-// lifecycle, is at fault) but must bound poll retries.
-func TestHeartbeat401BacksOffWithoutFencing(t *testing.T) {
+// A rejected credential must fence new execution as well as bound retries.
+func TestHeartbeat401BacksOffAndFences(t *testing.T) {
 	ag := newTestAgent(t, "printer_1", &fakePrinter{})
 	ag.noteHeartbeatRejection(http.StatusUnauthorized, []byte(`{"error":"Unauthorized"}`))
-	if ag.fencedForDispatch() {
-		t.Fatal("401 must not fence execution (credential fault, not lifecycle)")
+	if !ag.fencedForDispatch() {
+		t.Fatal("401 must fence execution because dispatch is no longer authorized")
+	}
+	if !strings.Contains(ag.fenceReason(), "credential rejected") {
+		t.Fatal("401 must retain a re-pair diagnostic")
 	}
 	if !ag.lifecycleBackoffActive() {
 		t.Fatal("401 must arm the poll backoff")

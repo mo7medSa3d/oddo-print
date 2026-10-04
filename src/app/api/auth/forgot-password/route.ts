@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const generic = { ok: true, message: "If the account exists, a password reset email will be sent." };
-  let body: { email?: unknown }; try { body = await req.json(); } catch { return NextResponse.json(generic, { status: 202 }); }
+  let body: { email?: unknown }; try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json(generic, { status: 202 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const ip = clientIpFrom(req);
   let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;

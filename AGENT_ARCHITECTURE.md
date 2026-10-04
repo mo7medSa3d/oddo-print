@@ -40,7 +40,7 @@ agent/
 
 ### Heartbeat
 - `POST /api/agent/heartbeat` every 30 seconds
-- Sends full printer inventory with live status probes
+- Sends bounded printer inventory with fresh observations and explicit source diagnostics
 - Includes keep-alive for in-flight job claims
 
 ## Job Execution
@@ -91,11 +91,11 @@ Either way, the physical outcome is recorded as UNKNOWN.
 2. **Full discovery** (async, 2s after startup):
    - Network TCP 9100 scan
    - USB enumeration (Windows)
-   - IPP/TCP 631 discovery plus IPP mDNS
+   - IPP endpoint probes and IPP/IPPS DNS-SD advertisements; advertisements remain candidates until verified
    - LPR/LPD discovery-only probes (candidates are not registered because LPR execution is not supported)
-   - SNMP discovery
+   - SNMP sysDescr queries across local private interfaces; identity and read-only discovery do not prove print capability
    - WSD discovery
-   - Full mDNS discovery
+   - DNS-SD/mDNS discovery with an independent resolver lifetime for each browse
    - The Gateway can request a per-session timeout; the Agent clamps it to the Gateway contract range of 500 ms–30 s.
 
 3. **Periodic rediscovery** (every 30s, gateway-directed):
@@ -127,3 +127,13 @@ SQLite database with WAL mode for crash durability. Tracks:
 - Claim token for gateway correlation
 - Interrupted marker for crash recovery
 - Result (success/failed/unknown) with reason
+
+Discovery reports use the additive `errors: string[]` contract in `contracts/print-payload-contract.json` (maximum 64 messages, 2048 UTF-16 units each). The Gateway returns these in session `stats.errors`; optional unavailable device fields are omitted, and protocol defaults to `unknown`. Odoo consumes approved runtime printers, not discovery candidates or source diagnostics; no addon producer emits discovery reports.
+
+New physical dispatch requires an acknowledged, claim-fenced `printing` response (`success: true`, `status: "printing"`). Local delivery receipt age is diagnostic only; a buffered frame may already have a stale claim. An unacknowledged admission sends no hardware bytes. Printing that already crossed this boundary retains its durable outcome reporting through a later disconnect. Repeated admission for the same live printing claim is acknowledged without creating another job or physical attempt.
+
+PDF rendering preserves the caller-assigned deadline and cancellation throughout document dispatch. Kind-specific timeouts apply only without a caller deadline. Windows aborts unfinished GDI documents; an abort does not prove that no physical page was emitted, so post-admission failures remain unknown outcomes.
+
+Terminal Agent reports echo their immutable attempt claim token. Matching closed-attempt SHA-256 evidence permits acknowledgement retries of the same terminal status only; it cannot authorize execution, replace evidence or extend reconciliation age. Agents retain terminal outbox tokens until the JSON response confirms success and the requested status. New claims clear closed acknowledgement evidence.
+
+CLI printers discover --json retains its array contract and adds optional agentId on each local device from the loaded configuration. Tauri preserves this owner provenance; discovered USB/Windows queue choices are offered only for that Agent. Unpaired discovery remains visible but cannot be assigned to an unrelated remote Agent. USB discovery strings are hexadecimal; registration explicitly prefixes 0x and sends validated numeric VID/PID values to the Gateway.

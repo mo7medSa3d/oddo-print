@@ -22,10 +22,11 @@ export function isPrivateCIDR(cidr: string): boolean {
   const parts = cidr.split("/");
   if (parts.length !== 2) return false;
   const ip = parts[0];
+  if (!/^[0-9]{1,2}$/.test(parts[1]) || !/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(ip)) return false;
   const prefix = Number(parts[1]);
   if (!Number.isInteger(prefix) || prefix < 16 || prefix > 30) return false;
   const octets = ip.split(".").map(Number);
-  if (octets.length !== 4 || octets.some(o => !Number.isFinite(o) || o < 0 || o > 255)) return false;
+  if (octets.length !== 4 || octets.some(o => !Number.isInteger(o) || o < 0 || o > 255)) return false;
   // 10/8, 172.16/12, 192.168/16
   if (octets[0] === 10) return true;
   if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;

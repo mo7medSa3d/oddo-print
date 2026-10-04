@@ -460,3 +460,26 @@ func TestSupportedKindsPerBackend(t *testing.T) {
 		t.Fatalf("IPP must NOT accept ESC/POS octet spooling")
 	}
 }
+
+func TestPrintPDFPreservesAssignedBudgetAndCancellation(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	want, _ := parent.Deadline()
+	err := PrintPDF(parent, "Printer", Document{Kind: KindPDF, Data: validPDF()}, func(renderCtx context.Context, _, _ string) error {
+		got, ok := renderCtx.Deadline()
+		if !ok || !got.Equal(want) {
+			t.Fatalf("renderer deadline changed: %v, want %v", got, want)
+		}
+		cancel()
+		select {
+		case <-renderCtx.Done():
+			return renderCtx.Err()
+		case <-time.After(time.Second):
+			t.Fatal("renderer cancellation was detached")
+			return nil
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled PDF result: %v", err)
+	}
+}

@@ -222,7 +222,15 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	registryPath := config.RegistryPath(loaded.path)
 	printers := discoverHelper(loaded.cfg, registryPath, jsonOutput)
 	if jsonOutput {
-		out, err := json.Marshal(printers)
+		type ownedPrinter struct {
+			printer.DeviceInfo
+			AgentID string `json:"agentId,omitempty"`
+		}
+		owned := make([]ownedPrinter, 0, len(printers))
+		for _, device := range printers {
+			owned = append(owned, ownedPrinter{DeviceInfo: device, AgentID: loaded.cfg.Agent.ID})
+		}
+		out, err := json.Marshal(owned)
 		if err != nil {
 			log.Fatalf("failed to encode discovery result: %v", err)
 		}

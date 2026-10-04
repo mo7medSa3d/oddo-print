@@ -39,9 +39,9 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
     def _compute_name(self):
         for record in self:
             record.name = "%s / %s → %s" % (
-                record.company_id.display_name if record.company_id else "Company",
-                record.branch_id.display_name if record.branch_id else "Branch",
-                record.runtime_agent_id or "Agent",
+                record.company_id.display_name if record.company_id else _("Company"),
+                record.branch_id.display_name if record.branch_id else _("Branch"),
+                record.runtime_agent_id or _("Agent"),
             )
 
     @api.model
@@ -101,7 +101,7 @@ class PrintGatewayRuntimeAgentAssignment(models.Model):
         return runtime_agent_id.strip() in self.assigned_agent_ids(company, branch)
 
     def _check_admin(self):
-        if not (self.env.is_superuser or self.env.user.has_group("base.group_system")):
+        if not (self.env.is_superuser() or self.env.user.has_group("base.group_system")):
             raise AccessError(_("Only Odoo system administrators can change runtime agent assignments."))
 
     @api.model_create_multi

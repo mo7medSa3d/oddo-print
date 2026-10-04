@@ -27,6 +27,7 @@ export class CircuitBreaker {
   private readonly resetTimeoutMs: number;
   private readonly name: string;
   private halfOpenProbeInFlight = false;
+  private generation = 0;
 
   constructor(options: CircuitBreakerOptions) {
     this.failureThreshold = options.failureThreshold;
@@ -57,21 +58,23 @@ export class CircuitBreaker {
       this.halfOpenProbeInFlight = true;
     }
 
+    const generation = this.generation;
     try {
       const result = await fn();
-      this.onSuccess();
+      if (generation === this.generation) this.onSuccess();
       return result;
     } catch (error) {
-      this.onFailure();
+      if (generation === this.generation) this.onFailure();
       throw error;
     } finally {
-      if (isProbe) this.halfOpenProbeInFlight = false;
+      if (isProbe && generation === this.generation) this.halfOpenProbeInFlight = false;
     }
   }
 
   private onSuccess(): void {
     this.failureCount = 0;
     this.state = "closed";
+    this.halfOpenProbeInFlight = false;
   }
 
   private onFailure(): void {
@@ -79,6 +82,8 @@ export class CircuitBreaker {
     if (this.failureCount >= this.failureThreshold) {
       this.state = "open";
       this.openedAt = Date.now();
+      this.generation++;
+      this.halfOpenProbeInFlight = false;
     }
   }
 }

@@ -52,11 +52,14 @@ export async function POST(req: Request) {
   if (hasBodyOverLimit(req, MAX_DISCOVERY_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
   let body: unknown;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const bodyRecord = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const discoveryId = typeof bodyRecord.discoveryId === "string" ? bodyRecord.discoveryId : null;
   const status = typeof bodyRecord.status === "string" ? bodyRecord.status : null;
   const devices: unknown[] = Array.isArray(bodyRecord.devices) ? bodyRecord.devices : [];
+  const errorsResult = z.array(z.string().max(2048)).max(64).safeParse(bodyRecord.errors ?? []);
+  if (!errorsResult.success) return NextResponse.json({ error: "Invalid discovery source errors" }, { status: 400 });
+  const sourceErrors = errorsResult.data;
   if (!discoveryId) return NextResponse.json({ error: "discoveryId required" }, { status: 400 });
   if (devices.length > MAX_DISCOVERY_DEVICES) return NextResponse.json({ error: `Too many devices in one discovery report; maximum is ${MAX_DISCOVERY_DEVICES}` }, { status: 413 });
 
@@ -183,6 +186,10 @@ export async function POST(req: Request) {
           .onConflictDoUpdate({
             target: [discoveredDevices.tenantId, discoveredDevices.agentId, discoveredDevices.identityKey],
             set: {
+              // Preserve the provisioned runtime link as history, but invalidate
+              // operator approval when the authorized destination/capabilities change.
+              candidateStatus: sql`CASE WHEN ${sql`ROW(${discoveredDevices.protocol}, ${discoveredDevices.ipAddress}, ${discoveredDevices.port}, ${discoveredDevices.uri}, ${discoveredDevices.spoolerName}, ${discoveredDevices.transport}, ${discoveredDevices.deviceClass}, ${discoveredDevices.capabilities}) IS DISTINCT FROM ROW(excluded.protocol, excluded.ip_address, excluded.port, excluded.uri, excluded.spooler_name, excluded.transport, excluded.device_class, excluded.capabilities)`} THEN 'discovered' ELSE ${discoveredDevices.candidateStatus} END`,
+              verification: sql`CASE WHEN ${sql`ROW(${discoveredDevices.protocol}, ${discoveredDevices.ipAddress}, ${discoveredDevices.port}, ${discoveredDevices.uri}, ${discoveredDevices.spoolerName}, ${discoveredDevices.transport}, ${discoveredDevices.deviceClass}, ${discoveredDevices.capabilities}) IS DISTINCT FROM ROW(excluded.protocol, excluded.ip_address, excluded.port, excluded.uri, excluded.spooler_name, excluded.transport, excluded.device_class, excluded.capabilities)`} THEN 'candidate' ELSE ${discoveredDevices.verification} END`,
               discoveryId: sql`excluded.discovery_id`,
               source: sql`excluded.source`,
               protocol: sql`excluded.protocol`,
@@ -210,7 +217,7 @@ export async function POST(req: Request) {
     }
 
     const effectiveStatus =
-      skippedDevices.length > 0 && status === "completed"
+      (skippedDevices.length > 0 || sourceErrors.length > 0) && status === "completed"
         ? "partial"
         : status;
 
@@ -225,6 +232,7 @@ export async function POST(req: Request) {
             inserted: insertedCount,
             updated: updatedCount,
             skipped: skippedDevices.length,
+            errors: sourceErrors,
           },
         })
         .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
