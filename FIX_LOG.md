@@ -40,6 +40,21 @@ Verification executed in this continuation:
 - Dangling-reference sweep for every key deleted this session (16 keys): no source file still calls them.
 - CI on this branch (pushed): see the per-commit results below.
 
+Root cause of the red `docker-build-runtime` job on this branch (also caught by `ci`'s Typecheck step):
+`src/desktop/lib/printers.ts` is the desktop barrel that re-exports the shared vocabulary helpers, and the
+new agent-status work imported `agentLiveView` from it while the barrel's `export { … } from
+"../../shared/job-vocabulary"` list had not been extended. Nothing in the offline harness resolves named
+imports, so the app looked fine locally and only failed at build typecheck (`TS2305`). Fixed by adding
+`agentLiveView` to the barrel, and guarded by a new offline suite,
+`tests/audit-barrel-imports-offline.test.mjs`, which walks `src/` and fails when a named import does not
+exist in its target module. The guard is mutation-verified: removing the re-export reproduces exactly the
+three build errors, restoring it passes.
+
+Also in the same fix: those three call sites now pass the agent heartbeat (`lastSeenAt`). `agentLiveView`
+derives "heartbeat lost" from a missing or stale `lastSeenAt`, so an online agent rendered through the
+barrel without its heartbeat would have shown as offline in the printers table, the printer drawer and the
+add-printer agent list.
+
 Visual QA is NOT done and cannot be done here: no Chromium/Chrome/Firefox binary, no Playwright,
 Puppeteer or Selenium package, no cached browser download, no node_modules (so the Next and Vite dev
 servers cannot run), and installing or downloading any of them is forbidden by the repository rules.

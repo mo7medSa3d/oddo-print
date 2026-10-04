@@ -250,7 +250,7 @@ export function AddPrinterDialog({
             <option value="">{t("desktop.add.selectActiveAgent")}</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null }, Date.now(), locale).label})
+                {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null, lastSeenAt: a.lastSeenAt ?? null }, Date.now(), locale).label})
               </option>
             ))}
           </Select>

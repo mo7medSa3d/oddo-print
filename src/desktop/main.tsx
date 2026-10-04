@@ -1014,7 +1014,7 @@ export default function App() {
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
                 {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
-                {agentLiveView({ status: selectedPrinter.agentStatus ?? null, lifecycle: null }, Date.now(), locale).label}
+                {agentLiveView({ status: selectedPrinter.agentStatus ?? null, lastSeenAt: selectedPrinter.agentLastSeenAt ?? null }, Date.now(), locale).label}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agentHeartbeat")}>
                 {selectedPrinter.agentLastSeenAt ? formatDateTime(selectedPrinter.agentLastSeenAt) : "—"}

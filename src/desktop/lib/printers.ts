@@ -3,6 +3,7 @@ import type { Tone } from "../../shared/job-vocabulary";
 import { isVirtualPrinterRecord } from "../../lib/printer-virtual";
 
 export {
+  agentLiveView,
   jobLabel,
   jobTone,
   jobGuidance,
