@@ -142,7 +142,7 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  const baseClasses = `relative inline-flex select-none items-center justify-center whitespace-nowrap font-[560] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-[140ms] ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`;
+  const baseClasses = `relative inline-flex select-none items-center justify-center whitespace-nowrap font-[560] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-150 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`;
 
   const content = (
     <>
@@ -215,7 +215,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
       {...props}
     >
       {children}
@@ -848,7 +848,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-10 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-[140ms] ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
+  "w-full h-10 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
 
 function useFieldProps({
   id,
@@ -1102,7 +1102,7 @@ export function CopyButton({
           setTimeout(() => setCopyFailed(false), 2500);
         }
       }}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface px-2 text-xs font-[550] text-ink-2 transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface px-2 text-xs font-[550] text-ink-2 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
     >
       {copied ? (
         <>
@@ -1410,7 +1410,7 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-[550] capitalize transition-colors duration-[140ms] ${focusRing} ${
+            className={`relative flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs ring-1 ring-inset ring-edge"
                 : "text-ink-3 hover:bg-surface-2 hover:text-ink"
@@ -1464,7 +1464,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-[140ms] ${item} ${focusRing} ${
+            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs"
                 : "text-ink-3 hover:text-ink"
@@ -1950,7 +1950,7 @@ export function Toast({
         type="button"
         onClick={onDismiss}
         aria-label={t("ui.dismissNotification")}
-        className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-[140ms] hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+        className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-150 hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
       >
         <X className="h-3.5 w-3.5" />
       </button>

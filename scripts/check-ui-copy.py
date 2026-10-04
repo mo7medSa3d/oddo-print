@@ -117,6 +117,13 @@ TEMPLATE_PROP = re.compile(
     r"\b(title|label|description|subtitle|placeholder|aria-label|eyebrow|hint|summary)"
     r"=\{\s*`([^`]*\w[^`]*)`"
 )
+# The same props written as a plain string literal ("e.g. Kitchen receipt").
+# Only values carrying two or more English words are copy: `price_…`, `9100`,
+# `0x04b8`, `colleague@company.com` and URLs are data.
+LITERAL_PROP = re.compile(
+    r"\b(title|label|description|subtitle|placeholder|aria-label|eyebrow|hint|summary)"
+    r'="([^"]{3,})"'
+)
 # JSX text that mixes interpolations with words: `{count} of {total} ready`.
 INTERPOLATION = re.compile(r"\{[^{}]*\}")
 TAG = re.compile(r"</?[A-Za-z][^<>]*>")
@@ -169,6 +176,13 @@ def check_hardcoded_copy() -> None:
             if looks_like_english(re.sub(r"\$\{[^}]*\}", " ", body)):
                 line = text[: match.start()].count("\n") + 1
                 report("COPY", f"{rel}:{line}", f"literal text in `{match.group(1)}` prop")
+        for match in LITERAL_PROP.finditer(text):
+            body = match.group(2)
+            if "://" in body or "@" in body:
+                continue
+            if len(re.findall(r"[A-Za-z]{2,}", body)) >= 2 and looks_like_english(body):
+                line = text[: match.start()].count("\n") + 1
+                report("COPY", f"{rel}:{line}", f"literal `{match.group(1)}` prop: {body[:48]!r}")
         for line_no, line_text in enumerate(text.split("\n"), 1):
             # Text nodes that contain interpolations stay invisible to the
             # line-based pass, so strip the interpolations and inspect only the

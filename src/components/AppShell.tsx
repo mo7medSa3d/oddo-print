@@ -185,7 +185,7 @@ function WorkspaceMenu({
       align="start"
       trigger={
         <span
-          className={`flex w-full items-center gap-2 rounded-md border border-transparent p-1.5 transition-colors duration-[140ms] hover:border-edge hover:bg-surface-2 ${
+          className={`flex w-full items-center gap-2 rounded-md border border-transparent p-1.5 transition-colors duration-150 hover:border-edge hover:bg-surface-2 ${
             compact ? "justify-center" : ""
           }`}
         >
@@ -349,7 +349,7 @@ function ConsoleShell({
               onClick={toggleCollapsed}
               aria-label={t("nav.collapseNavigation")}
               title={t("nav.collapseNavigation")}
-              className="ms-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+              className="ms-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             >
               <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
             </button>
@@ -368,7 +368,7 @@ function ConsoleShell({
                 onClick={() => setPaletteOpen(true)}
                 aria-label={t("common.search")}
                 title={t("nav.searchHint")}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <Search className="h-4 w-4" aria-hidden />
               </button>
@@ -379,7 +379,7 @@ function ConsoleShell({
                 onClick={toggleCollapsed}
                 aria-label={t("nav.expandNavigation")}
                 title={t("nav.expandNavigation")}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <PanelLeftOpen className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </button>
@@ -408,7 +408,7 @@ function ConsoleShell({
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label={t("nav.openNavigation")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-[140ms] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           >
             <MenuIcon className="h-4 w-4" aria-hidden />
           </button>

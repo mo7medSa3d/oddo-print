@@ -66,6 +66,7 @@ import {
   type PrinterInfo,
 } from "./lib/ipc";
 import {
+  agentLiveView,
   deriveOutcome,
   errMsg,
   friendlyPrinterError,
@@ -733,24 +734,15 @@ export default function App() {
     { id: "settings", label: t("desktop.nav.settings"), icon: SettingsIcon, desc: t("desktop.nav.gatewayAndAgent") },
   ];
 
-  const pageMeta: Record<Page, { title: string; subtitle: string }> = {
-    dashboard: {
-      title: t("desktop.nav.overview"),
-      subtitle: t("desktop.page.overviewSubtitle"),
-    },
-    printers: {
-      title: t("desktop.nav.printers"),
-      subtitle: t("desktop.page.printersSubtitle"),
-    },
-    jobs: {
-      title: t("desktop.nav.printJobs"),
-      subtitle: t("desktop.page.jobsSubtitle"),
-    },
+  // Headings carry no subtitle where the panels already state their content.
+  // The two that remain answer a question the operator cannot read off screen:
+  // whose Agent this is, and what is configured here.
+  const pageMeta: Record<Page, { title: string; subtitle?: string }> = {
+    dashboard: { title: t("desktop.nav.overview") },
+    printers: { title: t("desktop.nav.printers") },
+    jobs: { title: t("desktop.nav.printJobs") },
     agents: { title: t("desktop.nav.agents"), subtitle: t("desktop.page.agentsSubtitle") },
-    settings: {
-      title: t("desktop.nav.settings"),
-      subtitle: t("desktop.page.settingsSubtitle"),
-    },
+    settings: { title: t("desktop.nav.settings"), subtitle: t("desktop.page.settingsSubtitle") },
   };
 
   const state: DesktopState = {
@@ -971,10 +963,9 @@ export default function App() {
           </>
         }
       >
-        <p className="text-base leading-relaxed text-ink-2">
-          {t("desktop.app.stopAgentBody")}{" "}
-          <strong>{t("desktop.app.unknownPartial")}</strong>{" "}
-          {t("desktop.app.unknownPartialTail")}
+        <p className="text-base leading-relaxed text-ink-2">{t("desktop.app.stopAgentBody")}</p>
+        <p className="mt-3 text-base leading-relaxed text-ink-2">
+          <strong className="font-[620] text-warn">{t("desktop.app.unknownPartial")}</strong>
         </p>
       </Modal>
 
@@ -1023,7 +1014,7 @@ export default function App() {
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
                 {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
-                {selectedPrinter.agentStatus ?? t("status.unknown").toLowerCase()}
+                {agentLiveView({ status: selectedPrinter.agentStatus ?? null, lifecycle: null }, Date.now(), locale).label}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agentHeartbeat")}>
                 {selectedPrinter.agentLastSeenAt ? formatDateTime(selectedPrinter.agentLastSeenAt) : "—"}

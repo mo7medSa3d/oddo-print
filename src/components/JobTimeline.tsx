@@ -164,7 +164,7 @@ function TimelineSession({ jobId }: { jobId: string }) {
         <button
           type="button"
           onClick={retry}
-          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-sm border border-bad-edge bg-surface px-3 text-sm font-[550] text-bad transition-colors duration-[140ms] hover:bg-bad-bg sm:self-auto"
+          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-sm border border-bad-edge bg-surface px-3 text-sm font-[550] text-bad transition-colors duration-150 hover:bg-bad-bg sm:self-auto"
         >
           <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           {t("timeline.retry")}

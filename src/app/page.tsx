@@ -337,7 +337,7 @@ function PublicHeader({ t }: { t: Translator }) {
           <Anchor href="#security">{t("home.navSecurity")}</Anchor>
           <Link
             href="/pricing"
-            className="inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
           >
             {t("home.navPricing")}
           </Link>
@@ -350,7 +350,7 @@ function PublicHeader({ t }: { t: Translator }) {
           <div className="hidden items-center gap-2 sm:flex">
             <Link
               href="/login"
-              className="inline-flex h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+              className="inline-flex h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
             >
               {t("auth.signIn.submit")}
             </Link>
@@ -406,7 +406,7 @@ function Anchor({ href, children, block = false }: { href: string; children: Rea
       className={
         block
           ? "menu-item"
-          : "inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+          : "inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
       }
     >
       {children}

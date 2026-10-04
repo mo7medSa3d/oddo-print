@@ -113,7 +113,7 @@ export function TopNavbar({
           aria-expanded={menuOpen}
           aria-controls={panelId}
           onClick={() => setMenuOpen((value) => !value)}
-          className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+          className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
@@ -147,7 +147,7 @@ export function TopNavbar({
                   aria-current={active ? "page" : undefined}
                   onClick={() => setMenuOpen(false)}
                   className={[
-                    "inline-flex h-9 shrink-0 items-center gap-2 rounded-sm px-2.5 text-sm font-[550] transition-colors duration-[140ms] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
+                    "inline-flex h-9 shrink-0 items-center gap-2 rounded-sm px-2.5 text-sm font-[550] transition-colors duration-150 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
                     active
                       ? "bg-brand-subtle text-brand-subtle-text"
                       : "text-ink-2 hover:bg-surface-2 hover:text-ink",

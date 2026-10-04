@@ -1249,7 +1249,7 @@ export default function DashboardClient({
                 return (
                   <li
                     key={agent.id}
-                    className="flex items-start gap-3 px-4 py-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
+                    className="flex items-start gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-hover"
                   >
                     <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
                       <Server className="h-4 w-4" aria-hidden />
@@ -1298,7 +1298,7 @@ export default function DashboardClient({
                         label={t("common.agentActions", { name: agent.name })}
                         items={agentActions(agent)}
                         trigger={
-                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                             <MoreHorizontal className="h-4 w-4" aria-hidden />
                           </span>
                         }
@@ -1402,7 +1402,7 @@ export default function DashboardClient({
                 return (
                   <li
                     key={printer.id}
-                    className="flex flex-col gap-3 rounded-sg border border-edge bg-surface p-3.5 transition-colors duration-[140ms] hover:bg-surface-hover"
+                    className="flex flex-col gap-3 rounded-sg border border-edge bg-surface p-3.5 transition-colors duration-150 hover:bg-surface-hover"
                   >
                     <div className="flex items-start gap-2.5">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
@@ -1468,7 +1468,7 @@ export default function DashboardClient({
                           label={t("printer.moreActions", { name: printer.name })}
                           items={printerActions(printer)}
                           trigger={
-                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                               <MoreHorizontal className="h-4 w-4" aria-hidden />
                             </span>
                           }
@@ -1535,7 +1535,7 @@ export default function DashboardClient({
                               label={t("printer.moreActionsFor", { name: printer.name })}
                               items={printerActions(printer)}
                               trigger={
-                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                   <MoreHorizontal className="h-4 w-4" aria-hidden />
                                 </span>
                               }
@@ -1684,7 +1684,7 @@ export default function DashboardClient({
                             label={t("job.actionsForJob", { id: shortId(job.id) })}
                             items={jobActions(job)}
                             trigger={
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                 <MoreHorizontal className="h-4 w-4" aria-hidden />
                               </span>
                             }
@@ -1936,7 +1936,7 @@ export default function DashboardClient({
                   <FileText className="h-4 w-4 text-ink-4" aria-hidden />
                   {t("job.diagnosticPayload")}
                 </span>
-                <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-[160ms] group-open:rotate-90" aria-hidden />
+                <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-200 group-open:rotate-90" aria-hidden />
               </summary>
               <div className="border-t border-edge-subtle p-3">
                 <div className="mb-2 flex justify-end">

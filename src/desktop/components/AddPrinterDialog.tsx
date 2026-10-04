@@ -9,7 +9,7 @@ import {
   ErrorState,
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
-import { errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
+import { agentLiveView, errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 import { useI18n } from "../../i18n/react";
 
@@ -224,7 +224,6 @@ export function AddPrinterDialog({
       open={open}
       onClose={onClose}
       title={t("desktop.add.title")}
-      description={t("desktop.add.description")}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -251,7 +250,7 @@ export function AddPrinterDialog({
             <option value="">{t("desktop.add.selectActiveAgent")}</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name} ({a.status || "unknown"})
+                {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null }, Date.now(), locale).label})
               </option>
             ))}
           </Select>
@@ -261,7 +260,7 @@ export function AddPrinterDialog({
             id="pp-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Kitchen receipt"
+            placeholder={t("desktop.add.namePlaceholder")}
             autoFocus
           />
         </Field>
@@ -299,7 +298,6 @@ export function AddPrinterDialog({
                   {p.name}
                 </option>
               ))}
-              {physicalSpoolers.length === 0 && <option disabled>{t("desktop.add.noneDiscovered")}</option>}
             </Select>
             {physicalSpoolers.length === 0 && (
               <Input
@@ -318,7 +316,7 @@ export function AddPrinterDialog({
                 id="pp-host"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder="192.168.1.50 (LAN IP)"
+                placeholder="192.168.1.50"
               />
             </Field>
             <Field label={t("desktop.add.port")} htmlFor="pp-port">

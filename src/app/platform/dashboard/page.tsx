@@ -182,7 +182,6 @@ export default function PlatformDashboardPage() {
     <div className="space-y-6">
       <PageHeader
         variant="inline"
-        eyebrow={t("platform.dashboard.eyebrow")}
         title={t("platform.dashboard.title")}
         description={t("platform.dashboard.description")}
         actions={
@@ -381,7 +380,6 @@ export default function PlatformDashboardPage() {
             <Card>
               <CardHeader
                 title={t("platform.dashboard.footprint")}
-                subtitle={t("platform.dashboard.footprintSubtitle")}
                 icon={<Building2 className="h-4 w-4" />}
               />
               <div className="grid gap-3 px-5 py-5 sm:grid-cols-3">
@@ -419,7 +417,6 @@ export default function PlatformDashboardPage() {
             <Card className="overflow-hidden">
               <CardHeader
                 title={t("platform.dashboard.latestTenants")}
-                subtitle={t("platform.dashboard.latestTenantsSubtitle")}
                 actions={
                   <Button variant="ghost" size="sm" href="/platform/tenants">
                     {t("platform.dashboard.viewAll")}
@@ -475,7 +472,6 @@ export default function PlatformDashboardPage() {
             <Card className="overflow-hidden">
               <CardHeader
                 title={t("platform.dashboard.latestSubscriptions")}
-                subtitle={t("platform.dashboard.latestSubscriptionsSubtitle")}
                 actions={
                   <Button variant="ghost" size="sm" href="/platform/subscriptions">
                     {t("platform.dashboard.viewAll")}

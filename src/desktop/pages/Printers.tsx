@@ -5,7 +5,7 @@ import { Toolbar, PrinterAvatar } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { lifecycleLabel } from "../../lib/lifecycle-labels";
-import { humanConnection, humanType, isProductionPrinter, labelPrinter, printerEndpoint, printerTone } from "../lib/printers";
+import { agentLiveView, humanConnection, humanType, isProductionPrinter, labelPrinter, printerEndpoint, printerTone } from "../lib/printers";
 
 export function PrintersPage({ s }: { s: DesktopState }) {
   const { t, locale } = useI18n();
@@ -50,7 +50,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                   <td className="px-4 py-3 text-ink-2">{humanType(p, locale)}</td>
                   <td className="px-4 py-3 text-ink-2">{humanConnection(p, locale)}</td>
                   <td className="hidden px-4 py-3 text-2xs text-ink-3 lg:table-cell"><Mono>{printerEndpoint(p)}</Mono></td>
-                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status, locale)} /><div className="text-2xs text-ink-4">{p.agentName || p.agentId || t("desktop.printers.unassigned")} • {p.agentStatus || t("status.unknown").toLowerCase()}</div></div></td>
+                  <td className="px-4 py-3"><div className="space-y-1"><StatusBadge tone={printerTone(p.status)} label={labelPrinter(p.status, locale)} /><div className="text-2xs text-ink-4">{p.agentName || p.agentId || t("desktop.printers.unassigned")} • {agentLiveView({ status: p.agentStatus ?? null, lifecycle: null }, Date.now(), locale).label}</div></div></td>
                   <td className="px-4 py-3"><span className={`inline-flex rounded-sm px-2 py-0.5 text-2xs font-medium border ${p.lifecycle === "retired" ? "bg-surface-2 border-edge text-ink-3" : p.lifecycle === "disabled" ? "bg-warn-bg border-warn-edge text-warn" : "bg-ok-bg border-ok-edge text-ok"}`}>{lifecycleLabel(t, p.lifecycle)}</span></td>
                   <td className="hidden px-4 py-3 text-2xs text-ink-2 xl:table-cell">{p.managementSource === "manager" ? (p.configurationConverged ? t("desktop.printers.applied") : t("desktop.printers.pending")) : t("desktop.printers.agentOwned")}</td>
                   <td className="px-5 py-3"><div className="flex items-center justify-end gap-1.5"><Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} icon={<Play className="h-3.5 w-3.5" />}>{t("desktop.printers.test")}</Button>{p.managementSource === "manager" && (p.lifecycle || "active") === "active" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")} disabled={s.busy} icon={<Power className="h-3.5 w-3.5" />}>{t("desktop.printers.disable")}</Button>}{p.managementSource === "manager" && p.lifecycle === "disabled" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")} disabled={s.busy} icon={<Power className="h-3.5 w-3.5" />}>{t("desktop.printers.enable")}</Button>}{p.managementSource === "manager" && p.lifecycle !== "retired" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")} disabled={s.busy} icon={<Archive className="h-3.5 w-3.5" />}>{t("desktop.printers.retire")}</Button>}<Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.printers.details")}</Button></div></td>

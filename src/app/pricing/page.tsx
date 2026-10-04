@@ -115,7 +115,7 @@ export default async function Pricing() {
             <LanguageSwitcher />
             <Link
               href="/"
-              className="hidden h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"
+              className="hidden h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink sm:inline-flex"
             >
               {t("pricing.product")}
             </Link>
@@ -128,7 +128,7 @@ export default async function Pricing() {
               <>
                 <Link
                   href="/login"
-                  className="hidden h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink sm:inline-flex"
+                  className="hidden h-9 items-center rounded-sm px-3.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink sm:inline-flex"
                 >
                   {t("pricing.signIn")}
                 </Link>

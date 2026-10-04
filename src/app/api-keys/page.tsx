@@ -352,7 +352,7 @@ export default function ApiKeysPage() {
                       return (
                         <li
                           key={k.id}
-                          className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-[140ms] hover:bg-surface-hover"
+                          className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-150 hover:bg-surface-hover"
                         >
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">

@@ -229,11 +229,11 @@ export default function ReleaseReadinessClient() {
                       type="button"
                       onClick={() => setExpanded(open ? null : row.area)}
                       aria-expanded={open}
-                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
                     >
                       {t("release.evidence")}
                       <ChevronDown
-                        className={`h-3.5 w-3.5 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`}
+                        className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
                         aria-hidden
                       />
                     </button>
