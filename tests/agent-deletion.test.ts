@@ -86,7 +86,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     await expect(deleteAgent("agt_non_existent")).rejects.toThrow(translate("en", "errors.agentNotFound"));
   });
 
-  it("rejects deletion of an online agent", async () => {
+  it("deletes an online agent and invalidates its credentials", async () => {
     const agentId = "agt_online_test";
     await pool().query(
       `INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at)
@@ -94,11 +94,12 @@ suite("permanent agent deletion lifecycle & invariants", () => {
       [agentId, TENANT_ID, sha256("secret123")],
     );
 
-    await expect(deleteAgent(agentId)).rejects.toThrow(translate("en", "errors.agentStillConnected"));
+    await expect(deleteAgent(agentId)).resolves.toEqual({ ok: true });
+    expect(await validateAgent(`Bearer ${agentId}:secret123`)).toBeNull();
 
-    // Verify agent was NOT deleted
+    // Verify the Agent is removed and history remains independently attributable
     const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
-    expect(row).toBeDefined();
+    expect(row).toBeUndefined();
   });
 
   it("allows deletion of an agent whose online status is stale", async () => {
@@ -115,7 +116,7 @@ suite("permanent agent deletion lifecycle & invariants", () => {
     expect(row).toBeUndefined();
   });
 
-  it("rejects deletion of a retired agent to preserve audit history", async () => {
+  it("deletes a retired agent while retaining its audit event", async () => {
     const agentId = "agt_retired_test";
     await pool().query(
       `INSERT INTO agents (id, tenant_id, name, secret, status, lifecycle, last_seen_at)
@@ -123,16 +124,16 @@ suite("permanent agent deletion lifecycle & invariants", () => {
       [agentId, TENANT_ID, sha256("secret123")],
     );
 
-    await expect(deleteAgent(agentId)).rejects.toThrow(
-      "Retired agents are kept for audit history and cannot be deleted.",
-    );
+    await expect(deleteAgent(agentId)).resolves.toEqual({ ok: true });
+    const audit = await pool().query("SELECT id FROM audit_events WHERE resource_id=$1 AND action='agent.deleted'", [agentId]);
+    expect(audit.rows).toHaveLength(1);
 
-    // Verify agent was NOT deleted
+    // Verify the Agent is removed and history remains independently attributable
     const row = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
-    expect(row).toBeDefined();
+    expect(row).toBeUndefined();
   });
 
-  it("rejects deletion of an agent that has historical print jobs (audit retention)", async () => {
+  it("deletes Agent and printers while preserving the original operation receipt", async () => {
     const agentId = "agt_with_jobs";
     const printerId = "prn_with_jobs";
     const jobId = "job_audit_fixture";
@@ -152,15 +153,18 @@ suite("permanent agent deletion lifecycle & invariants", () => {
       [jobId, TENANT_ID, agentId, printerId],
     );
 
-    await expect(deleteAgent(agentId)).rejects.toThrow(translate("en", "errors.agentHasHistory"));
+    await expect(deleteAgent(agentId)).resolves.toEqual({ ok: true });
+    const receipt = (await pool().query("SELECT status, agent_id, printer_id, fingerprint FROM print_job_receipts WHERE id=$1", [jobId])).rows[0];
+    expect(receipt).toMatchObject({ status: "success", agent_id: agentId, printer_id: printerId });
+    expect(receipt.fingerprint).toMatch(/^[0-9a-f]{64}$/);
 
-    // Verify neither agent, printer, nor print job was deleted
+    // Runtime rows are gone; the retained receipt above owns idempotency/history.
     const a = (await pool().query(`SELECT id FROM agents WHERE id = $1`, [agentId])).rows[0];
     const p = (await pool().query(`SELECT id FROM printers WHERE id = $1`, [printerId])).rows[0];
     const j = (await pool().query(`SELECT id FROM print_jobs WHERE id = $1`, [jobId])).rows[0];
-    expect(a).toBeDefined();
-    expect(p).toBeDefined();
-    expect(j).toBeDefined();
+    expect(a).toBeUndefined();
+    expect(p).toBeUndefined();
+    expect(j).toBeUndefined();
   });
 
   it("deletes an eligible offline agent with no print jobs and cleans up removable runtime records", async () => {

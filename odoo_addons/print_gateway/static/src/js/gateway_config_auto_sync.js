@@ -1,68 +1,45 @@
-/** Automatically verify and reconcile activation-relevant saves.
- *
- * Two flows must converge on screen without a manual browser refresh:
- *  1. A newly saved Gateway API key is verified against the Gateway
- *     (action_test_connection). The same request synchronises Odoo's current
- *     activation state, so a replaced credential is accepted immediately and
- *     the stale pre-replacement snapshot is never shown.
- *  2. An "Enable Gateway Printing" toggle is pushed to the Gateway right away
- *     (action_retry_enabled_sync), so the banner flips to the authoritative
- *     state as soon as the Gateway acknowledges the fenced revision.
- * The transport work therefore remains outside the original database
- * transaction, and the form always reloads from the persisted state.
- */
+/** Synchronize only after Odoo has applied the complete saved record snapshot. */
 import { FormController } from "@web/views/form/form_controller";
+import { Record } from "@web/model/relational_model/record";
 import { patch } from "@web/core/utils/patch";
 
+// onRecordSaved runs BEFORE Record._save applies web_save's returned fields.
+// Capture the operation there, then run it after that final snapshot write.
+const afterSave = new WeakMap();
 patch(FormController.prototype, {
     async onRecordSaved(record, changes) {
         await super.onRecordSaved(record, changes);
-
-        if (this.model.root.resModel !== "print_gateway.gateway_config") {
-            return;
-        }
+        if (record.resModel !== "print_gateway.gateway_config") return;
         const keyChanged = Object.prototype.hasOwnProperty.call(changes, "gateway_api_key");
+        const urlChanged = Object.prototype.hasOwnProperty.call(changes, "gateway_url");
         const activationChanged = Object.prototype.hasOwnProperty.call(changes, "enabled");
-        if (!keyChanged && !activationChanged) {
-            return;
-        }
-        // The hook argument's ``id`` is a client-side datapoint identifier
-        // ("datapoint_N", web/static/src/model/relational_model/datapoint.js:
-        // `this.id = getId("datapoint")`), never the database id. Sending it
-        // to the server or handing it to model.load() rejects with
-        // "Invalid ids list: datapoint_N", crashes the web client, and leaves
-        // the form stuck on the pre-sync "Syncing" snapshot. The persisted
-        // database id is exposed as resId — the same accessor FormController
-        // itself reads inside onRecordSaved. Record._save() commits the
-        // creation's resId into the config before this hook runs, so resId is
-        // valid for newly created configurations too.
+        if (!keyChanged && !urlChanged && !activationChanged) return;
         const resId = record.resId;
-        // Without a persisted record there is nothing to synchronize against;
-        // without a stored credential the status row already reports
-        // "Setup required" in that case.
-        if (!resId || !this.model.root.data.gateway_api_key) {
-            return;
-        }
-        // A key change re-validates the credential (401 becomes an explicit
-        // revoked state); a pure activation toggle only pushes the fenced
-        // revision without touching connection-test bookkeeping.
-        const method = keyChanged ? "action_test_connection" : "action_retry_enabled_sync";
-
-        try {
-            const action = await this.orm.call(
-                "print_gateway.gateway_config",
-                method,
-                [[resId]],
-            );
-
-            if (action?.tag === "display_notification") {
-                await this.actionService.doAction(action);
+        if (!resId) return;
+        afterSave.set(record, async () => {
+            try {
+                if (record.data.gateway_api_key) {
+                    const action = await this.orm.call("print_gateway.gateway_config",
+                        keyChanged || urlChanged ? "action_test_connection" : "action_retry_enabled_sync", [[resId]]);
+                    if (action?.tag === "display_notification") await this.actionService.doAction(action);
+                }
+            } finally {
+                // Never reload a different form after navigation during the RPC.
+                if (this.model.root === record && this.model.root.resModel === record.resModel && this.model.root.resId === resId) {
+                    await this.model.load({ resId });
+                }
             }
-        } finally {
-            // The RPC above persists the authoritative sync revision/result
-            // through a fresh cursor. Always reload the saved record so the
-            // form cannot remain stuck on the pre-sync "Syncing" snapshot.
-            await this.model.load({ resId });
-        }
+        });
+    },
+});
+patch(Record.prototype, {
+    async _save(...args) {
+        let saved;
+        try { saved = await super._save(...args); }
+        catch (error) { afterSave.delete(this); throw error; }
+        const synchronize = afterSave.get(this);
+        afterSave.delete(this);
+        if (saved && synchronize) await synchronize();
+        return saved;
     },
 });

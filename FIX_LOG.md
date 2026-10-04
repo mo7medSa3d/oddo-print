@@ -1,4 +1,149 @@
-RESUME HERE: Audit and repairs complete; current final verification and limitations are recorded at the end of this log. Deliverable: /home/mo7amed_saad/work/odoo/oddo-print-complete-audit-repaired.zip. Only prohibited dependency upgrade A33 remains open; U01-U04/U06 remain UNVERIFIED.
+RESUME HERE: Continuation of the UI/UX pass on branch arena/01a1080f-oddo-print (PR #115). Every screen in the coverage matrix now has a complete implementation, English and Arabic copy review; the rendering/RTL/keyboard/workflow columns are UNVERIFIED because this environment has no browser engine, no Playwright/Puppeteer, no cached browser and no node_modules, and installing them is forbidden. Outstanding if a rendered environment becomes available: screenshots, 390/768/1024/1440 px checks, RTL and dark-theme rendering, keyboard traversal, 200% zoom, and the Tauri window at minimum size. `build-windows` was red on main before this branch; its cause is recorded below.
+
+SESSION 2026-10-04 (continuation) — remaining screens completed, copy pruned, visual QA attempted. Deliverable: /home/user/oddo-print-ui-redesign.zip.
+
+Scope completed in this continuation (branch arena/01a1080f-oddo-print, PR #115):
+- Desktop shell (`main.tsx`): page headings lost the subtitles that only restated the panel content
+  below them (Overview, Printers, Print Jobs); Agents and Settings keep one line that answers a
+  question the screen does not answer itself. The stop-agent confirmation is now two sentences —
+  the queue consequence, then the partially-printed warning — instead of a sentence assembled from
+  three catalog fragments around a `<strong>` (fragile in Arabic word order).
+- Desktop dialogs: Add printer no longer explains itself twice (the description restated the fields
+  and the connection-type labels), the English-only "e.g. Kitchen receipt" placeholder is a catalog
+  key, the IPP/IPPS hints state only the constraint the placeholder does not, and the "no spooler
+  printer found" condition is reported once instead of three times (hint + disabled option + input).
+  Agent rows and the printer drawer render agent status through the shared `agentLiveView`
+  vocabulary instead of interpolating the raw API enum ("online", "unknown").
+- CommandPalette: arrow-key navigation scrolls the active option into view (with up to 24 results in
+  a 52vh list the highlight used to leave the viewport while Enter still ran it), the active option
+  is exposed to assistive technology through `aria-activedescendant`, the select arrow mirrors in
+  RTL, and arbitrary `duration-[100ms]`/`[140ms]` values were normalized to the scale.
+- Platform: the "Control plane · …" eyebrows were removed from five screens (they restated the
+  navigation group), section subtitles that repeated their own headings were deleted (three on the
+  dashboard), audit actor enums and the platform-scope fallback are translated, the audit metadata
+  trigger is now a visible bordered control rather than a bare icon, and the plan archive-impact
+  sentence became one translatable unit with placeholders plus a real zero case instead of four
+  concatenated fragments.
+- Copy: sign-in shell lost the marketing tail, pricing lost internal gateway jargon, every description
+  on the platform screens was shortened. The remaining long strings were each reviewed and kept —
+  they are destructive consequences, billing terms, secret handling, permission limits, physical
+  printing uncertainty or recovery steps, which the brief protects.
+
+Gate hardening: `scripts/check-ui-copy.py` now also scans plain-string presentation props
+(`placeholder="e.g. Kitchen receipt"`), which the template-literal scan could not see. That is how the
+last two untranslated literals were found. Values that are data (URLs, e-mail examples, `price_…`,
+`0x04b8`, `9100`) are excluded explicitly.
+
+Verification executed in this continuation:
+- python3 scripts/check-ui-copy.py — en 2278 / ar 2278 keys, no hard-coded UI copy, every token defined.
+- node --experimental-strip-types --experimental-loader <hook> scripts/check-i18n.ts — 2278/2278, 22 tc() sites.
+- Dangling-reference sweep for every key deleted this session (16 keys): no source file still calls them.
+- CI on this branch (pushed): see the per-commit results below.
+
+Second and third defects on the same branch, both caught in CI rather than locally, and both fixed:
+`Date.now()` was called directly during render in three new agent-status call sites, which the lint rule
+`react-hooks/purity` rejects (the console already solves this with a `nowMs` state plus an interval, now
+mirrored in the App, the printers page and the add-printer dialog); and the printers row nested an object
+literal inside a JSX expression, which the copy gate's JSX-text pass read as literal English.
+
+Reading CI output from this environment: workflow logs are unreachable (the log blob endpoint returns EOF),
+but check-run *annotations* are readable through the API. A temporary branch-scoped workflow
+(`.github/workflows/typecheck-diagnostic.yml`, since deleted) ran `tsc --noEmit` and `eslint --format
+json` and republished each diagnostic as a `::error file=…,line=…::` annotation, which made both defects
+readable as `gh api repos/…/check-runs/<id>/annotations`. Use that technique again if a CI failure has to
+be diagnosed from here.
+
+Root cause of the red `docker-build-runtime` job on this branch (also caught by `ci`'s Typecheck step):
+`src/desktop/lib/printers.ts` is the desktop barrel that re-exports the shared vocabulary helpers, and the
+new agent-status work imported `agentLiveView` from it while the barrel's `export { … } from
+"../../shared/job-vocabulary"` list had not been extended. Nothing in the offline harness resolves named
+imports, so the app looked fine locally and only failed at build typecheck (`TS2305`). Fixed by adding
+`agentLiveView` to the barrel, and guarded by a new offline suite,
+`tests/audit-barrel-imports-offline.test.mjs`, which walks `src/` and fails when a named import does not
+exist in its target module. The guard is mutation-verified: removing the re-export reproduces exactly the
+three build errors, restoring it passes.
+
+Also in the same fix: those three call sites now pass the agent heartbeat (`lastSeenAt`). `agentLiveView`
+derives "heartbeat lost" from a missing or stale `lastSeenAt`, so an online agent rendered through the
+barrel without its heartbeat would have shown as offline in the printers table, the printer drawer and the
+add-printer agent list.
+
+CI on this branch is green on the final commit: `ci` 39/39 steps (including Typecheck, Lint, the i18n
+catalog check, the offline audit regressions and the vitest suites), `docker-build-runtime` (a real
+`next build` inside the image), `odoo19`, `supply-chain`, `postgres-failure-injection`, CodeQL (go/js-ts/py),
+Dependency Review and the secret scan. `build-windows` fails identically on `main` @ `30a4221`, so it is
+pre-existing and not attributable to this branch. That is the strongest verification available here:
+typecheck, lint and build are verified remotely; only *rendering* remains unverified.
+
+Visual QA is NOT done and cannot be done here: no Chromium/Chrome/Firefox binary, no Playwright,
+Puppeteer or Selenium package, no cached browser download, no node_modules (so the Next and Vite dev
+servers cannot run), and installing or downloading any of them is forbidden by the repository rules.
+Consequently there are no screenshots and no rendered evidence for responsive layout, RTL, themes,
+keyboard traversal, zoom or long-content behaviour. They are marked UNVERIFIED in the coverage matrix
+rather than inferred from source. Source-level interaction contracts that do exist (dialog focus trap
+and return focus in useDialog, dialog-certification tests, overflow-x-auto table hosts) are recorded
+there as partial evidence, not as verification.
+
+SESSION 2026-10-04 — UI/design-system + localized-copy hardening (branch arena/01a1080f-oddo-print, base 30a4221). Deliverable: /home/user/oddo-print-ui-copy-design-pass.zip (complete source excluding .git/dependency/build output).
+
+Scope: Gateway console + Tauri desktop shell design-system consistency, hard-coded copy elimination, Arabic/English catalog parity, and WCAG contrast on status fills. No dependency or lockfile changes, no schema/migration changes, no API contract changes. 26 files modified + new scripts/check-ui-copy.py.
+
+Fixes (IDs D01-D12 in AUDIT_FINDINGS.md, unverified U08):
+- D01 warning-solid darkened so white label text clears AA: light #c98a06 (2.95:1) to #96630a (5.14:1), dark #e5a32b (2.19:1) to #9a6508 (4.95:1). Only white-label consumer is the desktop timeline step marker; dots/stripes stay >=3:1 on both surfaces.
+- D02 uppercase/letter-spacing label treatments removed across tables, section labels, metric tiles and desktop pages; .label-caps/.text-eyebrow keep uppercase by design, mono data inputs unchanged.
+- D03 text-title (undefined) to text-xl; D04 border-brand-subtle-border (undefined) to border-edge-accent; D05 bg-surface-4 (undefined) to bg-ink-4.
+- D06 api-keys scope sentence moved to apiKeys.scopeNote; D07 team counts use tc() + formatNumber(count, locale); D08 printer readiness uses dashboard.printersReady + formatNumber.
+- D09 api-keys page: three duplicated metric cards to one derived connection-state row (neutral/ok/warn with Active/Odoo/access-level count) and a collapsed "How it works" <details> panel.
+- D10 release-readiness compliance list to four status rows (COMPLIANCE_NOTES, typed against MessageKey/Tone) with per-row "Technical detail" disclosure; developer commentary removed from visible prose.
+- D11 desktop pre-paint theme-init.css aligned to the token values (#f6f7f9/#16181d light, #08090c/#f3f4f6 dark).
+- D12 copy pass: 44 verbose operational values shortened in both catalogs (placeholders preserved, safety/uncertainty warnings kept verbatim where tests or policy lock them). New keys this session: apiKeys.connectionState/stateConnected/stateWaitingOdoo/stateNotConfigured, dashboard.printersReady, release.technicalDetail, release.compliance.{otel,ipp,tauri,odooBilling}{Summary,Detail}.
+
+New gate: scripts/check-ui-copy.py (stdlib only, exit 0 clean / 1 findings) checks en/ar key parity, non-empty values, placeholder-set equality, plural .other presence, hard-coded JSX copy (props, tag spans, standalone interpolation lines, with code/utility guards), design-token existence for rounded-*/colour utilities (including custom classes from globals.css), and WCAG contrast (text tiers on six surfaces, status tokens, white on solid fills incl. warning-solid, notice text/icon on notice-bg, control border >=3:1). Detection validated by injecting a #8b9099 --text-3 (6 findings, reverted) and by reverting dark --warning-solid (1 finding, reverted).
+
+Verification executed here:
+- python3 scripts/check-ui-copy.py: en 2283 / ar 2283 keys, OK (exit 0).
+- node --experimental-strip-types --experimental-loader <ts-resolve hook> scripts/check-i18n.ts: en 2283 / ar 2283 keys, 22 tc() call sites, OK: all catalogs are complete and consistent (exit 0).
+- node --experimental-vm-modules --test tests/audit-gateway-offline.test.mjs tests/audit-pos-offline.test.mjs tests/session-resource-repair.test.mjs: 32/32 pass.
+- Python static suite: 160/167 pass via a minimal pytest-compatible shim (raises/parametrize/fixture/monkeypatch/tmp_path). 7 blocked by environment: 6 require the absent `cryptography` module, 1 requires `rustc` (U08).
+- Static contract sweep of tests/*.test.ts toContain/not.toContain literals against their source files: 0 mismatches (two tool false positives re-checked by direct grep).
+- Design-system static checks: no undefined rounded-*/colour utilities, no Tailwind default-palette classes, delimiter-balance delta vs HEAD shows no regressions.
+
+CI (GitHub Actions, branch arena/01a1080f-oddo-print): the first push failed two jobs and both were real:
+  - `ci` / Typecheck: `src/app/team/page.tsx:289,291` passed a Locale where `useI18n().formatNumber(value, options?)` expects Intl options ("Argument of type '\"en\" | \"ar\"' is not assignable to parameter of type 'NumberFormatOptions | undefined'"). The sandbox could not run tsc, so the regression reached CI. Fixed by calling the hook formatter with a single argument (it already closes over the locale); `src/app/billing|page.tsx` keeps the two-argument form because it imports the raw `formatNumber(value, locale, options?)` from `src/i18n/format`. Swept every other hook formatter call site in `src/**/*.tsx` for the same arity mistake: no further hits.
+  - `Docker` / `docker-build-runtime`: same error, via `next build` inside the compose image.
+  - `ci` / "Run Odoo static contract tests (Python)": the step first runs `pyflakes` over `odoo_addons scripts tests`, and the new `scripts/check-ui-copy.py` had an unused `json` import, so pyflakes exited 1 and `xargs` returned 123. Import removed; the script is pyflakes-clean (verified with an AST sweep of unused imports/locals).
+  Both jobs are re-verified on the follow-up commit; the earlier bash-only checks (catalog/contrast/offline suites) had no way to catch a type error.
+
+CI, second push (base commit already red — evidence: `gh run list --branch main --workflow ci` shows `CI failure` at 30a4221):
+  - Pre-existing failures reached only once Typecheck stopped failing, all introduced before this session:
+    * `tests/printer-language-badges.test.ts:79,146` — commit 30a4221 added the shared session admission (`ensureCustomerSession()` → `/api/auth/me`) to `src/app/api-keys/page.tsx`; the test mocks never answered that probe, so the page rendered "session expired" instead of the behaviour under test and the create-key POST never fired. Fixed by answering the probe in both mocks; every original assertion is unchanged.
+    * `tests/deep-review-contract.test.ts:54` — asserted `lte(apiKeys.readOnlyUntil, sql\`clock_timestamp()\`)`, which the A167 rewrite of `src/app/api/odoo/keys/route.ts` replaced with one SQL `CASE ... ${apiKeys.readOnlyUntil} > clock_timestamp()`. The assertion now pins the current SQL form; the database-clock intent and the `not.toContain("Date.now()")` guard are untouched.
+    * `tests/odoo-gateway-activation-sync.test.ts:253` — asserted `method,`, which the A168 rewrite of
+      gateway_config_auto_sync.js replaced with an inlined action choice; now pins the inline form and keeps the
+      resId identity guards.
+    * `build-windows` fails on main as well (pre-existing), and is not caused by this branch.
+  - Verified in this branch by the same CI run: Typecheck, Lint, i18n catalog check, offline audit regressions, Odoo translation check, DB drift check, Odoo 19 addon validation, `next build` (docker-build-runtime), `odoo19` integration job, supply-chain, CodeQL, secret scan.
+  - Sandbox cannot run vitest/tsc/next: the only way to see these results is CI, which is why the branch is pushed and watched.
+
+FINAL CI RESULT (commit 0e21b9d + follow-up, branch arena/01a1080f-oddo-print, `gh pr checks 115`):
+  ci PASS (10m37s, 39 steps) — relative-imports gate, Go build/vet/race, npm supply-chain audit, Rust audit,
+    Typecheck, Lint, i18n catalog check (2284/2284 keys), offline audit regressions, Odoo translation catalog,
+    DB schema/migration/docs drift, Phase 0 architecture hardening, Go vulnerability scan, Go U1000 dead-code
+    (linux + windows build tags), Odoo 19 XML conventions, module icon match, pyflakes + pytest over
+    odoo_addons/scripts/tests, next build, unit tests (no DB), PostgreSQL start, Drizzle migrations,
+    final runtime-only schema verification, integration tests (PostgreSQL), requested verification commands,
+    Go formatting gate.
+  Also PASS: docker-build-runtime (compose build incl. next build), odoo19 (addon installed and tested on a real
+    Odoo 19 Community database), supply-chain, postgres-failure-injection, CodeQL (go/python/js-ts), Dependency
+    Review, Secret Scan.
+  FAIL (pre-existing, not from this branch): build-windows — the same workflow fails on the untouched base commit
+    30a4221 (`Build Windows Installer: failure`), so the Windows installer pipeline was already red before this pass.
+
+UNVERIFIED: tsc/eslint/vitest/next build (project dependencies absent; npm ci impossible offline and dependency installation is forbidden), PostgreSQL/Stripe/live Odoo/Windows printing/Tauri runtime, browser rendering and RTL visual pass, cryptography/rustc-dependent tests.
+
+-------------------------------------------------------------------------------
+
+RESUME HERE: Follow-up A164-A170 repairs and available Phase 3 checks complete. Deliverable: /home/mo7amed_saad/work/odoo/oddo-print-session-resource-fixed.zip. Full framework/PG/live Windows/Odoo checks and production traceback U07 remain UNVERIFIED.
 
 Audit started from the uploaded ZIP in an isolated extracted copy. Existing root AUDIT_FINDINGS.md/FIX_LOG.md were absent; archive/AUDIT_FINDINGS.md is historical evidence, not current instructions. Code changes will begin in Phase 2.
 
@@ -496,3 +641,34 @@ Delivery ZIP: /home/mo7amed_saad/work/odoo/oddo-print-complete-audit-repaired.zi
 U01 runtime clarification: the bundled runtime includes Node v24.19.0, satisfying the project engine requirement without installation. System Node v22.23.1 alone is not the remaining blocker; project dependencies/binaries are absent under both runtimes. Final offline suites are additionally run on this existing supported Node runtime.
 
 Supported runtime verification: Node v24.19.0 also passes all 16 offline tests and the existing 2238-key catalog check; no dependencies installed. The completed source ZIP passed CRC/member-content/exclusion checks.
+
+
+Follow-up request: repair Agent/printer deletion, API-key controls/removal, workspace session failures and immediate Odoo synchronization; review connected Agent paths. Input reports are historical project data; direct user requirements control this repair. No dependency install/download/version change.
+A164: Make auth/me validate the same Workspace Manager/Customer precedence as page/actions and expose session kind/permission metadata without secrets. Browser admission refreshes Manager cookies at their existing /api/auth/manager path, falling back past stale Manager state to Customer refresh. Expired probes give only a refresh-kind hint, never privileges; authentication remains authoritative.
+A165: Preserve internal action authorization/validation but return explicit serializable Dashboard result envelopes; the UI admits/refreshed sessions before calls, displays translated failures and redirects expired sessions. Internal 500 details stay in structured server logs. React #441 is a production server-render/action error wrapper, not proof of a specific DB failure: https://react.dev/errors/441 .
+A166: Allow explicit authorized deletion of online/retired/history-bearing Agents and all owned printers. Lock in enqueue order, batch-lock jobs, retain idempotency digests and terminal receipts before removing runtime FK rows, mark accepted unfinished execution UNKNOWN_PARTIAL_DELIVERY, cancel undelivered jobs, atomically audit and notify every Gateway instance to disconnect. Existing Agent 401 execution fence prevents new local/WS dispatch after removal; hardware already printing cannot be recalled. Update English/Arabic confirmation copy; keep the dialog open on errors.
+A167: Direct labeled Revoke/Delete controls replace the misleading Revoke menu trigger. Permanent deletion is atomic and tenant-scoped even for active/referenced keys: detach nullable live job credential FKs, preserve affected job IDs/original key in audit, leave accepted jobs running, delete the credential. Revocation advances activation revision and disables immediately. Keep failures in the confirmation dialog, update rows without waiting for polling, clear any displayed newly created credential after revocation/removal.
+A168: Odoo 19 Record._save applies web_save values AFTER FormController.onRecordSaved. Capture synchronization in the form hook and execute/reload after the actual Record save finishes; include URL changes and key removal, use persisted resId, guard navigation and clear failed-save callbacks. Successful authenticated activation acknowledgement also updates the Connection badge; a stale health request cannot claim a newer revision. Confirmed against official Odoo 19 source: https://raw.githubusercontent.com/odoo/odoo/19.0/addons/web/static/src/views/form/form_controller.js , https://raw.githubusercontent.com/odoo/odoo/19.0/addons/web/static/src/model/relational_model/record.js , https://raw.githubusercontent.com/odoo/odoo/19.0/addons/web/static/src/model/relational_model/relational_model.js .
+A169: Check the live Workspace session and team permission before members/invitations reads. Keep server RBAC unchanged; return 401 for absent authentication, 403 only for actual permission denial. Legacy installation-only Managers without user membership remain denied team administration; no permission escalation.
+
+Regression tests added before execution: built-in Node actual-code tests for workspace refresh admission, explicit Server Action errors, tenant-scoped atomic Agent/key deletion and rollback, retained execution uncertainty/idempotency, and Odoo core-save-before-sync ordering. Existing PostgreSQL Agent deletion assertions now require the user-requested deletion plus retained receipts/credential invalidation instead of the obsolete prohibition. Starting Phase 3; no installs.
+
+A167 verification refinement: Detaching nullable job credential FKs would misclassify accepted Odoo jobs as internal and break reconciliation under a replacement key. Instead erase the original credential hash, revoke all access/grace, disable activation and retain only a deleted history anchor. Deleted anchors are excluded from list/remove/revoke APIs; job attribution and all existing status/idempotency consumers remain intact. Strengthened actual-code tests require preserved job attribution, erased credentials, inactive state and 404 on repeated removal.
+
+A164 consumer follow-up: Login uses the same workspace admission helper instead of always requesting Customer refresh. A167 modal errors remain visible and old poll responses are fenced after mutations. A166 deletion failures now remain visible inside the open confirmation dialog. U07: asked for the production traceback/digest while continuing offline repairs; none is available yet, so independent deployment/DB causes of the reported 500 remain unverified.
+
+A164/A167 final consumer refinement: API-key reads and mutations use the shared workspace admission helper before requests. Direct deletion/revocation labels remain visible; copy-ID is a separately labelled accessible icon, never the destructive action trigger. Odoo reload additionally requires the exact saved root object so overlapping navigation/reloads cannot overwrite a newer form.
+
+A170: Re-check/lock active enabled API credentials inside enqueue after billing locks and before credit reservation; removal/revocation/disable after outer auth cannot admit new hardware work. Activation PATCH compares original hash and current revocation/grace state at update and fallback-read boundaries; stale authenticated writes return 401. Revoke uses the tenant admission advisory lock to preserve enqueue/key/audit lock order. Configuration listing uses Workspace auth and hides deleted credential anchors like the key list. No schema or dependency change.
+
+
+Follow-up FINAL verification:
+- Supported existing Node v24.19.0: 32/32 built-in offline tests pass, zero skips/failures, including 16 new actual-code regressions. Production functions/modules execute with database/framework transport boundaries mocked; this does not claim PostgreSQL concurrency or live OWL validation. Node syntax parser accepts 319 non-JSX TS files; TSX/types require missing framework tools.
+- Python: 167/167 tests pass, zero skips/failures. Updated three obsolete Odoo save-source assertions to require the post-core-save synchronization boundary, persisted resId, credential guards and exact navigation identity. Added behavior tests first; no tests removed/weakened/skipped. Python compilation passes 60 files, all 10 addon XML files parse, all 9 addon JavaScript files pass syntax checking.
+- Existing Gateway catalog checker passes 2238 English/Arabic keys and 18 plural call sites. Addon translation checker passes 666 typed/importable terms; gettext format checks pass. Database documentation checker passes 25 current tables and 77 migration files.
+- Agent: five available packages pass race tests/vet/Windows amd64 cross-build. Full Go test and Windows Agent build attempts fail only uncached pinned x/text 0.41.0/x/crypto 0.56.0 and PDFium WASM data with module lookup disabled. Reviewed deletion/re-pair/heartbeat rejection and execution-fence paths: removed credentials fence new dispatch; in-progress physical output cannot be recalled and the retained Gateway receipt correctly stays uncertain. No unsupported Agent change or dependency bump.
+- Attempted npm typecheck/lint/unit/integration/build on supported Node: all blocked by absent tsc/eslint/vitest/next binaries. PostgreSQL integration unavailable (DATABASE_URL unset). No dependency/tool was installed or downloaded; manifests/lockfiles remain byte-identical to the uploaded input.
+- Live Windows, physical printing, Odoo 19 module installation/native UI, Stripe, PostgreSQL and visual browser rendering remain UNVERIFIED. No Rust changes; prior full Tauri prerequisites remain unavailable. The reported production 500 additionally needs its server traceback/digest to rule out independent deployment/schema problems (U07); no claim that every live 500 is resolved.
+- New follow-up findings: six P1 fixes (A164-A168/A170), one P2 fix (A169). Runtime UI behavior must be confirmed after deployment: rebuild/restart Gateway using its existing deployment toolchain, apply the existing idempotent migration runner if pending, upgrade the Odoo print_gateway module and reload its assets. No new migration or dependency version required by this follow-up.
+- Resource behavior: Agent deletion also removes owned printers; accepted key receipts/results remain. API-key deletion erases its usable hash/access and removes it from credential lists while retaining a nonusable history anchor so accepted Odoo jobs still reconcile. Revocation/activation and print admission are transactionally fenced against stale authenticated requests. Configuration displays reload immediately after the saved core snapshot and successful synchronization.
+Delivery: /home/mo7amed_saad/work/odoo/oddo-print-session-resource-fixed.zip contains the complete source and current reports, excluding dependency directories/build output/caches. ZIP CRC/member contents and unchanged dependency manifests are validated at packaging.

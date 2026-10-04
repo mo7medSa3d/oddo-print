@@ -366,6 +366,16 @@ async function insertQueuedJobAtomically({
 
     await enforceTenantJobEntitlements(tx, tenantId);
 
+    // Auth can race with key removal/revocation or Odoo disabling printing.
+    // Lock the live credential after billing locks, before reserving credit.
+    if (rateLimitKeyId) {
+      const credential = await tx.execute(sql`SELECT id FROM api_keys
+        WHERE id = ${rateLimitKeyId} AND tenant_id = ${tenantId}
+          AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
+        FOR UPDATE`);
+      if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
+    }
+
     // One newly-created logical print job consumes one plan print credit.
     // Existing idempotent jobs return before this point, so retries never
     // double-charge the same logical print.

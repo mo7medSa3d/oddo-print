@@ -200,7 +200,7 @@ export default function SystemHealthClient() {
                 <span aria-hidden>·</span>
                 <span>{t("health.versionSchema", { version: health.version.schema })}</span>
                 <span aria-hidden>·</span>
-                <span>Sampled {relativeTime(health.timestamp)}</span>
+                <span>{t("health.sampledAt", { time: relativeTime(health.timestamp) })}</span>
               </div>
             </div>
           </div>

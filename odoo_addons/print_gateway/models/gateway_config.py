@@ -1003,6 +1003,9 @@ class PrintGatewayConfig(models.Model):
                         return False
                     values.update({
                         "last_enabled_sync_revision": int(revision),
+                        "last_test_status": "success",
+                        "last_test_at": fields.Datetime.now(),
+                        "last_test_error": False,
                         "last_enabled_sync_at": fields.Datetime.now(),
                         # The revision is confirmed: end its staleness window.
                         "pending_sync_revision": -1,
@@ -1909,7 +1912,7 @@ class PrintGatewayConfig(models.Model):
                 "last_enabled_sync_error",
             ])
             current_revision = int(self.enabled_sync_revision or 0)
-            if not self._write_test_result_if_current(current_revision, {
+            if not self._write_test_result_if_current(expected_revision, {
                 "last_test_at": fields.Datetime.now(),
                 "last_test_status": "success",
                 "last_test_error": False,

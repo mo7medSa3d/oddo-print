@@ -107,6 +107,13 @@
 | U03 | P1 | Tauri verification | src-tauri/Cargo.toml:17 | Full crate checks/tests blocked by missing GLib/GIO system libraries and Windows MSVC cross-build prerequisites. | unverified |
 | U04 | P1 | Live verification | FIX_LOG.md:1 | Windows service/physical printers/live Odoo 19/Stripe/PostgreSQL integration unavailable in this environment. | unverified |
 | U05 | P1 | Audit coverage | FIX_LOG.md:1 | Earlier delivery omitted exhaustive source reading; continuation completed the component-by-component full source audit. | fixed |
+| A164 | P1 | Gateway session | src/app/api/auth/me/route.ts:4 | Shell probes Customer authentication for valid Manager sessions and refreshes the wrong cookie path. | fixed |
+| A165 | P1 | Gateway actions | src/app/actions.ts:33 | Expected auth/deletion errors are thrown through production Server Actions and become opaque React #441/500 failures. | fixed |
+| A166 | P1 | Gateway deletion | src/app/actions.ts:51 | Connected, retired or history-bearing Agents cannot be removed with their printers; deletion lacks retained operation receipts. | fixed |
+| A167 | P1 | API keys | src/app/api/odoo/keys/route.ts:121 | Permanent key deletion is blocked by live job references and requires revocation; ambiguous menu labels obscure actions and modal errors. | fixed |
+| A168 | P1 | Odoo synchronization | odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js:19 | Save hook runs before Odoo applies its stale web_save snapshot; URL-only saves are ignored and connectivity remains draft after successful sync. | fixed |
+| U07 | P1 | Production diagnosis | FIX_LOG.md:1 | Reported production dashboard 500 has no server traceback/digest; additional deployment or DB causes cannot be confirmed offline. | unverified |
+| A170 | P1 | Gateway integration | src/lib/print-job-service.ts:367 | Authentication can race key deletion/revocation or activation disable and still enqueue work or re-enable a removed integration. | fixed |
 | A08 | P2 | Agent | agent/internal/printer/ipp_discovery.go:291 | _printer._tcp (LPD) advertisements are mislabeled as verified IPP; TCP-only candidates are also marked verified. | fixed |
 | A22 | P2 | Gateway | src/lib/api-error-keys.ts:94 | Prototype property codes such as constructor resolve to non-message values through the in operator. | fixed |
 | A23 | P2 | Gateway | src/desktop/pages/Printers.tsx:37 | Connected empty inventories hide fetch errors and instead claim there are no printers. | fixed |
@@ -169,3 +176,105 @@
 | A158 | P2 | Database | drizzle/0029_enforce_tenant_id_not_null.sql:45 | Payload CHECK accepts missing type because its predicate becomes NULL, contrary to the documented database contract. | fixed |
 | A160 | P2 | Documentation | SERVER_FIRST_RUN.md:80 | Deployment guide omits required platform tenant and uses unavailable Argon2 package; printer/lease and migration docs contain stale guarantees. | fixed |
 | U06 | P2 | Tooling verification | FIX_LOG.md:1 | Pyflakes/rustfmt and full dependency vulnerability/dead-code scans unavailable without forbidden installations. | unverified |
+| A169 | P2 | Team authorization | src/app/team/page.tsx:103 | Team screen probes forbidden endpoints without role admission and routes return 403 for expired authentication. | fixed |
+| D01 | P2 | Gateway | src/app/globals.css:79 | White label on `--warning-solid` failed WCAG AA in both themes (light #c98a06 = 2.95:1, dark #e5a32b = 2.19:1); the fill carries white text in the desktop timeline step markers and was not covered by the contrast gate. | fixed |
+| D02 | P2 | Gateway | src/app/globals.css:945 | Uppercase + letter-spacing label treatments across tables and section labels no longer matched the design system, so case carried emphasis instead of hierarchy. Now only `.label-caps` / `.text-eyebrow` (and mono data inputs) keep uppercase by design. | fixed |
+| D03 | P2 | Gateway | src/components/ui.tsx:1903 | `text-title` is not a design token, so the shared section heading emitted no font-size rule at all. Now `text-xl`. | fixed |
+| D04 | P2 | Gateway | src/components/BillingActions.tsx:119 | `border-brand-subtle-border` is not a token; the selection panel rendered with no accent border. Now `border-edge-accent`. | fixed |
+| D05 | P2 | Gateway | src/components/platform/overview-charts.tsx:207 | `bg-surface-4` is not a token; the paused legend swatch rendered transparent. Now `bg-ink-4`. | fixed |
+| D06 | P2 | Gateway | src/app/api-keys/page.tsx:286 | Hard-coded English sentence ("Keys carry read/write access to the Odoo integration…") bypassed the English/Arabic catalog and RTL. Now `apiKeys.scopeNote`. | fixed |
+| D07 | P2 | Gateway | src/app/team/page.tsx:289 | Member/invite counts built plural words by hand in English and never used locale number formatting. Now `tc("team.memberCount"/"team.inviteCount")` + `formatNumber(count, locale)`. | fixed |
+| D08 | P2 | Gateway | src/app/dashboard/dashboard-client.tsx:1325 | "N of M ready" printer-readiness text hard-coded in JSX, outside the catalog and number formatting. Now `dashboard.printersReady`. | fixed |
+| D09 | P2 | Gateway | src/app/api-keys/page.tsx:223 | Three fixed metric cards repeated the same connection state, buried it under counts, and the "How it works" card occupied the sidebar permanently. Now one derived connection row (neutral/ok/warn) with counts, and a collapsed `<details>` discovery panel. | fixed |
+| D10 | P2 | Gateway | src/app/release-readiness/release-readiness-client.tsx:262 | Compliance notes mixed developer commentary, raw marker names and "not full OpenTelemetry" asides into user-visible prose with no machine-readable status. Now four status rows with `<details>` technical detail (8 new catalog keys). | fixed |
+| D11 | P2 | Desktop | src/desktop/public/theme-init.css:1 | Pre-paint colors (#f5f5f7 / #1d1d1f light, #000000 dark) diverged from the token values (#f6f7f9 / #16181d / #08090c), flashing a different frame before `globals.css` loads. | fixed |
+| D12 | P3 | Gateway | src/i18n/messages/en.ts:1 | Long-form copy pass: 44 verbose operational values trimmed in both catalogs with placeholders and safety warnings preserved. 84 values above 95 chars remain (release evidence, home marketing, safety/uncertainty text, test-locked desktop copy) and are retained deliberately; pass-1 removed-literal sweep found 4 test-locked values and none were trimmed. | fixed |
+| U08 | P2 | Tooling verification | FIX_LOG.md:1 | This sandbox has no `pytest` and no `cryptography` module, and no `rustc`; 7 of 167 Python static tests could not execute here (6 need `cryptography`, 1 needs `rustc`). 160/167 executed via a minimal pytest-compatible shim. | unverified |
+| D13 | P1 | Gateway | src/app/team/page.tsx:289 | The `useI18n()` number formatter already closes over the locale, so passing `locale` as its second argument (Intl options) is a type error that the offline sandbox could not detect; caught by the CI Typecheck and Docker `next build` jobs on the first push. Fixed and swept repo-wide for the same arity mistake. | fixed |
+
+## Screen and feature coverage matrix — UI redesign pass (2026-10-04)
+
+Two things are tracked separately here:
+
+* **What this pass did** — `redesigned` (hierarchy/structure/copy changed), `system-wide`
+  (inherited the shared token/copy/contrast work and verified clean by the gates).
+* **Verification columns** — `imp` = implementation, `en` = English copy reviewed,
+  `ar` = Arabic copy reviewed, `resp` = responsive rendering, `rtl` = RTL rendering,
+  `kbd` = keyboard interaction, `flow` = workflow exercised at runtime.
+
+`COMPLETE` means it was actually checked. `UNVERIFIED` means it was not, and the reason is
+given once at the bottom of the table — no column is marked complete on the strength of a
+source inspection or a passing test.
+
+| Screen | Actor / job | imp | en | ar | resp | rtl | kbd | flow |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Gateway `/dashboard` (`dashboard-client.tsx` 2110L) | Manager/operator: fleet health and action | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/api-keys` (479L) | Manager: create/manage Odoo credentials | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/team` (656L) | Owner/manager: members, invites, roles | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/billing` (422L) + `BillingActions` + `UpgradeLimitDialog` | Owner: plan, usage, payment state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/settings` (190L) | Manager: workspace profile | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/onboarding` (395L) | New manager: first-run setup | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/system-health` (client 315L) | Manager/support: live subsystem state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/release-readiness` (302L) | Release owner: honest evidence status | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/` (727L) | Visitor: understand the product | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway `/pricing` (286L) | Visitor: compare plans | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Gateway auth screens (login 217L, signup 139L, forgot/reset/verify 94–195L, invite 126L) | Any user: access and recovery | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/dashboard` (541L) | Platform admin: platform-wide state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/tenants` (366L) | Platform admin: suspend/reactivate workspaces | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/subscriptions` (254L) | Platform admin: Stripe lifecycle | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/plans` (447L) | Platform admin: catalog and entitlements | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Platform `/platform/audit` (250L) | Platform admin: privileged action trail | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Shell: `AppShell`, `TopNavbar`, `CommandPalette`, `LanguageSwitcher`, `ThemeToggle`, `AuthShell`, `brand.tsx` | All Gateway users | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Shared: `ui.tsx` (1958L) primitives, `JobTimeline`, `JobCleanupButton`, `PrintCertificationWizard`, `overview-charts` | Every Gateway screen | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop shell (`main.tsx` 1183L) + `Sidebar` | Windows operator: is it connected, what is queued | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Overview` (131L) | Operator: is printing working right now | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Agents` (91L) | Operator: local service state | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Printers` (66L) | Operator: which printers are available | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Jobs` (84L) | Operator: what happened to a job | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop `Settings` (111L) | Operator: pair and configure | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+| Desktop dialogs: `AddPrinterDialog` (396L), `EditPrinterDialog` (275L), `AdminPrivilegeDialog` (96L), `JobTimeline` (149L), `desktop/ui.tsx` (104L) | Operator: register, repair, diagnose | COMPLETE | COMPLETE | COMPLETE | UNVERIFIED | UNVERIFIED | UNVERIFIED | UNVERIFIED |
+
+**Why the rendering columns are UNVERIFIED:** this environment has no browser engine (no
+Chromium/Firefox), no Playwright/Puppeteer/Selenium package, no cached browser download and no
+`node_modules`, and the repository rules forbid installing or downloading dependencies, tools or
+fonts. The dev servers cannot start (Vite/Next need `node_modules`), so nothing can be rendered —
+not at 390/768/1024/1440 px, not in the Tauri window, and not in either theme or direction.
+No screenshot was produced, and none is claimed. What *is* verified is source-level and
+tool-based: the copy/token/contrast gate, the catalog checker, CI typecheck/lint/unit/integration
+suites, and the offline Node and Python suites listed in FIX_LOG.md.
+
+**Source-level evidence that does exist for the interaction columns** (recorded as partial, not
+as verification): `useDialog` implements the focus trap, Escape handling, scroll lock and return
+focus (`src/components/ui.tsx:1537`), and `tests/dialog-certification-ux.test.ts` asserts those
+contracts; `CommandPalette` now keeps the active option in view and exposes it through
+`aria-activedescendant`; tables that exceed their column live inside `overflow-x-auto` containers
+rather than the page (verified by reading each table host, e.g. `platform/audit`, `platform/tenants`).
+
+**Known residual (not fixed, deliberately):** icon-only buttons in dense navigation rows are
+32–36 px tall, below the ~44 px touch target the guidance prefers. Enlarging them affects every
+row of every list and would need rendered verification to avoid regressions, which is unavailable
+here.
+
+### Features preserved (simplification without removal)
+
+Checked against the pre-change files (`git show HEAD:<path>`) — every capability below still
+exists, in the same route or the same dialog, with the same handler.
+
+| Screen | Capability | Kept | Where it moved / why it reads shorter |
+| --- | --- | --- | --- |
+| api-keys | create key, one-time secret + copy, revoke, delete, rotate indicator, read-only grace, per-key Odoo state | yes | counts merged into one connection row; how-it-works collapsed into `<details>` (never removed) |
+| api-keys | workspace scope note | yes | sentence → `apiKeys.scopeNote`, same meaning |
+| team | invite, resend, role change, remove member, transfer ownership, pending list | yes | count badges now plural-correct per locale |
+| team | remove-member consequence text | yes | shortened, audit-log guarantee kept |
+| billing | plan, usage, remaining, payment state, portal, cancel, upgrade, credits | yes | server page strings moved to keys; the accent border on the action panel was an undefined class, so it was invisible before |
+| release-readiness | every status row, evidence line, BLOCKED/UNVERIFIED honesty, raw JSON panel | yes | 4 compliance paragraphs → 4 status rows + `<details>` detail (8 keys) |
+| system-health | overall state, 4 cohort counts, per-check cards, latency, refresh, stale-sample warning | yes | "Sampled {time}" localized |
+| dashboard | KPIs, fleet list, printers, jobs, filters, drawers, cert wizard, quota dialog, cleanup, reprint | yes | only labels/case changed |
+| desktop | pair, connect, stop agent, add/edit printer, admin privilege, per-printer test print, job outcomes | yes | labels/case/hierarchy only |
+| D14 | P2 | Desktop | src/components/CommandPalette.tsx:80 | Arrow-key navigation in the ⌘K palette moved the highlight through up to 24 results inside a 52vh scroll container without scrolling it into view, so Enter could run an item the operator could no longer see. | fixed |
+| D15 | P2 | Gateway a11y | src/components/CommandPalette.tsx:150 | Focus stays in the search field (correct), but the highlighted option was not exposed: no aria-activedescendant and no option ids, so assistive technology announced nothing about the active result. | fixed |
+| D16 | P2 | Desktop | src/desktop/main.tsx:1026 | Raw API enum values were interpolated into visible text (agent status in the printer drawer, printers table and add dialog), rendering "online"/"unknown" untranslated in the Arabic UI instead of the shared status vocabulary. | fixed |
+| D17 | P2 | Desktop | src/desktop/components/AddPrinterDialog.tsx:264 | English-only placeholders ("e.g. Kitchen receipt", "192.168.1.50 (LAN IP)") bypassed the catalog, and the empty-spooler condition was reported three times at once (hint, disabled option, manual input). | fixed |
+| D18 | P2 | Platform | src/app/platform/audit/page.tsx:186 | Platform screens carried eyebrows and section subtitles that restated their own navigation group and headings; the audit table rendered actor enums and the "Platform" scope label untranslated; the plan archive-impact sentence was assembled from four catalog fragments around inline markup, which constrains word order in Arabic. | fixed |
+| D19 | P3 | Gateway | src/components/AppShell.tsx:403 | Fifteen files used arbitrary duration values (duration-[140ms], duration-[160ms], duration-[200ms]) instead of the shared motion scale, so transition timing drifted between screens. | fixed |
+| U09 | P1 | Tooling verification | FIX_LOG.md:1 | Rendered verification is impossible in this environment: no browser engine binary, no Playwright/Puppeteer/Selenium package, no cached browser download and no node_modules, with dependency installation forbidden. Responsive (390/768/1024/1440), RTL, light/dark rendering, keyboard traversal, 200% zoom and the Tauri window at minimum size remain UNVERIFIED; no screenshots exist. | unverified |

@@ -204,7 +204,7 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
     { id: "active", label: t("platform.subs.active"), value: subscriptions.active, className: "bg-ok-solid" },
     { id: "trialing", label: t("platform.subs.trialing"), value: subscriptions.trialing, className: "bg-info-solid" },
     { id: "attention", label: t("platform.subs.attention"), value: subscriptions.attention, className: "bg-warn-solid" },
-    { id: "paused", label: t("platform.subs.paused"), value: subscriptions.paused, className: "bg-surface-4" },
+    { id: "paused", label: t("platform.subs.paused"), value: subscriptions.paused, className: "bg-ink-4" },
     { id: "cancelled", label: t("platform.subs.cancelled"), value: subscriptions.cancelled, className: "bg-bad-solid" },
   ];
   const total = Math.max(1, subscriptions.total);

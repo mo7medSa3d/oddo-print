@@ -16,6 +16,8 @@ import {
   type Tone,
 } from "../../../components/ui";
 import { useI18n } from "../../../i18n/react";
+import type { Translator } from "../../../i18n/translate";
+import type { MessageKey } from "../../../i18n/messages/en";
 
 type ActorType = "platform" | "user" | "system" | "agent" | "odoo" | "desktop";
 
@@ -40,6 +42,20 @@ const ACTOR_TONE: Record<ActorType, Tone> = {
   odoo: "warn",
   desktop: "neutral",
 };
+
+const ACTOR_LABEL_KEYS: Record<ActorType, MessageKey> = {
+  platform: "platform.audit.actor.platform",
+  user: "platform.audit.actor.user",
+  system: "platform.audit.actor.system",
+  agent: "platform.audit.actor.agent",
+  odoo: "platform.audit.actor.odoo",
+  desktop: "platform.audit.actor.desktop",
+};
+
+/** Actor types arrive from the API as enums; render them through the catalog. */
+function actorLabel(actor: ActorType, t: Translator): string {
+  return t(ACTOR_LABEL_KEYS[actor] ?? "platform.audit.actor.system");
+}
 
 type Filter = "all" | "platform" | "tenant" | "machine";
 
@@ -104,7 +120,6 @@ export default function PlatformAuditPage() {
     <div className="space-y-5">
       <PageHeader
         variant="inline"
-        eyebrow={t("platform.audit.eyebrow")}
         icon={<Shield className="h-4 w-4" aria-hidden />}
         title={t("platform.audit.title")}
         description={t("platform.audit.description")}
@@ -201,14 +216,14 @@ export default function PlatformAuditPage() {
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <StatusBadge tone={ACTOR_TONE[e.actorType] ?? "neutral"} label={e.actorType} size="sm" />
+                            <StatusBadge tone={ACTOR_TONE[e.actorType] ?? "neutral"} label={actorLabel(e.actorType, t)} size="sm" />
                             <span className="max-w-[160px] truncate font-mono text-2xs text-ink-3" title={e.actorId ?? undefined}>
                               {e.actorId || "—"}
                             </span>
                           </div>
                         </td>
                         <td>
-                          <div className="text-sm font-[550] text-ink">{e.tenantName || e.tenantId || "Platform"}</div>
+                          <div className="text-sm font-[550] text-ink">{e.tenantName || e.tenantId || t("platform.audit.platformScope")}</div>
                           <div className="mt-0.5 font-mono text-2xs text-ink-4">{e.tenantId ?? "—"}</div>
                         </td>
                         <td className="text-2xs text-ink-4">
@@ -221,9 +236,9 @@ export default function PlatformAuditPage() {
                               onClick={() => setExpanded(open ? null : e.id)}
                               aria-expanded={open}
                               aria-label={open ? t("platform.audit.hideMetadata") : t("platform.audit.showMetadata")}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-ink-4 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-edge bg-surface text-ink-3 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
                             >
-                              <ChevronDown className={`h-4 w-4 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`} aria-hidden />
+                              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`} aria-hidden />
                             </button>
                           )}
                         </td>

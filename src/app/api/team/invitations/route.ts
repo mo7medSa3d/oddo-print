@@ -16,6 +16,7 @@ const ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admi
 
 export async function GET(req: Request) {
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({ id: tenantInvitations.id, email: tenantInvitations.email, role: tenantInvitations.role, expiresAt: tenantInvitations.expiresAt, createdAt: tenantInvitations.createdAt })
     .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)));
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
   const t = makeT(await getServerLocale());
   if (hasBodyOverLimit(req, 32 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const inviterUserId = claims.userId;
   let body: { email?: unknown; role?: unknown };
@@ -127,6 +129,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const id = new URL(req.url).searchParams.get("id") ?? "";
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });

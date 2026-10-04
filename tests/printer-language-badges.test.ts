@@ -60,12 +60,20 @@ describe("ApiKeysPage resilience", () => {
   it("renders without crashing when the keys endpoint does not return an array", async () => {
     // An expired session returns 401 with `{error}` — the page must render an
     // error state instead of calling `keys.filter` on a non-array.
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: "Unauthorized" }), {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      // The page performs the shared session admission first (A164/A167). Answer
+      // it as authenticated so the assertion below still exercises the keys load.
+      if (String(input) === "/api/auth/me") {
+        return new Response(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { "content-type": "application/json" },
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     host = document.createElement("div");
@@ -109,6 +117,12 @@ describe("ApiKeysPage API-key authoring", () => {
     let list: Record<string, unknown>[] = [];
     const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/auth/me") {
+        return new Response(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url === "/api/odoo/keys" && (!init?.method || init.method === "GET")) {
         return new Response(JSON.stringify(list), { status: 200, headers: { "content-type": "application/json" } });
       }

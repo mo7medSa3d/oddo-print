@@ -6,9 +6,8 @@ export function PageHeader({ title, subtitle, actions, children }: { title: stri
   return (
     <header className="flex flex-col gap-4 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
-        <div className="text-2xs font-semibold uppercase tracking-[0.14em] text-ink-4">Yaseir Print Manager</div>
-        <h1 className="mt-1.5 text-2xl font-bold leading-tight tracking-[-0.035em] text-ink">{title}</h1>
-        {subtitle && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-3">{subtitle}</p>}
+        <h1 className="text-[22px] font-[620] leading-tight tracking-[-0.02em] text-ink">{title}</h1>
+        {subtitle && <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-3">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       {children}
@@ -20,7 +19,7 @@ export function SectionHeader({ title, subtitle, icon, actions, className = "" }
   return (
     <div className={`flex items-start justify-between gap-4 ${className}`}>
       <div className="min-w-0">
-        <h2 className="flex items-center gap-2 text-base font-semibold leading-tight tracking-[-0.015em] text-ink">{icon}{title}</h2>
+        <h2 className="flex items-center gap-2 text-md font-[600] leading-tight tracking-[-0.012em] text-ink">{icon}{title}</h2>
         {subtitle && <p className="mt-1 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -30,9 +29,9 @@ export function SectionHeader({ title, subtitle, icon, actions, className = "" }
 
 export function StatCard({ label, value, sub, tone = "neutral", icon, footer }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: Tone; icon: React.ReactNode; footer?: React.ReactNode; }) {
   return (
-    <div className="group rounded-sg border border-edge bg-surface p-5 shadow-card transition-all duration-150 hover:-translate-y-px hover:border-edge-accent hover:shadow-md">
+    <div className="group rounded-sg border border-edge bg-surface p-5 shadow-card transition-colors duration-150 hover:border-edge-accent">
       <div className="flex items-start justify-between gap-3">
-        <span className="text-2xs font-semibold uppercase tracking-[0.12em] text-ink-4">{label}</span>
+        <span className="text-xs font-[550] text-ink-3">{label}</span>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3 transition-colors group-hover:text-brand">{icon}</span>
       </div>
       <div className="mt-4 flex items-baseline gap-2">
@@ -60,7 +59,7 @@ export function StatusNotice({ tone = "warn", icon, title, children, action, cla
   return (
     <div role="status" className={`flex flex-col gap-3 rounded-sg border p-4 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
       <span className={`mt-0.5 shrink-0 ${noticeIconStyles[tone]}`}>{icon}</span>
-      <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-xs leading-relaxed opacity-85">{children}</div>}</div>
+      <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-xs leading-relaxed text-ink-2">{children}</div>}</div>
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
   );

@@ -156,7 +156,6 @@ export default function PlatformTenantsPage() {
     <div className="space-y-5">
       <PageHeader
         variant="inline"
-        eyebrow={t("platform.tenants.eyebrow")}
         icon={<Building2 className="h-4 w-4" aria-hidden />}
         title={t("platform.tenants.title")}
         description={t("platform.tenants.description")}
@@ -274,7 +273,7 @@ export default function PlatformTenantsPage() {
                             label={t("platform.tenants.actionsFor", { name: tenant.name })}
                             items={items}
                             trigger={
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink">
+                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                 <MoreHorizontal className="h-4 w-4" aria-hidden />
                               </span>
                             }

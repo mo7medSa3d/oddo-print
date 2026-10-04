@@ -5,7 +5,7 @@ import { apiKeys } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { generateOdooApiKey } from "../../../../lib/odoo-auth";
-import { eq, and, desc, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { isTenantBillingError, requireTenantBillingAccess } from "../../../../lib/entitlements";
@@ -17,18 +17,6 @@ const keyInputSchema = z.object({
 
 export const dynamic = "force-dynamic";
 
-// Drizzle wraps driver errors (DrizzleQueryError -> cause -> pg error), so
-// the SQLSTATE code must be unwrapped before matching.
-function pgErrorCode(error: unknown): string | null {
-  let current = error;
-  for (let depth = 0; depth < 3 && typeof current === "object" && current !== null; depth++) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string" && code) return code;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return null;
-}
-
 export async function GET(req: Request) {
   const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,7 +24,8 @@ export async function GET(req: Request) {
   // authorization-failure contract across the route.
   try { requireManagerPermission(manager, "integrations.read"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   // Intentionally uncapped: the list page has no pagination and revoked keys
-  // must remain visible (they cannot be removed while referenced by jobs), so
+  // remain visible until explicit credential removal; deleted history anchors
+  // are deliberately excluded, so
   // a limit would silently hide credentials. The table is low-cardinality and
   // tenant-scoped via api_keys_tenant_id_unique (tenantId, id).
   const rows = await db
@@ -61,7 +50,7 @@ export async function GET(req: Request) {
       END`,
     })
     .from(apiKeys)
-    .where(eq(apiKeys.tenantId, manager.tenantId))
+    .where(and(eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`))
     .orderBy(desc(apiKeys.createdAt));
 
   return NextResponse.json(rows);
@@ -134,39 +123,32 @@ export async function DELETE(req: Request) {
   const id = typeof bodyRecord.id === "string" ? bodyRecord.id.trim() : "";
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  // Permanent removal is only allowed for already-revoked keys: deleting an
-  // active credential would silently break Odoo and destroy attribution for
-  // jobs stamped with this key. Keys referenced by print jobs are protected
-  // by the print_jobs foreign key and cannot be removed (history preserved).
   if (bodyRecord.remove === true) {
-    try {
-      const removed = await db.delete(apiKeys)
-        .where(and(
-          eq(apiKeys.id, id),
-          eq(apiKeys.tenantId, manager.tenantId),
-          isNotNull(apiKeys.revokedAt),
-          or(
-            isNull(apiKeys.readOnlyUntil),
-            lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`),
-          ),
-        ))
-        .returning({ id: apiKeys.id });
-      if (removed.length) return NextResponse.json({ id: removed[0].id, removed: true }, { status: 200 });
-    } catch (error) {
-      if (pgErrorCode(error) === "23503") {
-        return NextResponse.json({ error: "API key has associated print jobs and cannot be removed." }, { status: 409 });
-      }
-      throw error;
-    }
-    const existing = await db.query.apiKeys.findFirst({ where: and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)) });
-    if (!existing) return NextResponse.json({ error: "API key not found" }, { status: 404 });
-    return NextResponse.json({ error: "Only revoked API keys can be removed. Revoke the key first." }, { status: 409 });
+    const removed = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
+      const existing = await tx.select({ id: apiKeys.id }).from(apiKeys)
+        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`)).for("update");
+      if (!existing.length) return null;
+      // Erase the usable credential, retaining only the FK history anchor.
+      // Nulling api_key_id would misclassify accepted Odoo jobs as internal
+      // and make the addon's reconciliation/status lookups lose those jobs.
+      await tx.update(apiKeys).set({ hashedKey: `deleted:${id}`, revokedAt: sql`clock_timestamp()`,
+        readOnlyUntil: null, odooEnabled: false, odooEnabledRevision: sql`${apiKeys.odooEnabledRevision} + 1`,
+        odooEnabledUpdatedAt: sql`clock_timestamp()` })
+        .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)));
+      await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system",
+        actorId: manager.userId ?? "legacy-manager", action: "api_key.deleted", resourceType: "api_key", resourceId: id,
+        metadata: { credentialErased: true, historyReferenceRetained: true } }, tx);
+      return id;
+    });
+    return removed ? NextResponse.json({ id: removed, removed: true }) : NextResponse.json({ error: "API key not found" }, { status: 404 });
   }
 
   const revoked = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
     const result = await tx.update(apiKeys)
-      .set({ revokedAt: sql`clock_timestamp()`, readOnlyUntil: null, odooEnabled: false })
-      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId)))
+      .set({ revokedAt: sql`clock_timestamp()`, readOnlyUntil: null, odooEnabled: false, odooEnabledRevision: sql`${apiKeys.odooEnabledRevision} + 1`, odooEnabledUpdatedAt: sql`clock_timestamp()` })
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`))
       .returning({ id: apiKeys.id, revokedAt: apiKeys.revokedAt });
     if (!result.length) return null;
     await writeAuditEvent({

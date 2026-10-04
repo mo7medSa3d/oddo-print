@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowRight, Building2, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState, Skeleton } from "../../components/ui";
+import { ensureCustomerSession } from "../../lib/session-config";
 import { codeMessageKey } from "../../lib/api-error-keys";
 
 export default function LoginPage() {
@@ -33,19 +34,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.ok) {
-          router.replace(postAuthDestination());
-          return;
-        }
-        const refresh = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!cancelled && refresh.ok) router.replace(postAuthDestination());
+    ensureCustomerSession()
+      .then((session) => {
+        if (!cancelled && session.authenticated) router.replace(postAuthDestination());
       })
       .catch(() => undefined)
       .finally(() => {
@@ -195,7 +186,7 @@ export default function LoginPage() {
                   type="button"
                   disabled={loading}
                   onClick={() => void chooseWorkspace(id)}
-                  className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
+                  className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
                 >
                   <span className="truncate font-mono text-[13px]" title={id}>{t("auth.signIn.workspaceSuffix", { suffix: id.slice(-6) })}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
@@ -218,9 +209,7 @@ export default function LoginPage() {
 
         <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
-          <p className="text-sm leading-relaxed text-ink-3">
-            Please verify your email before signing in.
-          </p>
+          <p className="text-sm leading-relaxed text-ink-3">{t("auth.signIn.verifyEmailNote")}</p>
         </div>
       </form>
     </AuthShell>

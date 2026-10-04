@@ -14,8 +14,30 @@ import {
   type Tone,
 } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
+import type { MessageKey } from "../../i18n/messages/en";
 
 type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE" | "UNVERIFIED";
+
+/**
+ * Compliance notes for the release report.
+ *
+ * Each item states what is verified, what is not, and the consequence — the raw
+ * engineering detail that used to sit in the list body now lives behind the
+ * "Technical detail" disclosure, so the report reads as status rather than as
+ * developer commentary.
+ */
+const COMPLIANCE_NOTES = [
+  { labelKey: "release.compliance.otel", summaryKey: "release.compliance.otelSummary", detailKey: "release.compliance.otelDetail", statusKey: "release.count.blocked", tone: "warn" },
+  { labelKey: "release.compliance.ipp", summaryKey: "release.compliance.ippSummary", detailKey: "release.compliance.ippDetail", statusKey: "release.count.unverified", tone: "warn" },
+  { labelKey: "release.compliance.tauri", summaryKey: "release.compliance.tauriSummary", detailKey: "release.compliance.tauriDetail", statusKey: "release.count.blocked", tone: "bad" },
+  { labelKey: "release.compliance.odooBilling", summaryKey: "release.compliance.odooBillingSummary", detailKey: "release.compliance.odooBillingDetail", statusKey: "release.count.unverified", tone: "warn" },
+] as const satisfies ReadonlyArray<{
+  labelKey: MessageKey;
+  summaryKey: MessageKey;
+  detailKey: MessageKey;
+  statusKey: MessageKey;
+  tone: Tone;
+}>;
 type Row = {
   area: string;
   implemented: Status;
@@ -142,7 +164,7 @@ export default function ReleaseReadinessClient() {
             ].map((item) => (
               <div key={item.label} className="bg-surface px-4 py-2.5 text-center">
                 <div className={`text-lg font-[660] leading-none tabular ${item.tone}`}>{item.value}</div>
-                <div className="mt-1 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                <div className="mt-1 text-xs font-[550] text-ink-3">
                   {item.label}
                 </div>
               </div>
@@ -207,11 +229,11 @@ export default function ReleaseReadinessClient() {
                       type="button"
                       onClick={() => setExpanded(open ? null : row.area)}
                       aria-expanded={open}
-                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink"
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
                     >
                       {t("release.evidence")}
                       <ChevronDown
-                        className={`h-3.5 w-3.5 transition-transform duration-[160ms] ${open ? "rotate-180" : ""}`}
+                        className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
                         aria-hidden
                       />
                     </button>
@@ -257,27 +279,22 @@ export default function ReleaseReadinessClient() {
           title={t("release.complianceTitle")}
           subtitle={t("release.complianceSubtitle")}
         />
-        <ul className="list-disc space-y-2 ps-9 pe-5 py-5 text-sm text-ink-2">
-          <li>
-            <strong className="font-[600] text-ink">{t("release.compliance.otel")}</strong> (not full
-            OpenTelemetry): custom fields request_id/job_id/tenant_id/agent_id/printer_id/attempt_id/claim_id/spooler_job_id
-            in logs and headers, documented as application-specific, not official OTel semantic conventions.
-          </li>
-          <li>
-            <strong className="font-[600] text-ink">{t("release.compliance.ipp")}</strong> (not IPP
-            Everywhere certified): IPP/IPPS transport supported, capability matrix, but conformance
-            testing not run, so not claiming certification.
-          </li>
-          <li>
-            <strong className="font-[600] text-ink">{t("release.compliance.tauri")}</strong>: no updater plugin/config found
-            in tauri.conf.json, marked NOT IMPLEMENTED/BLOCKED, not claimed as PASS. Capabilities 21
-            perms least-privilege verified.
-          </li>
-          <li>
-            <strong className="font-[600] text-ink">{t("release.compliance.odooBilling")}</strong>: UNKNOWN / NOT VERIFIED
-            honest, intentionally-unverified externals cap overall at WARN (never OK) — policy prevents
-            false green.
-          </li>
+        <ul className="divide-y divide-edge-subtle px-5">
+          {COMPLIANCE_NOTES.map((note) => (
+            <li key={note.labelKey} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div className="min-w-0">
+                <div className="text-sm font-[600] text-ink">{t(note.labelKey)}</div>
+                <p className="mt-1 text-sm leading-relaxed text-ink-3">{t(note.summaryKey)}</p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-[550] text-brand">
+                    {t("release.technicalDetail")}
+                  </summary>
+                  <p className="mt-1.5 font-mono text-2xs leading-relaxed text-ink-2">{t(note.detailKey)}</p>
+                </details>
+              </div>
+              <StatusBadge tone={note.tone} label={t(note.statusKey)} className="shrink-0" />
+            </li>
+          ))}
         </ul>
       </Card>
     </div>

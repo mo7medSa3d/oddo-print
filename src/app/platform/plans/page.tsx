@@ -142,12 +142,6 @@ export default function PlatformPlansPage() {
     <div className="space-y-6">
       <PageHeader
         variant="inline"
-        eyebrow={
-          <span className="inline-flex items-center gap-2">
-            <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
-            {t("platform.plans.eyebrow")}
-          </span>
-        }
         title={t("platform.plans.title")}
         description={t("platform.plans.description")}
         actions={
@@ -319,10 +313,16 @@ export default function PlatformPlansPage() {
           <div className="flex items-start gap-3 rounded-sg border border-edge bg-surface-2 p-3.5">
             <ArchiveRestore className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-2">
-              <span className="font-[600] text-ink">{tc("platform.plans.archiveImpact", archiving.activeSubscriberCount, { count: formatNumber(archiving.activeSubscriberCount) })}</span>{" "}
-              {t("platform.plans.archiveImpactTail")}{" "}
-              <span className="font-[550] text-ink">{archiving.name}</span>{" "}
-              {t("platform.plans.archiveImpactEnd")}
+              {archiving.activeSubscriberCount === 0 ? (
+                t("platform.plans.archiveNoImpact")
+              ) : (
+                t("platform.plans.archiveImpactBody", {
+                  count: tc("platform.plans.archiveImpact", archiving.activeSubscriberCount, {
+                    count: formatNumber(archiving.activeSubscriberCount),
+                  }),
+                  name: archiving.name,
+                })
+              )}
             </p>
           </div>
         )}

@@ -13,6 +13,7 @@ const ASSIGNABLE_ROLES = ["admin", "operator", "viewer", "integration_admin", "b
 
 export async function GET(req: Request) {
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const rows = await db.select({ userId: tenantUsers.userId, email: users.email, role: tenantUsers.role, createdAt: tenantUsers.createdAt })
     .from(tenantUsers).innerJoin(users, eq(users.id, tenantUsers.userId)).where(eq(tenantUsers.tenantId, claims.tenantId));
@@ -21,6 +22,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   let body: { userId?: unknown; role?: unknown };
   try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -74,6 +76,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const userId = new URL(req.url).searchParams.get("userId") ?? "";
   if (!userId) return NextResponse.json({ error: "userId is required" }, { status: 400 });

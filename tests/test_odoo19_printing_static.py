@@ -390,9 +390,9 @@ def test_gateway_config_auto_syncs_after_api_key_save():
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     manifest = (ADDON / "__manifest__.py").read_text(encoding="utf-8")
     assert "gateway_config_auto_sync.js" in manifest
-    assert 'this.model.root.resModel !== "print_gateway.gateway_config"' in source
+    assert 'record.resModel !== "print_gateway.gateway_config"' in source
     assert 'hasOwnProperty.call(changes, "gateway_api_key")' in source
-    assert 'this.model.root.data.gateway_api_key' in source
+    assert 'record.data.gateway_api_key' in source
     assert 'this.orm.call(' in source
     assert '"print_gateway.gateway_config"' in source
     assert '"action_test_connection"' in source
@@ -420,10 +420,10 @@ def test_gateway_config_auto_sync_uses_persisted_res_id_never_datapoint_id():
     assert "const resId = record.resId;" in source
     # The RPC and the reload address the persisted record, never the
     # client-side datapoint id.
-    assert "[[resId]]," in source
+    assert "[[resId]]" in source
     assert "record.id" not in source
     # A falsy resId (record not persisted) must bail out before any RPC.
-    guard_index = source.index("if (!resId || !this.model.root.data.gateway_api_key)")
+    guard_index = source.index("if (!resId) return;")
     assert guard_index < source.index('"action_test_connection"')
     assert guard_index < source.index('"action_retry_enabled_sync"')
 
@@ -441,10 +441,14 @@ def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
     assert 'hasOwnProperty.call(changes, "enabled")' in source
     assert '"action_retry_enabled_sync"' in source
     # The credential guard keeps the toggle from firing without a stored key.
-    assert source.index('this.model.root.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
+    assert source.index('record.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
     # Exactly one reload path: every trigger converges through the same
     # finally block reading the authoritative persisted state.
     assert source.count('await this.model.load({ resId });') == 1
+    assert 'patch(Record.prototype' in source
+    assert source.index('await super._save(...args)') < source.index('await synchronize()')
+    assert 'this.model.root.resId === resId' in source
+    assert 'afterSave.delete(this)' in source
 
 
 

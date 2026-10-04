@@ -52,3 +52,7 @@ export function requireManagerPermission(claims: ManagerClaims, permission: Mana
     throw error;
   }
 }
+
+export function managerPermissions(claims: ManagerClaims): ManagerPermission[] {
+  return [...(permissionsByRole[claims.role] ?? [])];
+}
