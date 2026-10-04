@@ -20,6 +20,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
 import { Avatar, Menu, useDialog, type MenuItemSpec } from "./ui";
 import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette";

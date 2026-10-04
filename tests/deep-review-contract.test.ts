@@ -204,7 +204,7 @@ describe("deep production review contracts", () => {
   it("uses database epoch time when re-enabling an Agent and minting its pairing expiry", () => {
     const source = read("src/lib/agent-lifecycle.ts");
     expect(source).toContain("SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms");
-    expect(source).toContain("pairingCodeExpiresAt: pairingCode ? new Date(now.getTime() + 10 * 60 * 1000)");
+    expect(source).toContain("const pairingCodeExpiresAt = pairingCode ? new Date(now.getTime() + 10 * 60 * 1000)");
     expect(source).not.toContain("const now = new Date()");
   });
 

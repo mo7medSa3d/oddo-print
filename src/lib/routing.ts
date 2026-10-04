@@ -1,3 +1,4 @@
+import payloadContract from "../../contracts/print-payload-contract.json";
 import { gatewayNow } from "./database-clock";
 import { isVirtualPrinterRecord, type PrinterLike } from "./printer-virtual";
 import { getAgentAvailability } from "./agent-availability";
@@ -37,7 +38,7 @@ export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "st
   // "unknown" protocol on a byte pipe is dark until declared (mirrors the
   // capability model: unknown+network/usb resolves to a name nothing matches).
   if (conn === "network" || conn === "usb") {
-    return ["raw", "escpos", "zpl", "tspl"].includes(proto);
+    return (payloadContract.rawProtocols as readonly string[]).includes(proto);
   }
   return false;
 }

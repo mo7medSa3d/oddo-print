@@ -43,7 +43,7 @@ describe("production fixes contracts (2026-09)", () => {
     const getSection = route.slice(route.indexOf("export async function GET"));
     expect(getSection).toContain("validateOdooKey");
     expect(getSection).toContain('params.get("id")');
-    expect(getSection).toContain("responseForRow(row)");
+    expect(getSection).toContain("responseForRow(row ?? receipt!)");
     expect(getSection).not.toContain("row.payload");
     expect(getSection).not.toContain('json({ payload');
   });
@@ -107,7 +107,7 @@ describe("production fixes contracts (2026-09)", () => {
     expect(net).toMatch(/writeStallTimeout\s*=\s*60\s*\*\s*time\.Second/);
     // Write-deadline failures used to be discarded (`_ = conn.SetWriteDeadline`).
     // They must now surface as an error so a stalled printer is reported.
-    expect(net).toContain("if err := conn.SetWriteDeadline(time.Now().Add(writeStallTimeout)); err != nil {");
+    expect(net).toContain("if err := conn.SetWriteDeadline(deadline); err != nil {");
     expect(net).toContain('fmt.Errorf("set printer write deadline: %w", err)');
   });
 

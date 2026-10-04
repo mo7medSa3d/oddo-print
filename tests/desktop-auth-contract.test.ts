@@ -39,7 +39,7 @@ describe("desktop manager authentication contract", () => {
       expect(commands).toContain("gateway URL cannot include embedded credentials");
     } else {
       expect(commands).toContain('if scheme == "http"');
-      expect(commands).toContain('let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");');
+      expect(commands).toContain('let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1" | "[::1]");');
       expect(commands).toContain("Gateway URL must use HTTPS for remote Gateways");
     }
   });

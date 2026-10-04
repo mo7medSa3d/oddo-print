@@ -3,7 +3,7 @@ import { db } from "../src/db";
 import { agents, auditEvents, printers, tenants } from "../src/db/schema";
 import { and, eq } from "drizzle-orm";
 import { applyMigrations, closePool, hasTestDatabase } from "./helpers/pg";
-import { transitionAgentLifecycle, LifecycleConflict } from "../src/lib/agent-lifecycle";
+import { transitionAgentLifecycle, LifecycleConflict, type AgentLifecycleResult } from "../src/lib/agent-lifecycle";
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -45,7 +45,7 @@ suite("Agent Lifecycle", () => {
     expect(row!.lifecycle === "retired" || row!.lifecycle === "disabled").toBe(true);
     expect(row!.lifecycleRevision).toBe(1);
 
-    const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
+    const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<AgentLifecycleResult | null> => result.status === "fulfilled");
     expect(succeeded.length).toBeGreaterThanOrEqual(1);
     expect(succeeded.every((result) => result.value?.lifecycle)).toBe(true);
     const printerRow = await db.query.printers.findFirst({

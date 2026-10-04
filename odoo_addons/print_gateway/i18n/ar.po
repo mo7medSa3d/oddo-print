@@ -3535,7 +3535,3 @@ msgstr "تعذّرت الطباعة"
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "saved / currently unavailable"
 msgstr "محفوظة / غير متاحة حاليًا"
-
-#. module: print_gateway
-msgid "label"
-msgstr "التسمية"

@@ -11,6 +11,7 @@ export type AgentLifecycleResult = {
   changed: boolean;
   lifecycle: string;
   pairingCode: string | null;
+  pairingCodeExpiresAt: Date | null;
 };
 
 /**
@@ -48,7 +49,7 @@ export async function transitionAgentLifecycle(
     if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
     const now = new Date(nowMs);
     if (current === next) {
-      return { changed: false, lifecycle: next, pairingCode: null };
+      return { changed: false, lifecycle: next, pairingCode: null, pairingCodeExpiresAt: null };
     }
     if (!canTransitionLifecycle(current, next)) {
       throw new LifecycleConflict(`invalid lifecycle transition: ${current} -> ${next}`);
@@ -80,11 +81,12 @@ export async function transitionAgentLifecycle(
       if (!pairingCode) throw new Error("could not mint a unique pairing code");
     }
 
+    const pairingCodeExpiresAt = pairingCode ? new Date(now.getTime() + 10 * 60 * 1000) : null;
     const updated = await tx.update(agents).set({
       lifecycle: next,
       secret: null,
       pairingCodeHash: pairingCode ? hashPairingCode(pairingCode) : null,
-      pairingCodeExpiresAt: pairingCode ? new Date(now.getTime() + 10 * 60 * 1000) : null,
+      pairingCodeExpiresAt,
       status: "offline",
       lifecycleRevision: currentRevision + 1,
       updatedAt: now,
@@ -115,7 +117,7 @@ export async function transitionAgentLifecycle(
     }
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId, lifecycleRevision: nextRevision })}::text)`);
 
-    return { changed: true, lifecycle: next, pairingCode };
+    return { changed: true, lifecycle: next, pairingCode, pairingCodeExpiresAt };
   });
 }
 

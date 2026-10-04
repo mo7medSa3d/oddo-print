@@ -15,21 +15,21 @@ async function loadModule(file, globals = {}, select = (source) => source) {
     if (modules.has(path)) return modules.get(path);
     if (path.startsWith("node:")) {
       const builtin = await import(path);
-      const module = new vm.SyntheticModule(Object.keys(builtin), function () {
+      const loadedModule = new vm.SyntheticModule(Object.keys(builtin), function () {
         for (const [key, value] of Object.entries(builtin)) this.setExport(key, value);
       }, { context });
-      modules.set(path, module);
-      return module;
+      modules.set(path, loadedModule);
+      return loadedModule;
     }
     const source = select(await readFile(path, "utf8"), path);
-    const module = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
-    modules.set(path, module);
-    await module.link((name) => get(name.startsWith("node:") ? name : resolve(dirname(path), `${name}.ts`)));
-    return module;
+    const loadedModule = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
+    modules.set(path, loadedModule);
+    await loadedModule.link((name) => get(name.startsWith("node:") ? name : resolve(dirname(path), `${name}.ts`)));
+    return loadedModule;
   }
-  const module = await get(resolve(file));
-  await module.evaluate();
-  return module.namespace;
+  const loadedModule = await get(resolve(file));
+  await loadedModule.evaluate();
+  return loadedModule.namespace;
 }
 
 test("error keys reject prototype properties and keep valid translations", async () => {

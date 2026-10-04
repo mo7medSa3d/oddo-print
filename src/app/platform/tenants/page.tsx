@@ -46,10 +46,10 @@ const LIFECYCLE_META: Record<Tenant["lifecycle"], { tone: Tone; key: MessageKey 
 };
 
 export default function PlatformTenantsPage() {
-  const { t, tc, formatNumber, formatDate } = useI18n();
+  const { t, tc, locale, formatNumber, formatDate } = useI18n();
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [completedQuery, setCompletedQuery] = useState<string | null>(null);
+  const [search, setSearchValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
@@ -61,11 +61,13 @@ export default function PlatformTenantsPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => { setOffset(0); }, [search]);
+  const queryKey = JSON.stringify([offset, search, reloadKey, locale]);
+  const loading = completedQuery !== queryKey;
+  function setSearch(value: string) { setSearchValue(value); setOffset(0); }
+
 
   useEffect(() => {
     let ignore = false;
-    setLoading(true);
     async function load() {
       try {
         const res = await fetch(`/api/platform/tenants?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}`, { cache: "no-store" });
@@ -75,11 +77,11 @@ export default function PlatformTenantsPage() {
         if (!ignore) { setTenants(Array.isArray(data.tenants) ? data.tenants : []); setHasMore(data.hasMore === true); setError(null); }
       } catch {
         if (!ignore) setError(t("platform.tenants.loadFailed"));
-      } finally { if (!ignore) setLoading(false); }
+      } finally { if (!ignore) setCompletedQuery(queryKey); }
     }
     void load();
     return () => { ignore = true; };
-  }, [reloadKey, t, offset, search]);
+  }, [reloadKey, t, offset, search, queryKey]);
 
   function closeDialog() {
     if (actionLoading) return;
@@ -88,7 +90,7 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  function handleRefresh() { setLoading(true); setError(null); setNotice(null); setReloadKey((k) => k + 1); }
+  function handleRefresh() { setError(null); setNotice(null); setReloadKey((k) => k + 1); }
   function openSuspend(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("suspend"); setSuspendReason(""); setActionError(null); }
   function openReactivate(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("reactivate"); setSuspendReason(""); setActionError(null); }
 

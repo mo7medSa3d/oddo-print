@@ -11,7 +11,7 @@ describe("WebSocket capacity reservation", () => {
   it("guards upgrade reservation cleanup before registration", () => {
     const source = readFileSync(resolve(process.cwd(), "src/server/ws.ts"), "utf8");
     const handleUpgrade = source.indexOf("wss.handleUpgrade(req, socket, head");
-    const reservationClose = source.indexOf('socket.once("close", releaseReservation)', 0);
+    const reservationClose = source.indexOf('socket.once("close", () => {', 0);
     const catchStart = source.indexOf("} catch (error)", handleUpgrade);
     const releaseInCatch = source.indexOf("releaseReservation();", catchStart);
     expect(handleUpgrade).toBeGreaterThanOrEqual(0);

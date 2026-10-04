@@ -14,10 +14,12 @@ function validateId(value: unknown): string {
   return id;
 }
 
-function parsePatch(input: unknown) {
+type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">> & { stripePriceId?: string };
+
+function parsePatch(input: unknown): PlanPatch {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid JSON body.");
   const body = input as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
+  const result: PlanPatch = {};
 
   if (body.name !== undefined) {
     if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) throw new Error("Plan name is required and must be at most 120 characters.");
@@ -79,7 +81,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   const { id: rawId } = await context.params;
   let id: string;
-  let patch: Record<string, unknown>;
+  let patch: PlanPatch;
   try {
     id = validateId(rawId);
     patch = parsePatch(await req.json());

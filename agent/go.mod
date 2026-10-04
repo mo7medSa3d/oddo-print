@@ -2,6 +2,8 @@ module github.com/yaseir-agent/agent
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.44.0

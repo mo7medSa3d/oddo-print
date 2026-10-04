@@ -1524,7 +1524,7 @@ function refreshBackgroundIsolation(): void {
     if (!parent) break;
     for (const sibling of [...parent.children]) {
       if (sibling instanceof HTMLElement && sibling !== element) {
-        inertedBackground.set(sibling, sibling.inert); sibling.inert = true;
+        inertedBackground.set(sibling, Boolean(sibling.inert)); sibling.inert = true;
       }
     }
     element = parent;

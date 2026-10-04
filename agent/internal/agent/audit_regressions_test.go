@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/yaseir-agent/agent/internal/config"
 	"github.com/yaseir-agent/agent/internal/printer"
 	"github.com/yaseir-agent/agent/internal/queue"
@@ -159,7 +160,7 @@ func TestAuditTerminalOutboxNeverUsesNewLiveClaim(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Server.URL = server.URL
 	a := &Agent{cfg: cfg, client: server.Client(), queue: q, inFlightTokens: map[string]string{"job": "new-token"}}
-	if err := a.updateJobStatus(context.Background(), "job", "failed", "old attempt", "old-token", ""); err != ErrStaleClaim {
+	if err := a.updateJobStatus(context.Background(), "job", "failed", "old attempt", "old-token", ""); !errors.Is(err, ErrStaleClaim) {
 		t.Fatalf("wanted stale rejection, got %v", err)
 	}
 }

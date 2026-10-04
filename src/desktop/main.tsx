@@ -134,7 +134,7 @@ export default function App() {
   // Network refresh effects must never be driven by keystrokes in Settings.
   const [savedGatewayUrl, setSavedGatewayUrl] = useState("");
   const savedOriginRef = useRef(savedGatewayUrl);
-  savedOriginRef.current = savedGatewayUrl;
+  useEffect(() => { savedOriginRef.current = savedGatewayUrl; }, [savedGatewayUrl]);
   const printersGeneration = useRef(0);
   const jobsGeneration = useRef(0);
   const healthGeneration = useRef(0);

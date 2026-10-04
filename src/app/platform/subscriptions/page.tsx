@@ -54,21 +54,24 @@ function statusMeta(status: string): { tone: Tone; key: MessageKey | null; raw: 
 type Filter = "all" | "active" | "attention" | "other";
 
 export default function PlatformSubscriptionsPage() {
-  const { t, formatNumber, formatDate } = useI18n();
+  const { t, locale, formatNumber, formatDate } = useI18n();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [completedQuery, setCompletedQuery] = useState<string | null>(null);
+  const [search, setSearchValue] = useState("");
+  const [filter, setFilterValue] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => { setOffset(0); }, [search, filter]);
+  const queryKey = JSON.stringify([offset, search, filter, reloadKey, locale]);
+  const loading = completedQuery !== queryKey;
+  function setSearch(value: string) { setSearchValue(value); setOffset(0); }
+  function setFilter(value: Filter) { setFilterValue(value); setOffset(0); }
+
 
   useEffect(() => {
     let ignore = false;
-    setLoading(true);
     async function load() {
       try {
         const res = await fetch(`/api/platform/subscriptions?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}&filter=${filter}`);
@@ -78,13 +81,13 @@ export default function PlatformSubscriptionsPage() {
         if (!ignore) { setSubscriptions(data.subscriptions || []); setHasMore(data.hasMore === true); setError(null); }
       } catch {
         if (!ignore) setError(t("platform.subs.loadError"));
-      } finally { if (!ignore) setLoading(false); }
+      } finally { if (!ignore) setCompletedQuery(queryKey); }
     }
     load();
     return () => { ignore = true; };
-  }, [reloadKey, t, offset, search, filter]);
+  }, [reloadKey, t, offset, search, filter, queryKey]);
 
-  function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
+  function handleRefresh() { setReloadKey((k) => k + 1); }
 
   const counts = useMemo(
     () => ({

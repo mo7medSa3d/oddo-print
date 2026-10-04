@@ -121,7 +121,7 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"success":true}`))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": body.Status})
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[]`))

@@ -158,14 +158,14 @@ describe("DEFECT #5 — Odoo POS TaxLabel & Receipt Rendering Contract", () => {
   it("pos_print_router.js renders OrderReceipt OWL component via renderer service with fallback", () => {
     const posRouter = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/static/src/js/pos_print_router.js"), "utf-8");
     expect(posRouter).toContain('import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt"');
-    expect(posRouter).toContain("renderer.toJpeg(OrderReceipt");
+    expect(posRouter).toContain("renderer.toJpeg(receiptComponent");
     // Phase 13 deliberately eliminated the mocked doesAnyOrderlineHaveTaxLabel
     // shim (commit 5d245a5): the direct-template fallback must use the native
     // Odoo data contract instead. Assert the native contract AND the absence
     // of the fake so neither regresses silently.
     expect(posRouter).not.toContain("doesAnyOrderlineHaveTaxLabel");
-    expect(posRouter).toContain("export_for_printing");
-    expect(posRouter).toContain("formatCurrency");
+    expect(posRouter).toContain("order: currentOrder");
+    expect(posRouter).toContain("basic_receipt: Boolean(basic)");
     expect(posRouter).toContain("renderReceiptImage(this, currentOrder, basic)");
   });
 });

@@ -2,30 +2,16 @@ import { describe, it, expect } from "vitest";
 import { buildTimelineFromJobRow } from "../src/lib/job-timeline";
 import { translate } from "../src/i18n/translate";
 
-// The timeline builder takes the full `print_jobs` row type. Fixtures are
-// built through this helper so every required column is present and typed;
-// partial object literals no longer typecheck.
+// Fixtures contain only the timeline builder's public input fields.
 type PrintJobRow = Parameters<typeof buildTimelineFromJobRow>[0];
 
 function makeJob(overrides: Partial<PrintJobRow> = {}): PrintJobRow {
   const base = new Date("2024-01-01T00:00:00Z");
   return {
-    id: "job_123",
-    tenantId: "tenant_1",
-    apiKeyId: null,
-    destination: null,
-    documentType: null,
     agentId: "agent_1",
-    printerId: "printer_1",
     status: "queued",
-    payload: { protocol: "raw", encoding: "base64", data: "aA==" },
     error: null,
-    requestedBy: null,
-    requestId: null,
-    idempotencyKey: null,
-    retries: 0,
     claimedAt: null,
-    claimToken: null,
     deliveryAttempts: 0,
     deliveredAt: null,
     ackedAt: null,
@@ -52,8 +38,6 @@ describe("job-timeline", () => {
       updatedAt: new Date("2024-01-01T00:03:00Z"),
       attemptId: "attempt_1",
       spoolerJobId: "42",
-      claimToken: "claim_abc",
-      requestId: "req_123",
       deliveryAttempts: 1,
     });
     const timeline = buildTimelineFromJobRow(job);
@@ -79,8 +63,6 @@ describe("job-timeline", () => {
       deliveredAt: new Date(),
       spoolerJobId: "99",
       attemptId: "attempt_2",
-      claimToken: "claim_xyz",
-      requestId: "req_456",
       deliveryAttempts: 1,
     });
     const timeline = buildTimelineFromJobRow(job);

@@ -103,6 +103,10 @@ function toDateOrNull(value?: string | null): Date | null {
  * distinguishable from a failed transport step. Status is always icon + label.
  */
 export default function PrintCertificationWizard({ printerId }: { printerId: string }) {
+  return <CertificationSession key={printerId} printerId={printerId} />;
+}
+
+function CertificationSession({ printerId }: { printerId: string }) {
   const { t, formatNumber, formatTime } = useI18n();
   const [steps, setSteps] = useState<CertificationStep[] | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -118,10 +122,8 @@ export default function PrintCertificationWizard({ printerId }: { printerId: str
   const [inspectBeforeRepeat, setInspectBeforeRepeat] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    operationKey.current = null;
-    setSteps(null); setJobId(null); setTerminal(false); setInspectBeforeRepeat(false); setLoading(false);
     return () => { controllerRef.current?.abort(); };
-  }, [printerId]);
+  }, []);
   useEffect(() => {
     if (!jobId) return;
     const controller = new AbortController();

@@ -94,6 +94,10 @@ function formatWhen(value: string | undefined, formatDateTime: (v: string) => st
  * identifiers and a retry path for transient failures.
  */
 export default function JobTimeline({ jobId }: { jobId: string }) {
+  return <TimelineSession key={jobId} jobId={jobId} />;
+}
+
+function TimelineSession({ jobId }: { jobId: string }) {
   const { t, formatDateTime } = useI18n();
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +114,6 @@ export default function JobTimeline({ jobId }: { jobId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(true); setError(null); setEvents(null); setCorrelation(null);
     const load = async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}/timeline`, {

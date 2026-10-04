@@ -127,3 +127,52 @@ Commands run from repository root unless a component is identified. Detailed tra
 | Production/staging deployment | Config/workflow source review, YAML/pin/timeout validation, custom-server build | Actual Compose/network/TLS/authenticated proxy deployments, migration-before-app ordering, restore drill and staged failure/recovery under production-like traffic. No Docker daemon, deployment credentials or current remote CI results supplied. |
 
 Release acceptance must use the existing real-DB tripwire and real platform runners; mocks cannot satisfy those gates. All discovered source defects were corrected, but outstanding upstream advisories and unavailable runtime checks mean the repository is **not certified production-ready or free of known risks**. This is the concrete remaining work, not a claim of success based only on passing unit tests.
+
+
+## CI recovery follow-up — 2026-10-04
+
+This section supersedes earlier local pass claims for commit `7fa576e65f22d6b72b190b8f84f1efc3cd10c9a3`. The four runs supplied by the operator tested that exact commit on `main`; the source differs from the original archive baseline. Current job logs, rather than historical evidence files, establish the failures below.
+
+### Failed-job evidence
+
+| Run/job | Observed failure | Root cause |
+|---|---|---|
+| [Windows installer](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667437/job/111366538752) | `discovery_extended.go:8:2: "log" imported and not used` | Go compilation stopped before tests, Rust and packaging. |
+| [CI](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667399/job/111366538804) | Same unused import | Early Go phase concealed downstream frontend checks. |
+| [Supply chain](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667410/job/111366538566) | govulncheck package loading rejects the unused import | A compilation failure, not evidence of a newly reachable advisory. |
+| [Docker](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667405/job/111366538662) | Webpack cannot resolve `net`/`tls` in pg | `dashboard-client → PrintCertificationWizard → job-status → database-clock → db → pg` crossed the browser/server boundary. |
+
+### Additional findings and fixes
+
+| ID | Severity | Files/evidence | Fix and preserved contract |
+|---|---|---|---|
+| CI01 | P1 | `agent/internal/printer/discovery_extended.go` unused log import, reproduced by Go build | Remove the actual unused import; no build gate bypass. |
+| CI02 | P1 | `src/lib/job-status.ts` imports a timestamp parser from the database-owning clock module | Extract the unchanged pure parser to `database-timestamp.ts`, import it directly in job-status, re-export it from database-clock for server compatibility. Actual Next and Vite builds verify the boundary. Authoritative clock inputs and physical outcome semantics stay intact. |
+| CI03 | P1 | `src/components/AppShell.tsx`: three LanguageSwitcher references without an import | Wire the existing translated language-switcher component into the shell. |
+| CI04 | P2 | `src/lib/session-config.ts`: DOM Web Locks type inference creates a nested promise type | Normalize the lock/check result with Promise.resolve and return the typed shared flight. New behavioral tests cover locked concurrent admission, failure recovery and rejected credentials. |
+| CI05 | P2 | Platform plan PATCH erases validated fields to Record<string,unknown> before the billing catalog lock | Use a schema-derived PlanPatch type, refining the validated nonnullable Stripe Price field. Validation, tenant/owner admission and locking remain unchanged. |
+| CI06 | P2 | Release-readiness overall value `BLOCKED (explicit)` is not a key of the translated Status map | Keep overall within the existing canonical Status union, render its translated label, and calculate small row counts without unstable useMemo dependencies. |
+| CI07 | P2 | Tenant/subscription pages reset pagination and loading synchronously from effects, causing lint errors and redundant old-offset requests | Reset offset in the search/filter events; derive loading from the completed request key including locale, offset, query and reload generation. Existing cancellation prevents stale completions from replacing current data. |
+| CI08 | P2 | Certification/timeline state resets in effects; desktop saved-origin ref mutation during render | Key certification/timeline sessions by their printer/job ID, use unmount cleanup to abort old work, and synchronize the desktop origin ref after commit. No new job/reprint authority is introduced. |
+| CI09 | P2 | Dashboard reenabling pairing invents an expiry from browser time; refresh callback misses translator dependency | Return the exact persisted database-derived expiry through lifecycle/actions, display it only with its pairing code, and include the translator dependency. |
+| CI10 | P2 | Go test Gateways emit `{success:true}` where production requires `{success:true,status:...}`; wrapped stale-claim error is compared by equality | Update fixtures to echo the requested acknowledged status and use errors.Is for the fence sentinel. Production strict acknowledgement, immutable attempt tokens, unknown outcomes and dispatch fencing are retained. |
+| CI11 | P2 | A database ingestion regression is embedded in discovery-unit.test.ts, violating suite classification | Move that block to discovery-identity.integration.test.ts and register it in the existing integration group. Pure taxonomy/CIDR tests remain in unit; database assertions are retained for real PostgreSQL. |
+| CI12 | P3 | Existing tests assert obsolete implementation strings, English text removed by localization, old Odoo receipt props, old recovery-form absence, and a compatibility driver being virtual | Align assertions with the actual canonical capability module, Odoo 19 `order/basic_receipt` props, localized UI keys, explicit recovery controls, added reactive scope fields and handshake cleanup closure. Move the compatibility driver into the physical-printer table, preserving virtual-printer exclusions. Root assertions remain, rather than deleting failing tests. |
+| CI13 | P3 | Timeline fixtures inject secret/irrelevant fields outside the builder's public input; offline VM harness variables shadow Next's module name | Fixtures now represent the actual public input. Rename VM locals to loadedModule while retaining actual-source execution. |
+| CI14 | P3 | Go U1000 finds unused token logging helper once old token-adoption diagnostics are removed | Remove the unused helper and SHA import. A successful report does not need a token diagnostic; the log security test still rejects raw passed/live tokens. |
+| CI15 | P3 | Odoo Arabic catalog contains obsolete `label` term removed by receipt changes | Remove that stale entry. Catalog check now matches 666 source terms and entries. |
+| CI16 | P2 | GitHub setup-go resolves the module language declaration to exact Go 1.26.0, while local verification uses 1.26.8 | Declare `toolchain go1.26.8` in go.mod. The SHA-pinned setup-go implementation prioritizes that directive; language minimum remains 1.26.0. Add an alignment assertion and keep all workflows deriving the version from the module file. |
+| CI17 | P3 | Background isolation saves undefined inert on hosts without native support | Normalize the saved state to Boolean before applying and restoring inert; the existing dialog isolation DOM regression passes. |
+
+### Verification of the corrected source
+
+- Typecheck and ESLint pass with no warnings/errors. No lint, type, audit, or DB tripwire is disabled.
+- Gateway Next production and Desktop Vite production builds pass. Desktop retains the known chunk-size warning.
+- JavaScript unit/DOM/contract suite is rerun with a JSON report. New browser-boundary and session-admission tests accompany the existing physical-outcome, pairing, UI and authentication contracts.
+- Standalone Python suite: 167 passed, including actual Rust std-helper compilation/execution with rustc. This does not claim installed Odoo ORM coverage.
+- Offline actual-module Node audit suite: 16 passed. Shared EN/AR check: 2,238 keys each; Odoo catalog: 666/666; database documentation/migration consistency: checked.
+- Go race suite: all 10 packages pass; build, vet, Linux/Windows U1000 and Windows amd64 cross-build are run. Production strict acknowledgement tests now simulate the real Gateway response.
+- govulncheck reports zero reachable/imported-package vulnerabilities; the module-only no-fix OpenPGP warning remains. npm production audit is clean, and the existing full audit gate retains its explicit dev-only braces exception.
+- Remote PostgreSQL integration, Docker runtime, native Windows Rust/build/installer and Odoo jobs must be checked on the fix commit. Original failed runs are historical and do not turn green retroactively. Current CI results will be recorded after the fix branch runs; local cross-compilation is not installer execution or physical-printer acceptance.
+
+The broader physical/runtime limitations and upstream risks elsewhere in this report still apply. Fixing CI is not a certification of physical printing or production readiness.
