@@ -32,9 +32,26 @@ CI, second push (base commit already red — evidence: `gh run list --branch mai
   - Pre-existing failures reached only once Typecheck stopped failing, all introduced before this session:
     * `tests/printer-language-badges.test.ts:79,146` — commit 30a4221 added the shared session admission (`ensureCustomerSession()` → `/api/auth/me`) to `src/app/api-keys/page.tsx`; the test mocks never answered that probe, so the page rendered "session expired" instead of the behaviour under test and the create-key POST never fired. Fixed by answering the probe in both mocks; every original assertion is unchanged.
     * `tests/deep-review-contract.test.ts:54` — asserted `lte(apiKeys.readOnlyUntil, sql\`clock_timestamp()\`)`, which the A167 rewrite of `src/app/api/odoo/keys/route.ts` replaced with one SQL `CASE ... ${apiKeys.readOnlyUntil} > clock_timestamp()`. The assertion now pins the current SQL form; the database-clock intent and the `not.toContain("Date.now()")` guard are untouched.
+    * `tests/odoo-gateway-activation-sync.test.ts:253` — asserted `method,`, which the A168 rewrite of
+      gateway_config_auto_sync.js replaced with an inlined action choice; now pins the inline form and keeps the
+      resId identity guards.
     * `build-windows` fails on main as well (pre-existing), and is not caused by this branch.
   - Verified in this branch by the same CI run: Typecheck, Lint, i18n catalog check, offline audit regressions, Odoo translation check, DB drift check, Odoo 19 addon validation, `next build` (docker-build-runtime), `odoo19` integration job, supply-chain, CodeQL, secret scan.
   - Sandbox cannot run vitest/tsc/next: the only way to see these results is CI, which is why the branch is pushed and watched.
+
+FINAL CI RESULT (commit 0e21b9d + follow-up, branch arena/01a1080f-oddo-print, `gh pr checks 115`):
+  ci PASS (10m37s, 39 steps) — relative-imports gate, Go build/vet/race, npm supply-chain audit, Rust audit,
+    Typecheck, Lint, i18n catalog check (2284/2284 keys), offline audit regressions, Odoo translation catalog,
+    DB schema/migration/docs drift, Phase 0 architecture hardening, Go vulnerability scan, Go U1000 dead-code
+    (linux + windows build tags), Odoo 19 XML conventions, module icon match, pyflakes + pytest over
+    odoo_addons/scripts/tests, next build, unit tests (no DB), PostgreSQL start, Drizzle migrations,
+    final runtime-only schema verification, integration tests (PostgreSQL), requested verification commands,
+    Go formatting gate.
+  Also PASS: docker-build-runtime (compose build incl. next build), odoo19 (addon installed and tested on a real
+    Odoo 19 Community database), supply-chain, postgres-failure-injection, CodeQL (go/python/js-ts), Dependency
+    Review, Secret Scan.
+  FAIL (pre-existing, not from this branch): build-windows — the same workflow fails on the untouched base commit
+    30a4221 (`Build Windows Installer: failure`), so the Windows installer pipeline was already red before this pass.
 
 UNVERIFIED: tsc/eslint/vitest/next build (project dependencies absent; npm ci impossible offline and dependency installation is forbidden), PostgreSQL/Stripe/live Odoo/Windows printing/Tauri runtime, browser rendering and RTL visual pass, cryptography/rustc-dependent tests.
 
