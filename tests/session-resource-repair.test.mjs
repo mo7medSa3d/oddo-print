@@ -8,10 +8,10 @@ import vm from 'node:vm';
 async function actual(file, globals={}, select=s=>s) {
   const source=select(await readFile(file,'utf8'));
   const context=vm.createContext({ console, Date, Set, Map, WeakMap, Promise, Response, Request, URL, ...globals });
-  const module=new vm.SourceTextModule(stripTypeScriptTypes(source,{mode:'transform'}),{context});
-  await module.link(()=>{throw new Error('Unexpected external dependency');});
-  await module.evaluate();
-  return module.namespace;
+  const loadedModule=new vm.SourceTextModule(stripTypeScriptTypes(source,{mode:'transform'}),{context});
+  await loadedModule.link(()=>{throw new Error('Unexpected external dependency');});
+  await loadedModule.evaluate();
+  return loadedModule.namespace;
 }
 const sessionFile='src/lib/session-config.ts';
 function response(status,body) {return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});}
@@ -130,7 +130,7 @@ async function odooSave(changes,{removeKey=false,navigate=false}={}) {
   const context=vm.createContext({WeakMap});
   const common=new vm.SyntheticModule(['Record','FormController','patch'],function(){this.setExport('Record',Record);this.setExport('FormController',FormController);this.setExport('patch',patch);},{context});
   const source=await readFile('odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js','utf8');
-  const module=new vm.SourceTextModule(source,{context});await module.link(()=>common);await module.evaluate();
+  const loadedModule=new vm.SourceTextModule(source,{context});await loadedModule.link(()=>common);await loadedModule.evaluate();
   const record=new Record();controller=new FormController();controller.model={root:record,load:async()=>{calls.push('reload');controller.model.root={...record,data:{gateway_sync_state:'active'}};}};
   controller.orm={call:async(_model,method,ids)=>{calls.push(method);assert.equal(ids[0][0],7);if(navigate)controller.model.root={resModel:'different',resId:8};return {};}};controller.actionService={doAction:async()=>{}};
   await record._save();return {calls,controller};
