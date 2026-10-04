@@ -39,7 +39,7 @@ export function AddPrinterDialog({
   const [usbSel, setUsbSel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string }>>([]);
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>>([]);
   // Which gateway URL the cached agents were fetched from. The cache must
   // be keyed by URL: reusing gateway A's agents after switching to gateway
   // B would register the printer against an agentId B never issued.
