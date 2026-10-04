@@ -51,7 +51,7 @@ describe("deep production review contracts", () => {
     const rotate = read("src/app/api/odoo/keys/[id]/rotate/route.ts");
     expect(keys).toContain("rotationState: sql<");
     expect(keys).toContain("clock_timestamp()");
-    expect(keys).toContain("lte(apiKeys.readOnlyUntil, sql`clock_timestamp()`)");
+    expect(keys).toContain("${apiKeys.readOnlyUntil} > clock_timestamp()");
     expect(keys).toContain("revokedAt: sql`clock_timestamp()`");
     expect(keys).not.toContain("const now = gatewayNowMs()");
     expect(keys).not.toContain("revokedAt: new Date()");

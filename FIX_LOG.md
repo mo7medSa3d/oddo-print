@@ -28,6 +28,14 @@ CI (GitHub Actions, branch arena/01a1080f-oddo-print): the first push failed two
   - `ci` / "Run Odoo static contract tests (Python)": the step first runs `pyflakes` over `odoo_addons scripts tests`, and the new `scripts/check-ui-copy.py` had an unused `json` import, so pyflakes exited 1 and `xargs` returned 123. Import removed; the script is pyflakes-clean (verified with an AST sweep of unused imports/locals).
   Both jobs are re-verified on the follow-up commit; the earlier bash-only checks (catalog/contrast/offline suites) had no way to catch a type error.
 
+CI, second push (base commit already red — evidence: `gh run list --branch main --workflow ci` shows `CI failure` at 30a4221):
+  - Pre-existing failures reached only once Typecheck stopped failing, all introduced before this session:
+    * `tests/printer-language-badges.test.ts:79,146` — commit 30a4221 added the shared session admission (`ensureCustomerSession()` → `/api/auth/me`) to `src/app/api-keys/page.tsx`; the test mocks never answered that probe, so the page rendered "session expired" instead of the behaviour under test and the create-key POST never fired. Fixed by answering the probe in both mocks; every original assertion is unchanged.
+    * `tests/deep-review-contract.test.ts:54` — asserted `lte(apiKeys.readOnlyUntil, sql\`clock_timestamp()\`)`, which the A167 rewrite of `src/app/api/odoo/keys/route.ts` replaced with one SQL `CASE ... ${apiKeys.readOnlyUntil} > clock_timestamp()`. The assertion now pins the current SQL form; the database-clock intent and the `not.toContain("Date.now()")` guard are untouched.
+    * `build-windows` fails on main as well (pre-existing), and is not caused by this branch.
+  - Verified in this branch by the same CI run: Typecheck, Lint, i18n catalog check, offline audit regressions, Odoo translation check, DB drift check, Odoo 19 addon validation, `next build` (docker-build-runtime), `odoo19` integration job, supply-chain, CodeQL, secret scan.
+  - Sandbox cannot run vitest/tsc/next: the only way to see these results is CI, which is why the branch is pushed and watched.
+
 UNVERIFIED: tsc/eslint/vitest/next build (project dependencies absent; npm ci impossible offline and dependency installation is forbidden), PostgreSQL/Stripe/live Odoo/Windows printing/Tauri runtime, browser rendering and RTL visual pass, cryptography/rustc-dependent tests.
 
 -------------------------------------------------------------------------------
