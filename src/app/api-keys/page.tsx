@@ -6,14 +6,13 @@ import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import Link from "next/link";
 import {
+  ChevronDown,
   Copy,
   KeyRound,
   ShieldCheck,
-  Workflow,
   Plus,
   Trash2,
   Ban,
-  Info,
 } from "lucide-react";
 import {
   Button,
@@ -29,6 +28,7 @@ import {
   PageHeader,
   StatusBadge,
   Skeleton,
+  StatusDot,
   type Tone,
 } from "../../components/ui";
 import { ensureCustomerSession } from "../../lib/session-config";
@@ -161,7 +161,7 @@ export default function ApiKeysPage() {
         description={t("apiKeys.pageDescription")}
         meta={
           active > 0 ? (
-            <StatusBadge tone={enabled > 0 ? "ok" : "warn"} label={`${active} active`} />
+            <StatusBadge tone={enabled > 0 ? "ok" : "warn"} label={tc("apiKeys.activeCount", active, { count: formatNumber(active) })} />
           ) : (
             <StatusBadge tone="neutral" label={t("apiKeys.notConnected")} />
           )
@@ -220,40 +220,60 @@ export default function ApiKeysPage() {
             </Callout>
           )}
 
-          <section aria-label={t("apiKeys.summaryLabel")} className="overflow-hidden rounded-xl border border-edge bg-surface shadow-card">
-            <div className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              <div className="p-4">
-                <div className="label-caps">{t("apiKeys.activeKeys")}</div>
-                <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
-                  {loading ? "—" : active}
+          {/* The connection state is derived from data the Gateway already
+              has: an active key plus the Odoo-side activation flag that Odoo
+              itself replicated. "Connected" is only claimed when a live key is
+              enabled at the source. */}
+          <section
+            aria-label={t("apiKeys.connectionState")}
+            className="card flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <StatusDot
+                tone={loading ? "neutral" : active === 0 ? "neutral" : enabled > 0 ? "ok" : "warn"}
+                className="mt-1.5"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-[600] text-ink">
+                  {loading
+                    ? t("common.loading")
+                    : active === 0
+                      ? t("apiKeys.stateNotConfigured")
+                      : enabled > 0
+                        ? t("apiKeys.stateConnected")
+                        : t("apiKeys.stateWaitingOdoo")}
                 </div>
-                <div className="mt-1.5 text-xs text-ink-3">
-                  {active === 0 ? t("apiKeys.noCredential") : t("apiKeys.usableNow")}
-                </div>
+                <p className="mt-0.5 text-sm leading-snug text-ink-3">
+                  {!loading && disabled > 0
+                    ? tc("apiKeys.disabledAtSource", disabled, { count: formatNumber(disabled) })
+                    : t("apiKeys.workspaceScopeOnly")}
+                </p>
               </div>
-              <div className="p-4">
-                <div className="label-caps">{t("apiKeys.odooConnections")}</div>
-                <div className="mt-1.5 text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
-                  {loading ? "—" : enabled}
-                </div>
-                <div className="mt-1.5 text-xs text-ink-3">
-                  {active === 0 ? t("apiKeys.waitingForKey") : tc("apiKeys.disabledAtSource", disabled, { count: formatNumber(disabled) })}
-                </div>
+            </div>
+            <dl className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <div>
+                <dt className="label-caps">{t("apiKeys.activeKeys")}</dt>
+                <dd className="mt-1 text-md font-[620] tabular text-ink">{loading ? "—" : active}</dd>
               </div>
-              <div className="p-4">
-                <div className="label-caps">{t("apiKeys.accessLevel")}</div>
-                <div className="mt-1.5 flex items-center gap-2 text-md font-[600] text-ink">
-                  {active === 0 ? (
+              <div>
+                <dt className="label-caps">{t("apiKeys.odooConnections")}</dt>
+                <dd className="mt-1 text-md font-[620] tabular text-ink">{loading ? "—" : enabled}</dd>
+              </div>
+              <div>
+                <dt className="label-caps">{t("apiKeys.accessLevel")}</dt>
+                <dd className="mt-1">
+                  {loading ? (
+                    <Skeleton className="h-6 w-28" />
+                  ) : active === 0 ? (
                     <StatusBadge tone="neutral" label={t("apiKeys.notConnected")} />
                   ) : enabled === active ? (
                     <StatusBadge tone="ok" label={t("apiKeys.scope")} />
                   ) : (
                     <StatusBadge tone="warn" label={t("apiKeys.disabledInOdoo")} />
                   )}
-                </div>
-                <div className="mt-1.5 text-xs text-ink-3">{t("apiKeys.workspaceScopeOnly")}</div>
+                </dd>
               </div>
-            </div>
+            </dl>
           </section>
 
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.85fr)]">
@@ -283,8 +303,7 @@ export default function ApiKeysPage() {
                   </Field>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="max-w-[52ch] text-sm leading-relaxed text-ink-3">
-                      Keys carry read/write access to the Odoo integration and every supported
-                      document payload.
+                      {t("apiKeys.scopeNote")}
                     </p>
                     <Button
                       type="submit"
@@ -303,7 +322,7 @@ export default function ApiKeysPage() {
               <Card className="overflow-hidden">
                 <CardHeader
                   title={t("apiKeys.credentials")}
-                  subtitle={`${keys.length} issued for this workspace`}
+                  subtitle={tc("apiKeys.issuedCount", keys.length, { count: formatNumber(keys.length) })}
                   icon={<ShieldCheck className="h-4 w-4" />}
                 />
 
@@ -333,7 +352,7 @@ export default function ApiKeysPage() {
                       return (
                         <li
                           key={k.id}
-                          className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-[140ms] hover:bg-surface-hover"
+                          className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 transition-colors duration-150 hover:bg-surface-hover"
                         >
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -382,13 +401,15 @@ export default function ApiKeysPage() {
             </div>
 
             <aside className="space-y-5">
-              <Card>
-                <CardHeader
-                  title={t("apiKeys.howItWorks")}
-                  subtitle={t("apiKeys.howItWorksSubtitle")}
-                  icon={<Workflow className="h-4 w-4" />}
-                />
-                <ol className="space-y-4 px-5 py-5">
+              <details className="card group overflow-hidden">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+                  <span className="min-w-0">
+                    <span className="block text-md font-[600] leading-snug text-ink">{t("apiKeys.howItWorks")}</span>
+                    <span className="mt-0.5 block text-sm text-ink-3">{t("apiKeys.howItWorksSubtitle")}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-ink-3 transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <ol className="space-y-4 border-t border-edge-subtle px-5 py-5">
                   {[
                     [t("apiKeys.step1"), t("apiKeys.step1Text")],
                     [t("apiKeys.step2"), t("apiKeys.step2Text")],
@@ -396,7 +417,7 @@ export default function ApiKeysPage() {
                     [t("apiKeys.step4"), t("apiKeys.step4Text")],
                   ].map(([title, body], index) => (
                     <li key={title} className="flex gap-3">
-                      <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] text-ink-3 tabular">
+                      <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-edge bg-surface-2 text-2xs font-[650] tabular text-ink-3">
                         {index + 1}
                       </span>
                       <div className="min-w-0">
@@ -406,11 +427,8 @@ export default function ApiKeysPage() {
                     </li>
                   ))}
                 </ol>
-              </Card>
+              </details>
 
-              <Callout tone="info" icon={<Info className="h-4 w-4" />} title={t("apiKeys.shownOnceTitle")}>
-                {t("apiKeys.shownOnceBody")}
-              </Callout>
 
               <div className="text-sm text-ink-3">
                 {t("apiKeys.needModule")}{" "}

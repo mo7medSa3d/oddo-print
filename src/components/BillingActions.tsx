@@ -116,7 +116,7 @@ export function BillingActions({
     <>
       <div className="space-y-4">
         {selectedPlan && (
-          <section className="rounded-sg border border-brand-subtle-border bg-brand-subtle px-4 py-4">
+          <section className="rounded-sg border border-edge-accent bg-brand-subtle px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="label-caps text-brand-subtle-text">{t("billingActions.selectedPlan")}</div>

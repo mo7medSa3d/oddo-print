@@ -75,6 +75,19 @@ export function CommandPalette({
     return focusInput();
   }, [open, focusInput]);
 
+  // Arrow-key navigation must keep the active option in view: with up to 24
+  // results inside a 52vh list the highlight used to leave the viewport, so
+  // Enter would run an item the operator could no longer see.
+  useEffect(() => {
+    if (!open) return;
+    const active = listRef.current?.querySelector<HTMLElement>('[data-option-index="' + cursor + '"]');
+    active?.scrollIntoView({ block: "nearest" });
+  }, [open, cursor, results.length]);
+
+  // Options are not focusable (focus stays in the search field for typing), so
+  // the active option is exposed through aria-activedescendant instead.
+  const activeOptionId = results.length > 0 ? `command-option-${cursor}` : undefined;
+
 
   if (!open) return null;
 
@@ -136,6 +149,10 @@ export function CommandPalette({
             placeholder={t("command.placeholder")}
             aria-label={t("command.searchAria")}
             aria-controls="command-results"
+            aria-activedescendant={activeOptionId}
+            role="combobox"
+            aria-expanded
+            aria-autocomplete="list"
             className="w-full bg-transparent text-base text-ink placeholder:text-ink-4 focus:outline-none"
           />
           <Kbd>{t("command.esc")}</Kbd>
@@ -157,12 +174,14 @@ export function CommandPalette({
                   return (
                     <button
                       key={item.id}
+                      id={`command-option-${index}`}
+                      data-option-index={index}
                       type="button"
                       role="option"
                       aria-selected={selected}
                       onMouseEnter={() => setCursor(index)}
                       onClick={() => run(item)}
-                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-start text-sm transition-colors duration-[100ms] ${
+                      className={`flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-start text-sm transition-colors duration-100 ${
                         selected ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2"
                       }`}
                     >
@@ -171,7 +190,7 @@ export function CommandPalette({
                       {selected ? (
                         <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
                       ) : (
-                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4 opacity-0" aria-hidden />
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4 opacity-0 rtl:-scale-x-100" aria-hidden />
                       )}
                     </button>
                   );
@@ -191,7 +210,7 @@ export function CommandHint({ onOpen }: { onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-2 rounded-sm border border-edge bg-surface-2 px-2.5 py-1.5 text-sm text-ink-3 transition-colors duration-[140ms] hover:border-edge-strong hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+      className="flex w-full items-center gap-2 rounded-sm border border-edge bg-surface-2 px-2.5 py-1.5 text-sm text-ink-3 transition-colors duration-150 hover:border-edge-strong hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
     >
       <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
       <span className="flex-1 truncate text-start">{t("command.hint")}</span>

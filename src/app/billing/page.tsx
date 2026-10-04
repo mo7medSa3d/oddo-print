@@ -341,7 +341,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                         )}
                       </div>
                       <div className="text-xs text-ink-3">
-                        {printUsage.periodEnd ? `Current period ends ${formatDate(printUsage.periodEnd)}` : t("billing.currentPeriod")}
+                        {printUsage.periodEnd ? t("billing.periodEndsOn", { date: formatDate(printUsage.periodEnd) }) : t("billing.currentPeriod")}
                       </div>
                     </div>
                     {printUsage.limit !== "unlimited" && (
@@ -349,14 +349,11 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                         className="mt-3"
                         value={usagePct}
                         tone={usageTone}
-                        label={`${printUsage.used} of ${printUsage.limit} print jobs used`}
+                        label={t("billing.usageAria", { used: formatNumber(printUsage.used, locale), limit: formatNumber(printUsage.limit, locale) })}
                       />
                     )}
                     {printUsage.remaining === 0 && (
-                      <p className="mt-3 text-sm font-[550] text-bad">
-                        The print credit limit for this period is exhausted. New jobs are rejected
-                        until the period resets or the plan is upgraded.
-                      </p>
+                      <p className="mt-3 text-sm font-[550] text-bad">{t("billing.creditsExhausted")}</p>
                     )}
                   </div>
                 </Card>

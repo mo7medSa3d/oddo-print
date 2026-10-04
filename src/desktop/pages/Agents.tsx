@@ -48,7 +48,23 @@ export function AgentsPage({ s }: { s: DesktopState }) {
           <div className="px-5 pb-5">
             {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title={t("desktop.agents.notConfigured")} description={t("desktop.agents.notConfiguredBody")} action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>{t("desktop.agents.openSettings")}</Button>} /> : s.healthError ? <ErrorState title={t("desktop.agents.checkFailed")} message={friendlyGatewayError(s.healthError, locale)} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3"><div className="rounded-sg border border-edge bg-surface-2 p-4"><div className="text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.agents.totalAgents")}</div><div className="mt-1 text-2xl font-bold tabular-nums text-ink">{s.fleetTotal}</div></div><div className="rounded-sg border border-edge bg-surface-2 p-4"><div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.agents.online")}<StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} /></div><div className="mt-1 flex items-baseline gap-2"><span className="text-2xl font-bold tabular-nums text-ink">{s.fleetOnline}</span><span className="text-xs text-ink-3">{t("desktop.agents.ofTotal", { count: s.fleetTotal })}</span></div></div></div>
+                {/* The fleet counts repeat what the metric row above already
+                    states, so the card shows them once as data, not as two
+                    more tiles. */}
+                <DetailList
+                  rows={[
+                    {
+                      label: t("desktop.agents.online"),
+                      value: (
+                        <span className="inline-flex items-center gap-2">
+                          <StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} />
+                          {t("desktop.agents.ofTotal", { count: s.fleetTotal })}
+                        </span>
+                      ),
+                    },
+                    { label: t("desktop.agents.totalAgents"), value: s.fleetTotal },
+                  ]}
+                />
                 <p className="text-xs leading-relaxed text-ink-3">{t("desktop.agents.livenessNote")}</p>
                 <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="min-w-0 flex-1 truncate font-mono text-2xs text-ink-3">{s.gatewayUrl}</span><CopyButton value={s.gatewayUrl} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.agents.urlCopied"), type: "success" })} /></div>
               </div>

@@ -165,7 +165,10 @@ describe("Odoo Gateway activation synchronization", () => {
       const page = read("src/app/api-keys/page.tsx");
       expect(page).toContain('fetch("/api/odoo/keys"');
       expect(page).toContain("setInterval");
-      expect(page).toContain("Odoo integration");
+      // The page identity is localized now: the stable contract is the title
+      // key plus its English value, not a literal sentence in the JSX.
+      expect(page).toContain('t("apiKeys.title")');
+      expect(read("src/i18n/messages/en.ts")).toContain('"apiKeys.title": "Odoo integration"');
       // Localized at render time; assert the key, which is the stable contract.
       // Localized at render time; the key is the stable contract, not the copy.
       expect(page).toContain('t("apiKeys.connectOdoo")');
@@ -247,7 +250,9 @@ describe("Odoo Gateway auto-sync client record identity", () => {
     const source = read("odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js");
     expect(source).toContain("const resId = record.resId;");
     expect(source).toContain("[[resId]]");
-    expect(source).toContain("method,");
+    // The A168 rewrite inlined the action choice instead of passing a
+    // `method` variable; both post-save actions and the resId identity stay pinned.
+    expect(source).toContain('"action_test_connection" : "action_retry_enabled_sync"');
     expect(source).toContain("await this.model.load({ resId });");
     expect(source).not.toContain("record.id");
     expect(source).not.toContain("[[record.id]]");

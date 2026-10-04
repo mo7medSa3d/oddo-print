@@ -121,7 +121,6 @@ export default function PlatformSubscriptionsPage() {
     <div className="space-y-5">
       <PageHeader
         variant="inline"
-        eyebrow={t("platform.subs.eyebrow")}
         icon={<CreditCard className="h-4 w-4" aria-hidden />}
         title={t("platform.subs.title")}
         description={t("platform.subs.description")}

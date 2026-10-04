@@ -28,7 +28,6 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
             <StatusDot tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} pulse={s.gatewayConnected} />
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-ink">{s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")}</div><div className="truncate text-2xs text-ink-3">{s.gatewayUrl || t("desktop.settings.enterGatewayUrl")}</div></div>
-            <StatusBadge tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} label={s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")} />
           </div>
           <Field label={t("desktop.settings.gatewayUrlLabel")} htmlFor="gw-url" hint={t("desktop.settings.gatewayUrlHint")}>
             <Input id="gw-url" value={s.gatewayUrl} onChange={(e) => s.setGw(e.target.value)} placeholder="https://gateway.example.com" className="h-10 rounded-md" />
@@ -41,7 +40,6 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
             <StatusDot tone={s.isOnline ? "ok" : "bad"} pulse={s.isOnline} />
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-ink">{s.isOnline ? t("desktop.settings.agentOnline") : t("desktop.settings.agentStopped")}</div><div className="truncate text-2xs text-ink-3">{String(anyStatus?.hostname || t("desktop.settings.thisPc"))}</div></div>
-            <StatusBadge tone={s.isOnline ? "ok" : "bad"} label={s.isOnline ? t("desktop.settings.running") : t("desktop.settings.stopped")} />
           </div>
           <div><div className="mb-2 text-xs font-semibold text-ink">{t("desktop.settings.serviceControl")}</div><div className="flex flex-wrap gap-2"><Button variant="primary" onClick={s.startAgent} disabled={s.busy} icon={<Play className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.start")}</Button><Button variant="secondary" onClick={s.requestStopAgent} disabled={s.busy} icon={<Square className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.stop")}</Button><Button variant="ghost" onClick={s.restartAgent} disabled={s.busy} icon={<RotateCcw className="h-4 w-4" />} className="h-9">{t("desktop.agents.restart")}</Button></div></div>
           <div className="border-t border-edge pt-4">
@@ -68,7 +66,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <div className="grid gap-5 px-5 py-5 lg:grid-cols-[1fr_auto] lg:items-end">
           <ol className="space-y-2.5 text-xs text-ink-2">
             {[t("desktop.settings.pairStep1"), t("desktop.settings.pairStep2"), t("desktop.settings.pairStep3")].map((step, i) => (
-              <li key={step} className="flex items-center gap-2.5"><span className="flex h-5 w-5 items-center justify-center rounded-sm bg-brand text-2xs font-bold text-brand-contrast">{i + 1}</span><span>{step}</span></li>
+              <li key={step} className="flex items-center gap-2.5"><span className="flex h-5 w-5 items-center justify-center rounded-sm bg-brand-solid text-2xs font-bold text-brand-contrast">{i + 1}</span><span>{step}</span></li>
             ))}
           </ol>
           <div className="flex w-full max-w-sm flex-col gap-3">
@@ -103,8 +101,8 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-start hover:bg-surface-2"><span className="text-base font-semibold text-ink">{t("desktop.settings.advanced")}</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform ${s.advancedOpen ? "rotate-90" : ""}`} /></button>
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
-            <div><div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.settings.security")}</div><p className="text-xs text-ink-2 leading-relaxed">{t("desktop.settings.securityBody")}</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />{t("desktop.settings.credentialsLocal")}</div></div>
-            <div><div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.settings.dataLocations")}</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-2xs font-semibold text-ink-2">{label}</span><span className="flex-1 truncate font-mono text-2xs text-ink-3">{path}</span><CopyButton value={path} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.settings.copied"), type: "success" })} /></div>))}</div> : <p className="text-xs text-ink-3">{t("desktop.settings.loadingPaths")}</p>}<p className="mt-4 text-2xs text-ink-3">{t("desktop.settings.footer", { version: s.version || "—" })}</p></div>
+            <div><div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.settings.security")}</div><p className="text-xs text-ink-2 leading-relaxed">{t("desktop.settings.securityBody")}</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />{t("desktop.settings.credentialsLocal")}</div></div>
+            <div><div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.settings.dataLocations")}</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-2xs font-semibold text-ink-2">{label}</span><span className="flex-1 truncate font-mono text-2xs text-ink-3">{path}</span><CopyButton value={path} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.settings.copied"), type: "success" })} /></div>))}</div> : <p className="text-xs text-ink-3">{t("desktop.settings.loadingPaths")}</p>}<p className="mt-4 text-2xs text-ink-3">{t("desktop.settings.footer", { version: s.version || "—" })}</p></div>
           </div>
         )}
       </Card>

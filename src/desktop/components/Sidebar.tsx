@@ -51,7 +51,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-5" aria-label={t("nav.consoleNavigation")}>
-        {!collapsed && <div className="px-3 pb-2 text-2xs font-semibold uppercase tracking-[0.14em] text-ink-4">{t("nav.section.workspace")}</div>}
+        {!collapsed && <div className="px-3 pb-2 text-xs font-[550] text-ink-3">{t("nav.section.workspace")}</div>}
         <div className="space-y-1">
           {items.map((item) => {
             const active = page === item.id;

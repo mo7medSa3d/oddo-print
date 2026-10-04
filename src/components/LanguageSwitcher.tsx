@@ -36,7 +36,7 @@ export function LanguageSwitcher({
       menuClassName="min-w-[160px]"
       trigger={
         <span
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-semibold text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink focus-visible:outline-none"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-semibold text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none"
           title={t("common.language")}
         >
           <Globe2 className="h-4 w-4 shrink-0" aria-hidden />

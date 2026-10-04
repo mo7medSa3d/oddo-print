@@ -96,8 +96,11 @@ export const focusRing =
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success" | "subtle";
 
 const buttonVariants: Record<ButtonVariant, string> = {
+  // Solid label background: white on --brand-solid stays >= 4.5:1 in both
+  // themes (5.2:1 light, 4.7:1 dark). Hover darkens instead of lightening so
+  // the label contrast only improves while pressed.
   primary:
-    "bg-brand text-brand-contrast border border-transparent shadow-xs hover:bg-brand-hover active:bg-brand-active active:shadow-none",
+    "bg-brand-solid text-brand-contrast border border-transparent shadow-xs hover:brightness-[0.94] active:brightness-[0.88] active:shadow-none",
   secondary:
     "bg-surface text-ink border border-edge-strong shadow-xs hover:bg-surface-2 hover:border-ink-4/60 active:bg-surface-3",
   subtle:
@@ -139,7 +142,7 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  const baseClasses = `relative inline-flex select-none items-center justify-center whitespace-nowrap font-[560] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-[140ms] ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`;
+  const baseClasses = `relative inline-flex select-none items-center justify-center whitespace-nowrap font-[560] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-150 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`;
 
   const content = (
     <>
@@ -212,7 +215,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-[140ms] hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
       {...props}
     >
       {children}
@@ -845,7 +848,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-10 rounded-sm border border-edge-strong bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-[140ms] ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
+  "w-full h-10 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
 
 function useFieldProps({
   id,
@@ -960,7 +963,7 @@ export function Checkbox({
         id={inputId}
         type="checkbox"
         aria-describedby={descId}
-        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-edge-strong bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
         {...props}
       />
       <div className="min-w-0">
@@ -1099,7 +1102,7 @@ export function CopyButton({
           setTimeout(() => setCopyFailed(false), 2500);
         }
       }}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface px-2 text-xs font-[550] text-ink-2 transition-colors duration-[140ms] hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface px-2 text-xs font-[550] text-ink-2 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
     >
       {copied ? (
         <>
@@ -1407,7 +1410,7 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-[550] capitalize transition-colors duration-[140ms] ${focusRing} ${
+            className={`relative flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs ring-1 ring-inset ring-edge"
                 : "text-ink-3 hover:bg-surface-2 hover:text-ink"
@@ -1461,7 +1464,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-[140ms] ${item} ${focusRing} ${
+            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs"
                 : "text-ink-3 hover:text-ink"
@@ -1900,7 +1903,7 @@ export function SectionHeader({
   return (
     <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${className}`}>
       <div className="min-w-0">
-        <h2 className="text-title font-[600] tracking-[-0.014em] text-ink">{title}</h2>
+        <h2 className="text-xl font-[600] tracking-[-0.014em] text-ink">{title}</h2>
         {description && <p className="mt-0.5 text-sm text-ink-3">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
@@ -1947,7 +1950,7 @@ export function Toast({
         type="button"
         onClick={onDismiss}
         aria-label={t("ui.dismissNotification")}
-        className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-[140ms] hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+        className="-me-1 ms-auto shrink-0 rounded-xs p-1 text-current opacity-60 transition-colors duration-150 hover:bg-[var(--overlay-soft)] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
       >
         <X className="h-3.5 w-3.5" />
       </button>

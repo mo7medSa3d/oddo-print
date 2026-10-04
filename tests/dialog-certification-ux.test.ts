@@ -24,7 +24,11 @@ describe("dialog and printer certification UX contracts", () => {
   });
 
   it("uses theme-aware contrast colors for every solid button variant", () => {
-    expect(uiButtons).toContain("bg-brand text-brand-contrast");
+    // `bg-brand-solid` is the fill reserved for white label text: white on it
+    // measures 5.2:1 (light) and 4.7:1 (dark), where the lighter `--brand`
+    // surface tone fell to 3.7:1 in dark mode. The assertion keeps its original
+    // intent — every solid variant paints a themed fill under `text-*-contrast`.
+    expect(uiButtons).toContain("bg-brand-solid text-brand-contrast");
     expect(uiButtons).toContain("bg-bad-solid text-on-solid");
     expect(uiButtons).toContain("bg-ok-solid text-on-solid");
   });

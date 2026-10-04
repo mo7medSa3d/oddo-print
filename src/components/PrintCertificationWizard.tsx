@@ -396,7 +396,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
                   href={timelineUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-xs text-sm font-[550] text-brand transition-colors duration-[140ms] hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-xs text-sm font-[550] text-brand transition-colors duration-150 hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
                 >
                   {t("cert.viewTimeline")}
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />
