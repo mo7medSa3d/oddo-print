@@ -12,6 +12,12 @@ name: Windows vitest diagnostic
 # Delete once the Windows failure is understood and repaired.
 
 on:
+  # Dispatch needs the file on the default branch, which this branch does not
+  # have; a path-filtered push trigger gives the same control and does not fire
+  # on unrelated commits.
+  push:
+    branches: ["arena/**"]
+    paths: [".github/workflows/windows-vitest-diagnostic.yml"]
   workflow_dispatch:
 
 permissions:
