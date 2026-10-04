@@ -40,6 +40,19 @@ Verification executed in this continuation:
 - Dangling-reference sweep for every key deleted this session (16 keys): no source file still calls them.
 - CI on this branch (pushed): see the per-commit results below.
 
+Second and third defects on the same branch, both caught in CI rather than locally, and both fixed:
+`Date.now()` was called directly during render in three new agent-status call sites, which the lint rule
+`react-hooks/purity` rejects (the console already solves this with a `nowMs` state plus an interval, now
+mirrored in the App, the printers page and the add-printer dialog); and the printers row nested an object
+literal inside a JSX expression, which the copy gate's JSX-text pass read as literal English.
+
+Reading CI output from this environment: workflow logs are unreachable (the log blob endpoint returns EOF),
+but check-run *annotations* are readable through the API. A temporary branch-scoped workflow
+(`.github/workflows/typecheck-diagnostic.yml`, since deleted) ran `tsc --noEmit` and `eslint --format
+json` and republished each diagnostic as a `::error file=…,line=…::` annotation, which made both defects
+readable as `gh api repos/…/check-runs/<id>/annotations`. Use that technique again if a CI failure has to
+be diagnosed from here.
+
 Root cause of the red `docker-build-runtime` job on this branch (also caught by `ci`'s Typecheck step):
 `src/desktop/lib/printers.ts` is the desktop barrel that re-exports the shared vocabulary helpers, and the
 new agent-status work imported `agentLiveView` from it while the barrel's `export { … } from
