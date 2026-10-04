@@ -163,6 +163,7 @@ This section supersedes earlier local pass claims for commit `7fa576e65f22d6b72b
 | CI15 | P3 | Odoo Arabic catalog contains obsolete `label` term removed by receipt changes | Remove that stale entry. Catalog check now matches 666 source terms and entries. |
 | CI16 | P2 | GitHub setup-go resolves the module language declaration to exact Go 1.26.0, while local verification uses 1.26.8 | Declare `toolchain go1.26.8` in go.mod. The SHA-pinned setup-go implementation prioritizes that directive; language minimum remains 1.26.0. Add an alignment assertion and keep all workflows deriving the version from the module file. |
 | CI17 | P3 | Background isolation saves undefined inert on hosts without native support | Normalize the saved state to Boolean before applying and restoring inert; the existing dialog isolation DOM regression passes. |
+| CI18 | P1 | Fix-branch Docker run 37180751674/job 111372662122 fails copying `/app/public`, which does not exist in this Gateway | Create Next's optional public asset directory in the build stage before compiling; retain runtime asset copying for deployments with assets. This failure was masked by the earlier webpack error. |
 
 ### Verification of the corrected source
 
