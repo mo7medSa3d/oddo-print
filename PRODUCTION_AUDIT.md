@@ -117,6 +117,8 @@ Commands run from repository root unless a component is identified. Detailed tra
 
 ### Critical-flow acceptance and release limitations
 
+This table records the original local/archive verification limits. The remote CI recovery sections below supersede the database, installed Odoo and native Windows build/installer blocks where explicitly verified; service, physical printer, interactive UI, signing and deployment acceptance still require the listed real environments.
+
 | Flow | Verified here | Required before release |
 |---|---|---|
 | Agent startup/pairing/auth/heartbeat/reconnect | Existing Go/TS simulated tests, credential/transport source contracts, race tests, corrected pairing lock predicate | Real service installation, upgrade/stop/uninstall, DPAPI/account ACLs, CGO-enabled release build, heartbeat with real PostgreSQL, gateway restart/network outage. |
@@ -197,6 +199,20 @@ On production source revision `9da7237a853d8a6bab39d09aaee95c92d6ab3cd9`, [CI 37
 
 [Windows installer 37181925260](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925260) completed successfully on that production source: native Go build/vet/race, Windows Rust audit, locked Cargo check/build/tests, desktop production bundle, typecheck/lint/Vitest, MSI and NSIS production bundle generation, installation and installed-application smoke tests, NSIS uninstall, and artifact upload. Smoke tests verify bundled app/CLI/agent files, desktop process startup, CLI help, isolated first-run agent config/logs/SQLite creation, and process cleanup. They explicitly do not verify Windows service registration/control, hardware printing, code signing, interactive WebView UI or an actual Gateway pairing session.
 
-The final follow-up changes only CI23's promise observation and this audit record; production source and installer inputs are identical to revision 9da7237. All checks are replayed on that follow-up through PR #114. Earlier failed jobs remain historical evidence; final acceptance requires successful checks on the latest PR revision, including the unhandled-rejection tripwire and Go formatting gate. All A01–A25 and CI01–CI23 have source/test corrections applied. R01–R05 and the physical/external acceptance limitations remain disclosed and prevent a blanket defect-free production certification.
+The final test follow-up changes only CI23's promise observation and this audit record; production source, configuration and assets are unchanged from revision 9da7237. Earlier failed jobs remain historical evidence. All A01–A25 and CI01–CI23 have source/test corrections applied. R01–R05 and the physical/external acceptance limitations remain disclosed and prevent a blanket defect-free production certification.
+
+### Completed acceptance replay
+
+Revision `e6f23f146ac906906573a4928313a1c75d29c2ba` completed **all 11 GitHub checks successfully**, with no failed or skipped checks:
+
+| Workflow | Final evidence | Result |
+|---|---|---|
+| CI | [37182915259](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915259) | Both CI and installed Odoo jobs passed. Gateway: 734 unit tests (one DB-gated skip), 350 PostgreSQL integration tests (no skips), combined 1,080 passed/three explicit skips with **no unhandled errors**, plus four targeted Gateway tests. Go build/vet/race/U1000/vulnerability/formatting, Python, typecheck/lint, catalogs, migrations/schema and production build gates passed. |
+| Windows | [37182915209](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915209) | Native Go and Rust gates, frontend checks, MSI/NSIS builds, both installation/startup/SQLite smoke tests, NSIS uninstall and installer artifact upload passed. Database suites are explicitly gated on this Windows runner and covered by CI's real PostgreSQL job. |
+| Docker | [37182915204](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915204) | Images, ordered migrations, Gateway/database health, Caddy, served CSP nonce and authenticated WebSocket smoke passed. |
+| Security/resilience | [37182915228](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915228) | Both supply-chain and PostgreSQL reconnect failure-injection jobs passed; disclosed advisory exceptions/warnings remain. |
+| Static security | [37182915258](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915258) | Go, JavaScript/TypeScript and Python CodeQL, secret scan and dependency review passed. |
+
+The closing documentation update preserves all production and test source from that verified revision and triggers a full replay. Its live results remain available in [PR #114 checks](https://github.com/mo7medSa3d/oddo-print/pull/114/checks). Passing CI is a prerequisite for review, not proof of physical printing, service lifecycle, signed releases, interactive accessibility/Arabic shaping, real Stripe/Odoo deployment or production TLS/restore behavior. Those remaining acceptance requirements and upstream R01–R05 are retained explicitly.
 
 The broader physical/runtime limitations and upstream risks elsewhere in this report still apply. Fixing CI is not a certification of physical printing or production readiness.
