@@ -34,7 +34,6 @@ def _friendly_gateway_request_error(exc, gateway_url):
     language frame for Odoo's translation helper.
     """
     url = gateway_url or "the configured Gateway URL"
-    detail = str(exc).strip()[:1500] or exc.__class__.__name__
     if isinstance(exc, requests.exceptions.ConnectionError):
         return str(_(
             "Could not reach the Gateway at %(url)s. Verify the URL host and port "
