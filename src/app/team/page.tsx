@@ -38,6 +38,7 @@ import {
   type MenuItemSpec,
 } from "../../components/ui";
 import { shortId } from "../../lib/utils";
+import { ensureCustomerSession } from "../../lib/session-config";
 import { codeMessageKey } from "../../lib/api-error-keys";
 
 type Member = { userId: string; email: string; role: string };
@@ -106,6 +107,15 @@ export default function TeamPage() {
     // (cascading renders). Retry buttons clear the error in their own
     // onClick (event handlers may set state freely).
     try {
+      const session = await ensureCustomerSession();
+      if (!session.authenticated) { router.replace("/login?next=%2Fteam"); return; }
+      const probe = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+      if (!probe.ok) throw new Error("Session unavailable");
+      const principal = await probe.json();
+      if (!principal.userId || !principal.permissions?.includes("users.read")) {
+        setLoadError(t("errors.forbidden"));
+        return;
+      }
       const [membersRes, invitationsRes] = await Promise.all([
         fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
         fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
@@ -126,7 +136,7 @@ export default function TeamPage() {
     } finally {
       setLoaded(true);
     }
-  }, [t]);
+  }, [t, router]);
 
   useEffect(() => {
     // Single implementation of the initial fetch — load() is the same block,

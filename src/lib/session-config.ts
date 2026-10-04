@@ -15,15 +15,18 @@ export function ensureCustomerSession(): Promise<{ authenticated: boolean; expir
   if (customerSessionFlight) return customerSessionFlight;
   const check = async () => {
     const probe = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+    const body = await probe.json();
     if (probe.ok) {
-      const body = await probe.json();
       if (typeof body?.exp === "number" && body.exp * 1000 > Date.now() + 60000) return { authenticated: true, expiresAt: body.exp * 1000 };
     } else if (probe.status !== 401) throw new Error("Session probe temporarily unavailable");
-    const response = await fetch("/api/auth/refresh", { method: "POST", credentials: "include", cache: "no-store" });
+    const kind = body?.kind === "manager" || body?.refreshKind === "manager" ? "manager" : "customer";
+    let response = await fetch(kind === "manager" ? "/api/auth/manager/refresh" : "/api/auth/refresh", { method: "POST", credentials: "include", cache: "no-store" });
+    // A stale manager cookie must not shadow a live customer refresh family.
+    if (response.status === 401 && kind === "manager") response = await fetch("/api/auth/refresh", { method: "POST", credentials: "include", cache: "no-store" });
     if (response.status === 401) return { authenticated: false, expiresAt: 0 };
     if (!response.ok) throw new Error("Session refresh temporarily unavailable");
-    const body = await response.json();
-    const expiresAt = Date.parse(body.expiresAt);
+    const refreshed = await response.json();
+    const expiresAt = Date.parse(refreshed.expiresAt);
     if (!Number.isFinite(expiresAt)) throw new Error("Invalid session expiry");
     return { authenticated: true, expiresAt };
   };

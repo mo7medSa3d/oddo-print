@@ -2,14 +2,15 @@
 import { logError } from "../lib/log";
 
 import { db } from "../db";
-import { agents, printers, printJobs, discoverySessions, discoveredDevices } from "../db/schema";
+import { agents, printers, printJobs, printJobReceipts, discoverySessions, discoveredDevices } from "../db/schema";
 import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { lifecycleLabel } from "../lib/lifecycle-labels";
 import { cookies } from "next/headers";
 import { generatePairingCode } from "../lib/agent-auth";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../lib/manager-auth";
-import { createPrintJobForPrinter } from "../lib/print-job-service";
+import { createHash } from "node:crypto";
+import { idempotencyDigest, createPrintJobForPrinter } from "../lib/print-job-service";
 import {
   isTerminal,
   isJobFilterStatus,
@@ -56,54 +57,50 @@ export async function deleteAgent(id: string) {
   const agentId = id.trim();
 
   await db.transaction(async (tx) => {
-    // Acquire row-level lock to prevent concurrent state transitions or reconnect races
-    const locked = await tx.execute(sql`
-      SELECT id, status, lifecycle, last_seen_at
-      FROM agents
-      WHERE id = ${agentId} AND tenant_id = ${manager.tenantId}
-      FOR UPDATE
-    `);
-    const agent = (locked as unknown as { rows?: { id: string; status: string; lifecycle: string; last_seen_at?: Date | string | null }[] }).rows?.[0];
-    if (!agent) throw new ActionError(t("errors.agentNotFound"), 404);
+    // Same admission lock order as enqueue: tenant, Agent, then resource rows.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
+    const locked = await tx.execute(sql`SELECT id FROM agents WHERE id = ${agentId} AND tenant_id = ${manager.tenantId} FOR UPDATE`);
+    if (!locked.rows[0]) throw new ActionError(t("errors.agentNotFound"), 404);
     await requireActiveTenantInTransaction(tx, manager.tenantId);
-    if (isAgentAvailableForJob({ lifecycle: agent.lifecycle, status: agent.status, lastSeenAt: agent.last_seen_at })) {
-      throw new ActionError(t("errors.agentStillConnected"), 409);
-    }
-    if (agent.lifecycle === "retired") {
-      throw new ActionError(t("errors.agentRetiredUndeletable"), 409);
-    }
-
-    // Referential integrity: check if this agent or any of its printers have historical print jobs
-    const agentPrinters = await tx.select({ id: printers.id }).from(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
+    const agentPrinters = await tx.select({ id: printers.id }).from(printers)
+      .where(and(eq(printers.agentId, agentId), eq(printers.tenantId, manager.tenantId))).for("update");
     const printerIds = agentPrinters.map((p) => p.id);
-    const jobConditions = [and(eq(printJobs.agentId, agent.id), eq(printJobs.tenantId, manager.tenantId))];
-    if (printerIds.length > 0) {
-      jobConditions.push(and(inArray(printJobs.printerId, printerIds), eq(printJobs.tenantId, manager.tenantId)));
+    const ownedJobs = and(eq(printJobs.tenantId, manager.tenantId), or(eq(printJobs.agentId, agentId),
+      ...(printerIds.length ? [inArray(printJobs.printerId, printerIds)] : [])));
+    let archivedJobs = 0;
+    // Preserve accepted operation keys/outcomes before deleting FK-bound runtime rows.
+    // Bound document memory per batch; no job can be newly admitted while locks are held.
+    while (true) {
+      const jobs = await tx.select().from(printJobs).where(ownedJobs).limit(100).for("update");
+      if (!jobs.length) break;
+      for (const row of jobs) {
+        const terminal = isTerminal(row.status as JobStatus);
+        const uncertain = row.status === "printing" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;
+        await tx.insert(printJobReceipts).values({
+          id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
+          fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
+          printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
+          destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
+          status: terminal ? row.status : "failed",
+          error: terminal ? row.error : uncertain ? "UNKNOWN_PARTIAL_DELIVERY: Agent deleted during an accepted execution; inspect the physical printer before reprinting." : "AGENT_DELETED: Cancelled before delivery by workspace administrator.",
+          closedClaimTokenHash: row.closedClaimTokenHash ?? (row.claimToken ? createHash("sha256").update(row.claimToken).digest("hex") : null),
+          deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt,
+          updatedAt: terminal ? row.updatedAt : sql`clock_timestamp()`,
+        });
+      }
+      await tx.delete(printJobs).where(and(eq(printJobs.tenantId, manager.tenantId), inArray(printJobs.id, jobs.map(row => row.id))));
+      archivedJobs += jobs.length;
     }
-    const [{ c: jobCount }] = await tx
-      .select({ c: count() })
-      .from(printJobs)
-      .where(or(...jobConditions));
-
-    if (Number(jobCount ?? 0) > 0) {
-      throw new ActionError(t("errors.agentHasHistory"), 409);
-    }
-
-    // Clean removable transient discovery runtime records
-    await tx.delete(discoveredDevices).where(and(eq(discoveredDevices.agentId, agent.id), eq(discoveredDevices.tenantId, manager.tenantId)));
-    await tx.delete(discoverySessions).where(and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, manager.tenantId)));
-
-    // Clean removable runtime printers registered by this agent
-    await tx.delete(printers).where(and(eq(printers.agentId, agent.id), eq(printers.tenantId, manager.tenantId)));
-
-    // Permanently delete the agent
-    await tx.delete(agents).where(and(eq(agents.id, agent.id), eq(agents.tenantId, manager.tenantId)));
-    
-    // Notify all instances to close any remaining sockets
+    await tx.delete(discoveredDevices).where(and(eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, manager.tenantId)));
+    await tx.delete(discoverySessions).where(and(eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, manager.tenantId)));
+    await tx.delete(printers).where(and(eq(printers.agentId, agentId), eq(printers.tenantId, manager.tenantId)));
+    await tx.delete(agents).where(and(eq(agents.id, agentId), eq(agents.tenantId, manager.tenantId)));
+    await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager",
+      action: "agent.deleted", resourceType: "agent", resourceId: agentId, metadata: { printerIds, archivedJobs } }, tx);
     await tx.execute(sql`SELECT pg_notify('print_gateway_agent_sessions', ${JSON.stringify({ agentId })}::text)`);
   });
 
-  await writeAuditEvent({ tenantId: manager.tenantId, actorType: manager.userId ? "user" : "system", actorId: manager.userId ?? "legacy-manager", action: "agent.deleted", resourceType: "agent", resourceId: agentId }).catch((err) => logError('audit_write_failed', { error: err?.message ?? String(err) }));
   revalidatePath("/dashboard");
   return { ok: true };
 }
@@ -437,3 +434,16 @@ export async function getDashboardJobs(options?: {
 }
 
 
+
+async function dashboardResult<T>(operation: () => Promise<T>) {
+  try { return { ok: true as const, data: await operation() }; }
+  catch (error) {
+    const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 500;
+    const code = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : status === 401 ? "UNAUTHORIZED" : status === 403 ? "FORBIDDEN" : "INTERNAL_ERROR";
+    if (status >= 500) logError("dashboard.action_failed", { error: error instanceof Error ? error.message : String(error) });
+    return { ok: false as const, error: status < 500 && error instanceof ActionError ? error.message : null, status, code };
+  }
+}
+export async function getDashboardStateResult() { return dashboardResult(getDashboardState); }
+export async function getDashboardJobsResult(options?: Parameters<typeof getDashboardJobs>[0]) { return dashboardResult(() => getDashboardJobs(options)); }
+export async function deleteAgentResult(id: string) { return dashboardResult(() => deleteAgent(id)); }

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowRight, Building2, ShieldCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Field, Input, ErrorState, Skeleton } from "../../components/ui";
+import { ensureCustomerSession } from "../../lib/session-config";
 import { codeMessageKey } from "../../lib/api-error-keys";
 
 export default function LoginPage() {
@@ -33,19 +34,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.ok) {
-          router.replace(postAuthDestination());
-          return;
-        }
-        const refresh = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!cancelled && refresh.ok) router.replace(postAuthDestination());
+    ensureCustomerSession()
+      .then((session) => {
+        if (!cancelled && session.authenticated) router.replace(postAuthDestination());
       })
       .catch(() => undefined)
       .finally(() => {

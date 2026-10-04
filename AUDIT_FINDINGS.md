@@ -107,6 +107,13 @@
 | U03 | P1 | Tauri verification | src-tauri/Cargo.toml:17 | Full crate checks/tests blocked by missing GLib/GIO system libraries and Windows MSVC cross-build prerequisites. | unverified |
 | U04 | P1 | Live verification | FIX_LOG.md:1 | Windows service/physical printers/live Odoo 19/Stripe/PostgreSQL integration unavailable in this environment. | unverified |
 | U05 | P1 | Audit coverage | FIX_LOG.md:1 | Earlier delivery omitted exhaustive source reading; continuation completed the component-by-component full source audit. | fixed |
+| A164 | P1 | Gateway session | src/app/api/auth/me/route.ts:4 | Shell probes Customer authentication for valid Manager sessions and refreshes the wrong cookie path. | fixed |
+| A165 | P1 | Gateway actions | src/app/actions.ts:33 | Expected auth/deletion errors are thrown through production Server Actions and become opaque React #441/500 failures. | fixed |
+| A166 | P1 | Gateway deletion | src/app/actions.ts:51 | Connected, retired or history-bearing Agents cannot be removed with their printers; deletion lacks retained operation receipts. | fixed |
+| A167 | P1 | API keys | src/app/api/odoo/keys/route.ts:121 | Permanent key deletion is blocked by live job references and requires revocation; ambiguous menu labels obscure actions and modal errors. | fixed |
+| A168 | P1 | Odoo synchronization | odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js:19 | Save hook runs before Odoo applies its stale web_save snapshot; URL-only saves are ignored and connectivity remains draft after successful sync. | fixed |
+| U07 | P1 | Production diagnosis | FIX_LOG.md:1 | Reported production dashboard 500 has no server traceback/digest; additional deployment or DB causes cannot be confirmed offline. | unverified |
+| A170 | P1 | Gateway integration | src/lib/print-job-service.ts:367 | Authentication can race key deletion/revocation or activation disable and still enqueue work or re-enable a removed integration. | fixed |
 | A08 | P2 | Agent | agent/internal/printer/ipp_discovery.go:291 | _printer._tcp (LPD) advertisements are mislabeled as verified IPP; TCP-only candidates are also marked verified. | fixed |
 | A22 | P2 | Gateway | src/lib/api-error-keys.ts:94 | Prototype property codes such as constructor resolve to non-message values through the in operator. | fixed |
 | A23 | P2 | Gateway | src/desktop/pages/Printers.tsx:37 | Connected empty inventories hide fetch errors and instead claim there are no printers. | fixed |
@@ -169,3 +176,4 @@
 | A158 | P2 | Database | drizzle/0029_enforce_tenant_id_not_null.sql:45 | Payload CHECK accepts missing type because its predicate becomes NULL, contrary to the documented database contract. | fixed |
 | A160 | P2 | Documentation | SERVER_FIRST_RUN.md:80 | Deployment guide omits required platform tenant and uses unavailable Argon2 package; printer/lease and migration docs contain stale guarantees. | fixed |
 | U06 | P2 | Tooling verification | FIX_LOG.md:1 | Pyflakes/rustfmt and full dependency vulnerability/dead-code scans unavailable without forbidden installations. | unverified |
+| A169 | P2 | Team authorization | src/app/team/page.tsx:103 | Team screen probes forbidden endpoints without role admission and routes return 403 for expired authentication. | fixed |

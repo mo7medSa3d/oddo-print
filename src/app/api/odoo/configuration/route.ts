@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { apiKeys } from "../../../../db/schema";
-import { validateManager } from "../../../../lib/manager-auth";
+import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * scoped independently to each Odoo integration API key; it is not tenant lifecycle.
  */
 export async function GET(req: Request) {
-  const manager = await validateManager(req);
+  const manager = await validateWorkspaceManager(req);
   if (!manager) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     requireManagerPermission(manager, "integrations.read");
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   }
 
   const integrations = await db.query.apiKeys.findMany({
-    where: eq(apiKeys.tenantId, manager.tenantId),
+    where: and(eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`),
     columns: {
       id: true,
       name: true,
@@ -98,6 +98,9 @@ export async function PATCH(req: Request) {
         .where(and(
           eq(apiKeys.id, apiKey.id),
           eq(apiKeys.tenantId, apiKey.tenantId),
+          eq(apiKeys.hashedKey, apiKey.hashedKey),
+          sql`${apiKeys.revokedAt} IS NULL`,
+          sql`${apiKeys.readOnlyUntil} IS NULL`,
           lt(apiKeys.odooEnabledRevision, Number(revision)),
         ))
         .returning({
@@ -128,14 +131,14 @@ export async function PATCH(req: Request) {
     }
 
     const current = await db.query.apiKeys.findFirst({
-      where: and(eq(apiKeys.id, apiKey.id), eq(apiKeys.tenantId, apiKey.tenantId)),
+      where: and(eq(apiKeys.id, apiKey.id), eq(apiKeys.tenantId, apiKey.tenantId), eq(apiKeys.hashedKey, apiKey.hashedKey), sql`${apiKeys.revokedAt} IS NULL`, sql`${apiKeys.readOnlyUntil} IS NULL`),
       columns: {
         odooEnabled: true,
         odooEnabledRevision: true,
         odooEnabledUpdatedAt: true,
       },
     });
-    if (!current) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    if (!current) return NextResponse.json({ error: "API key is no longer active", code: "UNAUTHORIZED" }, { status: 401 });
 
     if (Number(revision) < current.odooEnabledRevision) {
       return NextResponse.json({

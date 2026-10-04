@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import { ensureCustomerSession } from "../../lib/session-config";
 import { useRouter } from "next/navigation";
 import {
-  deleteAgent,
-  getDashboardJobs,
-  getDashboardState,
+  deleteAgentResult,
+  getDashboardJobsResult,
+  getDashboardStateResult,
   setAgentLifecycle,
   setPrinterLifecycle,
 } from "../actions";
@@ -451,6 +452,23 @@ export default function DashboardClient({
     };
   }, [selectedJob]);
 
+  const dashboardRequest = React.useCallback(async <T,>(operation: () => Promise<{ ok: true; data: T } | { ok: false; error: string | null; status: number; code: string }>): Promise<T> => {
+    const session = await ensureCustomerSession();
+    if (!session.authenticated) {
+      router.replace("/login?next=%2Fdashboard");
+      throw new Error(t("errors.sessionExpired"));
+    }
+    const result = await operation();
+    if (!result.ok) {
+      if (result.status === 401) router.replace("/login?next=%2Fdashboard");
+      throw new Error(result.error ?? t(apiMessageKey(result.code, result.status, "errors.operationFailed")));
+    }
+    return result.data;
+  }, [router, t]);
+  const getDashboardJobs = React.useCallback((options?: Parameters<typeof getDashboardJobsResult>[0]) => dashboardRequest(() => getDashboardJobsResult(options)), [dashboardRequest]);
+  const getDashboardState = React.useCallback(() => dashboardRequest(getDashboardStateResult), [dashboardRequest]);
+  const deleteAgent = (id: string) => dashboardRequest(() => deleteAgentResult(id));
+
   const jobsGeneration = React.useRef(0);
   const filterRef = React.useRef({ status: "all", search: "" });
   useEffect(() => {
@@ -494,7 +512,7 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
     };
-  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick, t]);
+  }, [jobStatusFilter, debouncedJobSearch, jobsRetryTick, t, getDashboardJobs]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -578,14 +596,12 @@ export default function DashboardClient({
       }
       void refreshBillingUsage();
     } catch (error) {
-      if (error instanceof Error && error.message.includes("session has expired")) {
-        router.push("/login");
-      }
+      setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, router, t]);
+  }, [refreshBillingUsage, router, t, getDashboardState, getDashboardJobs]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -2053,8 +2069,8 @@ export default function DashboardClient({
               onClick={async () => {
                 if (!agentToDelete) return;
                 const id = agentToDelete.id;
-                await runAction(() => deleteAgent(id), t("success.agentDeleted"));
-                setAgentToDelete(null);
+                const result = await runAction(() => deleteAgent(id), t("success.agentDeleted"));
+                if (result) setAgentToDelete(null);
               }}
               disabled={busy}
               icon={<Trash2 className="h-4 w-4" />}
@@ -2065,6 +2081,7 @@ export default function DashboardClient({
         }
       >
         <div className="space-y-4 text-sm text-ink-2">
+          {message?.type === "err" && <Callout tone="bad" title={t("errors.operationFailed")}>{message.text}</Callout>}
           <Callout tone="bad" title={t("common.cannotUndo")}>
             {t("agent.deleteRequiresOffline")}
           </Callout>

@@ -86,7 +86,7 @@ The Odoo addon commits a durable outbox row before making the HTTP submission. T
 
 ## Customer SaaS authentication and billing
 
-Customer authentication uses `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, and `POST /api/auth/select-tenant`. Legacy manager bootstrap endpoints remain under `/api/auth/manager/*`.
+Customer authentication uses `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, and `POST /api/auth/select-tenant`. The `/api/auth/me` browser probe also accepts Manager workspace sessions; their refresh stays at `/api/auth/manager/refresh`. Legacy manager bootstrap endpoints remain under `/api/auth/manager/*`.
 
 Workspace lifecycle uses `POST /api/onboarding`. Team lifecycle uses `GET/POST/DELETE /api/team/invitations`, `POST /api/team/invitations/accept`, `GET/PATCH/DELETE /api/team/members`, and `POST /api/team/ownership`.
 
@@ -163,3 +163,10 @@ Terminal history cleanup removes document payloads and timeline events, retainin
 Platform tenant/subscription lists accept bounded offset and search, return limit and hasMore, and sort by creation time plus tenant ID. Subscription filter accepts all/active/attention/other; search and filters apply before pagination. Directory controls navigate 100-row pages rather than silently truncating 300 records.
 
 Desktop local discovery IPC preserves optional agentId metadata from CLI JSON; absent owner provenance cannot authorize a discovered USB/spooler selection for another Agent. Gateway USB registration uses numeric 16-bit VID/PID, never hexadecimal strings or null/NaN.
+
+
+### Explicit resource deletion and browser workspace sessions
+Dashboard deletion now permanently removes an authorized Agent and its owned printers, including online or retired Agents. Job payload/event rows are removed only after compact operation receipts reserve their accepted keys. Undelivered work is cancelled; work carrying delivery/execution evidence retains an unknown physical outcome. The transaction invalidates Agent access and publishes the existing cross-instance session notification.
+`DELETE /api/odoo/keys` with `{id, remove:true}` erases active or revoked credentials atomically and removes them from the list. A nonusable history reference retains accepted job attribution and Odoo reconciliation; the original credential hash and all access are removed. Ordinary `{id}` revokes without deleting and advances the activation revision.
+`GET /api/auth/me` accepts the same Manager/Customer workspace cookies as the console, returns `kind` and permission names, and never returns credentials. Refresh-kind hints on 401 guide the browser to the existing kind-specific refresh route; Manager refresh cookies are scoped to `/api/auth/manager`.
+Dashboard result actions return `{ok:true,data}` or `{ok:false,status,code,error}` so expected failures are not thrown into React production error masking. Full unexpected server diagnostics remain only in Gateway logs.
