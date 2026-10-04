@@ -78,11 +78,11 @@ export default function UpgradeLimitDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">{t("limit.used")}</div>
+            <div className="text-xs font-[550] text-ink-3">{t("limit.used")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{usedText}</div>
           </div>
           <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
-            <div className="text-2xs font-semibold uppercase tracking-[0.08em] text-ink-4">{t("limit.planLimit")}</div>
+            <div className="text-xs font-[550] text-ink-3">{t("limit.planLimit")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{limitText}</div>
           </div>
         </div>
@@ -110,7 +110,7 @@ export default function UpgradeLimitDialog({
           <Link
             href="/billing"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-brand px-4 text-sm font-semibold text-brand-contrast transition hover:bg-brand-hover"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-brand-solid px-4 text-sm font-semibold text-brand-contrast transition hover:brightness-[0.94]"
           >
             {t("limit.upgradePlan")}
             <ArrowUpRight className="h-4 w-4" />

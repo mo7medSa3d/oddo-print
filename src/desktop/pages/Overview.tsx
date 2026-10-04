@@ -91,7 +91,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
               <div className="flex items-baseline justify-between text-xs"><span className="font-bold text-ink tabular-nums">{s.jobsLoading || s.jobsError ? "—" : s.pendingJobs}<span className="font-normal text-ink-3"> {t("desktop.overview.waiting")}</span></span><span className="text-ink-3">{t("desktop.overview.lastFifty")}</span></div>
             </div>
             <div className="mt-4 border-t border-edge pt-4">
-              <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-ink-3">{t("desktop.overview.quickActions")}</div>
+              <div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.overview.quickActions")}</div>
               <div className="grid grid-cols-2 gap-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.checkGateway")}</Button></div>
             </div>
           </div>
@@ -103,7 +103,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         {s.jobsLoading ? <div className="px-5 pb-5"><LoadingState rows={3} /></div> : s.jobsError ? <div className="px-5 pb-5"><ErrorState title={t("desktop.overview.jobsUnavailable")} message={s.jobsError} retry={() => { void s.refreshJobs(); }} /></div> : s.jobs.length === 0 ? <EmptyState icon={<FileText className="h-8 w-8" />} title={t("desktop.overview.noJobsYet")} description={t("desktop.overview.noJobsYetBody")} /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-y border-edge bg-surface-2 text-start text-2xs uppercase tracking-wide text-ink-3"><th className="px-5 py-2.5">{t("desktop.overview.colDocument")}</th><th className="px-4 py-2.5">{t("desktop.overview.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.overview.colStatus")}</th><th className="px-5 py-2.5 text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
+              <thead><tr className="border-y border-edge bg-surface-2 text-start text-xs font-[550] text-ink-3"><th className="px-5 py-2.5">{t("desktop.overview.colDocument")}</th><th className="px-4 py-2.5">{t("desktop.overview.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.overview.colStatus")}</th><th className="px-5 py-2.5 text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
               <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-2xs text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="px-5 py-3 text-end text-2xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
             </table>
           </div>

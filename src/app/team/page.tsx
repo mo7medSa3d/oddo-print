@@ -85,7 +85,7 @@ export default function TeamPage() {
   const router = useRouter();
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const { t } = useI18n();
+  const { t, tc, formatNumber, locale } = useI18n();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -286,9 +286,9 @@ export default function TeamPage() {
         meta={
           loaded ? (
             <div className="flex items-center gap-2">
-              <StatusBadge tone="neutral" label={`${members.length} ${members.length === 1 ? "member" : "members"}`} />
+              <StatusBadge tone="neutral" label={tc("team.memberCount", members.length, { count: formatNumber(members.length, locale) })} />
               {invitations.length > 0 && (
-                <StatusBadge tone="warn" label={`${invitations.length} ${invitations.length === 1 ? "invite" : "invites"} pending`} />
+                <StatusBadge tone="warn" label={tc("team.inviteCount", invitations.length, { count: formatNumber(invitations.length, locale) })} />
               )}
             </div>
           ) : null
@@ -649,10 +649,7 @@ export default function TeamPage() {
           </>
         }
       >
-        <p className="text-sm leading-relaxed text-ink-2">
-          They lose console access immediately. Print history they requested remains in the audit
-          log.
-        </p>
+        <p className="text-sm leading-relaxed text-ink-2">{t("team.removeBodyHistory")}</p>
       </Modal>
     </>
   );

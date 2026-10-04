@@ -1,3 +1,31 @@
+SESSION 2026-10-04 — UI/design-system + localized-copy hardening (branch arena/01a1080f-oddo-print, base 30a4221). Deliverable: /home/user/oddo-print-ui-copy-design-pass.zip (complete source excluding .git/dependency/build output).
+
+Scope: Gateway console + Tauri desktop shell design-system consistency, hard-coded copy elimination, Arabic/English catalog parity, and WCAG contrast on status fills. No dependency or lockfile changes, no schema/migration changes, no API contract changes. 26 files modified + new scripts/check-ui-copy.py.
+
+Fixes (IDs D01-D12 in AUDIT_FINDINGS.md, unverified U08):
+- D01 warning-solid darkened so white label text clears AA: light #c98a06 (2.95:1) to #96630a (5.14:1), dark #e5a32b (2.19:1) to #9a6508 (4.95:1). Only white-label consumer is the desktop timeline step marker; dots/stripes stay >=3:1 on both surfaces.
+- D02 uppercase/letter-spacing label treatments removed across tables, section labels, metric tiles and desktop pages; .label-caps/.text-eyebrow keep uppercase by design, mono data inputs unchanged.
+- D03 text-title (undefined) to text-xl; D04 border-brand-subtle-border (undefined) to border-edge-accent; D05 bg-surface-4 (undefined) to bg-ink-4.
+- D06 api-keys scope sentence moved to apiKeys.scopeNote; D07 team counts use tc() + formatNumber(count, locale); D08 printer readiness uses dashboard.printersReady + formatNumber.
+- D09 api-keys page: three duplicated metric cards to one derived connection-state row (neutral/ok/warn with Active/Odoo/access-level count) and a collapsed "How it works" <details> panel.
+- D10 release-readiness compliance list to four status rows (COMPLIANCE_NOTES, typed against MessageKey/Tone) with per-row "Technical detail" disclosure; developer commentary removed from visible prose.
+- D11 desktop pre-paint theme-init.css aligned to the token values (#f6f7f9/#16181d light, #08090c/#f3f4f6 dark).
+- D12 copy pass: 44 verbose operational values shortened in both catalogs (placeholders preserved, safety/uncertainty warnings kept verbatim where tests or policy lock them). New keys this session: apiKeys.connectionState/stateConnected/stateWaitingOdoo/stateNotConfigured, dashboard.printersReady, release.technicalDetail, release.compliance.{otel,ipp,tauri,odooBilling}{Summary,Detail}.
+
+New gate: scripts/check-ui-copy.py (stdlib only, exit 0 clean / 1 findings) checks en/ar key parity, non-empty values, placeholder-set equality, plural .other presence, hard-coded JSX copy (props, tag spans, standalone interpolation lines, with code/utility guards), design-token existence for rounded-*/colour utilities (including custom classes from globals.css), and WCAG contrast (text tiers on six surfaces, status tokens, white on solid fills incl. warning-solid, notice text/icon on notice-bg, control border >=3:1). Detection validated by injecting a #8b9099 --text-3 (6 findings, reverted) and by reverting dark --warning-solid (1 finding, reverted).
+
+Verification executed here:
+- python3 scripts/check-ui-copy.py: en 2283 / ar 2283 keys, OK (exit 0).
+- node --experimental-strip-types --experimental-loader <ts-resolve hook> scripts/check-i18n.ts: en 2283 / ar 2283 keys, 22 tc() call sites, OK: all catalogs are complete and consistent (exit 0).
+- node --experimental-vm-modules --test tests/audit-gateway-offline.test.mjs tests/audit-pos-offline.test.mjs tests/session-resource-repair.test.mjs: 32/32 pass.
+- Python static suite: 160/167 pass via a minimal pytest-compatible shim (raises/parametrize/fixture/monkeypatch/tmp_path). 7 blocked by environment: 6 require the absent `cryptography` module, 1 requires `rustc` (U08).
+- Static contract sweep of tests/*.test.ts toContain/not.toContain literals against their source files: 0 mismatches (two tool false positives re-checked by direct grep).
+- Design-system static checks: no undefined rounded-*/colour utilities, no Tailwind default-palette classes, delimiter-balance delta vs HEAD shows no regressions.
+
+UNVERIFIED: tsc/eslint/vitest/next build (project dependencies absent; npm ci impossible offline and dependency installation is forbidden), PostgreSQL/Stripe/live Odoo/Windows printing/Tauri runtime, browser rendering and RTL visual pass, cryptography/rustc-dependent tests.
+
+-------------------------------------------------------------------------------
+
 RESUME HERE: Follow-up A164-A170 repairs and available Phase 3 checks complete. Deliverable: /home/mo7amed_saad/work/odoo/oddo-print-session-resource-fixed.zip. Full framework/PG/live Windows/Odoo checks and production traceback U07 remain UNVERIFIED.
 
 Audit started from the uploaded ZIP in an isolated extracted copy. Existing root AUDIT_FINDINGS.md/FIX_LOG.md were absent; archive/AUDIT_FINDINGS.md is historical evidence, not current instructions. Code changes will begin in Phase 2.

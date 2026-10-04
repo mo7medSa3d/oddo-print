@@ -200,7 +200,7 @@ export default function Onboarding() {
               actions={
                 <ol className="flex items-center gap-2 text-xs font-[600] text-ink-3" aria-label={t("onboarding.progressAria")}>
                   <li className="inline-flex items-center gap-1.5">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-2xs font-[700] text-brand-contrast">1</span>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-solid text-2xs font-[700] text-brand-contrast">1</span>
                     {t("onboarding.stepWorkspace")}
                   </li>
                   <li aria-hidden className="h-px w-4 bg-edge-strong" />
@@ -380,8 +380,7 @@ export default function Onboarding() {
             </Card>
 
             <Callout tone="info" title={t("onboarding.noCard")}>
-              Start with a trial, add a payment method only when you are ready to subscribe. Print
-              credits and limits follow the selected plan.
+              {t("onboarding.noCardBody")}
             </Callout>
 
             <div className="flex items-center gap-2 text-sm text-ink-3">

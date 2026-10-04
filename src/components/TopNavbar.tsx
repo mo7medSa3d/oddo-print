@@ -137,7 +137,7 @@ export function TopNavbar({
             return (
               <div key={item.href} className="flex items-center gap-1">
                 {showSection && (
-                  <span className="hidden px-2 text-2xs font-[600] uppercase tracking-[0.1em] text-ink-4 xl:inline">
+                  <span className="hidden px-2 text-2xs font-[600] text-ink-3 xl:inline">
                     {section}
                   </span>
                 )}

@@ -96,8 +96,11 @@ export const focusRing =
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success" | "subtle";
 
 const buttonVariants: Record<ButtonVariant, string> = {
+  // Solid label background: white on --brand-solid stays >= 4.5:1 in both
+  // themes (5.2:1 light, 4.7:1 dark). Hover darkens instead of lightening so
+  // the label contrast only improves while pressed.
   primary:
-    "bg-brand text-brand-contrast border border-transparent shadow-xs hover:bg-brand-hover active:bg-brand-active active:shadow-none",
+    "bg-brand-solid text-brand-contrast border border-transparent shadow-xs hover:brightness-[0.94] active:brightness-[0.88] active:shadow-none",
   secondary:
     "bg-surface text-ink border border-edge-strong shadow-xs hover:bg-surface-2 hover:border-ink-4/60 active:bg-surface-3",
   subtle:
@@ -845,7 +848,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-10 rounded-sm border border-edge-strong bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-[140ms] ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
+  "w-full h-10 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-[140ms] ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
 
 function useFieldProps({
   id,
@@ -960,7 +963,7 @@ export function Checkbox({
         id={inputId}
         type="checkbox"
         aria-describedby={descId}
-        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-edge-strong bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
         {...props}
       />
       <div className="min-w-0">
@@ -1900,7 +1903,7 @@ export function SectionHeader({
   return (
     <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${className}`}>
       <div className="min-w-0">
-        <h2 className="text-title font-[600] tracking-[-0.014em] text-ink">{title}</h2>
+        <h2 className="text-xl font-[600] tracking-[-0.014em] text-ink">{title}</h2>
         {description && <p className="mt-0.5 text-sm text-ink-3">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}

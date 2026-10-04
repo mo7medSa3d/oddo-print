@@ -339,7 +339,7 @@ function PrinterLanguageChips({ printer }: { printer: Printer }) {
       {badges.map((label) => (
         <span
           key={label}
-          className="rounded-xs border border-edge-subtle bg-surface-2 px-1.5 py-0.5 text-2xs font-[600] uppercase tracking-[0.02em] text-ink-3"
+          className="rounded-xs border border-edge-subtle bg-surface-2 px-1.5 py-0.5 text-xs font-[550] text-ink-3"
         >
           {label}
         </span>
@@ -1322,7 +1322,10 @@ export default function DashboardClient({
                   {t("dashboard.tab.printers")}
                 </h3>
                 <p className="mt-0.5 text-sm leading-snug text-ink-3">
-                  {kpis.onlinePrinters} of {kpis.totalPrinters} ready
+                  {t("dashboard.printersReady", {
+                    ready: formatNumber(kpis.onlinePrinters),
+                    total: formatNumber(kpis.totalPrinters),
+                  })}
                 </p>
               </div>
             </div>
@@ -1508,7 +1511,7 @@ export default function DashboardClient({
                           <div className="flex items-center gap-1.5 text-xs text-ink-2">
                             {connectionIcon(printer.connectionType)}
                             <span className="capitalize">{printer.connectionType}</span>
-                            {printer.protocol && <span className="uppercase text-ink-4">· {printer.protocol}</span>}
+                            {printer.protocol && <span className="font-[550] text-ink-3">· {printer.protocol}</span>}
                           </div>
                         </td>
                         <td>
@@ -1854,7 +1857,7 @@ export default function DashboardClient({
       <Modal
         open={selectedJob !== null}
         onClose={() => setSelectedJob(null)}
-        title={selectedJob ? `Job ${selectedJob.id.slice(0, 12)}` : t("job.job")}
+        title={selectedJob ? t("job.detailTitle", { id: selectedJob.id.slice(0, 12) }) : t("job.job")}
         description={selectedJob ? `${jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
         wide
         footer={

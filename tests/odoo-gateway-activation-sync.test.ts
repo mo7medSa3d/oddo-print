@@ -165,7 +165,10 @@ describe("Odoo Gateway activation synchronization", () => {
       const page = read("src/app/api-keys/page.tsx");
       expect(page).toContain('fetch("/api/odoo/keys"');
       expect(page).toContain("setInterval");
-      expect(page).toContain("Odoo integration");
+      // The page identity is localized now: the stable contract is the title
+      // key plus its English value, not a literal sentence in the JSX.
+      expect(page).toContain('t("apiKeys.title")');
+      expect(read("src/i18n/messages/en.ts")).toContain('"apiKeys.title": "Odoo integration"');
       // Localized at render time; assert the key, which is the stable contract.
       // Localized at render time; the key is the stable contract, not the copy.
       expect(page).toContain('t("apiKeys.connectOdoo")');

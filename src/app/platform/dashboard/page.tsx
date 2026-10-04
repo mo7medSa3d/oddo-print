@@ -386,7 +386,7 @@ export default function PlatformDashboardPage() {
               />
               <div className="grid gap-3 px-5 py-5 sm:grid-cols-3">
                 <div className="inset-panel p-4">
-                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                  <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <Building2 className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.tenantsLabel")}
                   </div>
@@ -394,7 +394,7 @@ export default function PlatformDashboardPage() {
                   <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.tenantsCount", { count: formatNumber(stats?.tenants.active ?? 0) })}</div>
                 </div>
                 <div className="inset-panel p-4">
-                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                  <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <Users className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.usersLabel")}
                   </div>
@@ -404,7 +404,7 @@ export default function PlatformDashboardPage() {
                   </div>
                 </div>
                 <div className="inset-panel p-4">
-                  <div className="flex items-center gap-2 text-2xs font-[600] uppercase tracking-[0.08em] text-ink-3">
+                  <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <CreditCard className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.subscriptionsLabel")}
                   </div>

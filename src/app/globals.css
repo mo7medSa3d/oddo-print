@@ -34,6 +34,10 @@
   --brand: #2563eb;
   --brand-hover: #1d4ed8;
   --brand-active: #1e40af;
+  /* Solid tints used behind white label text (primary buttons, step markers).
+     They are darker than --brand-hover so 1.4.3 stays satisfied at weight 560
+     (white on #2563eb = 5.2:1); every other brand use stays on --brand. */
+  --brand-solid: #2563eb;
   --brand-contrast: #ffffff;
   --brand-subtle: #eff4ff;
   --brand-subtle-hover: #e3ecff;
@@ -59,29 +63,37 @@
   --border-accent: #c9dbff;
   --border-subtle: #ecedf1;
   --divider: #e8e9ee;
+  /* Boundary of a form control. WCAG 2.2 SC 1.4.11 asks for 3:1 against the
+     surface a control sits on, which decorative separators do not have to
+     meet — so inputs, selects and checkboxes use this stronger edge instead of
+     --border-strong (3.9:1 on white, 3.4:1 on a raised panel). */
+  --control-border: #7b8189;
 
   /* ---------- Ink ---------- */
   --text: #16181d;
   --text-2: #454a54;
-  --text-3: #6b7078;
-  --text-4: #8b9099;
+  /* Meta and hint tiers. Both clear 4.5:1 on every surface this product paints
+     (page, card, raised panel, brand tint) — measured 5.2:1 and 4.6:1 on the
+     darkest light surface (--surface-3). */
+  --text-3: #5d636c;
+  --text-4: #666c74;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
   --text-display: #101216;
 
   /* ---------- Semantic status ---------- */
   --success: #1c6c3f;
-  --success-solid: #2f9e57;
+  --success-solid: #1f7a45;
   --success-bg: #eef8f1;
   --success-border: #b9e0c7;
 
   --warning: #8a5a00;
-  --warning-solid: #c98a06;
+  --warning-solid: #96630a;
   --warning-bg: #fff8e8;
   --warning-border: #ecd29a;
 
   --danger: #b42318;
-  --danger-solid: #d9573f;
+  --danger-solid: #c7351f;
   --danger-bg: #fdf2f1;
   --danger-border: #f0c2b9;
 
@@ -197,9 +209,10 @@
   --brand-900: #143f8c;
   --brand-950: #0f2c63;
 
-  --brand: #3b82f6;
+  --brand: #4b8ef8;
   --brand-hover: #5d99ff;
   --brand-active: #2b6fdd;
+  --brand-solid: #2b6fe3;
   --brand-contrast: #ffffff;
   --brand-subtle: #10203a;
   --brand-subtle-hover: #142a4b;
@@ -224,27 +237,28 @@
   --border-accent: #1e4180;
   --border-subtle: #1c1f25;
   --divider: #22252b;
+  --control-border: #6b7178;
 
   --text: #f3f4f6;
   --text-2: #c8ccd4;
   --text-3: #9aa0aa;
-  --text-4: #7b818c;
+  --text-4: #8b9199;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
   --text-display: #f8f9fb;
 
   --success: #6fd596;
-  --success-solid: #34c46b;
+  --success-solid: #1d8148;
   --success-bg: #0c2418;
   --success-border: #215c39;
 
   --warning: #f0c05a;
-  --warning-solid: #e5a32b;
+  --warning-solid: #9a6508;
   --warning-bg: #241b08;
   --warning-border: #66501c;
 
   --danger: #ff8b7d;
-  --danger-solid: #f1664f;
+  --danger-solid: #d0452e;
   --danger-bg: #291413;
   --danger-border: #6f3229;
 
@@ -304,6 +318,7 @@
   --color-edge-accent: var(--border-accent);
   --color-edge-subtle: var(--border-subtle);
   --color-divider: var(--divider);
+  --color-control: var(--control-border);
   --color-ink: var(--text);
   --color-ink-2: var(--text-2);
   --color-ink-3: var(--text-3);
@@ -313,6 +328,7 @@
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
   --color-brand-active: var(--brand-active);
+  --color-brand-solid: var(--brand-solid);
   --color-brand-contrast: var(--brand-contrast);
   --color-brand-subtle: var(--brand-subtle);
   --color-brand-subtle-hover: var(--brand-subtle-hover);
@@ -350,6 +366,11 @@
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
+  /* `sg` = the radius of an inset surface group (callout, notice, toolbar,
+     dialog section). Declared here because 55 call sites already use
+     `rounded-sg`; without the token Tailwind emits nothing and those surfaces
+     paint square corners next to 12px cards. */
+  --radius-sg: var(--r-lg);
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
@@ -945,10 +966,9 @@
   .table-head {
     background: var(--surface-2);
     color: var(--text-3);
-    font-size: var(--fs-2xs);
-    font-weight: 600;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    letter-spacing: normal;
   }
 
   .table-row {
@@ -978,11 +998,9 @@
   }
   .data-table th {
     color: var(--text-3);
-    font-size: var(--fs-2xs);
-    font-weight: 600;
-    letter-spacing: var(--tracking-label);
-    text-align: left;
-    text-transform: uppercase;
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    text-align: start;
     white-space: nowrap;
   }
   .data-table td,

@@ -209,9 +209,7 @@ export default function LoginPage() {
 
         <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
-          <p className="text-sm leading-relaxed text-ink-3">
-            Please verify your email before signing in.
-          </p>
+          <p className="text-sm leading-relaxed text-ink-3">{t("auth.signIn.verifyEmailNote")}</p>
         </div>
       </form>
     </AuthShell>
