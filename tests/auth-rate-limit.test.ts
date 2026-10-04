@@ -252,6 +252,27 @@ suite("manager login rate limiting", () => {
     expect(ok.status).toBe(200);
   });
 
+  it("blocks password spraying across accounts at the shared IP budget", async () => {
+    for (let i = 0; i < 20; i++) {
+      const res = await login(`spray-user-${i}`, "wrong", "198.51.100.61");
+      expect([401, 429]).toContain(res.status);
+    }
+    const denied = await login(USER, PASS, "198.51.100.61");
+    expect(denied.status).toBe(429);
+    expect(denied.headers.get("retry-after")).not.toBeNull();
+    const otherIp = await login(USER, PASS, "198.51.100.62");
+    expect(otherIp.status).toBe(200);
+  });
+
+  it("keeps unknown source addresses account-scoped instead of globally locking users", async () => {
+    for (let i = 0; i < 20; i++) {
+      const res = await login(`unknown-user-${i}`, "wrong", "not-an-ip");
+      expect(res.status).toBe(401);
+    }
+    expect((await pool().query("SELECT key FROM auth_rate_limits WHERE key = 'ip:unknown'")).rows).toEqual([]);
+    expect((await login(USER, PASS, "not-an-ip")).status).toBe(200);
+  });
+
   it("successful login after cooldown recovers the account", async () => {
     for (let i = 0; i < 5; i++) {
       await login(USER, "wrong", "198.51.100.70");

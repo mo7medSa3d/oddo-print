@@ -25,9 +25,9 @@ describe("Odoo 19 view architecture contract — gateway_config_views.xml", () =
     expect(formSection).toContain('field name="gateway_url"');
     expect(formSection).toContain('field name="gateway_api_key" password="True"');
     expect(formSection).toContain('field name="last_test_status"');
-    expect(formSection).not.toContain('field name="gateway_sync_state"');
-    expect(formSection).not.toContain('field name="gateway_sync_message"');
-    expect(formSection).toContain("<header/>");
+    expect(formSection).toContain('field name="gateway_sync_state" widget="statusbar"');
+    expect(formSection).toContain('field name="gateway_sync_message"');
+    expect(formSection).toContain("<header>");
 
     // The list shows the same operator-level connection state and does not
     // expose the internal reconciliation state machine.
@@ -36,17 +36,16 @@ describe("Odoo 19 view architecture contract — gateway_config_views.xml", () =
     expect(listSection).not.toContain('name="gateway_sync_state"');
   });
 
-  it("keeps internal recovery controls out of the customer-facing setup form", () => {
+  it("exposes explicit synchronization recovery while hiding unrelated internal actions", () => {
     const xml = read("odoo_addons/print_gateway/views/gateway_config_views.xml");
     const formStart = xml.indexOf('id="view_print_gateway_config_form"');
     const formEnd = xml.indexOf('<record id="view_print_gateway_config_search"', formStart);
     const formSection = xml.slice(formStart, formEnd);
 
-    // Recovery/reconciliation actions remain backend implementation details;
-    // the setup form is deliberately limited to connection configuration.
+    expect(formSection).toContain('name="action_retry_enabled_sync"');
+    expect(formSection).toContain('name="action_reset_stale_sync_state"');
+    expect(formSection).toContain('confirm="Recover synchronization state');
     for (const action of [
-      'name="action_retry_enabled_sync"',
-      'name="action_reset_stale_sync_state"',
       'name="action_open_pairing_wizard"',
       'name="action_open_runtime_assignments"',
       'name="action_clear_api_key"',

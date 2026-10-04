@@ -28,6 +28,7 @@ describe("CI/runtime alignment", () => {
     const ci = readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8");
     const go = readFileSync(path.join(root, "agent/go.mod"), "utf8");
     expect(go).toMatch(/^go 1\.26(?:\.0)?$/m);
+    expect(go).toMatch(/^toolchain go1\.26\.8$/m);
     expect(ci).toContain("go-version-file: agent/go.mod");
     expect(ci).not.toMatch(/go-version:\s*['\"]1\.27\.1['\"]/);
   });

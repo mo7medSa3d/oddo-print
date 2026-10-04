@@ -26,10 +26,10 @@ async function loadHooks(file = "pos_print_router.js") {
   const limits = new vm.SourceTextModule(limitSource, { context });
   await limits.link(() => common);
   const source = await readFile(new URL(`../odoo_addons/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
-  const module = new vm.SourceTextModule(source, { context });
-  await module.link((name) => name === "./gateway_limit_dialog" ? limits : common);
-  await module.evaluate();
-  return { hooks, exports: module.namespace, mocks };
+  const loadedModule = new vm.SourceTextModule(source, { context });
+  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : common);
+  await loadedModule.evaluate();
+  return { hooks, exports: loadedModule.namespace, mocks };
 }
 function canvas() {
   return { width: 100, height: 100, getContext: () => ({ fillRect() {} }), toDataURL: () => "data:image/jpeg;base64,VALIDJPEG" };

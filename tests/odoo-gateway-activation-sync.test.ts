@@ -231,7 +231,7 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(view).toContain('name="filter_enabled"');
     expect(view).not.toContain('name="filter_attention"');
     expect(view).not.toContain('name="last_enabled_sync_revision"');
-    expect(view).not.toContain('name="last_enabled_sync_error"');
+    expect(view).toContain('name="last_enabled_sync_error" readonly="1"');
 
     expect(model).toContain("def _disable_gateway_for_unlink");
     expect(model).toContain('json={"enabled": False, "revision": target_revision}');

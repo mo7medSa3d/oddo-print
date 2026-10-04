@@ -270,7 +270,7 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
     // transitionAgentLifecycle persists the single authoritative lifecycle
     // audit event inside the same transaction as the state change.
     revalidatePath("/dashboard");
-    return { lifecycle: result.lifecycle, pairingCode: result.pairingCode };
+    return { lifecycle: result.lifecycle, pairingCode: result.pairingCode, pairingCodeExpiresAt: result.pairingCodeExpiresAt };
   } catch (error) {
     if (error instanceof LifecycleConflict) throw new ActionError(t("errors.lifecycleConflict"), 409);
     throw error;

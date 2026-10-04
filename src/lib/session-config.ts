@@ -27,8 +27,9 @@ export function ensureCustomerSession(): Promise<{ authenticated: boolean; expir
     if (!Number.isFinite(expiresAt)) throw new Error("Invalid session expiry");
     return { authenticated: true, expiresAt };
   };
-  customerSessionFlight = (typeof navigator !== "undefined" && navigator.locks
+  const flight = Promise.resolve(typeof navigator !== "undefined" && navigator.locks
     ? navigator.locks.request("yaseir:customer-session", check) : check())
     .finally(() => { customerSessionFlight = null; });
-  return customerSessionFlight;
+  customerSessionFlight = flight;
+  return flight;
 }

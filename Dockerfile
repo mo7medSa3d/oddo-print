@@ -9,7 +9,9 @@ FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# Next permits an app without static public assets; keep the runtime copy valid
+# for both an empty asset directory and deployments that add public files.
+RUN mkdir -p public && npm run build
 
 FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-deps
 WORKDIR /app

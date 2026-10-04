@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import {
   Button,
@@ -93,21 +93,18 @@ export default function ReleaseReadinessClient() {
     };
   }, [t]);
 
-  const overall = rows.some((r) => r.status === "FAIL")
+  const overall: Status = rows.some((r) => r.status === "FAIL")
     ? "FAIL"
     : rows.some((r) => r.status === "BLOCKED")
-      ? "BLOCKED (explicit)"
+      ? "BLOCKED"
       : rows.some((r) => r.status === "UNVERIFIED") ? "UNVERIFIED" : "PASS";
 
-  const counts = useMemo(
-    () => ({
+  const counts = {
       pass: rows.filter((r) => r.status === "PASS").length,
       blocked: rows.filter((r) => r.status === "BLOCKED").length,
       fail: rows.filter((r) => r.status === "FAIL").length,
       unverified: rows.filter((r) => r.status === "UNVERIFIED").length,
-    }),
-    [rows],
-  );
+  };
 
   const visibleRows = rows.filter((row) => {
     if (filter === "attention") return row.status !== "PASS";

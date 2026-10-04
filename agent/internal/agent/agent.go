@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2861,14 +2860,6 @@ var ErrStaleClaim = errors.New("gateway rejected claim fence: stale or reclaimed
 // 4xx/5xx). Unlike a transport error, this IS authoritative: the gateway
 // evaluated our transition and refused it, so physical dispatch must stop.
 var ErrTransitionRejected = errors.New("gateway rejected status transition")
-
-func redactClaimTokenForLog(token string) string {
-	if token == "" {
-		return "claim_empty"
-	}
-	digest := sha256.Sum256([]byte(token))
-	return fmt.Sprintf("claim_%x", digest[:6])
-}
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
 	// The caller owns this immutable attempt token; never substitute a newer delivery.

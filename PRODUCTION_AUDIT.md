@@ -117,6 +117,8 @@ Commands run from repository root unless a component is identified. Detailed tra
 
 ### Critical-flow acceptance and release limitations
 
+This table records the original local/archive verification limits. The remote CI recovery sections below supersede the database, installed Odoo and native Windows build/installer blocks where explicitly verified; service, physical printer, interactive UI, signing and deployment acceptance still require the listed real environments.
+
 | Flow | Verified here | Required before release |
 |---|---|---|
 | Agent startup/pairing/auth/heartbeat/reconnect | Existing Go/TS simulated tests, credential/transport source contracts, race tests, corrected pairing lock predicate | Real service installation, upgrade/stop/uninstall, DPAPI/account ACLs, CGO-enabled release build, heartbeat with real PostgreSQL, gateway restart/network outage. |
@@ -127,3 +129,90 @@ Commands run from repository root unless a component is identified. Detailed tra
 | Production/staging deployment | Config/workflow source review, YAML/pin/timeout validation, custom-server build | Actual Compose/network/TLS/authenticated proxy deployments, migration-before-app ordering, restore drill and staged failure/recovery under production-like traffic. No Docker daemon, deployment credentials or current remote CI results supplied. |
 
 Release acceptance must use the existing real-DB tripwire and real platform runners; mocks cannot satisfy those gates. All discovered source defects were corrected, but outstanding upstream advisories and unavailable runtime checks mean the repository is **not certified production-ready or free of known risks**. This is the concrete remaining work, not a claim of success based only on passing unit tests.
+
+
+## CI recovery follow-up — 2026-10-04
+
+This section supersedes earlier local pass claims for commit `7fa576e65f22d6b72b190b8f84f1efc3cd10c9a3`. The four runs supplied by the operator tested that exact commit on `main`; the source differs from the original archive baseline. Current job logs, rather than historical evidence files, establish the failures below.
+
+### Failed-job evidence
+
+| Run/job | Observed failure | Root cause |
+|---|---|---|
+| [Windows installer](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667437/job/111366538752) | `discovery_extended.go:8:2: "log" imported and not used` | Go compilation stopped before tests, Rust and packaging. |
+| [CI](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667399/job/111366538804) | Same unused import | Early Go phase concealed downstream frontend checks. |
+| [Supply chain](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667410/job/111366538566) | govulncheck package loading rejects the unused import | A compilation failure, not evidence of a newly reachable advisory. |
+| [Docker](https://github.com/mo7medSa3d/oddo-print/actions/runs/37178667405/job/111366538662) | Webpack cannot resolve `net`/`tls` in pg | `dashboard-client → PrintCertificationWizard → job-status → database-clock → db → pg` crossed the browser/server boundary. |
+
+### Additional findings and fixes
+
+| ID | Severity | Files/evidence | Fix and preserved contract |
+|---|---|---|---|
+| CI01 | P1 | `agent/internal/printer/discovery_extended.go` unused log import, reproduced by Go build | Remove the actual unused import; no build gate bypass. |
+| CI02 | P1 | `src/lib/job-status.ts` imports a timestamp parser from the database-owning clock module | Extract the unchanged pure parser to `database-timestamp.ts`, import it directly in job-status, re-export it from database-clock for server compatibility. Actual Next and Vite builds verify the boundary. Authoritative clock inputs and physical outcome semantics stay intact. |
+| CI03 | P1 | `src/components/AppShell.tsx`: three LanguageSwitcher references without an import | Wire the existing translated language-switcher component into the shell. |
+| CI04 | P2 | `src/lib/session-config.ts`: DOM Web Locks type inference creates a nested promise type | Normalize the lock/check result with Promise.resolve and return the typed shared flight. New behavioral tests cover locked concurrent admission, failure recovery and rejected credentials. |
+| CI05 | P2 | Platform plan PATCH erases validated fields to Record<string,unknown> before the billing catalog lock | Use a schema-derived PlanPatch type, refining the validated nonnullable Stripe Price field. Validation, tenant/owner admission and locking remain unchanged. |
+| CI06 | P2 | Release-readiness overall value `BLOCKED (explicit)` is not a key of the translated Status map | Keep overall within the existing canonical Status union, render its translated label, and calculate small row counts without unstable useMemo dependencies. |
+| CI07 | P2 | Tenant/subscription pages reset pagination and loading synchronously from effects, causing lint errors and redundant old-offset requests | Reset offset in the search/filter events; derive loading from the completed request key including locale, offset, query and reload generation. Existing cancellation prevents stale completions from replacing current data. |
+| CI08 | P2 | Certification/timeline state resets in effects; desktop saved-origin ref mutation during render | Key certification/timeline sessions by their printer/job ID, use unmount cleanup to abort old work, and synchronize the desktop origin ref after commit. No new job/reprint authority is introduced. |
+| CI09 | P2 | Dashboard reenabling pairing invents an expiry from browser time; refresh callback misses translator dependency | Return the exact persisted database-derived expiry through lifecycle/actions, display it only with its pairing code, and include the translator dependency. |
+| CI10 | P2 | Go test Gateways emit `{success:true}` where production requires `{success:true,status:...}`; wrapped stale-claim error is compared by equality | Update fixtures to echo the requested acknowledged status and use errors.Is for the fence sentinel. Production strict acknowledgement, immutable attempt tokens, unknown outcomes and dispatch fencing are retained. |
+| CI11 | P2 | A database ingestion regression is embedded in discovery-unit.test.ts, violating suite classification | Move that block to discovery-identity.integration.test.ts and register it in the existing integration group. Pure taxonomy/CIDR tests remain in unit; database assertions are retained for real PostgreSQL. |
+| CI12 | P3 | Existing tests assert obsolete implementation strings, English text removed by localization, old Odoo receipt props, old recovery-form absence, and a compatibility driver being virtual | Align assertions with the actual canonical capability module, Odoo 19 `order/basic_receipt` props, localized UI keys, explicit recovery controls, added reactive scope fields and handshake cleanup closure. Move the compatibility driver into the physical-printer table, preserving virtual-printer exclusions. Root assertions remain, rather than deleting failing tests. |
+| CI13 | P3 | Timeline fixtures inject secret/irrelevant fields outside the builder's public input; offline VM harness variables shadow Next's module name | Fixtures now represent the actual public input. Rename VM locals to loadedModule while retaining actual-source execution. |
+| CI14 | P3 | Go U1000 finds unused token logging helper once old token-adoption diagnostics are removed | Remove the unused helper and SHA import. A successful report does not need a token diagnostic; the log security test still rejects raw passed/live tokens. |
+| CI15 | P3 | Odoo Arabic catalog contains obsolete `label` term removed by receipt changes | Remove that stale entry. Catalog check now matches 666 source terms and entries. |
+| CI16 | P2 | GitHub setup-go resolves the module language declaration to exact Go 1.26.0, while local verification uses 1.26.8 | Declare `toolchain go1.26.8` in go.mod. The SHA-pinned setup-go implementation prioritizes that directive; language minimum remains 1.26.0. Add an alignment assertion and keep all workflows deriving the version from the module file. |
+| CI17 | P3 | Background isolation saves undefined inert on hosts without native support | Normalize the saved state to Boolean before applying and restoring inert; the existing dialog isolation DOM regression passes. |
+| CI18 | P1 | Fix-branch Docker run 37180751674/job 111372662122 fails copying `/app/public`, which does not exist in this Gateway | Create Next's optional public asset directory in the build stage before compiling; retain runtime asset copying for deployments with assets. This failure was masked by the earlier webpack error. |
+| CI19 | P2 | `tests/agent-lifecycle.integration.test.ts` requires exactly one revision for concurrent disable/retire, although lifecycle permits disabled → retired | Assert retirement is final in both lock orders and that revision and audit count equal committed transitions. The database row lock, retirement fence and production transition rules remain unchanged. |
+| CI20 | P1 | PostgreSQL run 37180933809/job 111373392218: shared-NAT test reads zero IP attempts; `reserveAuthAttempt` creates only account keys | Restore atomic reservations for valid source IPs alongside accounts using the existing wider NAT curve. Invalid/unknown IPs stay account-scoped to prevent a global lockout. Add runtime password-spray and unknown-address regressions; successful authentication still clears only the account budget. |
+| CI21 | P2 | Same run: unrelated-subscription pairing test selects nonexistent `tenant_subscriptions.id` before its cleanup guard, leaking a connection and timing out afterAll | Select the actual primary key `tenant_id`; place transaction setup and request inside try/finally and guarantee connection release. Keep the assertion that pairing completes while the other tenant's lock is still held. |
+| CI22 | P3 | Same run: Odoo synchronization contract asserts `last_enabled_sync_error` is absent although production intentionally exposes read-only recovery diagnostics | Assert the read-only diagnostic is present; retain post-commit replication, stale revision fencing, retry cron and credential cleanup contracts. |
+| CI23 | P2 | Revision 9da7237 CI run 37181925279/job 111376053804 passes 350 integration and 1,080 combined test assertions but reports an unhandled rejection in tenant-suspension admission | Attach fulfillment/rejection handlers immediately when starting the blocked admission request, then assert the settled rejection after committing suspension. Keep the tenant lock and zero-created-jobs assertions. This corrects test timing, not production rejection/fencing behavior. |
+
+### Verification of the corrected source
+
+- Typecheck and ESLint pass with no warnings/errors. No lint, type, audit, or DB tripwire is disabled.
+- Gateway Next production and Desktop Vite production builds pass. Desktop retains the known chunk-size warning.
+- JavaScript unit/DOM/contract suite is rerun with a JSON report. New browser-boundary and session-admission tests accompany the existing physical-outcome, pairing, UI and authentication contracts.
+- Standalone Python suite: 167 passed, including actual Rust std-helper compilation/execution with rustc. This does not claim installed Odoo ORM coverage.
+- Offline actual-module Node audit suite: 16 passed. Shared EN/AR check: 2,238 keys each; Odoo catalog: 666/666; database documentation/migration consistency: checked.
+- Go race suite: all 10 packages pass; build, vet, Linux/Windows U1000 and Windows amd64 cross-build are run. Production strict acknowledgement tests now simulate the real Gateway response.
+- govulncheck reports zero reachable/imported-package vulnerabilities; the module-only no-fix OpenPGP warning remains. npm production audit is clean, and the existing full audit gate retains its explicit dev-only braces exception.
+- Remote PostgreSQL integration, Docker runtime, native Windows Rust/build/installer and Odoo jobs must be checked on the fix commit. Original failed runs are historical and do not turn green retroactively. Current CI results will be recorded after the fix branch runs; local cross-compilation is not installer execution or physical-printer acceptance.
+
+### First remote verification and follow-up
+
+On code revision `18e49ec5e80a35dae68005d30461cdc51eae428e`, [Docker runtime 37180933810](https://github.com/mo7medSa3d/oddo-print/actions/runs/37180933810) passed image builds, ordered migrations, Gateway/PostgreSQL health, CSP/HTML nonce equality, absence of script unsafe-inline, Caddy configuration, and authenticated agent WebSocket checks. [Security/resilience 37180933772](https://github.com/mo7medSa3d/oddo-print/actions/runs/37180933772) passed supply-chain gates and real PostgreSQL LISTEN reconnect failure injection. [Static security 37180933802](https://github.com/mo7medSa3d/oddo-print/actions/runs/37180933802) passed all three CodeQL languages, secret scanning and dependency review.
+
+[CI 37180933809](https://github.com/mo7medSa3d/oddo-print/actions/runs/37180933809) passed Go build/vet/race, dependency audits, typecheck/lint, localization/schema checks, 167 standalone Python tests, production Next build and 734 unit tests (one DB-gated skip). Installed Odoo 19 reported `0 failed, 0 error(s)` and addon statistics of 205 tests. PostgreSQL integration ran 347 tests: 344 passed and three failed, plus the leaked-connection teardown timeout, exposing CI20–CI22 above. These are corrected without disabling assertions or increasing timeouts. CI19 fixes a separate lock-order-dependent assertion that happened to pass in this run. A new real-database regression verifies the returned pairing expiry equals its persisted value and unchanged transitions expose no credentials.
+
+[Windows 37180933782](https://github.com/mo7medSa3d/oddo-print/actions/runs/37180933782) passed native Go build/vet/race, Windows Rust audit, desktop bundle, locked Cargo check/build/tests and frontend typecheck/lint. Its sole Vitest failure was the same obsolete Odoo diagnostic assertion CI22; packaging was not reached. Final verification must rerun both integration and installer gates after these fixes.
+
+### Second remote verification
+
+On production source revision `9da7237a853d8a6bab39d09aaee95c92d6ab3cd9`, [CI 37181925279](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925279) passed all 350 PostgreSQL integration tests, including password-spray protection, NAT tolerance, unknown-address isolation, pairing expiry persistence, unrelated subscription locking and concurrent lifecycle ordering. The subsequent combined suite passed 1,080 test assertions with three explicit skips, but its unhandled-rejection tripwire correctly failed the job on CI23. Immediate promise observation fixes that race without disabling the tripwire; typecheck, lint and Go formatting are clean after the correction.
+
+[Docker 37181925322](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925322), [security/resilience 37181925388](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925388), [static security 37181925329](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925329), and installed Odoo 19 passed on the same revision. Physical printer, real production TLS deployment, signed release, upstream advisory and interactive accessibility/RTL acceptance limitations remain. The final CI/installer status is tracked in [PR #114 checks](https://github.com/mo7medSa3d/oddo-print/pull/114/checks); test assertion counts alone are insufficient while any job or unhandled-error tripwire fails.
+
+[Windows installer 37181925260](https://github.com/mo7medSa3d/oddo-print/actions/runs/37181925260) completed successfully on that production source: native Go build/vet/race, Windows Rust audit, locked Cargo check/build/tests, desktop production bundle, typecheck/lint/Vitest, MSI and NSIS production bundle generation, installation and installed-application smoke tests, NSIS uninstall, and artifact upload. Smoke tests verify bundled app/CLI/agent files, desktop process startup, CLI help, isolated first-run agent config/logs/SQLite creation, and process cleanup. They explicitly do not verify Windows service registration/control, hardware printing, code signing, interactive WebView UI or an actual Gateway pairing session.
+
+The final test follow-up changes only CI23's promise observation and this audit record; production source, configuration and assets are unchanged from revision 9da7237. Earlier failed jobs remain historical evidence. All A01–A25 and CI01–CI23 have source/test corrections applied. R01–R05 and the physical/external acceptance limitations remain disclosed and prevent a blanket defect-free production certification.
+
+### Completed acceptance replay
+
+Revision `e6f23f146ac906906573a4928313a1c75d29c2ba` completed **all 11 GitHub checks successfully**, with no failed or skipped checks:
+
+| Workflow | Final evidence | Result |
+|---|---|---|
+| CI | [37182915259](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915259) | Both CI and installed Odoo jobs passed. Gateway: 734 unit tests (one DB-gated skip), 350 PostgreSQL integration tests (no skips), combined 1,080 passed/three explicit skips with **no unhandled errors**, plus four targeted Gateway tests. Go build/vet/race/U1000/vulnerability/formatting, Python, typecheck/lint, catalogs, migrations/schema and production build gates passed. |
+| Windows | [37182915209](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915209) | Native Go and Rust gates, frontend checks, MSI/NSIS builds, both installation/startup/SQLite smoke tests, NSIS uninstall and installer artifact upload passed. Database suites are explicitly gated on this Windows runner and covered by CI's real PostgreSQL job. |
+| Docker | [37182915204](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915204) | Images, ordered migrations, Gateway/database health, Caddy, served CSP nonce and authenticated WebSocket smoke passed. |
+| Security/resilience | [37182915228](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915228) | Both supply-chain and PostgreSQL reconnect failure-injection jobs passed; disclosed advisory exceptions/warnings remain. |
+| Static security | [37182915258](https://github.com/mo7medSa3d/oddo-print/actions/runs/37182915258) | Go, JavaScript/TypeScript and Python CodeQL, secret scan and dependency review passed. |
+
+The closing documentation update preserves all production and test source from that verified revision and triggers a full replay. Its live results remain available in [PR #114 checks](https://github.com/mo7medSa3d/oddo-print/pull/114/checks). Passing CI is a prerequisite for review, not proof of physical printing, service lifecycle, signed releases, interactive accessibility/Arabic shaping, real Stripe/Odoo deployment or production TLS/restore behavior. Those remaining acceptance requirements and upstream R01–R05 are retained explicitly.
+
+The broader physical/runtime limitations and upstream risks elsewhere in this report still apply. Fixing CI is not a certification of physical printing or production readiness.

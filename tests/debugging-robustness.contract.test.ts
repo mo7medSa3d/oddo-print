@@ -53,13 +53,13 @@ describe("debugging / robustness contracts", () => {
 
   it("keeps the concrete Phase 4 operational failures checked", () => {
     expect(read("agent/cmd/cli/gateway.go")).toContain("write Gateway response failed");
-    expect(read("agent/internal/queue/queue.go")).toContain("queue SQLite pragma failed");
-    expect(read("agent/internal/queue/queue.go")).toContain("duplicate column name");
+    expect(read("agent/internal/queue/queue.go")).toContain("queue durability configuration");
+    expect(read("agent/internal/queue/queue.go")).toContain("PRAGMA table_info(print_jobs)");
     expect(read("agent/internal/printer/network.go")).toContain("set printer write deadline");
     expect(read("agent/internal/printer/discovery_extended.go")).toContain("conn.Write([]byte(\"\\x04raw\\n\"))");
     expect(read("agent/internal/agent/agent.go")).toContain("job rejection callback failed");
     expect(read("agent/internal/agent/discovery_manager.go")).toContain("gateway response drain failed");
-    expect(read("agent/internal/printer/ipp_discovery.go")).toContain("mDNS Browse failed");
+    expect(read("agent/internal/printer/ipp_discovery.go")).toContain("mDNS %s Browse: %w");
     // The queue close path must propagate the failure, not swallow it.
     expect(read("agent/cmd/agent/main.go")).toContain('return fmt.Errorf("close local queue: %w", err)');
     expect(read("agent/internal/agent/desired_state.go")).toContain("failed to persist desired-state error");
@@ -67,7 +67,7 @@ describe("debugging / robustness contracts", () => {
     expect(read("agent/internal/printer/wsd_discovery.go")).toContain("set WSD read deadline");
     expect(read("agent/internal/printer/registry.go")).toContain("if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil");
     expect(read("agent/internal/printer/classify_device.go")).toContain("isVirtual is not relevant");
-    expect(read("agent/internal/printer/discovery.go")).toContain("failed to enumerate addresses");
+    expect(read("agent/internal/printer/discovery.go")).toContain('addErr("lpr discovery: " + diagnostic)');
     expect(read("agent/internal/printer/network_discovery.go")).toContain("skipping malformed TCP target");
     expect(read("agent/internal/payload/payload.go")).toContain("requiredStringField");
   });

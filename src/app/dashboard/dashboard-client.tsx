@@ -585,7 +585,7 @@ export default function DashboardClient({
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, router]);
+  }, [refreshBillingUsage, router, t]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -928,8 +928,8 @@ export default function DashboardClient({
     const result = await runAction(() => setAgentLifecycle(agent.id, "active"));
     if (!result) return;
     const pairingCode = typeof result.pairingCode === "string" ? result.pairingCode : "";
-    if (pairingCode) {
-      setActivePairing({ id: agent.id, code: pairingCode, expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+    if (pairingCode && result.pairingCodeExpiresAt) {
+      setActivePairing({ id: agent.id, code: pairingCode, expiresAt: result.pairingCodeExpiresAt });
       setRegisterOpen(true);
     }
     void refreshData();

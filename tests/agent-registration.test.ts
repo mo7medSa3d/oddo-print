@@ -94,15 +94,16 @@ suite("agent registration contract", () => {
       [hashPairingCode(pairingCode), f.agentId],
     );
     const blocker = await pool().connect();
-    await blocker.query("BEGIN");
-    await blocker.query("SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 FOR UPDATE", [other.tenantId]);
-    const pending = registerPOST(new Request("http://gateway.test/api/agent/register", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-real-ip": "127.0.0.53" },
-      body: JSON.stringify({ pairingCode }),
-    }));
+    let pending: Promise<Response> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT tenant_id FROM tenant_subscriptions WHERE tenant_id = $1 FOR UPDATE", [other.tenantId]);
+      pending = registerPOST(new Request("http://gateway.test/api/agent/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-real-ip": "127.0.0.53" },
+        body: JSON.stringify({ pairingCode }),
+      }));
       const response = await Promise.race([
         pending,
         new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2000); }),
@@ -111,8 +112,8 @@ suite("agent registration contract", () => {
       expect(response?.status).toBe(200);
     } finally {
       clearTimeout(timer);
-      await blocker.query("ROLLBACK");
-      blocker.release();
+      try { await blocker.query("ROLLBACK"); }
+      finally { blocker.release(); }
       await pending;
     }
   }, 10000);
@@ -317,5 +318,4 @@ suite("agent registration contract", () => {
     expect(typeof winnerBody.agent_secret).toBe("string");
   });
 });
-
 

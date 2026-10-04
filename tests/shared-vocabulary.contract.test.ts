@@ -31,8 +31,8 @@ describe("shared vocabulary single-authority contracts", () => {
   });
 
   it("routing byte protocols derive from the canonical protocol list", () => {
-    const source = read("src/lib/routing.ts");
-    expect(source).toContain("PRINTER_PROTOCOLS.filter");
+    const source = read("src/lib/printer-capability.ts");
+    expect(source).toContain("payloadContract.rawProtocols");
     expect(source).not.toContain('const BYTE_PROTOCOLS = ["raw", "escpos", "zpl", "tspl"]');
   });
 

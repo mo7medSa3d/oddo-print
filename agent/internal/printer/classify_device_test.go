@@ -82,15 +82,7 @@ func TestClassifyVirtualPrintersAreHidden(t *testing.T) {
 			},
 			want: ClassVirtual,
 		},
-		{
-			name: "point and print compatibility driver",
-			di: DeviceInfo{
-				Name: "Compat Queue", ConnectionType: "spooler", Protocol: "spooler",
-				SpoolerName:  "Compat Queue",
-				Capabilities: caps("port_name", "192.168.1.9", "driver_name", "Microsoft enhanced Point and Print compatibility driver"),
-			},
-			want: ClassVirtual,
-		},
+
 		{
 			name: "third party PDF writer on a USB-looking port",
 			di: DeviceInfo{
@@ -189,6 +181,14 @@ func TestClassifyPhysicalPrintersStayVisible(t *testing.T) {
 		name string
 		di   DeviceInfo
 	}{
+		{
+			name: "point and print compatibility driver",
+			di: DeviceInfo{
+				Name: "Compat Queue", ConnectionType: "spooler", Protocol: "spooler",
+				SpoolerName:  "Compat Queue",
+				Capabilities: caps("port_name", "192.168.1.9", "driver_name", "Microsoft enhanced Point and Print compatibility driver"),
+			},
+		},
 		{
 			name: "physical USB spooler printer",
 			di: DeviceInfo{

@@ -2,8 +2,9 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { db } from "../src/db";
 import { agents, auditEvents, printers, tenants } from "../src/db/schema";
 import { and, eq } from "drizzle-orm";
-import { applyMigrations, closePool, hasTestDatabase } from "./helpers/pg";
-import { transitionAgentLifecycle, LifecycleConflict } from "../src/lib/agent-lifecycle";
+import { applyMigrations, closePool, hasTestDatabase, seedFixture } from "./helpers/pg";
+import { hashPairingCode } from "../src/lib/agent-auth";
+import { transitionAgentLifecycle, LifecycleConflict, type AgentLifecycleResult } from "../src/lib/agent-lifecycle";
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -11,6 +12,23 @@ const suite = describe.skipIf(!hasTestDatabase);
 suite("Agent Lifecycle", () => {
   beforeAll(async () => { await applyMigrations(); });
   afterAll(async () => { await closePool(); });
+
+  it("returns the persisted pairing expiry when reenabling and no credentials on an unchanged transition", async () => {
+    const fixture = await seedFixture();
+    const actor = { type: "user" as const, id: "reenable-user" };
+    await transitionAgentLifecycle(fixture.agentId, "disabled", fixture.tenantId, actor);
+    const result = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor);
+    expect(result?.changed).toBe(true);
+    expect(result?.pairingCode).toBeTruthy();
+    expect(result?.pairingCodeExpiresAt).toBeInstanceOf(Date);
+    const row = await db.query.agents.findFirst({ where: and(eq(agents.id, fixture.agentId), eq(agents.tenantId, fixture.tenantId)) });
+    expect(row?.pairingCodeExpiresAt?.getTime()).toBe(result!.pairingCodeExpiresAt!.getTime());
+    expect(row?.pairingCodeHash).toBe(hashPairingCode(result!.pairingCode!));
+    expect(row?.secret).toBeNull();
+    expect(row?.status).toBe("offline");
+    const unchanged = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor);
+    expect(unchanged).toEqual({ changed: false, lifecycle: "active", pairingCode: null, pairingCodeExpiresAt: null });
+  });
 
   it("serializes concurrent lifecycle requests without stale overwrite", async () => {
     const tenantId = `tenant_agent_lifecycle_${nanoid(8)}`;
@@ -42,12 +60,14 @@ suite("Agent Lifecycle", () => {
     ]);
 
     const row = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)) });
-    expect(row!.lifecycle === "retired" || row!.lifecycle === "disabled").toBe(true);
-    expect(row!.lifecycleRevision).toBe(1);
+    // Retirement wins in either lock order: retiring first fences disable;
+    // disabling first permits a second, valid disabled -> retired transition.
+    expect(row!.lifecycle).toBe("retired");
 
-    const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<{ changed: boolean; lifecycle: string; pairingCode: string | null } | null> => result.status === "fulfilled");
+    const succeeded = [retired, disabled].filter((result): result is PromiseFulfilledResult<AgentLifecycleResult | null> => result.status === "fulfilled");
     expect(succeeded.length).toBeGreaterThanOrEqual(1);
     expect(succeeded.every((result) => result.value?.lifecycle)).toBe(true);
+    expect(row!.lifecycleRevision).toBe(succeeded.length);
     const printerRow = await db.query.printers.findFirst({
       where: and(eq(printers.id, printerId), eq(printers.tenantId, tenantId)),
     });
