@@ -85,7 +85,7 @@ export default function TeamPage() {
   const router = useRouter();
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const { t, tc, formatNumber, locale } = useI18n();
+  const { t, tc, formatNumber } = useI18n();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -286,9 +286,9 @@ export default function TeamPage() {
         meta={
           loaded ? (
             <div className="flex items-center gap-2">
-              <StatusBadge tone="neutral" label={tc("team.memberCount", members.length, { count: formatNumber(members.length, locale) })} />
+              <StatusBadge tone="neutral" label={tc("team.memberCount", members.length, { count: formatNumber(members.length) })} />
               {invitations.length > 0 && (
-                <StatusBadge tone="warn" label={tc("team.inviteCount", invitations.length, { count: formatNumber(invitations.length, locale) })} />
+                <StatusBadge tone="warn" label={tc("team.inviteCount", invitations.length, { count: formatNumber(invitations.length) })} />
               )}
             </div>
           ) : null

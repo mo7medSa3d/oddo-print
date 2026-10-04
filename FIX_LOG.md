@@ -22,6 +22,11 @@ Verification executed here:
 - Static contract sweep of tests/*.test.ts toContain/not.toContain literals against their source files: 0 mismatches (two tool false positives re-checked by direct grep).
 - Design-system static checks: no undefined rounded-*/colour utilities, no Tailwind default-palette classes, delimiter-balance delta vs HEAD shows no regressions.
 
+CI (GitHub Actions, branch arena/01a1080f-oddo-print): the first push failed two jobs and both were real:
+  - `ci` / Typecheck: `src/app/team/page.tsx:289,291` passed a Locale where `useI18n().formatNumber(value, options?)` expects Intl options ("Argument of type '\"en\" | \"ar\"' is not assignable to parameter of type 'NumberFormatOptions | undefined'"). The sandbox could not run tsc, so the regression reached CI. Fixed by calling the hook formatter with a single argument (it already closes over the locale); `src/app/billing|page.tsx` keeps the two-argument form because it imports the raw `formatNumber(value, locale, options?)` from `src/i18n/format`. Swept every other hook formatter call site in `src/**/*.tsx` for the same arity mistake: no further hits.
+  - `Docker` / `docker-build-runtime`: same error, via `next build` inside the compose image.
+  Both jobs are re-verified on the follow-up commit; the earlier bash-only checks (catalog/contrast/offline suites) had no way to catch a type error.
+
 UNVERIFIED: tsc/eslint/vitest/next build (project dependencies absent; npm ci impossible offline and dependency installation is forbidden), PostgreSQL/Stripe/live Odoo/Windows printing/Tauri runtime, browser rendering and RTL visual pass, cryptography/rustc-dependent tests.
 
 -------------------------------------------------------------------------------
