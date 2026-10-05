@@ -1290,7 +1290,6 @@ export function Menu({
   useEffect(() => {
     if (!open) return;
 
-    setFloatingPosition(null);
     let frame = window.requestAnimationFrame(updateFloatingPosition);
     const onViewportChange = () => {
       window.cancelAnimationFrame(frame);

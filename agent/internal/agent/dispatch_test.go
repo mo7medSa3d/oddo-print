@@ -573,6 +573,16 @@ func TestEnqueueRejectPreservesOriginalClaimToken(t *testing.T) {
 	ag.inFlight["job_token_fence"] = struct{}{}
 	ag.inFlightTokens["job_token_fence"] = "claim-new"
 	ag.inFlightMu.Unlock()
+	defer func() {
+		// This test injects an in-flight marker directly to model a newer live
+		// claim. Remove the synthetic state before newTestAgent cleanup so
+		// Agent.Close can close SQLite on Windows instead of deliberately
+		// leaving queue.db open for a genuinely running print handler.
+		ag.inFlightMu.Lock()
+		delete(ag.inFlight, "job_token_fence")
+		delete(ag.inFlightTokens, "job_token_fence")
+		ag.inFlightMu.Unlock()
+	}()
 
 	ctx := context.Background()
 	if !ag.enqueueReject(ctx, "job_token_fence", "claim-old", "pending_full") {
