@@ -40,8 +40,14 @@
     <CustomAction Id="YaseirStopAgentService" Directory="INSTALLDIR"
                   ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service stop'
                   Execute="deferred" Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirKillManagerProcesses" Directory="System64Folder"
+                  ExeCommand='taskkill.exe /F /T /IM &quot;Yaseir Print Manager.exe&quot;'
+                  Execute="deferred" Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirKillAgentProcesses" Directory="System64Folder"
+                  ExeCommand='taskkill.exe /F /T /IM YaseirAgent.exe'
+                  Execute="deferred" Return="ignore" Impersonate="no" />
     <CustomAction Id="YaseirUninstallAgentService" Directory="INSTALLDIR"
-                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service uninstall'
+                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service purge'
                   Execute="deferred" Return="check" Impersonate="no" />
 
     <InstallExecuteSequence>
@@ -54,7 +60,9 @@
       <Custom Action="YaseirInstallAgentService" After="YaseirDeleteLegacyOdooPrint">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirStartAgentService" After="YaseirInstallAgentService">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
 
-      <Custom Action="YaseirStopAgentService" Before="YaseirUninstallAgentService">REMOVE ~= &quot;ALL&quot;</Custom>
+      <Custom Action="YaseirKillManagerProcesses" Before="YaseirStopAgentService">REMOVE ~= &quot;ALL&quot;</Custom>
+      <Custom Action="YaseirStopAgentService" Before="YaseirKillAgentProcesses">REMOVE ~= &quot;ALL&quot;</Custom>
+      <Custom Action="YaseirKillAgentProcesses" Before="YaseirUninstallAgentService">REMOVE ~= &quot;ALL&quot;</Custom>
       <Custom Action="YaseirUninstallAgentService" Before="RemoveFiles">REMOVE ~= &quot;ALL&quot;</Custom>
     </InstallExecuteSequence>
   </Fragment>

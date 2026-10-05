@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kardianos/service"
 	"golang.org/x/sys/windows"
@@ -58,4 +59,45 @@ func updateInstalledService(wanted *service.Config) error {
 	current.ServiceStartName = ""
 	current.Password = ""
 	return existing.UpdateConfig(current)
+}
+
+
+func purgeInstallationData() error {
+	var roots []string
+	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
+		for _, name := range []string{
+			"YaseirAgent",
+			"YasserAgent",
+			"OdooPrintAgent",
+			"YaseirManager",
+			"YasserManager",
+			"OdooPrintManager",
+		} {
+			roots = append(roots, filepath.Join(programData, name))
+		}
+	}
+	for _, envName := range []string{"LOCALAPPDATA", "APPDATA"} {
+		if root := strings.TrimSpace(os.Getenv(envName)); root != "" {
+			for _, name := range []string{
+				"YaseirManager",
+				"YasserManager",
+				"Yaseir Print Manager",
+				"Yasser Print Manager",
+				"com.yasser.manager",
+			} {
+				roots = append(roots, filepath.Join(root, name))
+			}
+		}
+	}
+
+	var failures []string
+	for _, root := range roots {
+		if err := os.RemoveAll(root); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("purge Yaseir installation data: %s", strings.Join(failures, "; "))
+	}
+	return nil
 }

@@ -17,6 +17,48 @@ describe("windows-service-recovery", () => {
     expect(mainGo).toContain('"actions= restart/60000/restart/60000/restart/60000"');
   });
 
+
+  it("desktop manager is single-instance and refocuses the existing window", () => {
+    const main = fs.readFileSync("src-tauri/src/main.rs", "utf8");
+    expect(main).toContain("CreateMutexW");
+    expect(main).toContain("YaseirPrintManager.SingleInstance.v1");
+    expect(main).toContain("ERROR_ALREADY_EXISTS");
+    expect(main).toContain("focus_existing_manager_window");
+    expect(main).toContain("SetForegroundWindow");
+    expect(main).toContain("Ok(None) => return");
+  });
+
+  it("Windows uninstall removes service, product processes, and runtime data", () => {
+    const nsis = fs.readFileSync("src-tauri/installer_hooks.nsh", "utf8");
+    const wix = fs.readFileSync("src-tauri/wix/service.wxs", "utf8");
+    const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
+    const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
+
+    expect(nsis).toContain('taskkill /F /T /IM "Yaseir Print Manager.exe"');
+    expect(nsis).toContain("taskkill /F /T /IM YaseirAgent.exe");
+    expect(nsis).toContain('"-service purge');
+    expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
+
+    expect(wix).toContain('Id="YaseirKillManagerProcesses"');
+    expect(wix).toContain('Id="YaseirKillAgentProcesses"');
+    expect(wix).toContain("-service purge");
+    expect(wix).toContain('Before="RemoveFiles"');
+
+    expect(agentMain).toContain('case "purge":');
+    expect(agentMain).toContain("stopServiceForRemoval");
+    expect(agentMain).toContain("purgeInstallationData()");
+    for (const dir of [
+      "YaseirAgent",
+      "YasserAgent",
+      "OdooPrintAgent",
+      "YaseirManager",
+      "YasserManager",
+      "com.yasser.manager",
+    ]) {
+      expect(windowsInstall).toContain(`"${dir}"`);
+    }
+  });
+
   it("service status API returns BLOCKED explicit with required fields", () => {
     const source = fs.readFileSync("src/app/api/agents/service-status/route.ts", "utf8");
     expect(source).toContain("serviceName");

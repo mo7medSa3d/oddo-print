@@ -70,22 +70,59 @@
 
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Stopping and removing Yaseir Agent Windows Service..."
+  DetailPrint "Stopping Yaseir processes and removing all local runtime data..."
+
+  ; Uninstall is a destructive product removal, so terminate every known
+  ; Yaseir/Yasser desktop or Agent image before deleting SQLite/config/log data.
+  nsExec::Exec 'taskkill /F /T /IM "Yaseir Print Manager.exe"'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM "Yasser Print Manager.exe"'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM YaseirAgent.exe'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM YasserAgent.exe'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM OdooPrintAgent.exe'
+  Pop $R0
+
   nsExec::Exec 'net stop YaseirAgent'
   Pop $R0
+  nsExec::Exec 'sc stop YaseirAgent'
+  Pop $R0
+  nsExec::Exec 'sc stop YasserAgent'
+  Pop $R0
+  nsExec::Exec 'sc delete YasserAgent'
+  Pop $R0
+  nsExec::Exec 'sc stop OdooPrintAgent'
+  Pop $R0
+  nsExec::Exec 'sc delete OdooPrintAgent'
+  Pop $R0
+
   StrCpy $1 "$INSTDIR\resources\YaseirAgent.exe"
   IfFileExists "$1" agent_uninstall_found 0
   StrCpy $1 "$INSTDIR\YaseirAgent.exe"
   IfFileExists "$1" agent_uninstall_found 0
   SetErrorLevel 1
-  Abort "Agent executable is missing; service removal requires repair first."
+  Abort "Agent executable is missing; complete cleanup requires repair first."
+
   agent_uninstall_found:
-  nsExec::ExecToStack '"$1" -service uninstall'
+  nsExec::ExecToStack '"$1" -service purge'
   Pop $R0
   Pop $R1
   StrCmp $R0 "0" agent_removed 0
-  DetailPrint "Agent service removal failed ($R0): $R1"
+  DetailPrint "Agent purge failed ($R0): $R1"
   SetErrorLevel 1
-  Abort "Agent service removal failed. See installer details."
+  Abort "Yaseir cleanup failed. See installer details."
+
   agent_removed:
+  ; Per-user state is outside ProgramData and may not be visible to the
+  ; elevated Agent helper, so remove it explicitly in the uninstaller context.
+  RMDir /r "$LOCALAPPDATA\YaseirManager"
+  RMDir /r "$LOCALAPPDATA\YasserManager"
+  RMDir /r "$LOCALAPPDATA\Yaseir Print Manager"
+  RMDir /r "$LOCALAPPDATA\Yasser Print Manager"
+  RMDir /r "$LOCALAPPDATA\com.yasser.manager"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yaseir Print Manager"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yasser Print Manager"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "com.yasser.manager"
 !macroend

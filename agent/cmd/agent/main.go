@@ -285,6 +285,59 @@ func configureServiceRecovery(serviceName string) {
 	log.Printf("Service recovery actions configured (restart on crash)")
 }
 
+func stopServiceForRemoval(s service.Service) error {
+	status, err := s.Status()
+	if err != nil {
+		if errors.Is(err, service.ErrNotInstalled) {
+			return nil
+		}
+		return fmt.Errorf("read service status before stop: %w", err)
+	}
+	if status == service.StatusStopped {
+		return nil
+	}
+	if err := s.Stop(); err != nil {
+		return fmt.Errorf("stop service before removal: %w", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, err = s.Status()
+		if err != nil {
+			if errors.Is(err, service.ErrNotInstalled) {
+				return nil
+			}
+			return fmt.Errorf("read service status while stopping: %w", err)
+		}
+		if status == service.StatusStopped {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for YaseirAgent to stop before removal")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func uninstallServiceIfPresent(s service.Service) (bool, error) {
+	status, err := s.Status()
+	if err != nil {
+		if errors.Is(err, service.ErrNotInstalled) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read service status before removal: %w", err)
+	}
+	if status != service.StatusStopped {
+		return false, fmt.Errorf("YaseirAgent must be stopped before removal")
+	}
+	if err := s.Uninstall(); err != nil {
+		if _, statusErr := s.Status(); errors.Is(statusErr, service.ErrNotInstalled) {
+			return false, nil
+		}
+		return false, fmt.Errorf("uninstall service failed: %w", err)
+	}
+	return true, nil
+}
+
 func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
 		Name:         "YaseirAgent",
@@ -325,29 +378,27 @@ func handleServiceControl(rawAction, configPath string) error {
 		fmt.Println("YaseirAgent service installed successfully")
 		return nil
 	case "uninstall":
-		status, err := s.Status()
+		removed, err := uninstallServiceIfPresent(s)
 		if err != nil {
-			if errors.Is(err, service.ErrNotInstalled) {
-				fmt.Println("YaseirAgent service is already uninstalled")
-				return nil
-			}
-			return fmt.Errorf("read service status before removal: %w", err)
+			return err
 		}
-		if status != service.StatusStopped {
-			return fmt.Errorf("YaseirAgent must be stopped before removal")
+		if removed {
+			fmt.Println("YaseirAgent service uninstalled successfully")
+		} else {
+			fmt.Println("YaseirAgent service is already uninstalled")
 		}
-		if err := s.Uninstall(); err != nil {
-			// The service can disappear between Status and Uninstall (for
-			// example a repair/uninstaller race). Treat only a verified
-			// already-absent service as success; every other SCM error remains
-			// fail-closed and visible to the installer.
-			if _, statusErr := s.Status(); errors.Is(statusErr, service.ErrNotInstalled) {
-				fmt.Println("YaseirAgent service is already uninstalled")
-				return nil
-			}
-			return fmt.Errorf("uninstall service failed: %w", err)
+		return nil
+	case "purge":
+		if err := stopServiceForRemoval(s); err != nil {
+			return err
 		}
-		fmt.Println("YaseirAgent service uninstalled successfully")
+		if _, err := uninstallServiceIfPresent(s); err != nil {
+			return err
+		}
+		if err := purgeInstallationData(); err != nil {
+			return err
+		}
+		fmt.Println("YaseirAgent service and local Yaseir runtime data purged successfully")
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {
@@ -368,13 +419,13 @@ func handleServiceControl(rawAction, configPath string) error {
 		fmt.Println("YaseirAgent service restarted successfully")
 		return nil
 	default:
-		return fmt.Errorf("unknown service action: %q (expected install, uninstall, start, stop, restart, status)", rawAction)
+		return fmt.Errorf("unknown service action: %q (expected install, uninstall, purge, start, stop, restart, status)", rawAction)
 	}
 }
 
 func main() {
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
-	svcFlag := flag.String("service", "", "Control the system service: install, uninstall, start, stop, restart, status")
+	svcFlag := flag.String("service", "", "Control the system service: install, uninstall, purge, start, stop, restart, status")
 	flag.Parse()
 
 	// 1. Service control path: dispatch immediately without reading config or initializing agent
