@@ -157,6 +157,9 @@ func TestAuditCompleteSpoolerInventoryPreservesManualAndConfigRows(t *testing.T)
 	manual := auditAutoSpoolerDevice("manual-spooler", "Manual Queue")
 	manual.Capabilities["registration_source"] = "manual"
 	configRow := auditAutoSpoolerDevice("config-spooler", "Configured Queue")
+	// Distinct physical queue: registry identity intentionally deduplicates
+	// rows that share the same spooler port + driver tuple.
+	configRow.SpoolerPort = "USB002"
 	configRow.Capabilities["registration_source"] = "config"
 	if _, err := UpsertRegistry(path, []DeviceInfo{manual, configRow}); err != nil {
 		t.Fatal(err)
