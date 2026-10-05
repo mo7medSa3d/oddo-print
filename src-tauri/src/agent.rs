@@ -867,7 +867,15 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
     match action {
         "install" | "uninstall" | "start" | "stop" | "restart" => {
-            if matches!(action, "install" | "start" | "restart") && is_process_running(app) { stop_inner(app)?; }
+            // Service install/start/restart and destructive uninstall must
+            // never overlap the desktop background fallback. In particular,
+            // uninstall has to close queue.db before the Go purge removes its
+            // ProgramData tree.
+            if matches!(action, "install" | "uninstall" | "start" | "restart")
+                && is_process_running(app)
+            {
+                stop_inner(app)?;
+            }
             let path = agent_path(app)?;
             let config = paths::agent_config_path();
             let _ = paths::ensure_agent_data_root()
@@ -883,9 +891,17 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                 service_cmd.creation_flags(CREATE_NO_WINDOW);
             }
+            let timeout = if action == "uninstall" {
+                // Purging WebView/cache/log/runtime data across Windows user
+                // profiles can legitimately take longer than a simple SCM
+                // start/stop operation.
+                std::time::Duration::from_secs(120)
+            } else {
+                COMMAND_TIMEOUT
+            };
             let out = run_bounded_command(
                 service_cmd,
-                COMMAND_TIMEOUT,
+                timeout,
                 MAX_COMMAND_OUTPUT_BYTES,
                 MAX_COMMAND_OUTPUT_BYTES,
             )?;
@@ -960,6 +976,37 @@ mod spawn_tests {
         let _ = Command::new(taskkill)
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
+    }
+
+    #[test]
+    fn immediate_child_exit_is_never_persisted_as_a_running_agent() {
+        use std::cell::Cell;
+        use std::os::windows::process::CommandExt;
+
+        let persist_called = Cell::new(false);
+        let result = spawn_persist_or_reconcile(
+            || {
+                Command::new("cmd")
+                    .args(["/C", "exit 7"])
+                    .creation_flags(0x0800_0000)
+                    .spawn()
+                    .map_err(|e| e.to_string())
+            },
+            |_| {
+                persist_called.set(true);
+                Ok(())
+            },
+        );
+
+        let error = result.expect_err("an immediately exiting child must fail startup");
+        assert!(
+            error.contains("exited during startup"),
+            "unexpected startup error: {error}"
+        );
+        assert!(
+            !persist_called.get(),
+            "a dead child PID must never be persisted as Agent ownership"
+        );
     }
 
     #[test]
