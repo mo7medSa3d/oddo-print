@@ -722,10 +722,17 @@ func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
 	// Simulate a delivery accepted long ago: dispatch acceptance stamped
 	// the receipt time, then the gateway went dark.
 	ag.inFlightMu.Lock()
-	ag.inFlight[jobID] = struct{}{}
-	ag.inFlightTokens[jobID] = "tok-old-1"
+	// processJob is called directly in this unit test, so inject only the
+	// receipt timestamp that dispatchJob would normally record. Do not invent
+	// an accepted-handler entry: that would make Agent.Close correctly keep
+	// SQLite open and causes TempDir cleanup to fail on Windows.
 	ag.inFlightReceived[jobID] = time.Now().Add(-time.Hour)
 	ag.inFlightMu.Unlock()
+	defer func() {
+		ag.inFlightMu.Lock()
+		delete(ag.inFlightReceived, jobID)
+		ag.inFlightMu.Unlock()
+	}()
 	ag.processJob(context.Background(), map[string]interface{}{
 		"id":         jobID,
 		"agentId":    "agt_test",
