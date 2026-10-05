@@ -240,6 +240,12 @@ jobs:
         run: |
           $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Yaseir Print Manager_*.msi" | Select-Object -First 1
           if (-not $msi) { throw "Yaseir Print Manager MSI bundle missing" }
+
+          $legacyConfig = Join-Path $env:PROGRAMDATA "YasserAgent\config.yaml"
+          New-Item -ItemType Directory -Force -Path (Split-Path $legacyConfig) | Out-Null
+          Set-Content -LiteralPath $legacyConfig -Value "{}" -Encoding UTF8
+          Write-Host "Seeded legacy Agent config at $legacyConfig"
+
           $msiLog = Join-Path $env:RUNNER_TEMP "yaseir-msi-install.log"
           $proc = Start-Process msiexec -ArgumentList @(
             "/i", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$msiLog`""
@@ -283,10 +289,12 @@ jobs:
 
           $msiService = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" -ErrorAction SilentlyContinue
           if (-not $msiService) { throw "MSI did not install the YaseirAgent Windows service" }
-          if ([string]$msiService.PathName -match '(?i)(^|\s)-config(\s|=|$)') {
+          $msiPathName = [string]$msiService.PathName
+          if ($msiPathName -notmatch '(?i)(^|\s)-config\s+"?([^"]*YasserAgent\\config\.yaml)"?(\s|$)') {
+            Write-Host "MSI service ImagePath: $msiPathName"
             throw "MSI service did not preserve the legacy config path"
           }
-          Write-Host "MSI installed YaseirAgent service without pinning -config: $($msiService.PathName)"
+          Write-Host "MSI preserved legacy Agent config path: $msiPathName"
 
           & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
@@ -315,10 +323,12 @@ jobs:
 
           $nsisService = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" -ErrorAction SilentlyContinue
           if (-not $nsisService) { throw "NSIS did not install the YaseirAgent Windows service" }
-          if ([string]$nsisService.PathName -match '(?i)(^|\s)-config(\s|=|$)') {
+          $nsisPathName = [string]$nsisService.PathName
+          if ($nsisPathName -notmatch '(?i)(^|\s)-config\s+"?([^"]*YasserAgent\\config\.yaml)"?(\s|$)') {
+            Write-Host "NSIS service ImagePath: $nsisPathName"
             throw "NSIS service did not preserve the legacy config path"
           }
-          Write-Host "NSIS installed YaseirAgent service without pinning -config: $($nsisService.PathName)"
+          Write-Host "NSIS preserved legacy Agent config path: $nsisPathName"
 
           & pwsh -NoProfile -File .\\scripts\\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "NSIS Windows smoke test failed" }
