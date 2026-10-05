@@ -454,6 +454,7 @@ export async function POST(req: Request) {
           reason: "Stripe subscription state could not be mapped safely to the local billing record.",
         };
       } else {
+        const recoveredPeriodStart = recoveredPeriod.start;
         state = await db.transaction(async (tx): Promise<CheckoutState> => {
           await tx.execute(sql`
             SELECT id FROM tenants
@@ -473,7 +474,7 @@ export async function POST(req: Request) {
             stripeCustomerId: recoveredCustomerId,
             stripeSubscriptionId: recoveredSubscriptionId,
             status: recoveredStatus,
-            currentPeriodStart: recoveredPeriod.start,
+            currentPeriodStart: recoveredPeriodStart,
             currentPeriodEnd: recoveredPeriod.end ?? sql`NULL`,
             cancelAtPeriodEnd: recoveredSubscription.cancel_at_period_end === true,
             checkoutStatus: "completed",

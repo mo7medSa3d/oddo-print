@@ -386,8 +386,13 @@ func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
 
 func TestFactoryUSBRequiresExplicitByteProtocol(t *testing.T) {
 	pc := config.PrinterConfig{ID: "usb-unknown", Name: "USB Unknown", Type: "usb", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
-	if _, err := New(pc); err == nil || !strings.Contains(strings.ToLower(err.Error()), "explicit raw or escpos") {
-		t.Fatalf("missing USB byte protocol must fail closed, got %v", err)
+	if _, err := New(pc); err == nil {
+		t.Fatal("missing USB byte protocol must fail closed")
+	} else {
+		message := strings.ToLower(err.Error())
+		if !strings.Contains(message, "protocol") || !strings.Contains(message, "explicit") {
+			t.Fatalf("expected explicit protocol diagnostic, got %v", err)
+		}
 	}
 }
 
