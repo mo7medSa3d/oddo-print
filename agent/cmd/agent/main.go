@@ -286,33 +286,27 @@ func configureServiceRecovery(serviceName string) {
 }
 
 func stopServiceForRemoval(s service.Service) error {
-	status, err := s.Status()
-	if err != nil {
-		if errors.Is(err, service.ErrNotInstalled) {
-			return nil
-		}
-		return fmt.Errorf("read service status before stop: %w", err)
-	}
-	if status == service.StatusStopped {
-		return nil
-	}
-	if err := s.Stop(); err != nil {
-		if errors.Is(err, service.ErrNotInstalled) {
-			return nil
-		}
-		return fmt.Errorf("stop service before removal: %w", err)
-	}
 	deadline := time.Now().Add(30 * time.Second)
+	stopRequested := false
 	for {
-		status, err = s.Status()
+		status, err := s.Status()
 		if err != nil {
 			if errors.Is(err, service.ErrNotInstalled) {
 				return nil
 			}
-			return fmt.Errorf("read service status while stopping: %w", err)
+			return fmt.Errorf("read service status before removal: %w", err)
 		}
 		if status == service.StatusStopped {
 			return nil
+		}
+		if status == service.StatusRunning && !stopRequested {
+			if err := s.Stop(); err != nil {
+				if errors.Is(err, service.ErrNotInstalled) {
+					return nil
+				}
+				return fmt.Errorf("stop service before removal: %w", err)
+			}
+			stopRequested = true
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timed out waiting for YaseirAgent to stop before removal")
@@ -380,28 +374,22 @@ func handleServiceControl(rawAction, configPath string) error {
 		configureServiceRecovery(svcConfig.Name)
 		fmt.Println("YaseirAgent service installed successfully")
 		return nil
-	case "uninstall":
-		removed, err := uninstallServiceIfPresent(s)
-		if err != nil {
-			return err
-		}
-		if removed {
-			fmt.Println("YaseirAgent service uninstalled successfully")
-		} else {
-			fmt.Println("YaseirAgent service is already uninstalled")
-		}
-		return nil
-	case "purge":
+	case "uninstall", "purge":
 		if err := stopServiceForRemoval(s); err != nil {
 			return err
 		}
-		if _, err := uninstallServiceIfPresent(s); err != nil {
+		removed, err := uninstallServiceIfPresent(s)
+		if err != nil {
 			return err
 		}
 		if err := purgeInstallationData(); err != nil {
 			return err
 		}
-		fmt.Println("YaseirAgent service and local Yaseir runtime data purged successfully")
+		if removed {
+			fmt.Println("YaseirAgent service uninstalled and all local Yaseir runtime data purged successfully")
+		} else {
+			fmt.Println("YaseirAgent service was already absent; all local Yaseir runtime data was purged")
+		}
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {

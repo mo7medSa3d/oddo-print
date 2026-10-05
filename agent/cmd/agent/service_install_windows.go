@@ -10,6 +10,7 @@ import (
 
 	"github.com/kardianos/service"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -59,6 +60,42 @@ func updateInstalledService(wanted *service.Config) error {
 	current.ServiceStartName = ""
 	current.Password = ""
 	return existing.UpdateConfig(current)
+}
+
+
+func purgeRunValues(root registry.Key, path string) {
+	key, err := registry.OpenKey(root, path, registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+	for _, value := range []string{
+		"Yaseir Print Manager",
+		"Yasser Print Manager",
+		"YaseirManager",
+		"YasserManager",
+		"com.yasser.manager",
+	} {
+		_ = key.DeleteValue(value)
+	}
+}
+
+func purgeAutostartRegistry() {
+	const runPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+	purgeRunValues(registry.CURRENT_USER, runPath)
+
+	users, err := registry.OpenKey(registry.USERS, "", registry.READ)
+	if err != nil {
+		return
+	}
+	defer users.Close()
+	sids, err := users.ReadSubKeyNames(-1)
+	if err != nil {
+		return
+	}
+	for _, sid := range sids {
+		purgeRunValues(registry.USERS, sid+`\`+runPath)
+	}
 }
 
 func purgeInstallationData() error {
@@ -120,6 +157,7 @@ func purgeInstallationData() error {
 			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
 		}
 	}
+	purgeAutostartRegistry()
 	if len(failures) > 0 {
 		return fmt.Errorf("purge Yaseir installation data: %s", strings.Join(failures, "; "))
 	}

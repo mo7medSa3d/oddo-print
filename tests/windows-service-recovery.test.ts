@@ -44,7 +44,7 @@ describe("windows-service-recovery", () => {
     expect(wix).toContain("-service purge");
     expect(wix).toContain('Before="RemoveFiles"');
 
-    expect(agentMain).toContain('case "purge":');
+    expect(agentMain).toContain('case "uninstall", "purge":');
     expect(agentMain).toContain("stopServiceForRemoval");
     expect(agentMain).toContain("purgeInstallationData()");
     expect(agentMain).toContain("acquireAgentRuntimeSingleton");
@@ -67,6 +67,8 @@ describe("windows-service-recovery", () => {
     expect(windowsInstall).toContain('filepath.Join(systemDrive+string(os.PathSeparator), "Users")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Local")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Roaming")');
+    expect(windowsInstall).toContain("purgeAutostartRegistry");
+    expect(windowsInstall).toContain("registry.USERS");
   });
 
   it("service status API returns BLOCKED explicit with required fields", () => {
