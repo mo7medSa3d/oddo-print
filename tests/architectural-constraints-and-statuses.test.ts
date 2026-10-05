@@ -178,7 +178,9 @@ describe("Part 6 status evidence hardening", () => {
     expect(api).toContain("agentFreshness: getAgentHeartbeatFreshness");
     expect(odoo).toContain("reportedStatus: row.status");
     expect(odoo).toContain("freshness: getPrinterObservationFreshness");
-    expect(shared).toContain('label: word("status.stale")');
+    expect(shared).toContain('case "stale":');
+    expect(shared).toContain('return word("status.stale");');
+    expect(shared).toContain("printerObservationFreshness(");
   });
 
   it("classifies persisted capability and unsupported-transport job failures for both UIs", () => {
