@@ -444,26 +444,26 @@ export default function DashboardClient({
   const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
   const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
 
+  const openJobDetails = React.useCallback((job: Job) => {
+    setSelectedJob(job);
+    setSelectedJobPayload(job.payload !== undefined ? { jobId: job.id, value: job.payload } : null);
+    setSelectedJobPayloadLoading(job.payload === undefined);
+    setSelectedJobPayloadError(false);
+  }, []);
+
+  const closeJobDetails = React.useCallback(() => {
+    setSelectedJob(null);
+    setSelectedJobPayload(null);
+    setSelectedJobPayloadLoading(false);
+    setSelectedJobPayloadError(false);
+  }, []);
+
   useEffect(() => {
-    if (!selectedJob) {
-      setSelectedJobPayload(null);
-      setSelectedJobPayloadLoading(false);
-      setSelectedJobPayloadError(false);
-      return;
-    }
-    if (selectedJob.payload !== undefined) {
-      setSelectedJobPayload({ jobId: selectedJob.id, value: selectedJob.payload });
-      setSelectedJobPayloadLoading(false);
-      setSelectedJobPayloadError(false);
-      return;
-    }
+    if (!selectedJob || selectedJob.payload !== undefined) return;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
-    setSelectedJobPayload(null);
-    setSelectedJobPayloadLoading(true);
-    setSelectedJobPayloadError(false);
 
     void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}`, {
       credentials: "include",
@@ -643,7 +643,7 @@ export default function DashboardClient({
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, router, t, getDashboardState, getDashboardJobs]);
+  }, [refreshBillingUsage, t, getDashboardState, getDashboardJobs]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -932,7 +932,7 @@ export default function DashboardClient({
     // action that always fails, so success is excluded explicitly.
     const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
-      { key: "inspect", label: t("job.viewDetails"), icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedJob(job) },
+      { key: "inspect", label: t("job.viewDetails"), icon: <Eye className="h-4 w-4" />, onSelect: () => openJobDetails(job) },
       {
         key: "copy",
         label: t("job.copyJobId"),
@@ -1698,7 +1698,7 @@ export default function DashboardClient({
                         <td>
                           <button
                             type="button"
-                            onClick={() => setSelectedJob(job)}
+                            onClick={() => openJobDetails(job)}
                             title={job.id}
                             className="font-mono text-xs font-[600] text-brand transition-colors hover:text-brand-hover"
                           >
@@ -1759,7 +1759,7 @@ export default function DashboardClient({
                     <div className="flex items-start justify-between gap-3">
                       <button
                         type="button"
-                        onClick={() => setSelectedJob(job)}
+                        onClick={() => openJobDetails(job)}
                         className="min-w-0 flex-1 text-start"
                       >
                         <span className="block truncate text-sm font-[550] text-ink">
@@ -1777,7 +1777,7 @@ export default function DashboardClient({
                       <span>{job.documentType?.replace(/_/g, " ") ?? t("job.unknownType")}</span>
                     </div>
                     <div className="mt-2.5 flex items-center gap-1.5">
-                      <Button size="sm" variant="secondary" onClick={() => setSelectedJob(job)} icon={<Eye className="h-3.5 w-3.5" />}>
+                      <Button size="sm" variant="secondary" onClick={() => openJobDetails(job)} icon={<Eye className="h-3.5 w-3.5" />}>
                         {t("job.inspect")}
                       </Button>
                       <Menu
@@ -1908,13 +1908,13 @@ export default function DashboardClient({
       {/* ── Job inspector ─────────────────────────────────────────── */}
       <Modal
         open={selectedJob !== null}
-        onClose={() => setSelectedJob(null)}
+        onClose={() => closeJobDetails()}
         title={selectedJob ? t("job.detailTitle", { id: selectedJob.id.slice(0, 12) }) : t("job.job")}
         description={selectedJob ? `${jobDisplayLabel(selectedJob.status, selectedJob.error, locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
         wide
         footer={
           <>
-            <Button variant="secondary" onClick={() => setSelectedJob(null)}>
+            <Button variant="secondary" onClick={() => closeJobDetails()}>
               {t("common.close")}
             </Button>
             {selectedJob && selectedJob.status.toLowerCase() !== "success" && !isJobInFlight(selectedJob.status) && (
@@ -1923,7 +1923,7 @@ export default function DashboardClient({
                 disabled={busy}
                 onClick={() => {
                   const job = selectedJob;
-                  setSelectedJob(null);
+                  closeJobDetails();
                   setReprintCandidate(job);
                 }}
                 icon={<RotateCcw className="h-4 w-4" />}

@@ -51,8 +51,8 @@ class TestBranchRuntimeBinding(TransactionCase):
             {"id": "agent-old", "name": "Retired", "status": "offline", "lifecycle": "retired"},
         ]
         self.printers = [
-            {"id": "printer-a", "name": "Printer A", "status": "online", "lifecycle": "active", "agent": {"id": "agent-a", "name": "Agent A"}},
-            {"id": "printer-b", "name": "Printer B", "status": "online", "lifecycle": "active", "agent": {"id": "agent-b", "name": "Agent B"}},
+            {"id": "printer-a", "name": "Printer A", "status": "online", "lifecycle": "active", "protocol": "escpos", "connectionType": "usb", "agent": {"id": "agent-a", "name": "Agent A"}},
+            {"id": "printer-b", "name": "Printer B", "status": "online", "lifecycle": "active", "protocol": "escpos", "connectionType": "usb", "agent": {"id": "agent-b", "name": "Agent B"}},
         ]
         with patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             config_model = self.env["print_gateway.gateway_config"]
@@ -215,7 +215,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "protocol": "ipp", "connectionType": "ipp", "deviceClass": "laser",
         }))
 
-    def test_test_print_reconciles_stale_protocol_and_skips_destination_policy_only_for_diagnostic(self):
+    def test_test_print_accepts_explicit_spooler_passthrough_without_rewriting_binding(self):
         binding = self.env["print_gateway.binding"].create(self._values(priority=97, printer_protocol="escpos"))
         BindingClass = type(binding)
         router = self.env["print_gateway.print_router"]
@@ -224,6 +224,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             "id": binding.printer_id,
             "protocol": "unknown",
             "connectionType": "spooler",
+            "capabilities": {"supported_protocols": ["spooler", "escpos"]},
             "deviceClass": "laser",
             "lifecycle": "active",
             "agent": {"id": binding.runtime_agent_id},
@@ -233,7 +234,7 @@ class TestBranchRuntimeBinding(TransactionCase):
             result = binding.action_send_test_print()
         validate.assert_called_once_with(enforce_destination_compatibility=False)
         route.assert_called_once()
-        self.assertEqual(binding.printer_protocol, "spooler")
+        self.assertEqual(binding.printer_protocol, "escpos")
         self.assertEqual(result.get("params", {}).get("type"), "success")
 
     def test_test_print_refuses_unknown_direct_byte_language_instead_of_guessing(self):

@@ -316,10 +316,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
 
 
     def test_runtime_agent_picker_preserves_stale_heartbeat_separately(self):
-        root = pathlib.Path(__file__).resolve().parents[4]
-        controller = (root / "odoo_addons/print_gateway/controllers/runtime_printers.py").read_text(encoding="utf-8")
-        widget = (root / "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
-        gateway = (root / "src/app/api/odoo/agents/route.ts").read_text(encoding="utf-8")
+        controller = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        widget = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
+        gateway = (ADDON.parents[1] / "src/app/api/odoo/agents/route.ts").read_text(encoding="utf-8")
         self.assertIn("getAgentHeartbeatFreshness", gateway)
         self.assertIn("reportedStatus: agent.status", gateway)
         self.assertIn("'reportedStatus': reported_status", controller)
@@ -328,8 +327,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("agent.reportedStatus || agent.status", widget)
 
     def test_runtime_printer_picker_preserves_stale_evidence_separately(self):
-        controller = self._read("controllers/runtime_printers.py")
-        widget = self._read("static/src/components/runtime_printer_field.js")
+        controller = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        widget = (ADDON / "static/src/components/runtime_printer_field.js").read_text(encoding="utf-8")
         self.assertIn("'reportedStatus':", controller)
         self.assertIn("'freshness':", controller)
         self.assertIn("printer.freshness === 'stale'", widget)
@@ -657,7 +656,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
                         protocol="escpos",
                         binding=binding,
                         company=branch,
-                        document_type="receipt",
+                        document_type=binding.document_type,
                         idempotency_key="test_branch_submit_key_01",
                     )
                 self.assertTrue(res.get("gateway_enabled"))

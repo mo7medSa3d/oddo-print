@@ -294,7 +294,7 @@ class TestControlPlane(TransactionCase):
                 protocol="zpl",
                 binding=self.zpl_binding,
                 company=self.branch,
-                document_type="label",
+                document_type=self.zpl_binding.document_type,
             )
             self.assertTrue(res.get("gateway_enabled"))
             job_id = res.get("job_id")
@@ -848,6 +848,7 @@ class TestControlPlane(TransactionCase):
                 protocol="escpos",
                 binding=self.primary_binding,
                 company=self.branch,
+                document_type=self.primary_binding.document_type,
                 idempotency_key="custom_explicit_key_123",
             )
             job = self.env["print_gateway.print_job"].browse(res["job_id"])
@@ -1438,7 +1439,7 @@ class TestControlPlane(TransactionCase):
                 protocol="escpos",
                 binding=self.primary_binding,
                 company=self.branch,
-                document_type="receipt",
+                document_type=self.primary_binding.document_type,
                 idempotency_key="test_operator_flow_key_01",
             )
         self.assertTrue(res.get("gateway_enabled"))
@@ -1974,7 +1975,7 @@ class TestControlPlane(TransactionCase):
                     protocol="escpos",
                     binding=binding,
                     company=company,
-                    document_type="receipt",
+                    document_type=binding.document_type,
                     idempotency_key="test_scope_%s_%s" % (company.id, binding.id),
                 )
 
