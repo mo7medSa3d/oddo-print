@@ -46,6 +46,7 @@ describe("Register API existing-account handling", () => {
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
+      ok: true,
       message: "If the account can be created, a verification email will be sent.",
     });
   });

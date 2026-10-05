@@ -280,6 +280,14 @@ jobs:
             throw "Installed directory missing after MSI install"
           }
           Write-Host "Found installed directory: $installDir"
+
+          $msiService = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" -ErrorAction SilentlyContinue
+          if (-not $msiService) { throw "MSI did not install the YaseirAgent Windows service" }
+          if ([string]$msiService.PathName -match '(?i)(^|\s)-config(\s|=|$)') {
+            throw "MSI service did not preserve the legacy config path"
+          }
+          Write-Host "MSI installed YaseirAgent service without pinning -config: $($msiService.PathName)"
+
           & pwsh -NoProfile -File .\scripts\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "Windows smoke test failed" }
       - name: Install NSIS and smoke-test installed app
@@ -304,6 +312,13 @@ jobs:
           if (-not (Test-Path $installDir)) {
             throw "NSIS install directory was not created: $installDir"
           }
+
+          $nsisService = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" -ErrorAction SilentlyContinue
+          if (-not $nsisService) { throw "NSIS did not install the YaseirAgent Windows service" }
+          if ([string]$nsisService.PathName -match '(?i)(^|\s)-config(\s|=|$)') {
+            throw "NSIS service did not preserve the legacy config path"
+          }
+          Write-Host "NSIS installed YaseirAgent service without pinning -config: $($nsisService.PathName)"
 
           & pwsh -NoProfile -File .\\scripts\\smoke-test-windows.ps1 -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) { throw "NSIS Windows smoke test failed" }

@@ -247,7 +247,7 @@ export function agentLiveView(
   const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
   const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
   if (seen !== null && !fresh) {
-    return { tone: "warn", label: word("status.stale") };
+    return { tone: "bad", label: word("status.heartbeatLost") };
   }
   if (agent.status === "online") return { tone: "ok", label: word("status.online") };
   return { tone: "bad", label: word("status.offline") };
