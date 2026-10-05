@@ -8,6 +8,16 @@
       an existing legacy paired config before falling back to the canonical
       YaseirAgent path.
     -->
+    <!--
+      Stop the currently branded service before install/update. The Agent's
+      install path updates an existing stopped service in place so its account
+      and ACL identity are preserved; it intentionally refuses to rewrite a
+      running service. net.exe waits for the SCM stop transition.
+    -->
+    <CustomAction Id="YaseirStopExistingAgent" Directory="System64Folder"
+                  ExeCommand='net.exe stop YaseirAgent /y' Execute="deferred"
+                  Return="ignore" Impersonate="no" />
+
     <CustomAction Id="YaseirStopLegacyYasser" Directory="System64Folder"
                   ExeCommand='sc.exe stop YasserAgent' Execute="deferred"
                   Return="ignore" Impersonate="no" />
@@ -35,7 +45,8 @@
                   Execute="deferred" Return="check" Impersonate="no" />
 
     <InstallExecuteSequence>
-      <Custom Action="YaseirStopLegacyYasser" After="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirStopExistingAgent" After="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirStopLegacyYasser" After="YaseirStopExistingAgent">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirDeleteLegacyYasser" After="YaseirStopLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirStopLegacyOdooPrint" After="YaseirDeleteLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirDeleteLegacyOdooPrint" After="YaseirStopLegacyOdooPrint">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>

@@ -44,6 +44,11 @@ describe("deployment security contracts", () => {
 
   it("keeps MSI and NSIS on the same Agent service lifecycle and preserves legacy config selection", () => {
     expect(tauriConfig).toContain('"./wix/service.wxs"');
+    expect(wixService).toContain('YaseirStopExistingAgent');
+    expect(wixService).toContain('net.exe stop YaseirAgent /y');
+    expect(wixService.indexOf('<Custom Action="YaseirStopExistingAgent"')).toBeLessThan(
+      wixService.indexOf('<Custom Action="YaseirInstallAgentService"'),
+    );
     expect(wixService).toContain('YaseirInstallAgentService');
     expect(wixService).toContain('resources\\YaseirAgent.exe&quot; -service install');
     expect(wixService).toContain('YaseirUninstallAgentService');
