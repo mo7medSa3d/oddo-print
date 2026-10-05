@@ -19,6 +19,7 @@ vi.mock("../src/lib/authorization", () => ({
 vi.mock(import("../src/lib/stripe"), async (importOriginal) => ({
   ...(await importOriginal()),
   stripeRequest: vi.fn(),
+  stripeList: vi.fn(),
 }));
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -44,7 +45,12 @@ suite("billing checkout plan-conflict fence", () => {
       userId: "user_checkout_conflict",
       role: "owner",
     });
-    const { stripeRequest } = await import("../src/lib/stripe");
+    const { stripeRequest, stripeList } = await import("../src/lib/stripe");
+    vi.mocked(stripeList).mockReset();
+    // Aged Checkout intents may only rotate after read-side reconciliation
+    // proves there is no non-terminal Stripe subscription. Keep the default
+    // integration fixture explicit and offline: no real Stripe GET is allowed.
+    vi.mocked(stripeList).mockResolvedValue({ data: [], hasMore: false });
     vi.mocked(stripeRequest).mockImplementation(async (path: string, _form: URLSearchParams, idempotencyKey?: string) => {
       if (path === "customers") return { id: "cus_checkout_conflict" };
       if (path === "checkout/sessions") return { id: `cs_${idempotencyKey}`, url: `https://checkout.example/${idempotencyKey}` };
