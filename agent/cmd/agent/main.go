@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -326,12 +327,24 @@ func handleServiceControl(rawAction, configPath string) error {
 	case "uninstall":
 		status, err := s.Status()
 		if err != nil {
+			if errors.Is(err, service.ErrNotInstalled) {
+				fmt.Println("YaseirAgent service is already uninstalled")
+				return nil
+			}
 			return fmt.Errorf("read service status before removal: %w", err)
 		}
 		if status != service.StatusStopped {
 			return fmt.Errorf("YaseirAgent must be stopped before removal")
 		}
 		if err := s.Uninstall(); err != nil {
+			// The service can disappear between Status and Uninstall (for
+			// example a repair/uninstaller race). Treat only a verified
+			// already-absent service as success; every other SCM error remains
+			// fail-closed and visible to the installer.
+			if _, statusErr := s.Status(); errors.Is(statusErr, service.ErrNotInstalled) {
+				fmt.Println("YaseirAgent service is already uninstalled")
+				return nil
+			}
 			return fmt.Errorf("uninstall service failed: %w", err)
 		}
 		fmt.Println("YaseirAgent service uninstalled successfully")

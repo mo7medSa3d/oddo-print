@@ -7,6 +7,7 @@ const windowsWorkflow = readFileSync(".github/workflows/build-windows.yml", "utf
 const tauriConfig = readFileSync("src-tauri/tauri.conf.json", "utf8");
 const nsisHooks = readFileSync("src-tauri/installer_hooks.nsh", "utf8");
 const wixService = readFileSync("src-tauri/wix/service.wxs", "utf8");
+const agentMain = readFileSync("agent/cmd/agent/main.go", "utf8");
 const runtimeSecret = readFileSync("src/lib/runtime-secret.ts", "utf8");
 const server = readFileSync("server.ts", "utf8");
 
@@ -58,6 +59,9 @@ describe("deployment security contracts", () => {
     expect(nsisHooks).not.toContain('-service install -config');
     expect(nsisHooks).toContain('sc delete YasserAgent');
     expect(nsisHooks).toContain('sc delete OdooPrintAgent');
+    expect(agentMain).toContain('errors.Is(err, service.ErrNotInstalled)');
+    expect(agentMain).toContain('errors.Is(statusErr, service.ErrNotInstalled)');
+    expect(agentMain).toContain('YaseirAgent service is already uninstalled');
     expect(windowsWorkflow).toContain('MSI did not install the YaseirAgent Windows service');
     expect(windowsWorkflow).toContain('MSI service did not preserve the legacy config path');
     expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
