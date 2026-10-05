@@ -391,7 +391,7 @@ async fn read_response_body_limited(
 }
 
 fn configured_gateway_origin() -> Result<url::Url, String> {
-    let cfg = get_gateway_config();
+    let cfg = get_gateway_config()?;
     if cfg.url.is_empty() {
         return Err("Gateway URL is not configured".into());
     }

@@ -361,14 +361,6 @@ func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath
 	return jobID, printErr
 }
 
-func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data []byte) error {
-	return renderAndPrintPDFWithPDFiumResult(ctx, printerName, data, nil)
-}
-
-func renderAndPrintPDFWithPDFiumResult(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32) (retErr error) {
-	return renderAndPrintPDFWithPDFiumResultObserved(ctx, printerName, data, spoolerJobID, nil)
-}
-
 func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32, onJobID func(uint32)) (retErr error) {
 	// Ctx-aware acquisition: a job that is already cancelled (or a service
 	// stop racing a long first render) must not block on the holder past
