@@ -45,8 +45,9 @@
                   Execute="deferred" Return="check" Impersonate="no" />
 
     <InstallExecuteSequence>
-      <Custom Action="YaseirStopExistingAgent" After="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
-      <Custom Action="YaseirStopLegacyYasser" After="YaseirStopExistingAgent">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <!-- Stop the current service before MSI can replace its executable. -->
+      <Custom Action="YaseirStopExistingAgent" Before="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirStopLegacyYasser" After="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirDeleteLegacyYasser" After="YaseirStopLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirStopLegacyOdooPrint" After="YaseirDeleteLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
       <Custom Action="YaseirDeleteLegacyOdooPrint" After="YaseirStopLegacyOdooPrint">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>

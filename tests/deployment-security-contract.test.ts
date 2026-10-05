@@ -46,6 +46,8 @@ describe("deployment security contracts", () => {
     expect(tauriConfig).toContain('"./wix/service.wxs"');
     expect(wixService).toContain('YaseirStopExistingAgent');
     expect(wixService).toContain('net.exe stop YaseirAgent /y');
+    expect(wixService).toContain('<Custom Action="YaseirStopExistingAgent" Before="InstallFiles">');
+    expect(wixService).toContain('<Custom Action="YaseirInstallAgentService" After="YaseirDeleteLegacyOdooPrint">');
     expect(wixService.indexOf('<Custom Action="YaseirStopExistingAgent"')).toBeLessThan(
       wixService.indexOf('<Custom Action="YaseirInstallAgentService"'),
     );
