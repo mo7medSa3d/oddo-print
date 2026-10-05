@@ -44,8 +44,10 @@ describe("windows-service-recovery", () => {
     expect(wix).toContain("-service purge");
     expect(wix).toContain('Before="RemoveFiles"');
 
-    expect(agentMain).toContain('case "uninstall", "purge":');
+    expect(agentMain).toContain('case "uninstall":');
+    expect(agentMain).toContain('case "purge":');
     expect(agentMain).toContain("stopServiceForRemoval");
+    expect(agentMain).toContain("purgeAgentData()");
     expect(agentMain).toContain("purgeInstallationData()");
     expect(agentMain).toContain("acquireAgentRuntimeSingleton");
     expect(fs.readFileSync("agent/cmd/agent/runtime_singleton_windows.go", "utf8")).toContain(

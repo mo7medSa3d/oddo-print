@@ -98,20 +98,47 @@ func purgeAutostartRegistry() {
 	}
 }
 
-func purgeInstallationData() error {
+func purgePaths(roots []string) error {
+	var failures []string
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		root = filepath.Clean(strings.TrimSpace(root))
+		if root == "." || root == "" {
+			continue
+		}
+		key := strings.ToLower(root)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		if err := os.RemoveAll(root); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("purge Yaseir data: %s", strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+func agentDataRoots() []string {
 	var roots []string
 	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
-		for _, name := range []string{
-			"YaseirAgent",
-			"YasserAgent",
-			"OdooPrintAgent",
-			"YaseirManager",
-			"YasserManager",
-			"OdooPrintManager",
-		} {
+		for _, name := range []string{"YaseirAgent", "YasserAgent", "OdooPrintAgent"} {
 			roots = append(roots, filepath.Join(programData, name))
 		}
 	}
+	return roots
+}
+
+func managerDataRoots() []string {
+	var roots []string
+	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
+		for _, name := range []string{"YaseirManager", "YasserManager", "OdooPrintManager"} {
+			roots = append(roots, filepath.Join(programData, name))
+		}
+	}
+
 	userDataNames := []string{
 		"YaseirManager",
 		"YasserManager",
@@ -128,9 +155,8 @@ func purgeInstallationData() error {
 	}
 
 	// MSI deferred custom actions run as LocalSystem, whose LOCALAPPDATA is not
-	// the interactive user's profile. Enumerate fixed product subdirectories
-	// under every local profile so uninstall leaves no Yaseir cache/session
-	// state behind for another login.
+	// the interactive user's profile. Enumerate only fixed product subpaths
+	// beneath each local profile so no unrelated user data can be removed.
 	if systemDrive := strings.TrimSpace(os.Getenv("SystemDrive")); systemDrive != "" {
 		usersRoot := filepath.Join(systemDrive+string(os.PathSeparator), "Users")
 		if entries, err := os.ReadDir(usersRoot); err == nil {
@@ -150,16 +176,18 @@ func purgeInstallationData() error {
 			}
 		}
 	}
+	return roots
+}
 
-	var failures []string
-	for _, root := range roots {
-		if err := os.RemoveAll(root); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
-		}
+func purgeAgentData() error {
+	return purgePaths(agentDataRoots())
+}
+
+func purgeInstallationData() error {
+	roots := append(agentDataRoots(), managerDataRoots()...)
+	if err := purgePaths(roots); err != nil {
+		return err
 	}
 	purgeAutostartRegistry()
-	if len(failures) > 0 {
-		return fmt.Errorf("purge Yaseir installation data: %s", strings.Join(failures, "; "))
-	}
 	return nil
 }

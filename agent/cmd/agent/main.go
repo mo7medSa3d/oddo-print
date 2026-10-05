@@ -374,7 +374,7 @@ func handleServiceControl(rawAction, configPath string) error {
 		configureServiceRecovery(svcConfig.Name)
 		fmt.Println("YaseirAgent service installed successfully")
 		return nil
-	case "uninstall", "purge":
+	case "uninstall":
 		if err := stopServiceForRemoval(s); err != nil {
 			return err
 		}
@@ -382,14 +382,26 @@ func handleServiceControl(rawAction, configPath string) error {
 		if err != nil {
 			return err
 		}
-		if err := purgeInstallationData(); err != nil {
+		if err := purgeAgentData(); err != nil {
 			return err
 		}
 		if removed {
-			fmt.Println("YaseirAgent service uninstalled and all local Yaseir runtime data purged successfully")
+			fmt.Println("YaseirAgent service uninstalled and all local Agent data purged successfully")
 		} else {
-			fmt.Println("YaseirAgent service was already absent; all local Yaseir runtime data was purged")
+			fmt.Println("YaseirAgent service was already absent; all local Agent data was purged")
 		}
+		return nil
+	case "purge":
+		if err := stopServiceForRemoval(s); err != nil {
+			return err
+		}
+		if _, err := uninstallServiceIfPresent(s); err != nil {
+			return err
+		}
+		if err := purgeInstallationData(); err != nil {
+			return err
+		}
+		fmt.Println("YaseirAgent service and all local Yaseir application data purged successfully")
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {

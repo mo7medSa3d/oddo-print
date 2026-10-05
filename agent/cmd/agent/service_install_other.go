@@ -12,6 +12,10 @@ func updateInstalledService(_ *service.Config) error {
 }
 
 
+func purgeAgentData() error {
+	return fmt.Errorf("Agent data purge is only supported on Windows")
+}
+
 func purgeInstallationData() error {
 	return fmt.Errorf("installation data purge is only supported on Windows")
 }
