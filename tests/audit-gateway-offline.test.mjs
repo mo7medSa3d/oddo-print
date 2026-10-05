@@ -182,7 +182,7 @@ test("desktop discovery surfaces persistence warnings and keeps local printers v
   }, () => `${source.slice(start, end)}\nexport { handleDiscover };`);
   await api.handleDiscover();
   assert.equal(discovered.at(-1).length, 1);
-  assert.match(warnings.at(-1), /Failed to persist discovery/);
+  assert.equal(warnings.at(-1), "desktop.app.discoveryWarningsSummary:1");
   assert.equal(messages.at(-1).text, "desktop.app.discoveryPartial:1");
   assert.equal(messages.at(-1).type, "info");
 
@@ -201,4 +201,78 @@ test("printer evidence stays independent from agent reachability in shared UI vo
   assert.equal(api.effectivePrinterStatus({ ...freshPrinter, status: "busy" }, staleAgent, nowMs), "busy");
   assert.equal(api.effectivePrinterStatus({ ...freshPrinter, status: "error" }, staleAgent, nowMs), "error");
   assert.equal(api.effectivePrinterStatus({ ...freshPrinter, lastSeenAt: new Date(nowMs - 10 * 60_000).toISOString() }, staleAgent, nowMs), "unknown");
+});
+
+test("Test Print fail-fast response states that no queued job exists", async () => {
+  const source = await readFile("src/app/api/printers/[id]/test-print/route.ts", "utf8");
+  assert.match(source, /Test print was not queued/);
+  assert.doesNotMatch(source, /test print will be queued until the agent reconnects/i);
+  assert.ok(source.indexOf("if (!availability.available)") < source.indexOf("createPrintJobForPrinter("));
+});
+
+test("printer diagnostics keep Agent availability independent from lifecycle and network config", async () => {
+  const source = await readFile("src/app/api/printers/[id]/test-connection/route.ts", "utf8");
+  const agentLookup = source.indexOf("const agent = await db.query.agents.findFirst");
+  const agentState = source.indexOf("const agentState = {");
+  const lifecycle = source.indexOf('if (printer.lifecycle !== "active")');
+  const networkConfig = source.indexOf('if (printer.connectionType === "network"');
+  const unavailable = source.indexOf("if (!availability.available)", networkConfig);
+  assert.ok(agentLookup >= 0 && agentState > agentLookup && lifecycle > agentState);
+  assert.match(source.slice(lifecycle, networkConfig), /\.\.\.agentState/);
+  assert.match(source.slice(networkConfig, unavailable), /\.\.\.agentState/);
+  assert.match(source, /lastHeartbeatAt: agent\.lastSeenAt/);
+  assert.match(source, /agentOnline: availability\.available/);
+});
+
+test("Odoo spooler and IPP diagnostics preserve the selected binding document type", async () => {
+  const source = await readFile("odoo_addons/print_gateway/models/print_router.py", "utf8");
+  const spooler = source.slice(source.indexOf("def _route_spooler_test_page"), source.indexOf("def _route_ipp_test_page"));
+  const ipp = source.slice(source.indexOf("def _route_ipp_test_page"), source.indexOf("def _generate_test_pdf"));
+  for (const block of [spooler, ipp]) {
+    assert.match(block, /document_type=binding\.document_type/);
+    assert.match(block, /document_type=binding\.document_type/);
+    assert.doesNotMatch(block, /job_document_type="test_page"/);
+  }
+  assert.match(source, /"document_type": route\["document_type"\]/);
+});
+
+test("spooler document baseline and explicit byte passthrough stay separate", async () => {
+  const api = await loadModule("src/lib/printer-capability.ts", {}, (source) =>
+    source.replace(
+      'import payloadContract from "../../contracts/print-payload-contract.json";',
+      'const payloadContract = { rawProtocols: ["raw", "escpos", "zpl", "tspl"] };',
+    )
+  );
+  const spooler = { protocol: "spooler", connectionType: "spooler" };
+  assert.equal(api.validatePayloadForPrinter({ type: "pdf" }, spooler).ok, true);
+  assert.equal(api.validatePayloadForPrinter({ type: "image" }, spooler).ok, true);
+  const rejectedEscpos = api.validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, spooler);
+  assert.equal(rejectedEscpos.ok, false);
+  assert.match(rejectedEscpos.reason, /has not been declared as ESC\/POS-capable/);
+
+  const escpos = { ...spooler, capabilities: { supported_protocols: ["escpos"] } };
+  assert.equal(api.validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, escpos).ok, true);
+  assert.equal(api.validatePayloadForPrinter({ type: "raw", protocol: "raw" }, escpos).ok, false);
+  assert.equal(api.validatePayloadForPrinter({ type: "pdf" }, escpos).ok, true);
+  assert.equal(api.validatePayloadForPrinter({ type: "image" }, escpos).ok, true);
+
+  const raw = { ...spooler, capabilities: { supported_protocols: ["raw"] } };
+  assert.equal(api.validatePayloadForPrinter({ type: "raw", protocol: "raw" }, raw).ok, true);
+  assert.equal(api.validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, raw).ok, false);
+});
+
+test("printer transport changes scrub inherited spooler passthrough without accepting invalid new passthrough", async () => {
+  const source = await readFile("src/app/api/printers/[id]/route.ts", "utf8");
+  assert.match(source, /parsed\.data\.config\?\.passthrough_protocols !== undefined && connectionType !== "spooler"/);
+  assert.match(source, /const scrubInheritedPassthrough = connectionType !== "spooler"/);
+  assert.match(source, /if \(scrubInheritedPassthrough\) delete cfg\.passthrough_protocols/);
+  assert.match(source, /parsed\.data\.config !== undefined \|\| scrubInheritedPassthrough/);
+});
+
+test("Odoo explicit raw binding validates the caller destination rather than itself", async () => {
+  const source = await readFile("odoo_addons/print_gateway/models/print_router.py", "utf8");
+  const block = source.slice(source.indexOf("def route_raw_command"), source.indexOf("def route_test_page"));
+  assert.match(block, /explicit_destination=destination/);
+  assert.doesNotMatch(block, /explicit_destination=binding\.destination_ref or destination/);
+  assert.match(source, /document_type=binding\.document_type/);
 });

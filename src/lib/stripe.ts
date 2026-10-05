@@ -95,6 +95,41 @@ export async function stripeRequest(path: string, form: URLSearchParams, idempot
  * delivery order. For subscription state we therefore retrieve the current
  * resource instead of trying to reconstruct chronology from event.created.
  */
+export type StripeListPage = {
+  data: Record<string, unknown>[];
+  hasMore: boolean;
+};
+
+/** Read one bounded Stripe collection page. Mutating callers must still use
+ * stripeRequest() with an idempotency key; this helper is deliberately GET-only.
+ */
+export async function stripeList(path: string, params: URLSearchParams = new URLSearchParams()): Promise<StripeListPage> {
+  const query = params.toString();
+  const res = await fetch(`https://api.stripe.com/v1/${path}${query ? `?${query}` : ""}`, {
+    method: "GET",
+    headers: stripeHeaders(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = (data as Record<string, unknown>)?.error;
+    const message =
+      typeof error === "object" &&
+      error !== null &&
+      typeof (error as Record<string, unknown>).message === "string"
+        ? String((error as Record<string, unknown>).message)
+        : `Stripe request failed (${res.status})`;
+    throw new Error(message);
+  }
+  const object = requireStripeObject(data);
+  if (!Array.isArray(object.data)) throw new Error(`Stripe list response missing data for ${path}`);
+  const rows = object.data.map((entry) => requireStripeObject(entry));
+  if (rows.some((entry) => typeof entry.id !== "string" || entry.id.length === 0)) {
+    throw new Error(`Stripe list response contains an invalid object for ${path}`);
+  }
+  return { data: rows, hasMore: object.has_more === true };
+}
+
 export async function stripeRetrieve(path:string): Promise<Record<string, unknown>> {
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: "GET",

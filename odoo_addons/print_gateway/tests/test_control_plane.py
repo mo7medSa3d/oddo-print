@@ -484,7 +484,10 @@ class TestControlPlane(TransactionCase):
         router = self.env["print_gateway.print_router"].with_company(self.branch)
         BindingClass = type(self.primary_binding)
         RouterClass = type(router)
-        with patch.object(BindingClass, "_validate_runtime_target"), \
+        with patch.object(BindingClass, "_validate_runtime_target", return_value={
+                 "protocol": "escpos", "connectionType": "network",
+                 "capabilities": {"supported_protocols": ["escpos"]},
+             }), \
              patch.object(RouterClass, "_persist_durable_job", side_effect=self._fake_persist_job), \
              patch.object(RouterClass, "_submit_durable_job", return_value="submitted"):
             res = self.primary_binding.with_company(self.branch).action_send_test_print()
@@ -495,6 +498,37 @@ class TestControlPlane(TransactionCase):
             job = self.env["print_gateway.print_job"].browse(route_res.get("job_id"))
             self.assertEqual(job.protocol, "escpos")
             self.assertIn("YASEIR PRINT GATEWAY", job.raw_payload)
+
+    def test_05b_document_test_page_validates_selected_binding_context(self):
+        """Spooler/IPP diagnostics validate the selected binding, not synthetic test_page routing."""
+        router = self.env["print_gateway.print_router"].with_company(self.branch)
+        RouterClass = type(router)
+
+        for offset, protocol in enumerate(("spooler", "ipp"), start=1):
+            with self.subTest(protocol=protocol):
+                binding = self.env["print_gateway.binding"].create({
+                    "company_id": self.company.id,
+                    "branch_id": self.branch.id,
+                    "destination_type": "report",
+                    "destination_report_id": self.primary_binding.destination_report_id.id,
+                    "report_id": self.primary_binding.report_id.id,
+                    "runtime_agent_id": "agent-cp-01",
+                    "printer_id": "printer-test-%s" % protocol,
+                    "printer_protocol": protocol,
+                    "enabled": True,
+                    "priority": 50 + offset,
+                })
+                self.assertNotEqual(binding.document_type, "test_page")
+
+                with patch.object(RouterClass, "_persist_durable_job", side_effect=self._fake_persist_job), \
+                     patch.object(RouterClass, "_submit_durable_job", return_value="submitted"):
+                    res = router.route_test_page(binding)
+
+                job = self.env["print_gateway.print_job"].browse(res["job_id"])
+                self.assertEqual(job.document_type, binding.document_type)
+                self.assertEqual(job.payload_type, "pdf")
+                self.assertFalse(job.protocol)
+                self.assertEqual(job.printer_id, binding.printer_id)
 
     def test_06b_stale_claimed_intent_cannot_exceed_max_attempts(self):
         """A stale claimed intent at its retry ceiling must not be re-claimed.
@@ -819,6 +853,19 @@ class TestControlPlane(TransactionCase):
             job = self.env["print_gateway.print_job"].browse(res["job_id"])
             self.assertEqual(job.idempotency_key, "custom_explicit_key_123")
 
+        # An explicit binding is authoritative, but it must still match the
+        # caller's actual destination. Do not validate it against its own
+        # destination_ref (which would turn the identity check into a tautology).
+        with self.assertRaisesRegex(ValidationError, "does not match this destination"):
+            router.route_raw_command(
+                "\x1b@Wrong destination",
+                protocol="escpos",
+                binding=self.primary_binding,
+                destination=self.branch,
+                company=self.branch,
+                document_type=self.primary_binding.document_type,
+            )
+
     def test_09_policy_template_format_error_raises(self):
         """Verify render_raw_template raises ValidationError on missing format keys."""
         model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
@@ -901,6 +948,7 @@ class TestControlPlane(TransactionCase):
             res = router.route_test_page(raw_binding)
             job = self.env["print_gateway.print_job"].browse(res["job_id"])
             self.assertEqual(job.protocol, "raw")
+            self.assertEqual(job.document_type, raw_binding.document_type)
             self.assertIn("PRINTER TEST", job.raw_payload)
             self.assertNotIn("\x1b@", job.raw_payload)
 
@@ -2075,6 +2123,38 @@ class TestControlPlane(TransactionCase):
             ("source_model", "=", "stock.picking"),
             ("source_record_id", "=", hidden_picking.id),
         ]))
+
+    def test_30e_pos_sale_details_uses_the_pos_receipt_binding_contract(self):
+        """Odoo 19 Sale Details prints through the POS receipt printer.
+
+        The Gateway route must therefore resolve the current POS config with
+        document_type=receipt.  A synthetic report:* document type can never
+        match a destination_type=pos binding because that binding's computed
+        document type is receipt.
+        """
+        router = self.env["print_gateway.print_router"]
+        RouterClass = type(router)
+        session = MagicMock()
+        session.id = 7301
+        session._name = "pos.session"
+        session.company_id = self.env.company
+        session.config_id = MagicMock(name="pos_config")
+        route = {"gateway_enabled": True, "native": False, "binding": MagicMock()}
+
+        with patch.object(RouterClass, "_validate_jpeg_base64", return_value="jpeg"), \
+             patch.object(RouterClass, "resolve_binding", return_value=route) as resolve_binding, \
+             patch.object(RouterClass, "_submit_route", return_value={"status": "queued"}) as submit_route:
+            result = router.route_pos_sale_details(session, "jpeg")
+
+        self.assertEqual(result, {"status": "queued"})
+        session.ensure_one.assert_called_once_with()
+        self.assertEqual(resolve_binding.call_args.kwargs["document_type"], "receipt")
+        self.assertIs(resolve_binding.call_args.kwargs["explicit_destination"], session.config_id)
+        self.assertEqual(resolve_binding.call_args.kwargs["company"], self.env.company)
+        payload = submit_route.call_args.kwargs["payload"]
+        self.assertEqual(payload["type"], "image")
+        self.assertEqual(payload["encoding"], "base64")
+        self.assertEqual(payload["data"], "jpeg")
 
     def test_31_physical_side_effect_methods_are_not_rpc_reachable(self):
         """RPC boundary: every router method that can create a durable outbox

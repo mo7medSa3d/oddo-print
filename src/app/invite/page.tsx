@@ -54,7 +54,7 @@ function InviteContent() {
           className="inline-flex items-center gap-1.5 font-[550] text-ink-3 transition-colors hover:text-ink"
           href="/login"
         >
-          {t("invite.signIn")} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+          {t("invite.signIn")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
         </Link>
       }
     >
@@ -78,7 +78,7 @@ function InviteContent() {
           className="w-full"
           size="lg"
           loading={busy}
-          icon={busy ? undefined : <ArrowRight className="h-4 w-4" />}
+          icon={busy ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
         >
           {busy ? t("invite.submitting") : t("invite.submit")}
         </Button>

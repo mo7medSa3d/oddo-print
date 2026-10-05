@@ -35,28 +35,29 @@ patch(SaleDetailsButton.prototype, {
         }
 
         try {
-        const enabled = await this.pos.data.call(
-            "pos.session",
-            "is_gateway_printing_enabled",
-            [[sessionId]],
-            {},
-            true
-        );
-        if (enabled !== true) {
-            return super.onClick();
-        }
+            const enabled = await this.pos.data.call(
+                "pos.session",
+                "is_gateway_printing_enabled",
+                [[sessionId]],
+                {},
+                true
+            );
+            if (enabled !== true) {
+                return super.onClick();
+            }
 
             const saleDetails = await this.pos.data.call(
                 "report.point_of_sale.report_saledetails",
                 "get_sale_details",
                 [false, false, false, [sessionId]]
             );
-            const generator = this.pos.ticketPrinter.getGenerator({ models: this.pos.models });
-            const reportData = generator.generateSaleDetailsData(saleDetails);
-            reportData.extra_data.date = formatDateTime(DateTime.now());
             const report = renderToElement(
-                "point_of_sale.pos_sale_details_receipt",
-                reportData
+                "point_of_sale.SaleDetailsReport",
+                Object.assign({}, saleDetails, {
+                    date: formatDateTime(DateTime.now()),
+                    pos: this.pos,
+                    formatCurrency: this.pos.env.utils.formatCurrency,
+                })
             );
             const image = await elementToJpeg(report, this.env.services.render);
             const result = await this.pos.data.call(

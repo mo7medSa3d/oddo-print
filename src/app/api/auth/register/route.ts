@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
   if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
-  if (existing) return setRateLimitHeaders(NextResponse.json({ error: "An account with this email already exists. You can sign in instead.", code: "ACCOUNT_EXISTS" }, { status: 409 }), rate);
+  if (existing) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
   const userId = `usr_${nanoid(18)}`;
   const rawToken = generateOpaqueToken();
   const expiresAt = sql`clock_timestamp() + interval '30 minutes'`;

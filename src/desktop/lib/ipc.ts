@@ -21,6 +21,7 @@ export interface AgentStatus {
   version: string;
   hostname: string;
   note: string;
+  note_code?: string;
 }
 
 export interface RuntimePaths {
@@ -357,6 +358,9 @@ export interface PrinterInfo {
   networkAddress?: string;
   port?: number | null;
   status: string;
+  lastSeenAt?: string | null;
+  reportedStatus?: string | null;
+  freshness?: "fresh" | "stale" | "missing";
   enabled: boolean;
   isVirtual?: boolean;
   is_virtual?: boolean;
@@ -374,6 +378,8 @@ export interface PrinterInfo {
   agentId?: string;
   agentName?: string | null;
   agentStatus?: string | null;
+  agentReportedStatus?: string | null;
+  agentFreshness?: "fresh" | "stale" | "missing";
   agentLifecycle?: string | null;
   agentLastSeenAt?: string | null;
   configurationConverged?: boolean;
@@ -492,6 +498,7 @@ export async function registerGatewayPrinter(
     if (!queue) throw new Error("Spooler printer name is required");
     config.spooler_name = queue;
     config.address = queue;
+    config.passthrough_protocols = [...new Set((req.spoolerPassthroughProtocols ?? []).filter((value) => value === "raw" || value === "escpos"))];
   } else if (connectionType === "usb") {
     if (req.usbVid) config.vid = parseUsbIdentifier(req.usbVid);
     if (req.usbPid) config.pid = parseUsbIdentifier(req.usbPid);
@@ -568,7 +575,7 @@ export async function testGatewayPrinter(
   printerId: string,
 ): Promise<Record<string, unknown>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const { status, body } = await gatewayConsoleRequest(
+  const { status, body } = await gatewayRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
     "POST",
@@ -597,6 +604,7 @@ export interface RegisterPrinterRequest {
   usbVid?: string;
   usbPid?: string;
   usbSerial?: string;
+  spoolerPassthroughProtocols?: Array<"raw" | "escpos">;
 }
 
 export function registerPrinter(req: RegisterPrinterRequest): Promise<string> {

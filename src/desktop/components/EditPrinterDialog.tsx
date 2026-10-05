@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Button, Field, Input, Modal, Select } from "../../components/ui";
+import { Button, Checkbox, Field, Input, Modal, Select } from "../../components/ui";
 import { friendlyGatewayError } from "../lib/printers";
 import { updateGatewayPrinter, parseUsbIdentifier, type PrinterInfo } from "../lib/ipc";
 import { useI18n } from "../../i18n/react";
@@ -88,6 +88,11 @@ export function EditPrinterDialog({
   const [port, setPort] = useState(() => typeof initialConfig.port === "number" ? String(initialConfig.port) : "9100");
   const [address, setAddress] = useState(() => stringConfig(initialConfig, "address") || stringConfig(initialConfig, "device_path"));
   const [spoolerName, setSpoolerName] = useState(() => stringConfig(initialConfig, "spooler_name"));
+  const initialPassthrough = Array.isArray(initialConfig.passthrough_protocols)
+    ? initialConfig.passthrough_protocols.filter((value): value is string => typeof value === "string")
+    : [];
+  const [spoolerRaw, setSpoolerRaw] = useState(() => initialPassthrough.includes("raw"));
+  const [spoolerEscpos, setSpoolerEscpos] = useState(() => initialPassthrough.includes("escpos"));
   const [usbVid, setUsbVid] = useState(() =>
     initialConfig.vid != null ? String(initialConfig.vid) : printer?.usbVid ? "0x" + printer.usbVid.replace(/^0x/i, "") : ""
   );
@@ -122,6 +127,7 @@ export function EditPrinterDialog({
     delete nextConfig.address;
     delete nextConfig.spooler_name;
     delete nextConfig.vid; delete nextConfig.pid; delete nextConfig.serial; delete nextConfig.device_path;
+    delete nextConfig.passthrough_protocols;
 
     if (connectionType === "network") {
       const n = Number(port);
@@ -142,6 +148,10 @@ export function EditPrinterDialog({
       }
       nextConfig.spooler_name = spoolerName.trim();
       nextConfig.address = spoolerName.trim();
+      nextConfig.passthrough_protocols = [
+        ...(spoolerRaw ? ["raw"] : []),
+        ...(spoolerEscpos ? ["escpos"] : []),
+      ];
     } else if (connectionType === "usb") {
       if (protocol === "spooler") {
         if (!spoolerName.trim()) { onError(t("desktop.edit.spoolerRequired")); return; }
@@ -252,6 +262,24 @@ export function EditPrinterDialog({
             <Field label={t("desktop.edit.windowsPrinterName")} htmlFor="edit-printer-spooler">
               <Input id="edit-printer-spooler" value={spoolerName} onChange={(e) => setSpoolerName(e.target.value)} />
             </Field>
+          )}
+          {connectionType === "spooler" && (
+            <div className="space-y-3 rounded-md border border-control p-3">
+              <p className="text-sm font-[500] text-ink">{t("desktop.spoolerPassthrough.title")}</p>
+              <p className="text-sm text-ink-3">{t("desktop.spoolerPassthrough.description")}</p>
+              <Checkbox
+                checked={spoolerEscpos}
+                onChange={(e) => setSpoolerEscpos(e.target.checked)}
+                label={t("desktop.spoolerPassthrough.escpos")}
+                description={t("desktop.spoolerPassthrough.escposHint")}
+              />
+              <Checkbox
+                checked={spoolerRaw}
+                onChange={(e) => setSpoolerRaw(e.target.checked)}
+                label={t("desktop.spoolerPassthrough.raw")}
+                description={t("desktop.spoolerPassthrough.rawHint")}
+              />
+            </div>
           )}
           {connectionType === "usb" && (
             <div className="space-y-4">

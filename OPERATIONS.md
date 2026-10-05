@@ -27,7 +27,7 @@ The current session migration is gradual. New logins issue a 15-minute access JW
 The Gateway's existing 5-minute housekeeping loop removes expired legacy manager/platform sessions and expired refresh-token rows.
 
 ## Runtime truth
-A configured printer may remain configured while an Agent is offline/stale. Runtime availability and physical print outcome are distinct states.
+A configured printer may remain configured while an Agent is offline/stale. Agent connectivity, heartbeat freshness, printer-observation freshness, queue accessibility, and physical printer state are separate facts. The UIs expose `stale` separately; a stale heartbeat does not rewrite a printer to physical Offline, and a stale printer observation does not become fresh merely because the Agent reconnected.
 
 ## Incident handling
-For an unknown physical outcome, inspect the printer before reprinting. Do not assume a failed network acknowledgement means the printer definitely did not print.
+For an unknown physical outcome, inspect the printer and (for Windows jobs) the recorded spooler job identity before reprinting. Do not assume a failed acknowledgement, timeout, restart, or post-submission error means the printer definitely did not print. Automatic retry is prohibited once physical submission may have occurred. A manual reprint is an explicit new physical attempt and can produce a duplicate if the uncertain attempt already printed.

@@ -314,6 +314,27 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('getattr(order.config_id, "preparation_printer_ids", None)', source)
         self.assertIn("order.config_id.printer_ids", source)
 
+
+    def test_runtime_agent_picker_preserves_stale_heartbeat_separately(self):
+        root = pathlib.Path(__file__).resolve().parents[4]
+        controller = (root / "odoo_addons/print_gateway/controllers/runtime_printers.py").read_text(encoding="utf-8")
+        widget = (root / "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
+        gateway = (root / "src/app/api/odoo/agents/route.ts").read_text(encoding="utf-8")
+        self.assertIn("getAgentHeartbeatFreshness", gateway)
+        self.assertIn("reportedStatus: agent.status", gateway)
+        self.assertIn("'reportedStatus': reported_status", controller)
+        self.assertIn("'freshness': freshness", controller)
+        self.assertIn("agent.freshness === 'stale'", widget)
+        self.assertIn("agent.reportedStatus || agent.status", widget)
+
+    def test_runtime_printer_picker_preserves_stale_evidence_separately(self):
+        controller = self._read("controllers/runtime_printers.py")
+        widget = self._read("static/src/components/runtime_printer_field.js")
+        self.assertIn("'reportedStatus':", controller)
+        self.assertIn("'freshness':", controller)
+        self.assertIn("printer.freshness === 'stale'", widget)
+        self.assertIn("printer.reportedStatus || printer.status", widget)
+
     def test_kitchen_gateway_supports_both_odoo_19_printer_relations(self):
         source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
         self.assertIn('getattr(self.config_id, "preparation_printer_ids", None)', source)
@@ -396,7 +417,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (MODELS / "print_router.py").read_text(encoding="utf-8")
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured", source)
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured", source)
-        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured", source)
+        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details", source)
 
     def test_sale_details_http_route_never_returns_fake_gateway_success(self):
         source = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")

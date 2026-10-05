@@ -161,8 +161,14 @@ func printPDFWithResult(ctx context.Context, printerName string, doc Document, p
 
 	spoolerJobID, err := printFn(printCtx, printerName, path)
 	if err != nil {
-		// Preserve a platform identity allocated before a later GDI/spooler
-		// failure. The caller needs it to reconcile an ambiguous submission.
+		// Once Windows has allocated a spooler job identity, a later error
+		// cannot honestly prove that no physical output occurred. Preserve
+		// the identity and force UNKNOWN semantics unless the lower layer
+		// already supplied a stronger unknown-outcome marker. This is the
+		// final duplicate-prevention fence for renderer/cleanup failures.
+		if spoolerJobID != "" && !OutcomeUnknown(err) {
+			err = MarkUnknown("Windows spooler job %s was allocated before a later PDF failure; physical outcome is unknown: %v", spoolerJobID, err)
+		}
 		return spoolerJobID, fmt.Errorf("PDF print on %q failed: %w", printerName, err)
 	}
 	log.Printf("PDF job %s (%d bytes) submitted to printer %q via embedded PDFium path", doc.JobID, len(doc.Data), printerName)

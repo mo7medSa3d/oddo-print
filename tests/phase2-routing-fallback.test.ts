@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { validatePayloadForPrinter, isPrinterAvailableForJob, isAgentAvailableForPrinter } from "../src/lib/routing";
 
 /**
- * The capability model is EXPLICIT: protocols never wildcard, missing
- * protocols never default, and byte-stream payloads are accepted only by
- * devices that declare that same protocol (directly or via
- * supported_protocols capabilities).
+ * The capability model is EXPLICIT: byte protocols never wildcard and are
+ * accepted only when declared. Document transports retain their intrinsic
+ * driver/IPP document baseline even when byte passthrough capabilities are
+ * present.
  */
 describe("runtime routing capability and availability", () => {
   it("rejects a raw payload that does not declare an explicit protocol", () => {
@@ -68,6 +68,16 @@ describe("runtime routing capability and availability", () => {
     expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, {
       protocol: "spooler", connectionType: "spooler", capabilities: { supported_protocols: ["escpos"] },
     }).ok).toBe(true);
+  });
+
+  it("keeps spooler document printing available when passthrough is explicitly enabled", () => {
+    const printer = {
+      protocol: "spooler", connectionType: "spooler", capabilities: { supported_protocols: ["escpos"] },
+    };
+    expect(validatePayloadForPrinter({ type: "pdf" }, printer).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "image" }, printer).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, printer).ok).toBe(true);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, printer).ok).toBe(false);
   });
 
   it("requires exact ZPL/TSPL devices for ZPL/TSPL payloads", () => {

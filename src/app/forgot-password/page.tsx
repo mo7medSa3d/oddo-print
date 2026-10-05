@@ -76,7 +76,7 @@ export default function Forgot() {
             className="w-full"
             size="lg"
             loading={loading}
-            icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+            icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
           >
             {loading ? t("auth.forgot.submitting") : t("auth.forgot.submit")}
           </Button>
@@ -87,7 +87,7 @@ export default function Forgot() {
         href="/login"
         className="mt-6 inline-flex items-center gap-1.5 text-sm font-[550] text-ink-3 transition-colors hover:text-ink"
       >
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> {t("auth.forgot.backToSignIn")}
+        <ArrowLeft className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden /> {t("auth.forgot.backToSignIn")}
       </Link>
     </AuthShell>
   );

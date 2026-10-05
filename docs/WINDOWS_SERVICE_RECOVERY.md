@@ -17,6 +17,10 @@ The Go agent and Tauri manager must survive crashes, restarts, and host reboots.
 - Binary: `YaseirAgent.exe` with config path (produced by `build-windows.yml` as `YaseirAgent.exe`)
 - Log On As: `LocalSystem` or dedicated service account with `SeServiceLogonRight` and printer access
 
+### Printer visibility is security-context scoped
+
+Windows printer connections are not a machine-global inventory. `PRINTER_ENUM_LOCAL` covers queues available in the Agent process context; `PRINTER_ENUM_CONNECTIONS` covers connections for that context, not arbitrary signed-in desktop users. A LocalSystem service running in Session 0 must therefore **not** assume it sees the same connected queues or network credentials as an interactive user. The Agent marks interactive-user connected queues as discovery-only when they cannot be proved executable from Session 0. For production, install/share the queue for the service account or use a dedicated service account that has the required printer/network permissions. An `OpenPrinterW` access failure is reported as queue/access **unknown**, not proof that the physical printer is Offline.
+
 ## Failure Actions (SCM)
 Configure via `sc failure` or API. The Go agent applies this automatically on
 `YaseirAgent.exe -service install` (see `configureServiceRecovery` in

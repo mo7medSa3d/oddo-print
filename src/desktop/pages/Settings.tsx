@@ -98,7 +98,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
       </Card>
 
       <Card className="overflow-hidden">
-        <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-start hover:bg-surface-2"><span className="text-base font-semibold text-ink">{t("desktop.settings.advanced")}</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform ${s.advancedOpen ? "rotate-90" : ""}`} /></button>
+        <button onClick={() => s.setAdvancedOpen(!s.advancedOpen)} className="flex w-full items-center justify-between px-5 py-4 text-start hover:bg-surface-2"><span className="text-base font-semibold text-ink">{t("desktop.settings.advanced")}</span><ChevronRight className={`h-4 w-4 text-ink-3 transition-transform rtl:-scale-x-100 ${s.advancedOpen ? "rotate-90 rtl:-rotate-90" : ""}`} /></button>
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
             <div><div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.settings.security")}</div><p className="text-xs text-ink-2 leading-relaxed">{t("desktop.settings.securityBody")}</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />{t("desktop.settings.credentialsLocal")}</div></div>

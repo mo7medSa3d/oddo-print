@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
 import { TopNavbar, type TopNavItem } from "../../components/TopNavbar";
-import { PageContainer } from "../../components/ui";
+import { PageContainer, PageSkeleton } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 
 const NAV_ITEMS: TopNavItem[] = [
@@ -86,18 +86,14 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     router.refresh();
   }
 
-  if (authenticated === null) {
+  if (authenticated === null || authenticated === false) {
+    const label = authenticated === null ? t("platform.session.checking") : t("platform.session.redirecting");
     return (
-      <div className="min-h-screen bg-app" aria-busy="true">
-        <span className="sr-only">{t("platform.session.checking")}</span>
-      </div>
-    );
-  }
-
-  if (authenticated === false) {
-    return (
-      <div className="min-h-screen bg-app" aria-busy="true">
-        <span className="sr-only">{t("platform.session.redirecting")}</span>
+      <div className="min-h-screen bg-app text-ink" aria-busy="true" aria-label={label}>
+        <PageContainer className="pt-10">
+          <PageSkeleton />
+          <span className="sr-only">{label}</span>
+        </PageContainer>
       </div>
     );
   }

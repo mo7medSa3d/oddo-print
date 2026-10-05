@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const compose = readFileSync("docker-compose.yml", "utf8");
 const caddy = readFileSync("Caddyfile", "utf8");
 const windowsWorkflow = readFileSync(".github/workflows/build-windows.yml", "utf8");
+const tauriConfig = readFileSync("src-tauri/tauri.conf.json", "utf8");
+const nsisHooks = readFileSync("src-tauri/installer_hooks.nsh", "utf8");
+const wixService = readFileSync("src-tauri/wix/service.wxs", "utf8");
 const runtimeSecret = readFileSync("src/lib/runtime-secret.ts", "utf8");
 const server = readFileSync("server.ts", "utf8");
 
@@ -37,6 +40,20 @@ describe("deployment security contracts", () => {
     expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
     expect(caddy).not.toContain("header_up X-Forwarded-For");
     expect(caddy).toContain("header_up -X-Real-Ip");
+  });
+
+  it("keeps MSI and NSIS on the same Agent service lifecycle and preserves legacy config selection", () => {
+    expect(tauriConfig).toContain('"./wix/service.wxs"');
+    expect(wixService).toContain('YaseirInstallAgentService');
+    expect(wixService).toContain('resources\\YaseirAgent.exe&quot; -service install');
+    expect(wixService).toContain('YaseirUninstallAgentService');
+    expect(nsisHooks).toContain('"$1" -service install');
+    expect(nsisHooks).not.toContain('-service install -config');
+    expect(nsisHooks).toContain('sc delete YasserAgent');
+    expect(nsisHooks).toContain('sc delete OdooPrintAgent');
+    expect(windowsWorkflow).toContain('MSI did not install the YaseirAgent Windows service');
+    expect(windowsWorkflow).toContain('MSI service did not preserve the legacy config path');
+    expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {

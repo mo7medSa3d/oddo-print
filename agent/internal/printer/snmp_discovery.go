@@ -217,15 +217,15 @@ func extractSNMPPDUString(pdu gosnmp.SnmpPDU) string {
 
 func inferSNMPProtocol(sysDescrLower, nameLower string) string {
 	combined := sysDescrLower + " " + nameLower
+	// Device class, brand, or marketing terms (thermal/receipt/Zebra/TSC/Star)
+	// do not prove an executable printer language. Promote a byte protocol
+	// only when the device evidence explicitly names that language.
 	switch {
-	case strings.Contains(combined, "zebra") || strings.Contains(combined, "zpl"):
+	case strings.Contains(combined, "zpl"):
 		return "zpl"
-	case strings.Contains(combined, "tsc") || strings.Contains(combined, "tspl"):
+	case strings.Contains(combined, "tspl"):
 		return "tspl"
-	case strings.Contains(combined, "escpos") || strings.Contains(combined, "esc/pos") ||
-		strings.Contains(combined, "receipt") ||
-		strings.Contains(combined, "thermal") || strings.Contains(combined, "star micronics") ||
-		strings.Contains(combined, "star tsp"):
+	case strings.Contains(combined, "escpos") || strings.Contains(combined, "esc/pos"):
 		return "escpos"
 	default:
 		return "unknown"

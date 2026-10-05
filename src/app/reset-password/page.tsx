@@ -85,7 +85,7 @@ function ResetPasswordContent() {
             className="w-full"
             size="lg"
             loading={loading}
-            icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+            icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
           >
             {loading ? t("auth.reset.submitting") : t("auth.reset.submit")}
           </Button>

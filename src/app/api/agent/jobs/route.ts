@@ -19,6 +19,7 @@ import { recordJobEvent } from "../../../../lib/job-timeline";
 export const dynamic = "force-dynamic";
 const printerEligibilityPredicate = sql`
   pr.lifecycle = 'active'
+  AND pr.inventory_present = true
   AND (
     pr.status = 'online'
     OR pr.status = 'busy'

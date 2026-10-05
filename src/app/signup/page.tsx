@@ -14,7 +14,6 @@ export default function Signup() {
   const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
-  const [accountExists, setAccountExists] = useState(false);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -23,7 +22,6 @@ export default function Signup() {
     event.preventDefault();
     setLoading(true);
     setErr("");
-    setAccountExists(false);
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
@@ -35,10 +33,6 @@ export default function Signup() {
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (response.status === 409 && data.code === "ACCOUNT_EXISTS") {
-        setAccountExists(true);
-        return;
-      }
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.signup.failed"));
       setDone(true);
       const planId = new URLSearchParams(window.location.search).get("plan") ?? "";
@@ -85,8 +79,7 @@ export default function Signup() {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
-                setAccountExists(false);
-              }}
+                          }}
               autoComplete="email"
               autoFocus
               required
@@ -110,15 +103,7 @@ export default function Signup() {
             />
           </Field>
 
-          {accountExists ? (
-            <Callout tone="brand" title={t("auth.signup.alreadyRegistered")}>
-              {t("auth.signup.accountExistsBody")}{" "}
-              <Link href="/login" className="font-[600] underline">
-                {t("auth.signup.signInInstead")}
-              </Link>
-              .
-            </Callout>
-          ) : err ? (
+          {err ? (
             <ErrorState title={t("auth.signup.failed")} message={err} />
           ) : null}
 
@@ -128,7 +113,7 @@ export default function Signup() {
             className="w-full"
             size="lg"
             loading={loading}
-            icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+            icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
           >
             {loading ? t("auth.signup.submitting") : t("auth.signup.submit")}
           </Button>

@@ -345,6 +345,53 @@ class PrintGatewayBinding(models.Model):
         # image conversion is supported for the explicit network backend.
         return connection_type == "spooler" or protocol == "spooler" or (connection_type == "network" and protocol == "escpos")
 
+    @api.model
+    def _runtime_supported_protocols(self, printer):
+        if not isinstance(printer, dict):
+            return set()
+        capabilities = printer.get("capabilities") if isinstance(printer.get("capabilities"), dict) else {}
+        values = capabilities.get("supported_protocols")
+        if not isinstance(values, list):
+            return set()
+        allowed = {"pdf", "image", "raw", "escpos", "zpl", "tspl", "spooler", "ipp", "ipps"}
+        return {str(value).strip().lower() for value in values if isinstance(value, str) and str(value).strip().lower() in allowed}
+
+    def _validate_binding_protocol_against_runtime(self, printer):
+        """Validate selected binding protocol against physical transport facts.
+
+        The runtime printer's primary protocol describes its transport/backend.
+        A Windows spooler may additionally permit RAW or ESC/POS passthrough,
+        but only when that byte language is explicitly declared in capabilities.
+        This method never rewrites the binding as a side effect.
+        """
+        self.ensure_one()
+        selected = str(self.printer_protocol or "").strip().lower()
+        runtime_protocol = self._canonical_runtime_printer_protocol(printer)
+        connection_type = str((printer or {}).get("connectionType") or "").strip().lower()
+        supported = self._runtime_supported_protocols(printer)
+
+        if not selected:
+            raise ValidationError(_("A print protocol must be selected on the binding."))
+        if runtime_protocol == "unknown":
+            raise ValidationError(_(
+                "The selected printer does not declare a printable protocol. Windows-installed printers should use the spooler connection; direct USB/network printers must declare their real printer language before a test can be sent."
+            ))
+        if selected == runtime_protocol:
+            return True
+        if (runtime_protocol == "spooler" or connection_type == "spooler") and selected in ("raw", "escpos"):
+            if selected in supported:
+                return True
+            if selected == "escpos":
+                raise ValidationError(_(
+                    "This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable. Enable ESC/POS passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept ESC/POS bytes."
+                ))
+            raise ValidationError(_(
+                "This printer is configured for Windows document spooling and has not been declared as RAW-capable. Enable RAW passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept raw bytes."
+            ))
+        raise ValidationError(_(
+            "The selected binding protocol '%s' is not compatible with runtime printer '%s' (transport protocol '%s'). Update the binding or the printer's explicit capability configuration."
+        ) % (selected, self.printer_id, runtime_protocol))
+
     def _validate_runtime_target(self, *, enforce_destination_compatibility=True):
         self.ensure_one()
         if not self.runtime_agent_id:
@@ -502,13 +549,7 @@ class PrintGatewayBinding(models.Model):
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only Odoo system administrators can dispatch test pages."))
         runtime_printer = self._validate_runtime_target(enforce_destination_compatibility=False)
-        runtime_protocol = self._canonical_runtime_printer_protocol(runtime_printer)
-        if runtime_protocol == "unknown":
-            raise ValidationError(_(
-                "The selected printer does not declare a printable protocol. Windows-installed printers should use the spooler connection; direct USB/network printers must declare their real printer language before a test can be sent."
-            ))
-        if self.printer_protocol != runtime_protocol:
-            self.write({"printer_protocol": runtime_protocol})
+        self._validate_binding_protocol_against_runtime(runtime_printer)
         router = self.env["print_gateway.print_router"]
         res = router.route_test_page(self)
         return {
@@ -533,7 +574,8 @@ class PrintGatewayBinding(models.Model):
         self.ensure_one()
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only Odoo system administrators can validate hardware registration."))
-        self._validate_runtime_target()
+        runtime_printer = self._validate_runtime_target()
+        self._validate_binding_protocol_against_runtime(runtime_printer)
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -573,7 +615,8 @@ class PrintGatewayBinding(models.Model):
         normalized = (document_type or "").strip().lower()
         if not binding.enabled:
             raise ValidationError(_("The explicitly selected print binding is disabled."))
-        if binding.company_id != company or binding.branch_id != branch:
+        branch_matches = binding.branch_id == branch or (branch and not binding.branch_id)
+        if binding.company_id != company or not branch_matches:
             raise ValidationError(_("The explicitly selected print binding is not scoped to the current company and branch."))
         if binding.destination_ref != destination or binding.document_type != normalized:
             raise ValidationError(_("The explicitly selected print binding does not match this destination and document type."))

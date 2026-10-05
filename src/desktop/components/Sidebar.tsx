@@ -9,7 +9,6 @@ export interface NavItem {
   id: Page;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  desc: string;
 }
 
 function StatusLine({ tone, title, detail, pulse }: { tone: "ok" | "bad" | "neutral"; title: string; detail: string; pulse?: boolean; }) {
@@ -34,12 +33,12 @@ export function Sidebar({
 }) {
   const { t, formatTime } = useI18n();
   return (
-    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[276px]"} ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[248px]"} ${sidebarOpen ? "translate-x-0" : "ltr:-translate-x-full rtl:translate-x-full lg:translate-x-0"}`}>
       <div className={`flex h-[68px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-semibold tracking-[-0.02em] text-ink">Yaseir Print Manager</div>
+            <div className="truncate text-base font-semibold tracking-[-0.02em] text-ink">{t("desktop.sidebar.productName")}</div>
             <div className="mt-0.5 truncate text-2xs font-medium text-ink-3">
               {t("desktop.sidebar.tagline", { version: version || "—" })}
             </div>
@@ -65,8 +64,7 @@ export function Sidebar({
                 className={`relative flex w-full items-center gap-3 rounded-md text-sm transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 ${collapsed ? "justify-center px-2 py-3" : "px-3 py-2.5"} ${active ? "bg-brand-subtle font-semibold text-brand shadow-xs before:absolute before:inset-y-2 before:start-0 before:w-[2px] before:rounded-sm before:bg-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-                {!collapsed && <span className="flex-1 text-start">{item.label}</span>}
-                {!collapsed && <span className={`text-2xs font-medium ${active ? "text-brand/65" : "text-ink-4"}`}>{item.desc}</span>}
+                {!collapsed && <span className="flex-1 truncate text-start">{item.label}</span>}
               </button>
             );
           })}

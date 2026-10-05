@@ -74,9 +74,12 @@ import {
   agentLiveView,
   deriveOutcome,
   jobGuidance,
+  jobFailurePresentation,
+  jobDisplayLabel,
   jobLabel,
   jobTone as sharedJobTone,
   printerLabel,
+  printerObservationFreshness,
   printerTone as sharedPrinterTone,
   effectivePrinterStatus,
 } from "../../shared/job-vocabulary";
@@ -113,6 +116,8 @@ export type Printer = {
   protocol?: string | null;
   lifecycle: string;
   status: string;
+  reportedStatus?: string | null;
+  freshness?: "fresh" | "stale" | "missing";
   config?: unknown;
   capabilities?: unknown;
   lastSeenAt?: Date | null;
@@ -353,6 +358,15 @@ function connectionIcon(connectionType: string) {
   if (c === "usb") return <Usb className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
   if (c === "network" || c === "tcp") return <Wifi className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
   return <Layers className="h-3.5 w-3.5 text-ink-3" aria-hidden />;
+}
+
+function connectionLabel(connectionType: string, t: Translator): string {
+  const c = connectionType.toLowerCase();
+  if (c === "spooler") return t("printer.connection.spooler");
+  if (c === "usb") return t("printer.connection.usb");
+  if (c === "ipp" || c === "ipps") return t("printer.connection.ipp");
+  if (c === "network" || c === "tcp") return t("printer.connection.network");
+  return t("printer.connection.generic");
 }
 
 export default function DashboardClient({
@@ -861,8 +875,10 @@ export default function DashboardClient({
     const agentMap = new Map(agents.map((a) => [a.id, a]));
     return printers.filter((p) => {
       const parentAgent = agentMap.get(p.agentId);
+      const freshness = p.freshness ?? printerObservationFreshness(p.lastSeenAt, nowMs);
       const effStatus = effectivePrinterStatus(p, parentAgent, nowMs).toLowerCase();
-      if (printerStatusFilter !== "all" && effStatus !== printerStatusFilter) {
+      const filterStatus = freshness === "stale" ? "stale" : effStatus;
+      if (printerStatusFilter !== "all" && filterStatus !== printerStatusFilter) {
         return false;
       }
       if (printerSearch.trim()) {
@@ -1031,7 +1047,10 @@ export default function DashboardClient({
   const printerStatusOptions = useMemo(() => {
     const agentMap = new Map(agents.map((a) => [a.id, a]));
     const statuses = new Set<string>();
-    printers.forEach((p) => statuses.add(effectivePrinterStatus(p, agentMap.get(p.agentId), nowMs).toLowerCase()));
+    printers.forEach((p) => {
+      const freshness = p.freshness ?? printerObservationFreshness(p.lastSeenAt, nowMs);
+      statuses.add(freshness === "stale" ? "stale" : effectivePrinterStatus(p, agentMap.get(p.agentId), nowMs).toLowerCase());
+    });
     return ["all", ...Array.from(statuses).sort()];
   }, [printers, agents, nowMs]);
 
@@ -1207,7 +1226,7 @@ export default function DashboardClient({
         <Callout
           tone="brand"
           icon={<Cpu className="h-4 w-4" aria-hidden />}
-          title={`Pairing code ${activePairing.code}`}
+          title={`${t("agent.pairingCode")}: ${activePairing.code}`}
           action={
             <Button
               variant="secondary"
@@ -1426,6 +1445,8 @@ export default function DashboardClient({
               {filteredPrinters.map((printer) => {
                 const parentAgent = agentById.get(printer.agentId);
                 const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
+                const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
+                const displayStatus = freshness === "stale" ? (printer.reportedStatus ?? printer.status ?? effStatus) : effStatus;
                 const active = printer.lifecycle === "active";
                 return (
                   <li
@@ -1440,7 +1461,7 @@ export default function DashboardClient({
                         <div className="truncate text-sm font-[600] text-ink">{printer.name}</div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
                           {connectionIcon(printer.connectionType)}
-                          <span className="capitalize">{printer.connectionType}</span>
+                          <span>{connectionLabel(printer.connectionType, t)}</span>
                           {printer.protocol && (
                             <>
                               <span aria-hidden>·</span>
@@ -1450,11 +1471,12 @@ export default function DashboardClient({
                         </div>
                       </div>
                       <StatusBadge
-                        tone={sharedPrinterTone(effStatus)}
-                        label={printerLabel(effStatus, locale)}
+                        tone={sharedPrinterTone(displayStatus)}
+                        label={printerLabel(displayStatus, locale)}
                         size="sm"
-                        pulse={effStatus === "online"}
+                        pulse={displayStatus === "online" && freshness === "fresh"}
                       />
+                      {freshness === "stale" ? <StatusBadge tone="warn" label={t("status.stale")} size="sm" /> : null}
                     </div>
 
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
@@ -1525,6 +1547,8 @@ export default function DashboardClient({
                   {filteredPrinters.map((printer) => {
                     const parentAgent = agentById.get(printer.agentId);
                     const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
+                    const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
+                    const displayStatus = freshness === "stale" ? (printer.reportedStatus ?? printer.status ?? effStatus) : effStatus;
                     const active = printer.lifecycle === "active";
                     return (
                       <tr key={printer.id}>
@@ -1538,7 +1562,7 @@ export default function DashboardClient({
                         <td>
                           <div className="flex items-center gap-1.5 text-xs text-ink-2">
                             {connectionIcon(printer.connectionType)}
-                            <span className="capitalize">{printer.connectionType}</span>
+                            <span>{connectionLabel(printer.connectionType, t)}</span>
                             {printer.protocol && <span className="font-[550] text-ink-3">· {printer.protocol}</span>}
                           </div>
                         </td>
@@ -1546,7 +1570,7 @@ export default function DashboardClient({
                           <PrinterLanguageChips printer={printer} />
                         </td>
                         <td>
-                          <StatusBadge tone={sharedPrinterTone(effStatus)} label={printerLabel(effStatus, locale)} size="sm" />
+                          <div className="flex items-center gap-1"><StatusBadge tone={sharedPrinterTone(displayStatus)} label={printerLabel(displayStatus, locale)} size="sm" />{freshness === "stale" ? <StatusBadge tone="warn" label={t("status.stale")} size="sm" /> : null}</div>
                         </td>
                         <td className="text-end">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1702,7 +1726,7 @@ export default function DashboardClient({
                           </div>
                         </td>
                         <td>
-                          <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome, locale)} size="sm" />
+                          <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobDisplayLabel(job.status, job.error, locale)} size="sm" />
                         </td>
                         <td className="text-end text-sm text-ink-3" title={formatDateTime(job.createdAt)}>
                           {formatRelativeTime(job.createdAt)}
@@ -1743,7 +1767,7 @@ export default function DashboardClient({
                         </span>
                         <span className="mt-0.5 block truncate font-mono text-2xs text-ink-3">{shortId(job.id)}</span>
                       </button>
-                      <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobLabel(job.status, outcome, locale)} size="sm" />
+                      <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobDisplayLabel(job.status, job.error, locale)} size="sm" />
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
                       <span>{printer?.name ?? t("job.unknownPrinter")}</span>
@@ -1762,7 +1786,7 @@ export default function DashboardClient({
                         trigger={
                           <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
                             {t("job.more")}
-                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                            <ChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
                           </span>
                         }
                       />
@@ -1886,7 +1910,7 @@ export default function DashboardClient({
         open={selectedJob !== null}
         onClose={() => setSelectedJob(null)}
         title={selectedJob ? t("job.detailTitle", { id: selectedJob.id.slice(0, 12) }) : t("job.job")}
-        description={selectedJob ? `${jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
+        description={selectedJob ? `${jobDisplayLabel(selectedJob.status, selectedJob.error, locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
         wide
         footer={
           <>
@@ -1917,7 +1941,7 @@ export default function DashboardClient({
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
                 tone={sharedJobTone(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
-                label={jobLabel(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)}
+                label={jobDisplayLabel(selectedJob.status, selectedJob.error, locale)}
               />
               <span className="font-mono text-2xs text-ink-4">{selectedJob.id}</span>
               <CopyButton value={selectedJob.id} label={t("job.copyJobId")} />
@@ -1933,11 +1957,14 @@ export default function DashboardClient({
               </Callout>
             )}
 
-            {selectedJob.error && (
-              <Callout tone="bad" title={t("job.reportedError")}>
-                <span className="break-words font-mono text-xs">{selectedJob.error}</span>
-              </Callout>
-            )}
+            {selectedJob.error && (() => {
+              const classified = jobFailurePresentation(selectedJob.error, locale);
+              return (
+                <Callout tone="bad" title={classified?.title ?? t("job.reportedError")}>
+                  <span className="break-words text-sm">{classified?.guidance ?? selectedJob.error}</span>
+                </Callout>
+              );
+            })()}
 
             <KeyValueList
               rows={[
@@ -1964,7 +1991,7 @@ export default function DashboardClient({
                   <FileText className="h-4 w-4 text-ink-4" aria-hidden />
                   {t("job.diagnosticPayload")}
                 </span>
-                <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-200 group-open:rotate-90" aria-hidden />
+                <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-200 rtl:-scale-x-100 group-open:rotate-90 rtl:group-open:-rotate-90" aria-hidden />
               </summary>
               <div className="border-t border-edge-subtle p-3">
                 {!selectedJobPayloadLoading && !selectedJobPayloadError && (

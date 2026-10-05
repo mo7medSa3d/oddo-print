@@ -389,11 +389,59 @@ func validateDesiredNetworkDestination(c map[string]interface{}) error {
 	return nil
 }
 
+func desiredSpoolerPassthrough(config map[string]interface{}) ([]string, bool) {
+	raw, present := config["passthrough_protocols"]
+	if !present {
+		return nil, false
+	}
+	values := make([]string, 0, 2)
+	seen := map[string]bool{}
+	appendValue := func(value string) {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if (value == "raw" || value == "escpos") && !seen[value] {
+			seen[value] = true
+			values = append(values, value)
+		}
+	}
+	switch list := raw.(type) {
+	case []interface{}:
+		for _, value := range list {
+			if text, ok := value.(string); ok {
+				appendValue(text)
+			}
+		}
+	case []string:
+		for _, value := range list {
+			appendValue(value)
+		}
+	}
+	return values, true
+}
+
 func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
 	p := row.Desired
 	enabled := p.Lifecycle == "active"
 	var capabilities map[string]interface{}
-	if row.ObservedSupportedProtocolsKnown {
+	// Manager-owned spooler byte passthrough is explicit desired state. Build
+	// the capability list from the immutable document baseline plus those
+	// opt-ins, so an old observed capability snapshot can never erase or keep
+	// stale RAW/ESC-POS permissions after a configuration change.
+	if passthrough, present := desiredSpoolerPassthrough(p.Config); present && p.ConnectionType == "spooler" {
+		protocols := printer.SupportedProtocolsForDevice(printer.TransportFacts{Protocol: p.Protocol, Connection: p.ConnectionType})
+		seen := make(map[string]bool, len(protocols)+len(passthrough))
+		for _, value := range protocols {
+			seen[value] = true
+		}
+		for _, value := range passthrough {
+			if !seen[value] {
+				protocols = append(protocols, value)
+				seen[value] = true
+			}
+		}
+		capabilities = map[string]interface{}{"supported_protocols": protocols}
+	} else if row.ObservedSupportedProtocolsKnown {
+		// Backward compatibility for desired-state files written before explicit
+		// passthrough configuration existed.
 		capabilities = map[string]interface{}{
 			"supported_protocols": append([]string(nil), row.ObservedSupportedProtocols...),
 		}

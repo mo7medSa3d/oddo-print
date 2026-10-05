@@ -255,9 +255,10 @@ export function buildTestPrintPayloadForPrinter(
   const physicalDocumentTransport =
     conn === "spooler" || conn === "ipp" || conn === "ipps" ||
     (conn === "network" && declared === "ipp");
-  const pdfAllowed = !hasExplicitCaps || supported.includes("pdf") || supported.includes("spooler") || supported.includes("ipp") || supported.includes("ipps");
-
-  if (physicalDocumentTransport && pdfAllowed) {
+  // Document transports keep their intrinsic document-rendering baseline.
+  // supported_protocols may opt a spooler into byte passthrough, but it must
+  // never make an otherwise valid spooler/IPP test page stop being printable.
+  if (physicalDocumentTransport) {
     const pdf = buildTestPdfPayload(plainName, plainAgent, operationId);
     return {
       type: "pdf",

@@ -128,7 +128,7 @@ export default function PlatformLoginPage() {
           loading={loading}
           className="w-full"
           size="lg"
-          icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+          icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
         >
           {loading ? t("auth.signIn.submitting") : t("common.continue")}
         </Button>

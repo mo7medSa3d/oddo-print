@@ -343,7 +343,7 @@ export default function Onboarding() {
                   disabled={!canContinue || loading}
                   loading={loading}
                   onClick={() => void submit(true)}
-                  icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+                  icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
                 >
                   {t("onboarding.startFreeTrial")}
                 </Button>

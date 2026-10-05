@@ -300,12 +300,34 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
 
 
 
-def test_gateway_sale_details_uses_odoo19_generator_and_template():
+def test_gateway_sale_details_uses_odoo19_component_and_props():
     source = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
-    assert 'getGenerator({ models: this.pos.models })' in source
-    assert "generateSaleDetailsData(saleDetails)" in source
-    assert 'renderToElement(\n                "point_of_sale.pos_sale_details_receipt"' in source
-    assert "point_of_sale.SaleDetailsReport" not in source
+    assert 'renderToElement(\n                "point_of_sale.SaleDetailsReport"' in source
+    assert "date: formatDateTime(DateTime.now())" in source
+    assert "pos: this.pos" in source
+    assert "formatCurrency: this.pos.env.utils.formatCurrency" in source
+    assert "ticketPrinter" not in source
+    assert "generateSaleDetailsData" not in source
+    assert "point_of_sale.pos_sale_details_receipt" not in source
+
+
+def test_gateway_sale_details_only_falls_back_before_gateway_owns_the_print():
+    source = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
+    assert source.count("return super.onClick();") == 2
+    enabled_branch = source.index("if (enabled !== true)")
+    assert source.index("return super.onClick();", enabled_branch) < source.index("const saleDetails", enabled_branch)
+    catch_block = source[source.index("} catch (error)") :]
+    assert "super.onClick" not in catch_block
+
+
+def test_gateway_pos_sale_details_routes_as_pos_receipt_not_report_action():
+    source = (ADDON / "models/print_router.py").read_text(encoding="utf-8")
+    start = source.index("def route_pos_sale_details")
+    end = source.index("def route_intent", start)
+    method = source[start:end]
+    assert 'document_type="receipt"' in method
+    assert "explicit_destination=session.config_id" in method
+    assert "report:point_of_sale.sale_details_report" not in method
 
 
 def test_gateway_receipt_uses_odoo19_receipt_template():

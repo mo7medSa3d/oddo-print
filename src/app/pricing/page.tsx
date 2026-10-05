@@ -121,7 +121,7 @@ export default async function Pricing() {
             </Link>
             <ThemeToggle />
             {claims ? (
-              <Button variant="primary" size="md" href="/dashboard" icon={<ArrowRight className="h-4 w-4" />}>
+              <Button variant="primary" size="md" href="/dashboard" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
                 {t("pricing.openConsole")}
               </Button>
             ) : (
@@ -244,7 +244,7 @@ export default async function Pricing() {
                         variant="primary"
                         href={destination(plan.id)}
                         className="w-full"
-                        icon={<ArrowRight className="h-4 w-4" />}
+                        icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
                       >
                         {claims ? t("pricing.chooseThisPlan") : t("pricing.getStarted")}
                       </Button>

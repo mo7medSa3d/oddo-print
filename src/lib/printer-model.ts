@@ -26,6 +26,10 @@ export const printerInputSchema = z.object({
     paper_widths: z.array(z.number().finite().positive().max(1000)).max(32).optional(),
     color_capable: z.boolean().optional(),
     duplex_capable: z.boolean().optional(),
+    // Windows spooler queues are document-capable by default. Byte-stream
+    // passthrough is an explicit operator opt-in, never inferred from model
+    // class or the presence of a local Windows queue.
+    passthrough_protocols: z.array(z.enum(["raw", "escpos"])).max(2).optional(),
   }).strict().default({}),
   capabilities: z.record(z.string(), z.unknown()).optional(),
 }).strict();
@@ -111,6 +115,13 @@ function validatePrinterPort(connectionType: string, port: number, protocol = ""
 }
 
 export function validateConnectionConfig(connectionType: string, cfg: Record<string, unknown>, protocol = ""): string | null {
+  const passthrough = cfg.passthrough_protocols;
+  if (passthrough !== undefined) {
+    if (connectionType !== "spooler") return "passthrough_protocols is only valid for Windows spooler printers";
+    if (!Array.isArray(passthrough) || passthrough.some((value) => value !== "raw" && value !== "escpos")) {
+      return "spooler passthrough_protocols may contain only raw and escpos";
+    }
+  }
   if (connectionType === "network") {
     if (!cfg.ip || typeof cfg.ip !== "string") return "network printer requires config.ip";
     if (!cfg.port || typeof cfg.port !== "number") return "network printer requires config.port";

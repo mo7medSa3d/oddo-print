@@ -17,6 +17,35 @@ export {
   printerStaleThresholdSeconds,
 };
 
+
+export type ObservationFreshness = "fresh" | "stale" | "missing";
+
+function observationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  thresholdSeconds: number,
+  now = gatewayNow(),
+): ObservationFreshness {
+  if (!lastSeenAt) return "missing";
+  const lastSeen = parseDbTimeMs(lastSeenAt);
+  if (lastSeen === null) return "missing";
+  const ageSeconds = (now.getTime() - lastSeen) / 1000;
+  return ageSeconds >= 0 && ageSeconds <= thresholdSeconds ? "fresh" : "stale";
+}
+
+export function getPrinterObservationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  now = gatewayNow(),
+): ObservationFreshness {
+  return observationFreshness(lastSeenAt, printerStaleThresholdSeconds(), now);
+}
+
+export function getAgentHeartbeatFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  now = gatewayNow(),
+): ObservationFreshness {
+  return observationFreshness(lastSeenAt, agentStaleThresholdSeconds(), now);
+}
+
 export function isPrinterObservationFresh(
   lastSeenAt: Date | string | null | undefined,
   now = gatewayNow(),

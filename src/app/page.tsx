@@ -113,7 +113,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                   variant="primary"
                   size="lg"
                   href="/signup"
-                  icon={<ArrowRight className="h-4 w-4" />}
+                  icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
                 >
                   {t("home.heroCta")}
                 </Button>
@@ -304,10 +304,10 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                 </div>
 
                 <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col lg:items-stretch">
-                  <Button variant="primary" size="lg" href="/signup" icon={<ArrowRight className="h-4 w-4" />}>
+                  <Button variant="primary" size="lg" href="/signup" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
                     {t("home.ctaPrimary")}
                   </Button>
-                  <Button variant="secondary" size="lg" href="/pricing" icon={<ChevronRight className="h-4 w-4" />}>
+                  <Button variant="secondary" size="lg" href="/pricing" icon={<ChevronRight className="h-4 w-4 rtl:-scale-x-100" />}>
                     {t("home.ctaSecondary")}
                   </Button>
                 </div>
@@ -599,7 +599,7 @@ function AuthenticatedHome({
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <Button variant="primary" href="/dashboard" icon={<ArrowRight className="h-4 w-4" />}>
+            <Button variant="primary" href="/dashboard" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
               {t("home.authOpenConsole")}
             </Button>
             {canBilling && (

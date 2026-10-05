@@ -240,3 +240,44 @@ func TestUSBCompletedPrintClosesCallerOwnedHandleExactlyOnce(t *testing.T) {
 		t.Fatalf("completed print must close its caller-owned handle exactly once, got %d", got)
 	}
 }
+
+func TestUSBProtocolSupportRequiresExplicitESCPOS(t *testing.T) {
+	raw := &USBPrinter{ID: "raw", Name: "Raw USB", Protocol: "raw"}
+	if !raw.SupportsKind(KindRaw) {
+		t.Fatal("explicit raw USB must support raw bytes")
+	}
+	if raw.SupportsKind(KindESCPOS) {
+		t.Fatal("generic raw USB must not infer ESC/POS support")
+	}
+	escpos := &USBPrinter{ID: "esc", Name: "Receipt", Protocol: "escpos", SupportsESCPOS: true}
+	if !escpos.SupportsKind(KindRaw) || !escpos.SupportsKind(KindESCPOS) {
+		t.Fatal("explicit ESC/POS USB must support its byte-stream payloads")
+	}
+}
+
+func TestUSBTestPayloadDoesNotInjectESCPOSWithoutCapability(t *testing.T) {
+	raw := &USBPrinter{ID: "raw", Name: "Office USB", Protocol: "raw", VID: 0x1234, PID: 0x5678}
+	payload := raw.testPayload()
+	if strings.Contains(string(payload), "\x1b") || strings.Contains(string(payload), "\x1d") {
+		t.Fatalf("generic raw USB test payload must be printable text only: %q", payload)
+	}
+	escpos := &USBPrinter{ID: "esc", Name: "Receipt", Protocol: "escpos", SupportsESCPOS: true}
+	payload = escpos.testPayload()
+	if !strings.HasPrefix(string(payload), "\x1b@") {
+		t.Fatalf("explicit ESC/POS test should initialize the printer, got %q", payload)
+	}
+	if strings.Contains(string(payload), "\x1dV") {
+		t.Fatal("diagnostic must not infer cutter support")
+	}
+}
+
+func TestUSBStatusDoesNotTreatInterfaceAccessAsPhysicalHealth(t *testing.T) {
+	missing := &USBPrinter{ID: "u", Name: "USB", Protocol: "raw"}
+	if got := missing.Status(); got != "unknown" {
+		t.Fatalf("pathless USB status=%q want unknown", got)
+	}
+	inaccessible := &USBPrinter{ID: "u2", Name: "USB", Protocol: "raw", DevicePath: `\\?\usb#definitely_missing_yaseir_test`}
+	if got := inaccessible.Status(); got != "unknown" {
+		t.Fatalf("inaccessible USB interface status=%q want unknown, not physical offline", got)
+	}
+}

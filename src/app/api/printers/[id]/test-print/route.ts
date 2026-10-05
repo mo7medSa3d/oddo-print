@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
 import { agents, printers, printJobs, printJobReceipts } from "../../../../../db/schema";
-import { validateConsoleAuth } from "../../../../../lib/console-auth";
+import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -18,24 +18,21 @@ export const dynamic = "force-dynamic";
 // Real test print — creates a real printJobs row: queued → claimed → printing → success/failed
 // Tauri → Gateway → Agent → Printer (never Tauri → Printer directly).
 //
-// Manager-authenticated or owning-Agent-authenticated only: a queued test
-// print reaches physical hardware, so the caller must already be authorized
-// for this tenant/printer. The Odoo addon routes its own test pages through
-// the durable outbox (/api/print/jobs with a document-scoped key), never this
-// endpoint; an installation API key cannot bypass document-type scoping.
+// Manager-authenticated only: a queued test print reaches physical hardware
+// and consumes tenant quota, so it must cross the same RBAC boundary as other
+// manager-originated physical actions. Agent credentials are execution
+// credentials, not user intent credentials. The Odoo addon routes its own
+// test pages through the durable outbox (/api/print/jobs with a
+// document-scoped key), never this endpoint.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const auth = await validateConsoleAuth(req);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.kind === "manager") {
-    try { requireManagerPermission(auth.claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
-  }
+  const claims = await validateWorkspaceManager(req);
+  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const tenantId = auth.kind === "manager" ? auth.claims.tenantId : auth.agent.tenantId;
+  const tenantId = claims.tenantId;
   const printer = await db.query.printers.findFirst({
-    where: auth.kind === "agent"
-      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
-      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+    where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
   });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
@@ -54,13 +51,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 404 });
   if (printer.lifecycle !== "active") return NextResponse.json({ error: "printer disabled" }, { status: 409 });
-  // A test print to a printer whose agent is offline will create a queued job
-  // that sits until the agent reconnects. Fail fast with an explicit reason
-  // instead of stranding the user with a silently-queued test.
+  // Diagnostic Test Print is intentionally fail-fast when the owning Agent
+  // cannot accept work. No job has been persisted at this point, so say that
+  // explicitly instead of implying a queued job exists.
   const availability = getAgentAvailability(agent);
   if (!availability.available) {
     return NextResponse.json({
-      error: "Agent is offline — test print will be queued until the agent reconnects",
+      error: `Agent is unavailable (${availability.reason}). Test print was not queued; reconnect or restore the Agent and try again.`,
       code: "AGENT_OFFLINE",
       retryable: true,
     }, { status: 503 });

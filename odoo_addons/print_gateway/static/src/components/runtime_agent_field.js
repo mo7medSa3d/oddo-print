@@ -21,14 +21,14 @@ export class RuntimeAgentField extends Component {
                 <t t-set="selectedAgent" t-value="this.selectedAgent"/>
                 <span>
                     <t t-esc="selectedAgent?.name || props.record.data[props.name] || ''"/>
-                    <t t-if="selectedAgent"> — <t t-esc="selectedAgent.status || labels.statusOffline"/></t>
+                    <t t-if="selectedAgent"> — <t t-esc="selectedAgent.freshness === 'stale' ? (selectedAgent.reportedStatus || selectedAgent.status || labels.statusOffline) : (selectedAgent.status || labels.statusOffline)"/><t t-if="selectedAgent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t></t>
                 </span>
             </t>
             <t t-else="">
                 <select class="o_input" t-att-aria-label="labels.printAgent" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.companyId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_agent_error' : undefined" t-on-change="onChange">
                     <option value=""><t t-esc="placeholderText"/></option>
                     <option t-foreach="state.agents" t-as="agent" t-key="agent.id" t-att-value="agent.id" t-att-selected="agent.id === props.record.data[props.name]">
-                        <t t-esc="agent.name"/> — <t t-esc="agent.id"/> · <t t-esc="agent.status || labels.statusOffline"/>
+                        <t t-esc="agent.name"/> — <t t-esc="agent.id"/> · <t t-esc="agent.freshness === 'stale' ? (agent.reportedStatus || agent.status || labels.statusOffline) : (agent.status || labels.statusOffline)"/><t t-if="agent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.companyId &amp;&amp; !state.agents.length" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
@@ -55,6 +55,7 @@ export class RuntimeAgentField extends Component {
             loadError: _t("Could not load connected Print Agents. Check the printing service connection, then retry."),
             retry: _t("Retry"),
             statusOffline: _t("offline"),
+            stale: _t("stale"),
         };
 
         // Company and Branch are NOT the field this widget renders. Odoo only

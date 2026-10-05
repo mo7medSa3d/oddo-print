@@ -94,3 +94,135 @@ func TestUpsertRegistryPreservesLegacyIDWhenPhysicalIdentityMatches(t *testing.T
 		t.Fatalf("expected endpoint to update to new IP, got %q", rows[0].NetworkAddress)
 	}
 }
+
+func TestUpsertRegistryPreservesSpoolerIDAcrossQueueRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	legacy := DeviceInfo{
+		ID:             StableIDFromSpooler("Receipt Front"),
+		Name:           "Receipt Front",
+		SpoolerName:    "Receipt Front",
+		SpoolerPort:    "USB001",
+		SpoolerDriver:  "Generic Thermal",
+		ConnectionType: "spooler",
+		Protocol:       "spooler",
+		Status:         "online",
+		Enabled:        true,
+	}
+	if _, err := UpsertRegistry(path, []DeviceInfo{legacy}); err != nil {
+		t.Fatalf("seed spooler registry: %v", err)
+	}
+
+	incoming := legacy
+	incoming.Name = "Receipt Front Renamed"
+	incoming.SpoolerName = incoming.Name
+	incoming.Endpoint = incoming.Name
+	incoming.ID = StableIDForDevice(incoming)
+	if incoming.ID == legacy.ID {
+		t.Fatal("test precondition: stronger physical ID must differ from legacy name-derived ID")
+	}
+
+	rows, err := UpsertRegistry(path, []DeviceInfo{incoming})
+	if err != nil {
+		t.Fatalf("upsert renamed spooler: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("renamed queue duplicated registry row: %#v", rows)
+	}
+	if rows[0].ID != legacy.ID {
+		t.Fatalf("renamed queue lost established printer ID: got %q want %q", rows[0].ID, legacy.ID)
+	}
+	if rows[0].SpoolerName != incoming.SpoolerName || rows[0].Name != incoming.Name {
+		t.Fatalf("renamed queue did not refresh display/spooler name: %#v", rows[0])
+	}
+}
+func TestUpsertRegistryRefreshesSpoolerTupleWhenStrongIDSurvivesRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	original := DeviceInfo{
+		Name:           "Receipt Front",
+		SpoolerName:    "Receipt Front",
+		SpoolerPort:    "USB001",
+		SpoolerDriver:  "Generic Thermal",
+		ConnectionType: "spooler",
+		Protocol:       "spooler",
+		Endpoint:       "Receipt Front",
+		Status:         "online",
+		Enabled:        true,
+	}
+	original.ID = StableIDForDevice(original)
+	if _, err := UpsertRegistry(path, []DeviceInfo{original}); err != nil {
+		t.Fatalf("seed registry: %v", err)
+	}
+
+	renamed := original
+	renamed.Name = "Receipt Front Renamed"
+	renamed.SpoolerName = renamed.Name
+	renamed.Endpoint = renamed.Name
+	if got := StableIDForDevice(renamed); got != original.ID {
+		t.Fatalf("test precondition: strong spooler identity changed on rename: %s != %s", got, original.ID)
+	}
+
+	rows, err := UpsertRegistry(path, []DeviceInfo{renamed})
+	if err != nil {
+		t.Fatalf("upsert renamed spooler: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("renamed queue duplicated registry row: %#v", rows)
+	}
+	if rows[0].ID != original.ID {
+		t.Fatalf("renamed queue changed stable ID: got %q want %q", rows[0].ID, original.ID)
+	}
+	if rows[0].SpoolerName != renamed.SpoolerName || rows[0].Endpoint != renamed.Endpoint {
+		t.Fatalf("same-ID rename retained stale spooler tuple: %#v", rows[0])
+	}
+}
+
+func TestUpsertRegistryMatchesLegacyCapabilityOnlySpoolerIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	legacy := DeviceInfo{
+		ID:             StableIDFromSpooler("Receipt Front"),
+		Name:           "Receipt Front",
+		SpoolerName:    "Receipt Front",
+		ConnectionType: "spooler",
+		Protocol:       "spooler",
+		Endpoint:       "Receipt Front",
+		Status:         "online",
+		Enabled:        true,
+		Capabilities: map[string]interface{}{
+			"port_name":   "USB001",
+			"driver_name": "Generic Thermal",
+		},
+	}
+	if _, err := UpsertRegistry(path, []DeviceInfo{legacy}); err != nil {
+		t.Fatalf("seed legacy registry: %v", err)
+	}
+
+	incoming := DeviceInfo{
+		Name:           "Receipt Front Renamed",
+		SpoolerName:    "Receipt Front Renamed",
+		SpoolerPort:    "USB001",
+		SpoolerDriver:  "Generic Thermal",
+		ConnectionType: "spooler",
+		Protocol:       "spooler",
+		Endpoint:       "Receipt Front Renamed",
+		Status:         "online",
+		Enabled:        true,
+	}
+	incoming.ID = StableIDForDevice(incoming)
+	if incoming.ID == legacy.ID {
+		t.Fatal("test precondition: strong identity ID must differ from legacy queue-name ID")
+	}
+
+	rows, err := UpsertRegistry(path, []DeviceInfo{incoming})
+	if err != nil {
+		t.Fatalf("upsert renamed spooler: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("legacy capability-only row was duplicated: %#v", rows)
+	}
+	if rows[0].ID != legacy.ID {
+		t.Fatalf("legacy established ID was not preserved: got %q want %q", rows[0].ID, legacy.ID)
+	}
+	if rows[0].SpoolerName != incoming.SpoolerName || rows[0].SpoolerPort != "USB001" || rows[0].SpoolerDriver != "Generic Thermal" {
+		t.Fatalf("legacy row did not migrate to current spooler identity tuple: %#v", rows[0])
+	}
+}

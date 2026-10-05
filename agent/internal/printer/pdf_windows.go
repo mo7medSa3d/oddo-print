@@ -102,6 +102,7 @@ var (
 	procEndPage           = modGDI32.NewProc("EndPage")
 	procStretchDIBits     = modGDI32.NewProc("StretchDIBits")
 	procSetStretchBltMode = modGDI32.NewProc("SetStretchBltMode")
+	procSetBrushOrgEx     = modGDI32.NewProc("SetBrushOrgEx")
 )
 
 func getPDFiumPool() (pdfium.Pool, error) {
@@ -268,7 +269,14 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, printableWid
 		return err
 	}
 
-	procSetStretchBltMode.Call(hdc, halftone)
+	previousMode, _, modeErr := procSetStretchBltMode.Call(hdc, halftone)
+	if previousMode == 0 {
+		return fmt.Errorf("SetStretchBltMode(HALFTONE) failed: %w", modeErr)
+	}
+	brushOK, _, brushErr := procSetBrushOrgEx.Call(hdc, 0, 0, 0)
+	if brushOK == 0 {
+		return fmt.Errorf("SetBrushOrgEx after HALFTONE failed: %w", brushErr)
+	}
 	ret, _, callErr := procStretchDIBits.Call(
 		hdc,
 		uintptr(x), uintptr(y), uintptr(destinationWidth), uintptr(destinationHeight),
@@ -331,12 +339,21 @@ func platformPrintPDF(ctx context.Context, printerName, pdfPath string) error {
 }
 
 func platformPrintPDFWithJobID(ctx context.Context, printerName, pdfPath string) (string, error) {
+	return platformPrintPDFWithJobIDObserved(ctx, printerName, pdfPath, nil)
+}
+
+// platformPrintPDFWithJobIDObserved is the production result path used by the
+// Windows spooler backend when the caller must learn StartDocW's job identity
+// before the rest of the synchronous GDI session finishes. onJobID runs in the
+// GDI worker goroutine immediately after StartDocW succeeds; it must be fast
+// and must not touch the HDC.
+func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath string, onJobID func(uint32)) (string, error) {
 	data, err := os.ReadFile(pdfPath)
 	if err != nil {
 		return "", fmt.Errorf("read PDF file %q: %w", pdfPath, err)
 	}
 	var spoolerJobID uint32
-	printErr := renderAndPrintPDFWithPDFiumResult(ctx, printerName, data, &spoolerJobID)
+	printErr := renderAndPrintPDFWithPDFiumResultObserved(ctx, printerName, data, &spoolerJobID, onJobID)
 	jobID := ""
 	if spoolerJobID != 0 {
 		jobID = strconv.FormatUint(uint64(spoolerJobID), 10)
@@ -349,6 +366,10 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 }
 
 func renderAndPrintPDFWithPDFiumResult(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32) (retErr error) {
+	return renderAndPrintPDFWithPDFiumResultObserved(ctx, printerName, data, spoolerJobID, nil)
+}
+
+func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32, onJobID func(uint32)) (retErr error) {
 	// Ctx-aware acquisition: a job that is already cancelled (or a service
 	// stop racing a long first render) must not block on the holder past
 	// the SCM stop bound. The holder checks ctx per page, so the wait is
@@ -386,8 +407,13 @@ func renderAndPrintPDFWithPDFiumResult(ctx context.Context, printerName string, 
 		return fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
 	defer func() {
-		if err := instance.Close(); err != nil && retErr == nil {
-			retErr = fmt.Errorf("close embedded PDFium worker: %w", err)
+		if err := instance.Close(); err != nil {
+			// The renderer worker is process-local cleanup. Once EndDoc has
+			// succeeded, the Windows spooler has already accepted/finalized
+			// the document; a cleanup failure must never downgrade that
+			// submission into a definitely-not-printed failure. If printing
+			// itself already failed, preserve that primary error unchanged.
+			log.Printf("close embedded PDFium worker after print on %q: %v", printerName, err)
 		}
 	}()
 
@@ -458,6 +484,9 @@ func renderAndPrintPDFWithPDFiumResult(ctx context.Context, printerName string, 
 	}
 	if spoolerJobID != nil {
 		*spoolerJobID = gdiJobID
+	}
+	if onJobID != nil {
+		onJobID(gdiJobID)
 	}
 	docStarted := true
 	docEnded := false

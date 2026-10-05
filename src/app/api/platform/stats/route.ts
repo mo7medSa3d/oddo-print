@@ -82,9 +82,10 @@ export async function GET(req: Request) {
       }).from(agents),
 
       db.select({
-        total: sql<number>`count(*)::int`,
+        total: sql<number>`count(*) filter (where ${printers.inventoryPresent} = true)::int`,
         online: sql<number>`count(*) filter (
-          where ${printers.lifecycle} = 'active'
+          where ${printers.inventoryPresent} = true
+            and ${printers.lifecycle} = 'active'
             and ${printers.status} = 'online'
             and ${agents.lifecycle} = 'active'
             and ${agents.status} = 'online'
@@ -93,7 +94,8 @@ export async function GET(req: Request) {
             and ${agents.lastSeenAt} >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         )::int`,
         offline: sql<number>`count(*) filter (
-          where not (
+          where ${printers.inventoryPresent} = true
+            and not (
             ${printers.lifecycle} = 'active'
             and ${printers.status} = 'online'
             and ${agents.lifecycle} = 'active'

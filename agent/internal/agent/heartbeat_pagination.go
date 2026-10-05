@@ -1,6 +1,12 @@
 package agent
 
-import "encoding/json"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"strconv"
+	"time"
+)
 
 const (
 	// The Gateway limit is deliberately a per-page protocol bound, not a
@@ -96,11 +102,23 @@ func gatewayOwnedIDsForPrinterPage(printers []map[string]interface{}, ownedIDs [
 	return result
 }
 
+func newInventorySnapshotID() string {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err == nil {
+		return hex.EncodeToString(nonce[:])
+	}
+	// crypto/rand failure must not stop presence heartbeats. The Agent sends
+	// snapshots serially, so a process-local nanosecond fallback is sufficient
+	// to preserve the page fence until the next heartbeat cycle.
+	return "fallback-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
 func buildHeartbeatPayloadPages(
 	printers []map[string]interface{},
 	desiredAcks []map[string]interface{},
 	gatewayOwnedIDs []string,
 	keepAlive []map[string]string,
+	inventoryComplete bool,
 ) []map[string]interface{} {
 	printerPages := splitHeartbeatPrinterPages(printers)
 	ackPages := splitHeartbeatAuxPages(desiredAcks)
@@ -112,6 +130,7 @@ func buildHeartbeatPayloadPages(
 		totalPages = 1
 	}
 
+	snapshotID := newInventorySnapshotID()
 	pages := make([]map[string]interface{}, 0, totalPages)
 	for i := 0; i < totalPages; i++ {
 		var pagePrinters []map[string]interface{}
@@ -135,6 +154,8 @@ func buildHeartbeatPayloadPages(
 			"gatewayOwnedPrinterIds": gatewayOwnedIDsForPrinterPage(pagePrinters, gatewayOwnedIDs),
 			"heartbeatPage":          i + 1,
 			"heartbeatPageCount":     totalPages,
+			"inventorySnapshotId":    snapshotID,
+			"inventoryComplete":      inventoryComplete,
 		}
 		if len(keepAlive) > 0 {
 			page["keepAliveJobIds"] = keepAlive

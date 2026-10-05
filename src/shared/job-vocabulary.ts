@@ -42,6 +42,73 @@ export const UNKNOWN_OUTCOME_MARKERS = [
   "UNKNOWN_SUBMISSION_OUTCOME",
 ] as const;
 
+
+export type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol";
+
+export function classifyJobFailure(error?: string | null): JobFailureKind | null {
+  const value = (error ?? "").toUpperCase();
+  if (value.includes("CAPABILITY_MISMATCH")) return "capability_mismatch";
+  if (value.includes("ERR_UNSUPPORTED_TRANSPORT") || value.includes("UNSUPPORTED_TRANSPORT")) return "unsupported_transport";
+  if (value.includes("UNSUPPORTED_PROTOCOL") || value.includes("UNSUPPORTED PROTOCOL")) return "unsupported_protocol";
+  return null;
+}
+
+export function jobFailurePresentation(
+  error: string | null | undefined,
+  locale: Locale = DEFAULT_LOCALE,
+): { kind: JobFailureKind; title: string; guidance: string } | null {
+  const kind = classifyJobFailure(error);
+  if (kind === "capability_mismatch") {
+    return {
+      kind,
+      title: translate(locale, "errors.capabilityMismatch"),
+      guidance: translate(locale, "errors.capabilityMismatchAction"),
+    };
+  }
+  if (kind === "unsupported_transport") {
+    return {
+      kind,
+      title: translate(locale, "job.unsupportedTransport"),
+      guidance: translate(locale, "job.unsupportedTransportAction"),
+    };
+  }
+  if (kind === "unsupported_protocol") {
+    return {
+      kind,
+      title: translate(locale, "job.unsupportedProtocol"),
+      guidance: translate(locale, "job.unsupportedProtocolAction"),
+    };
+  }
+  return null;
+}
+
+export type ObservationFreshness = "fresh" | "stale" | "missing";
+
+export function sharedObservationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  thresholdSeconds: number,
+  nowMs = Date.now(),
+): ObservationFreshness {
+  const seen = lastSeenAt ? parseSharedTimeMs(lastSeenAt) : null;
+  if (seen === null) return "missing";
+  const ageMs = nowMs - seen;
+  return ageMs >= 0 && ageMs <= thresholdSeconds * 1000 ? "fresh" : "stale";
+}
+
+export function printerObservationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  nowMs = Date.now(),
+): ObservationFreshness {
+  return sharedObservationFreshness(lastSeenAt, printerStaleThresholdSeconds(), nowMs);
+}
+
+export function agentHeartbeatFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  nowMs = Date.now(),
+): ObservationFreshness {
+  return sharedObservationFreshness(lastSeenAt, agentStaleThresholdSeconds(), nowMs);
+}
+
 export type PhysicalOutcome = "printed" | "not_printed" | "unknown";
 
 /** Client-side mirror of derivePhysicalOutcome (src/lib/job-status.ts).
@@ -104,6 +171,15 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Loca
   }
 }
 
+export function jobDisplayLabel(
+  status: string,
+  error?: string | null,
+  locale: Locale = DEFAULT_LOCALE,
+): string {
+  const failure = status.toLowerCase() === "failed" ? jobFailurePresentation(error, locale) : null;
+  return failure?.title ?? jobLabel(status, deriveOutcome(status, error), locale);
+}
+
 /** One-sentence operator guidance for the current job state. */
 export function jobGuidance(status: string, outcome: PhysicalOutcome, locale: Locale = DEFAULT_LOCALE): string {
   const word = (key: MessageKey) => translate(locale, key);
@@ -142,6 +218,8 @@ export function printerLabel(status: string, locale: Locale = DEFAULT_LOCALE): s
       return word("status.busy");
     case "error":
       return word("status.errorCheckPrinter");
+    case "stale":
+      return word("status.stale");
     default:
       return word("status.unknown");
   }
@@ -168,9 +246,8 @@ export function agentLiveView(
   const seen = agent.lastSeenAt ? parseSharedTimeMs(agent.lastSeenAt) : null;
   const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
   const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
-  if (agent.status === "online" && !fresh) {
-    // "Heartbeat" is engineering vocabulary; operators need the consequence.
-    return { tone: "bad", label: word("status.heartbeatLost") };
+  if (seen !== null && !fresh) {
+    return { tone: "warn", label: word("status.stale") };
   }
   if (agent.status === "online") return { tone: "ok", label: word("status.online") };
   return { tone: "bad", label: word("status.offline") };

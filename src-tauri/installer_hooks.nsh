@@ -20,9 +20,13 @@
   Pop $R0
   nsExec::Exec 'sc stop YasserAgent'
   Pop $R0
+  nsExec::Exec 'sc delete YasserAgent'
+  Pop $R0
   nsExec::Exec 'net stop OdooPrintAgent'
   Pop $R0
   nsExec::Exec 'sc stop OdooPrintAgent'
+  Pop $R0
+  nsExec::Exec 'sc delete OdooPrintAgent'
   Pop $R0
 !macroend
 
@@ -41,7 +45,11 @@
   Abort "Agent executable is missing. Reinstall the complete signed package."
 
   agent_resource_found:
-  nsExec::ExecToStack '"$1" -service install -config "$0\YaseirAgent\config.yaml"'
+  ; Do not pin a fresh canonical config path here.  The Agent's
+  ; DefaultConfigPath() deliberately prefers an existing canonical config,
+  ; then legacy YasserAgent/OdooPrintAgent configs, preserving pairing and
+  ; registry/queue continuity across branded upgrades.
+  nsExec::ExecToStack '"$1" -service install'
   Pop $R0
   Pop $R1
   StrCmp $R0 "0" agent_installed 0

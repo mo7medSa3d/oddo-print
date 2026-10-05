@@ -128,7 +128,18 @@ func physicalIdentityKey(d DeviceInfo) (string, bool) {
 	}
 
 	spoolerPort := normalizeIdentityValue(d.SpoolerPort)
+	if !usableIdentityValue(spoolerPort) {
+		// Older registry rows stored Windows queue identity only in the
+		// capability bag. Accept that representation when matching an
+		// existing row so a queue rename can migrate forward without
+		// duplicating the physical printer. New discovery emits the
+		// first-class fields directly.
+		spoolerPort = capabilityIdentityValue(d, "port_name")
+	}
 	spoolerDriver := normalizeIdentityValue(d.SpoolerDriver)
+	if !usableIdentityValue(spoolerDriver) {
+		spoolerDriver = capabilityIdentityValue(d, "driver_name")
+	}
 	if usableIdentityValue(spoolerPort) && usableIdentityValue(spoolerDriver) {
 		server := normalizeIdentityValue(d.SpoolerServer)
 		share := normalizeIdentityValue(d.SpoolerShare)

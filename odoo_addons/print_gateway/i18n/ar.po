@@ -1081,8 +1081,8 @@ msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، 
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
-msgid "Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured."
-msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط لتفاصيل المبيعات مُعدّ."
+msgid "Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط إيصالات مُعدّ لتفاصيل المبيعات."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
@@ -2139,26 +2139,6 @@ msgstr "قواعد الطباعة"
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Print allowance reached"
 msgstr "تم استنفاد رصيد الطباعة"
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' belongs to company '%s', but current operation is for '%s'."
-msgstr "ربط الطباعة '%s' يتبع الشركة '%s'، ولكن العملية الحالية للشركة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' has no Gateway Runtime Agent assigned."
-msgstr "لا يوجد Agent من الـ Gateway مُعيَّن لربط الطباعة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' has no Gateway Runtime Printer assigned."
-msgstr "لا توجد طابعة من طابعات الـ Gateway مُعيَّنة لربط الطباعة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' is scoped to branch '%s' and cannot be used from '%s'."
-msgstr "نطاق ربط الطباعة '%s' مقتصر على الفرع '%s' ولا يمكن استخدامه من '%s'."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -3235,11 +3215,6 @@ msgid "The selected records resolve to different Print Bindings. Print them sepa
 msgstr "تُحَل السجلات المحدَّدة إلى روابط طباعة مختلفة. اطبعها كلًا على حدة."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "The specified print binding '%s' is disabled."
-msgstr "ربط الطباعة المحدَّد '%s' معطَّل."
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
 msgid "This Gateway configuration cannot be deleted because its Gateway credential is unavailable."
 msgstr "لا يمكن حذف إعداد الـ Gateway هذا لأن بيانات اعتماده غير متاحة."
@@ -3535,3 +3510,31 @@ msgstr "الطابعة المحددة لا تعلن بروتوكول طباعة 
 #: code:addons/print_gateway/models/binding.py:0
 msgid "POS receipt/kitchen printing requires a printer transport that accepts rendered images. Windows-installed printers should use the spooler connection; supported ESC/POS network printers are also accepted."
 msgstr "تتطلب طباعة إيصالات ونماذج المطبخ في نقطة البيع مسار طابعة يقبل الصور المرسومة. يجب أن تستخدم الطابعات المثبتة في Windows اتصال spooler، كما تُقبل طابعات ESC/POS الشبكية المدعومة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "A print protocol must be selected on the binding."
+msgstr "يجب تحديد بروتوكول طباعة في ربط الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "The selected binding protocol '%s' is not compatible with runtime printer '%s' (transport protocol '%s'). Update the binding or the printer's explicit capability configuration."
+msgstr "بروتوكول الربط المحدد '%s' غير متوافق مع طابعة التشغيل '%s' (بروتوكول النقل '%s'). حدّث الربط أو إعداد الإمكانات الصريح للطابعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable. Enable ESC/POS passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept ESC/POS bytes."
+msgstr "هذه الطابعة مضبوطة للطباعة المستندية عبر Windows spooler ولم يتم التصريح بأنها تدعم ESC/POS. فعّل تمرير ESC/POS صراحةً على طابعة الـ Gateway فقط إذا كان صف الطباعة/التعريف في Windows مضبوطًا لقبول بايتات ESC/POS."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "This printer is configured for Windows document spooling and has not been declared as RAW-capable. Enable RAW passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept raw bytes."
+msgstr "هذه الطابعة مضبوطة للطباعة المستندية عبر Windows spooler ولم يتم التصريح بأنها تدعم RAW. فعّل تمرير RAW صراحةً على طابعة الـ Gateway فقط إذا كان صف الطباعة/التعريف في Windows مضبوطًا لقبول البايتات الخام."
+
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "stale"
+msgstr "بيانات قديمة"

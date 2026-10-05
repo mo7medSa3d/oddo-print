@@ -24,13 +24,15 @@ import (
 var usbChunkTimeout = 30 * time.Second
 
 type USBPrinter struct {
-	ID           string
-	Name         string
-	VID          uint16
-	PID          uint16
-	SerialNumber string
-	DevicePath   string
-	USBLocation  string
+	ID             string
+	Name           string
+	VID            uint16
+	PID            uint16
+	SerialNumber   string
+	DevicePath     string
+	USBLocation    string
+	Protocol       string
+	SupportsESCPOS bool
 	// writeChunk performs one synchronous kernel write; injected in tests.
 	writeChunk func(h windows.Handle, chunk []byte) (uint32, error)
 	// closeHandle releases the Windows device handle; injected in tests so
@@ -215,8 +217,21 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	return nil
 }
 
+func (p *USBPrinter) testPayload() []byte {
+	name := sanitizeTestText(p.Name)
+	if p.SupportsESCPOS {
+		// ESC/POS control bytes are sent only when the configured capability
+		// explicitly declares ESC/POS. Do not cut by default: cutter support is
+		// a separate capability and cannot be inferred from USB/thermal class.
+		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
+	}
+	// Generic raw USB diagnostics use printable ASCII only. A raw byte stream
+	// is not evidence that the device understands ESC/POS commands.
+	return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
+}
+
 func (p *USBPrinter) Test(ctx context.Context) error {
-	return p.Print(ctx, []byte("\x1b\x40USB Direct Test Print for Odoo Agent\nPrinter: "+sanitizeTestText(p.Name)+"\nVID:"+fmt.Sprintf("%04x", p.VID)+" PID:"+fmt.Sprintf("%04x", p.PID)+"\n\n\x1d\x56\x01"))
+	return p.Print(ctx, p.testPayload())
 }
 
 func (p *USBPrinter) Status() string {
@@ -229,10 +244,13 @@ func (p *USBPrinter) Status() string {
 	}
 	h, err := windows.CreateFile(pathPtr, 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
 	if err != nil {
-		return "offline"
+		// Access/sharing/service-context failures do not prove physical absence.
+		return "unknown"
 	}
 	windows.CloseHandle(h)
-	return "online"
+	// A successful interface open proves transport accessibility only; USBPRINT
+	// exposes no generic media/cover/readiness state. Keep physical health unknown.
+	return "unknown"
 }
 
 const (
@@ -358,6 +376,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		}
 
 		caps := map[string]interface{}{}
+		caps["discovered_via"] = SourceUSB
 		caps["hardware_ids"] = hwIDs
 		caps["compatible_ids"] = compatIDs
 		caps["device_instance_id"] = instanceID
@@ -376,6 +395,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			caps["requires_spooler"] = false
 		} else {
 			caps["diagnostic"] = "USB device discovered, no device path found; install as Windows spooler queue or ensure driver exposes USBPRINT interface"
+			caps["verification"] = "candidate_only"
 			caps["requires_spooler"] = true
 			caps["direct_usb_available"] = false
 		}
@@ -411,9 +431,9 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		} else if strings.Contains(lowerName, "inkjet") || strings.Contains(lowerName, "deskjet") {
 			di.PrinterType = "inkjet"
 		}
-		if devicePath != "" {
-			di.Status = "online"
-		}
+		// USBPRINT interface presence is inventory evidence, not physical readiness.
+		// Runtime status remains unknown unless a protocol-specific backend can
+		// report a real device state.
 		log.Printf("[discovery] found USB printer: %q VID:%04x PID:%04x serial:%q location:%q path:%q -> %s", friendlyName, vid, pid, serial, location, devicePath, id)
 		infos = append(infos, di)
 	}
@@ -483,6 +503,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					}
 				}
 				caps := map[string]interface{}{}
+				caps["discovered_via"] = SourceUSB
 				caps["hardware_ids"] = hwIDs
 				caps["compatible_ids"] = compatIDs
 				caps["device_instance_id"] = instanceID
@@ -500,6 +521,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				caps["requires_spooler"] = devicePath == ""
 				if devicePath == "" {
 					caps["diagnostic"] = "USB printer has no direct device path; install its Windows spooler queue"
+					caps["verification"] = "candidate_only"
 				}
 				di := DeviceInfo{
 					ID:             id,
@@ -512,7 +534,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					USBVID:         vidStr,
 					USBPID:         pidStr,
 					USBSerial:      serial,
-					Status:         "online",
+					Status:         "unknown",
 					Enabled:        true,
 					Capabilities:   caps,
 					Type:           "usb",
@@ -760,8 +782,10 @@ func parseVIDPIDSerial(instanceID string) (vid uint16, pid uint16, serial string
 // like RAW TCP — PDF documents must not be written to it.
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
-	case KindRaw, KindESCPOS:
-		return true
+	case KindRaw:
+		return strings.EqualFold(p.Protocol, "raw") || strings.EqualFold(p.Protocol, "escpos")
+	case KindESCPOS:
+		return p.SupportsESCPOS
 	default:
 		return false
 	}

@@ -67,6 +67,15 @@ def test_registration_flow_does_not_clear_auth_rate_limit():
     assert "disposable account creations" in source
 
 
+def test_registration_does_not_disclose_existing_account_state():
+    route = read("src/app/api/auth/register/route.ts")
+    signup = read("src/app/signup/page.tsx")
+    assert "ACCOUNT_EXISTS" not in route
+    assert "ACCOUNT_EXISTS" not in signup
+    assert "status: 409" not in route
+    assert "if (existing) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);" in route
+
+
 def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credentials():
     source = read("src/app/api/auth/manager/login/route.ts")
     start = source.index('if (!identity && username.includes("@"))')

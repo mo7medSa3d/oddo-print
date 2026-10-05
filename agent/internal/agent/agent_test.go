@@ -1326,3 +1326,42 @@ func TestUpdateJobStatusRedactsClaimTokenOverride(t *testing.T) {
 	}
 	// A successful request needs no token diagnostic; absence from logs is valid.
 }
+
+func TestReconcileRegistryDropsStaleBackendWhenCurrentRowCannotInstantiate(t *testing.T) {
+	ag := newDesiredStateTestAgent(t)
+	const id = "registry-stale-backend"
+	ag.printers[id] = &fakePrinter{}
+	ag.printerConfigs[id] = config.PrinterConfig{
+		ID:       id,
+		Name:     "Old raw endpoint",
+		Type:     "network",
+		Endpoint: "192.0.2.10:9100",
+		Protocol: "raw",
+	}
+	ag.registryOwned[id] = struct{}{}
+
+	// The authoritative registry row changed to a non-routable transport.
+	// Reconciliation must not leave the previously valid backend alive merely
+	// because the same ID is still present in printers.json.
+	invalid := printer.DeviceInfo{
+		ID:             id,
+		Name:           "Now unconfigured",
+		ConnectionType: "network",
+		Protocol:       "unknown",
+		Endpoint:       "192.0.2.10:9100",
+		Status:         "unknown",
+		Enabled:        true,
+	}
+	ag.reconcileRegistryPrinters([]printer.DeviceInfo{invalid})
+
+	if _, ok := ag.getPrinter(id); ok {
+		t.Fatal("failed current registry row retained a stale executable backend")
+	}
+	ag.printersMu.RLock()
+	_, configStillPresent := ag.printerConfigs[id]
+	_, ownedStillPresent := ag.registryOwned[id]
+	ag.printersMu.RUnlock()
+	if configStillPresent || ownedStillPresent {
+		t.Fatalf("failed registry row remained runtime-owned: config=%v owned=%v", configStillPresent, ownedStillPresent)
+	}
+}

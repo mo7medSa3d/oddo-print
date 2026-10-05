@@ -79,6 +79,18 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(jobsRoute).toContain("eq(printJobs.agentId, auth.agent.id)");
   });
 
+  it("keeps Windows HALFTONE rendering aligned with SetBrushOrgEx", () => {
+    const pdfWindows = read("agent/internal/printer/pdf_windows.go");
+    const mode = pdfWindows.indexOf("procSetStretchBltMode.Call(hdc, halftone)");
+    const brush = pdfWindows.indexOf("procSetBrushOrgEx.Call(hdc, 0, 0, 0)");
+    const stretch = pdfWindows.indexOf("procStretchDIBits.Call(");
+    expect(mode).toBeGreaterThan(-1);
+    expect(brush).toBeGreaterThan(mode);
+    expect(stretch).toBeGreaterThan(brush);
+    expect(pdfWindows).toContain("SetStretchBltMode(HALFTONE) failed");
+    expect(pdfWindows).toContain("SetBrushOrgEx after HALFTONE failed");
+  });
+
   it("does not classify an existing offline printer as an unassigned job", () => {
     const mainTsx = read("src/desktop/main.tsx");
     expect(mainTsx).toContain('dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid)');
@@ -88,6 +100,11 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
   it("emits and listens for gateway:config_changed and unifies gateway status across desktop UI", () => {
     const commandsRs = read("src-tauri/src/commands.rs");
     expect(commandsRs).toContain("pub fn set_gateway_config(url: String, app: tauri::AppHandle)");
+    expect(commandsRs).toContain("pub fn get_gateway_config() -> Result<GatewayConfig, String>");
+    expect(commandsRs).toContain("fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String>");
+    expect(commandsRs).toContain("MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH");
+    expect(commandsRs).toContain("file.sync_all()");
+    expect(commandsRs).not.toContain("std::fs::write(&path, json)");
     expect(commandsRs).toContain("app.emit(\"gateway:config_changed\", &url)");
 
     const ipcTs = read("src/desktop/lib/ipc.ts");
@@ -103,8 +120,11 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("window.setTimeout(() => {");
     expect(mainTsx).toContain("const gatewayConnected = Boolean(");
     expect(mainTsx).toContain("checkedGatewayUrl === normalizedGatewayUrl");
+    expect(mainTsx).toContain("const raw = gatewayUrl.trim();");
+    expect(mainTsx).not.toContain("const raw = savedGatewayUrl.trim();");
     expect(mainTsx).toContain("await setGatewayUrl(target);");
     expect(mainTsx).toContain('setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });');
+    expect(mainTsx).toContain('setMsg({ text: t("desktop.app.gatewaySettingsReadFailed"), type: "error" });');
     expect(mainTsx).not.toContain("const saveGateway = useCallback");
 
     const overviewTsx = read("src/desktop/pages/Overview.tsx");
@@ -113,4 +133,63 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     const settingsTsx = read("src/desktop/pages/Settings.tsx");
     expect(settingsTsx).toContain('s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")');
   });
+});
+
+
+describe("Part 6 desktop hardening", () => {
+
+  it("loads persisted local printers at desktop startup and preserves them across gateway changes", () => {
+    const source = read("src/desktop/main.tsx");
+    expect(source).toContain("void refreshLocalPrinters();");
+    expect(source).toContain("const list = await getPrinters();");
+    expect(source).not.toContain("setDiscoveredPrinters([])");
+    const overview = read("src/desktop/pages/Overview.tsx");
+    expect(overview).toContain("pendingLocalPrinters");
+    expect(overview).toContain("desktop.printers.waitingTitle");
+  });
+
+  it("closes the mobile sidebar toward the correct physical side in RTL", () => {
+    const source = read("src/desktop/components/Sidebar.tsx");
+    expect(source).toContain("ltr:-translate-x-full rtl:translate-x-full lg:translate-x-0");
+  });
+
+  it("keeps raw agent operational diagnostics out of localized desktop status copy", () => {
+    const main = read("src/desktop/main.tsx");
+    const agents = read("src/desktop/pages/Agents.tsx");
+    expect(main).toContain('t("desktop.app.agentStarted")');
+    expect(main).toContain('t("desktop.app.agentPaired")');
+    expect(main).not.toContain("setMsg({ text: r ||");
+    expect(agents).toContain("agentStatusNoteKey");
+    expect(agents).not.toContain("String(anyStatus.note)");
+  });
+
+});
+
+
+describe("Part 6 status evidence hardening", () => {
+
+  it("exposes freshness separately from reported physical printer status", () => {
+    const api = read("src/app/api/printers/route.ts");
+    const odoo = read("src/app/api/odoo/printers/route.ts");
+    const shared = read("src/shared/job-vocabulary.ts");
+    expect(api).toContain("reportedStatus: printer.status");
+    expect(api).toContain("freshness: getPrinterObservationFreshness");
+    expect(api).toContain("agentFreshness: getAgentHeartbeatFreshness");
+    expect(odoo).toContain("reportedStatus: row.status");
+    expect(odoo).toContain("freshness: getPrinterObservationFreshness");
+    expect(shared).toContain('label: word("status.stale")');
+  });
+
+  it("classifies persisted capability and unsupported-transport job failures for both UIs", () => {
+    const shared = read("src/shared/job-vocabulary.ts");
+    const desktop = read("src/desktop/main.tsx");
+    const web = read("src/app/dashboard/dashboard-client.tsx");
+    expect(shared).toContain('value.includes("CAPABILITY_MISMATCH")');
+    expect(shared).toContain('value.includes("ERR_UNSUPPORTED_TRANSPORT")');
+    expect(shared).toContain('value.includes("UNSUPPORTED PROTOCOL")');
+    expect(shared).toContain('job.unsupportedProtocol');
+    expect(desktop).toContain("jobFailurePresentation");
+    expect(web).toContain("jobFailurePresentation(selectedJob.error, locale)");
+  });
+
 });

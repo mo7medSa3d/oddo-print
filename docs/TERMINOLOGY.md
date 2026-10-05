@@ -91,7 +91,8 @@ Arabic forms agree with the noun they modify.
 | --- | --- | --- |
 | Online | متصل | Agent, printer |
 | Offline | غير متصل | Agent, printer |
-| Offline — not responding | غير متصل — لا يستجيب | Agent heartbeat lost |
+| Stale | بيانات قديمة | Agent/printer telemetry whose last observation exceeded the freshness threshold |
+| Offline | غير متصل | Explicit Agent connectivity or physical printer evidence; never a synonym for stale telemetry |
 | Connected | متصل | Gateway connection |
 | Not connected | غير متصل | Gateway connection |
 | Queued | قيد الانتظار | Job |
@@ -100,6 +101,8 @@ Arabic forms agree with the noun they modify.
 | Succeeded | نجحت | Job |
 | Failed | فشلت | Job |
 | Failed — needs attention | فاشل — يحتاج انتباهًا | Job (addon) |
+| Incompatible job | المهمة غير متوافقة | Capability mismatch; printer health is unchanged |
+| Unsupported printer protocol | بروتوكول الطابعة غير مدعوم | Job/backend compatibility |
 | Needs attention — print may have completed | يحتاج انتباهًا — قد تكون الطباعة اكتملت | Job partial |
 | Unknown | غير معروف | Job outcome |
 | Expired | منتهية | Job |

@@ -217,8 +217,31 @@ func saveRegistryLocked(registryPath string, printers []DeviceInfo) error {
 //   - If ID already exists, update the record.
 //   - Otherwise append.
 //
-// Returns the merged slice.
+// It is deliberately additive. Partial discovery and manual/config mutation
+// paths use this function because absence from an incomplete probe must never
+// delete a healthy printer.
 func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo, error) {
+	return mutateRegistryFromDiscovery(registryPath, discovered, nil)
+}
+
+// ReconcileDiscoveryRegistry merges a live discovery snapshot and, only for
+// discovery sources whose absence semantics are authoritative, removes stale
+// automatically-discovered rows that the completed source no longer reports.
+//
+// Today only the Windows spooler queue inventory is absence-authoritative:
+// EnumPrintersW enumerates configured queues, so a queue missing from a
+// completed enumeration can be retired locally. A silent/offline USB or
+// network device is NOT absence evidence and remains registered until an
+// explicit operator/config lifecycle action removes it.
+//
+// completeSources comes from the same live scan as discovered. If a source
+// failed, timed out, or returned a hard partial error, that source is false or
+// absent and no row owned by it can be pruned.
+func ReconcileDiscoveryRegistry(registryPath string, discovered []DeviceInfo, completeSources map[string]bool) ([]DeviceInfo, error) {
+	return mutateRegistryFromDiscovery(registryPath, discovered, completeSources)
+}
+
+func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, completeSources map[string]bool) ([]DeviceInfo, error) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	unlock, lockErr := lockRegistryFile(registryPath)
@@ -226,6 +249,7 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 		return nil, lockErr
 	}
 	defer unlock()
+
 	existing, hidden, _, err := loadRegistryPartitionedLocked(registryPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -242,11 +266,15 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			existing, hidden = nil, nil
 		}
 	}
+
 	byID := make(map[string]int)
 	for i, p := range existing {
 		if p.ID != "" {
 			byID[p.ID] = i
 		}
+	}
+	for index := range discovered {
+		discovered[index] = markAutomaticDiscoveryRegistration(discovered[index])
 	}
 	for _, d := range discovered {
 		if d.ID == "" {
@@ -275,6 +303,37 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 			if d.DisplayName != "" {
 				merged.DisplayName = d.DisplayName
 			}
+			// For a spooler row, queue name/endpoint and queue identity are
+			// one transport tuple. Once physical identity keeps the stable ID
+			// unchanged across a Windows queue rename, retaining the old
+			// SpoolerName would rebuild the backend against a queue that no
+			// longer exists. The current spooler observation is authoritative.
+			if d.ConnectionType == "spooler" || d.Protocol == "spooler" {
+				if d.Endpoint != "" {
+					merged.Endpoint = d.Endpoint
+				}
+				if d.SpoolerName != "" {
+					merged.SpoolerName = d.SpoolerName
+				}
+				if d.SpoolerPort != "" {
+					merged.SpoolerPort = d.SpoolerPort
+				}
+				if d.SpoolerDriver != "" {
+					merged.SpoolerDriver = d.SpoolerDriver
+				}
+				if d.SpoolerServer != "" {
+					merged.SpoolerServer = d.SpoolerServer
+				}
+				if d.SpoolerShare != "" {
+					merged.SpoolerShare = d.SpoolerShare
+				}
+				if d.ConnectionType != "" {
+					merged.ConnectionType = d.ConnectionType
+				}
+				if d.Protocol != "" {
+					merged.Protocol = d.Protocol
+				}
+			}
 			existing[idx] = merged
 			continue
 		}
@@ -300,12 +359,71 @@ func UpsertRegistry(registryPath string, discovered []DeviceInfo) ([]DeviceInfo,
 		byID[d.ID] = len(existing) - 1
 	persisted:
 	}
+
+	if len(completeSources) > 0 {
+		kept := existing[:0]
+		for _, stored := range existing {
+			if shouldPruneMissingDiscoveryRow(stored, discovered, completeSources) {
+				log.Printf("[registry] removing absent auto-discovered Windows queue %s (%q) after complete spooler inventory", stored.ID, stored.Name)
+				continue
+			}
+			kept = append(kept, stored)
+		}
+		existing = kept
+	}
+
 	// Persist hidden records too: hiding a queue must never delete it.
 	all := concatDevices(existing, hidden)
 	if err := saveRegistryLocked(registryPath, all); err != nil {
 		return nil, err
 	}
 	return existing, nil
+}
+
+func shouldPruneMissingDiscoveryRow(stored DeviceInfo, observed []DeviceInfo, completeSources map[string]bool) bool {
+	if !completeSources[SourceSpooler] || !isAutoDiscoveredSpoolerRow(stored) {
+		return false
+	}
+	for _, current := range observed {
+		if current.ID != "" && stored.ID != "" && current.ID == stored.ID {
+			return false
+		}
+		storedIdentity, storedOK := physicalIdentityKey(stored)
+		currentIdentity, currentOK := physicalIdentityKey(current)
+		if storedOK && currentOK && storedIdentity == currentIdentity {
+			return false
+		}
+	}
+	return true
+}
+
+func isAutoDiscoveredSpoolerRow(d DeviceInfo) bool {
+	if d.Capabilities == nil {
+		return false
+	}
+	if source, ok := d.Capabilities["registration_source"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(source)) {
+		case "manual", "config":
+			return false
+		case "discovery":
+			if discoveredVia, _ := d.Capabilities["discovered_via"].(string); discoveredVia == SourceSpooler {
+				return true
+			}
+		}
+	}
+	if discoveredVia, _ := d.Capabilities["discovered_via"].(string); discoveredVia == SourceSpooler {
+		return true
+	}
+	// Legacy rows created before explicit discovery provenance was persisted
+	// can still be identified conservatively by EnumPrinters-only metadata.
+	// Manual spooler registration never synthesizes these keys.
+	if _, ok := d.Capabilities["spooler_scope"]; ok {
+		return true
+	}
+	if _, ok := d.Capabilities["spooler_attributes"]; ok {
+		return true
+	}
+	return false
 }
 
 // RegisterManual adds or updates a manually configured printer.

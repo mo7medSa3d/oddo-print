@@ -23,7 +23,7 @@ func TestAllowedGatewayConsolePath(t *testing.T) {
 		{"get agent", "/api/agents/agent-1", "GET", true},
 		{"create printer", "/api/printers", "POST", true},
 		{"test connection", "/api/printers/p1/test-connection", "POST", true},
-		{"test print", "/api/printers/p1/test-print", "POST", true},
+		{"test print is manager-only", "/api/printers/p1/test-print", "POST", false},
 		{"patch printer is manager-only", "/api/printers/p1", "PATCH", false},
 		{"delete printer", "/api/printers/p1", "DELETE", false},
 		{"branch endpoint", "/api/branches", "GET", false},

@@ -189,3 +189,24 @@ func TestAuditLegacyDisabledPrinterCannotBeRediscoveredIntoRuntime(t *testing.T)
 		t.Fatal("omitted enabled flag no longer defaults to enabled")
 	}
 }
+
+func TestAuditConfirmedRegistryAbsenceRemovesRuntimeBackend(t *testing.T) {
+	a := newDesiredStateTestAgent(t)
+	const id = "removed-spooler"
+	a.printers[id] = &fakePrinter{status: "online"}
+	a.printerConfigs[id] = config.PrinterConfig{ID: id, Name: "Removed Queue", Type: "spooler", Protocol: "spooler", SpoolerName: "Removed Queue"}
+	a.registryOwned[id] = struct{}{}
+
+	a.reconcileRegistryPrinters(nil)
+
+	if _, ok := a.getPrinter(id); ok {
+		t.Fatal("confirmed registry absence left stale runtime backend executable")
+	}
+	a.printersMu.RLock()
+	_, stillConfigured := a.printerConfigs[id]
+	_, stillOwned := a.registryOwned[id]
+	a.printersMu.RUnlock()
+	if stillConfigured || stillOwned {
+		t.Fatalf("confirmed absence retained runtime ownership: configured=%v owned=%v", stillConfigured, stillOwned)
+	}
+}

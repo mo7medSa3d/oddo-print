@@ -115,6 +115,15 @@ export const agents = pgTable("agents", {
   status: text("status").notNull().default("offline"),
   lifecycle: text("lifecycle").notNull().default("active"),
   lifecycleRevision: integer("lifecycle_revision").notNull().default(0),
+  // In-progress paginated inventory snapshot state. Page 1 supersedes an
+  // abandoned prior snapshot; later pages must match this fence before they
+  // may mutate inventory. This lets a complete snapshot retire confirmed
+  // absences without treating a partial/failed heartbeat as an empty fleet.
+  inventorySnapshotId: text("inventory_snapshot_id"),
+  inventorySnapshotPageCount: integer("inventory_snapshot_page_count").notNull().default(0),
+  inventorySnapshotNextPage: integer("inventory_snapshot_next_page").notNull().default(1),
+  inventorySnapshotComplete: boolean("inventory_snapshot_complete").notNull().default(false),
+  inventorySnapshotHadErrors: boolean("inventory_snapshot_had_errors").notNull().default(false),
   metadata: jsonb("metadata").$type<{ hostname?: string; os?: string; osVersion?: string; version?: string; }>(),
   lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -153,6 +162,11 @@ export const printers = pgTable("printers", {
   observedDeviceClass: text("observed_device_class"),
   config: jsonb("config").$type<{ ip?: string; port?: number; vid?: number; pid?: number; serial?: string; address?: string; spooler_name?: string; paper_widths?: number[]; color_capable?: boolean; duplex_capable?: boolean; }>(),
   capabilities: jsonb("capabilities").$type<Record<string, unknown>>(),
+  // Presence is separate from operator lifecycle. A printer omitted from a
+  // proven-complete Agent snapshot becomes absent without being permanently
+  // retired; rediscovery can make it present again under the same stable ID.
+  inventoryPresent: boolean("inventory_present").notNull().default(true),
+  inventorySnapshotId: text("inventory_snapshot_id"),
   lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -166,6 +180,7 @@ export const printers = pgTable("printers", {
   desiredRevisionCheck: check("printers_desired_revision_check", sql`${table.desiredRevision} >= 0 AND ${table.appliedDesiredRevision} >= 0 AND ${table.observedDesiredRevision} >= 0 AND ${table.appliedDesiredRevision} <= ${table.desiredRevision} AND ${table.observedDesiredRevision} <= ${table.appliedDesiredRevision}`),
   observedDeviceClassCheck: check("printers_observed_device_class_check", sql`${table.observedDeviceClass} IS NULL OR ${table.observedDeviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),
   desiredAgentIdx: index("printers_agent_lifecycle_desired_idx").on(table.tenantId, table.agentId, table.lifecycle, table.managementSource),
+  agentInventoryPresentIdx: index("printers_agent_inventory_present_idx").on(table.tenantId, table.agentId, table.managementSource, table.inventoryPresent),
   lifecycleCheck: check("printers_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
   printerTypeCheck: check("printers_type_check", sql`${table.printerType} in ('physical','virtual','redirected')`),
   deviceClassCheck: check("printers_device_class_check", sql`${table.deviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),

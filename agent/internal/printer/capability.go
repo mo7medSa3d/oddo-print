@@ -18,8 +18,11 @@ import "strings"
 //     device that raster-converts
 //   - peripherals            -> escpos only (enforced in payload.Parse)
 //
-// An explicit supported_protocols capability list is authoritative; without
-// one, the device's declared transport protocol decides.
+// A document transport has an immutable baseline capability: spooler queues
+// render documents through the installed driver and IPP accepts documents. An
+// explicit supported_protocols list may add RAW/ESC-POS passthrough to a
+// spooler but never removes that document baseline. Direct byte transports
+// remain strict and explicit capability lists are authoritative for them.
 //
 // AUTHORITATIVE RULE for "unknown" protocol (mirrored in
 // src/lib/routing.ts): "unknown" means "no byte language declared". The
@@ -105,13 +108,9 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if !physicalPDF {
 			return false, "pdf requires spooler or IPP transport"
 		}
-		if hasCaps && capabilityListed("pdf", "spooler", "ipp", "ipps") {
-			return true, ""
-		}
-		if !hasCaps {
-			return true, ""
-		}
-		return false, "pdf requires spooler or IPP transport"
+		// Spooler/IPP is itself a document-capable transport. An explicit
+		// capability list is additive here and must not remove that baseline.
+		return true, ""
 	case "image":
 		if pp != "" {
 			return false, "image payloads cannot specify a printer protocol"
@@ -119,7 +118,10 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if !physicalImage {
 			return false, "image payload not supported by printer"
 		}
-		if hasCaps && capabilityListed("image", "jpeg", "spooler", "escpos") {
+		if conn == "spooler" || proto == "spooler" {
+			return true, ""
+		}
+		if hasCaps && capabilityListed("image", "jpeg", "escpos") {
 			return true, ""
 		}
 		if !hasCaps {
@@ -133,8 +135,11 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		// Windows spooler queues render documents through the driver by
 		// default. A raw ESC/POS byte stream bypasses rendering and is only
 		// valid for passthrough-mode queues with explicit escpos support.
-		if (conn == "spooler" || proto == "spooler") && !hasCaps {
-			return false, "spooler printers accept document payloads (pdf/image) by default; raw ESC/POS requires an explicit supported_protocols declaration"
+		if conn == "spooler" || proto == "spooler" {
+			if hasCaps && capabilityListed("escpos") {
+				return true, ""
+			}
+			return false, "This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable."
 		}
 		if declared("escpos", "escpos") {
 			return true, ""
@@ -150,8 +155,15 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 			return false, "unsupported raw protocol " + pp
 		}
 		// Same spooler passthrough rule as ESC/POS above.
-		if (conn == "spooler" || proto == "spooler") && !hasCaps {
-			return false, "spooler printers accept document payloads (pdf/image) by default; raw byte protocols require an explicit supported_protocols declaration"
+		if conn == "spooler" || proto == "spooler" {
+			if (pp == "raw" || pp == "escpos") && hasCaps && capabilityListed(pp) {
+				return true, ""
+			}
+			label := strings.ToUpper(pp)
+			if pp == "escpos" {
+				label = "ESC/POS"
+			}
+			return false, "This printer is configured for Windows document spooling and has not been declared as " + label + "-capable."
 		}
 		if declared(pp, pp) {
 			return true, ""

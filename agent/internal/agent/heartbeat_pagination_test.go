@@ -173,6 +173,7 @@ func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T
 	}
 
 	seenPrinters := make(map[string]struct{}, printerCount)
+	snapshotID := ""
 	for i, page := range received {
 		pageNo, ok := page["heartbeatPage"].(float64)
 		if !ok || int(pageNo) != i+1 {
@@ -181,6 +182,19 @@ func TestHeartbeatPaginationPreservesFullInventoryAndOwnershipFence(t *testing.T
 		pageCount, ok := page["heartbeatPageCount"].(float64)
 		if !ok || int(pageCount) != len(received) {
 			t.Fatalf("page %d has invalid heartbeatPageCount: %#v", i+1, page["heartbeatPageCount"])
+		}
+		pageSnapshotID, ok := page["inventorySnapshotId"].(string)
+		if !ok || pageSnapshotID == "" {
+			t.Fatalf("page %d has invalid inventorySnapshotId: %#v", i+1, page["inventorySnapshotId"])
+		}
+		if snapshotID == "" {
+			snapshotID = pageSnapshotID
+		} else if pageSnapshotID != snapshotID {
+			t.Fatalf("page %d changed inventorySnapshotId: got %q want %q", i+1, pageSnapshotID, snapshotID)
+		}
+		complete, ok := page["inventoryComplete"].(bool)
+		if !ok || !complete {
+			t.Fatalf("page %d should report a complete registry snapshot, got %#v", i+1, page["inventoryComplete"])
 		}
 
 		entries, ok := page["printers"].([]interface{})
@@ -274,17 +288,30 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 		acks = append(acks, map[string]interface{}{"printerId": "manager-" + formatTestIndex(i), "appliedDesiredRevision": 1, "observedDesiredRevision": 1})
 	}
 
-	pages := buildHeartbeatPayloadPages(printers, acks, nil, nil)
+	pages := buildHeartbeatPayloadPages(printers, acks, nil, nil, true)
 	if got, want := len(pages), 3; got != want {
 		t.Fatalf("expected auxiliary heartbeat state to expand pages to %d, got %d", want, got)
 	}
 
 	ackCount := 0
+	auxSnapshotID := ""
 	for i, page := range pages {
 		pageNo := int(page["heartbeatPage"].(int))
 		pageCount := int(page["heartbeatPageCount"].(int))
 		if pageNo != i+1 || pageCount != len(pages) {
 			t.Fatalf("invalid page metadata: page=%d count=%d", pageNo, pageCount)
+		}
+		pageSnapshotID, ok := page["inventorySnapshotId"].(string)
+		if !ok || pageSnapshotID == "" {
+			t.Fatalf("page %d missing inventory snapshot identity: %#v", i+1, page["inventorySnapshotId"])
+		}
+		if auxSnapshotID == "" {
+			auxSnapshotID = pageSnapshotID
+		} else if pageSnapshotID != auxSnapshotID {
+			t.Fatalf("auxiliary page %d changed inventory snapshot identity", i+1)
+		}
+		if complete, ok := page["inventoryComplete"].(bool); !ok || !complete {
+			t.Fatalf("auxiliary page %d lost inventoryComplete=true: %#v", i+1, page["inventoryComplete"])
 		}
 		ackPage := page["desiredStateAcks"].([]map[string]interface{})
 		if len(ackPage) > maxHeartbeatAuxItemsPerPage {
@@ -294,6 +321,14 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 	}
 	if ackCount != len(acks) {
 		t.Fatalf("lost desired-state ACKs during pagination: got %d, want %d", ackCount, len(acks))
+	}
+
+	incompletePages := buildHeartbeatPayloadPages(printers[:1], nil, nil, nil, false)
+	if got := incompletePages[0]["inventoryComplete"]; got != false {
+		t.Fatalf("incomplete registry snapshot must propagate inventoryComplete=false, got %#v", got)
+	}
+	if id, ok := incompletePages[0]["inventorySnapshotId"].(string); !ok || id == "" {
+		t.Fatalf("incomplete registry snapshot still requires a stable snapshot ID, got %#v", incompletePages[0]["inventorySnapshotId"])
 	}
 }
 

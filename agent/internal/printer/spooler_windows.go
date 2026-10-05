@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -31,6 +32,21 @@ var (
 	procAbortPrinter     = modWinspool.NewProc("AbortPrinter")
 	procEnumPrintersW    = modWinspool.NewProc("EnumPrintersW")
 	procGetPrinterW      = modWinspool.NewProc("GetPrinterW")
+	modKernel32          = syscall.NewLazyDLL("kernel32.dll")
+	procProcessIDSession = modKernel32.NewProc("ProcessIdToSessionId")
+
+	// postCancelSpoolerResultGrace bounds how long a caller waits for an
+	// already-started synchronous Win32 print worker after ctx cancellation.
+	// Windows exposes no safe cross-thread cancellation primitive for these
+	// calls, so the worker retains every handle and the printer session while
+	// the caller eventually returns UNKNOWN. A var keeps the contract
+	// regression-testable without a 30-second sleep.
+	postCancelSpoolerResultGrace = 30 * time.Second
+
+	// platformPrintPDFObserved publishes StartDocW's job identity before the
+	// remaining GDI session finishes. Tests replace this seam only to emulate a
+	// wedged driver; production uses the real Windows implementation.
+	platformPrintPDFObserved = platformPrintPDFWithJobIDObserved
 )
 
 const (
@@ -42,17 +58,31 @@ const (
 	PRINTER_STATUS_MANUAL_FEED       = 0x00000020
 	PRINTER_STATUS_PAPER_PROBLEM     = 0x00000040
 	PRINTER_STATUS_OFFLINE           = 0x00000080
+	PRINTER_STATUS_IO_ACTIVE         = 0x00000100
+	PRINTER_STATUS_BUSY              = 0x00000200
+	PRINTER_STATUS_PRINTING          = 0x00000400
 	PRINTER_STATUS_OUTPUT_BIN_FULL   = 0x00000800
 	PRINTER_STATUS_NOT_AVAILABLE     = 0x00001000
+	PRINTER_STATUS_WAITING           = 0x00002000
+	PRINTER_STATUS_PROCESSING        = 0x00004000
+	PRINTER_STATUS_INITIALIZING      = 0x00008000
+	PRINTER_STATUS_WARMING_UP        = 0x00010000
+	PRINTER_STATUS_TONER_LOW         = 0x00020000
 	PRINTER_STATUS_NO_TONER          = 0x00040000
 	PRINTER_STATUS_PAGE_PUNT         = 0x00080000
 	PRINTER_STATUS_USER_INTERVENTION = 0x00100000
 	PRINTER_STATUS_OUT_OF_MEMORY     = 0x00200000
 	PRINTER_STATUS_DOOR_OPEN         = 0x00400000
 	PRINTER_STATUS_SERVER_UNKNOWN    = 0x00800000
+	PRINTER_STATUS_POWER_SAVE        = 0x01000000
+	PRINTER_STATUS_SERVER_OFFLINE    = 0x02000000
 )
 
-const PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x00000400
+const (
+	PRINTER_ATTRIBUTE_NETWORK      = 0x00000010
+	PRINTER_ATTRIBUTE_LOCAL        = 0x00000040
+	PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x00000400
+)
 
 type docInfo1 struct {
 	pDocName    *uint16
@@ -129,6 +159,12 @@ var ErrSpoolerUnresponsive = errors.New("spooler RPC unresponsive")
 // authoritative device status; dispatch fails closed while heartbeat reports
 // "unknown" rather than inventing a physical offline condition.
 var ErrSpoolerStatusUnknown = errors.New("spooler status unknown")
+
+// ErrSpoolerQueueInaccessible means the current Windows security/session
+// context could not obtain a queue handle. It is a control-plane/access fact,
+// not evidence that the physical device is offline. Dispatch fails closed,
+// while status reporting remains unknown.
+var ErrSpoolerQueueInaccessible = errors.New("spooler queue inaccessible from current security context")
 
 // boundedPreflight runs one readiness check with single-flight semantics
 // for this printer: if a previous check is still stuck inside Win32, fail
@@ -583,7 +619,7 @@ func preFlightSpoolerCheck(spoolerName string) error {
 
 	hPrinter, err := currentOpenPrinterWPtr()(printerNamePtr)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrPrinterOffline, err)
+		return fmt.Errorf("%w: %w: OpenPrinterW(%q) failed: %v", ErrPrinterNotReady, ErrSpoolerQueueInaccessible, spoolerName, err)
 	}
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
@@ -607,6 +643,9 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	}
 	if (pi.Status & PRINTER_STATUS_OFFLINE) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is offline (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_SERVER_OFFLINE) != 0 {
+		return fmt.Errorf("%w: print server reports spooler printer %q offline (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
 	}
 	if (pi.Status & PRINTER_STATUS_NOT_AVAILABLE) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is not available (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
@@ -672,6 +711,32 @@ func dispatchPreFlightSpoolerCheck(spoolerName string) error {
 		return nil
 	}
 	return err
+}
+
+// observedSpoolerStatus reads the same PRINTER_INFO_2 snapshot used during
+// discovery and reduces it with the shared Windows status mapper. This keeps
+// heartbeat status consistent with discovery without turning non-blocking
+// activity bits (PRINTING/PROCESSING/BUSY/IO_ACTIVE/INITIALIZING/WARMING_UP)
+// into dispatch failures.
+func observedSpoolerStatus(spoolerName string) (string, error) {
+	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
+	if err != nil {
+		return "unknown", fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
+	}
+	hPrinter, err := currentOpenPrinterWPtr()(printerNamePtr)
+	if err != nil {
+		return "unknown", fmt.Errorf("%w: OpenPrinterW(%q) failed: %v", ErrSpoolerQueueInaccessible, spoolerName, err)
+	}
+	defer procClosePrinter.Call(uintptr(hPrinter))
+	pi, keepBuf, err := currentGetPrinterInfo2()(hPrinter)
+	if err != nil || pi == nil {
+		if err == nil {
+			err = fmt.Errorf("GetPrinterW(%q) returned no PRINTER_INFO_2", spoolerName)
+		}
+		return "unknown", err
+	}
+	defer runtime.KeepAlive(keepBuf)
+	return mapWindowsStatus(pi.Status, pi.Attributes), nil
 }
 
 // waitBeginSession acquires this printer's session slot with a bounded
@@ -781,7 +846,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 				p.lastJobID.Store(uint64(res.jobID))
 			}
 			return res.err
-		case <-time.After(30 * time.Second):
+		case <-time.After(postCancelSpoolerResultGrace):
 			return MarkUnknown("spooler session on %q still active after cancellation (bytes written unknown): %v", p.SpoolerName, ctx.Err())
 		}
 	case res := <-resultCh:
@@ -822,29 +887,85 @@ func (p *SpoolerPrinter) SupportsKind(kind string) bool {
 }
 
 func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) error {
-	// A PDF/image attempt must never inherit evidence from an earlier RAW
-	// job. Legacy injected callbacks cannot supply a platform ID, so success
-	// through that seam intentionally leaves the ID empty.
+	// Serialize the full GDI session with RAW/ESC-POS sessions on this same
+	// Windows queue. Ownership is transferred to the worker below: if a driver
+	// blocks in StartDocW/StartPage/StretchDIBits/EndPage/EndDoc, the worker
+	// keeps the mutex until that exact session returns. A caller timing out must
+	// never unlock the printer and allow a second physical job to overlap an
+	// uncertain first one.
+	if err := p.waitBeginSession(ctx); err != nil {
+		return err
+	}
+
+	// A PDF/image attempt must never inherit evidence from an earlier RAW job.
+	// Clear only AFTER acquiring the session: a second attempt that merely
+	// times out waiting behind a still-running worker must not erase the first
+	// attempt's StartDocW evidence.
 	p.lastJobID.Store(0)
-	if p.PDFPrint != nil {
-		return PrintPDF(ctx, p.SpoolerName, doc, p.PDFPrint)
+
+	type pdfTaskResult struct {
+		jobID string
+		err   error
 	}
-	resultFn := p.PDFPrintResult
-	if resultFn == nil {
-		resultFn = platformPrintPDFWithJobID
-	}
-	spoolerJobID, printErr := printPDFWithResult(ctx, p.SpoolerName, doc, resultFn)
-	if spoolerJobID != "" {
-		id, parseErr := strconv.ParseUint(spoolerJobID, 10, 64)
-		if parseErr != nil || id == 0 {
-			if printErr != nil {
-				return fmt.Errorf("%w; Windows PDF renderer also returned invalid spooler job ID %q", printErr, spoolerJobID)
-			}
-			return fmt.Errorf("Windows PDF renderer returned invalid spooler job ID %q", spoolerJobID)
+	resultCh := make(chan pdfTaskResult, 1)
+
+	go func() {
+		defer p.endSession()
+
+		if p.PDFPrint != nil {
+			resultCh <- pdfTaskResult{err: PrintPDF(ctx, p.SpoolerName, doc, p.PDFPrint)}
+			return
 		}
-		p.lastJobID.Store(id)
+
+		resultFn := p.PDFPrintResult
+		if resultFn == nil {
+			resultFn = func(callCtx context.Context, printerName, pdfPath string) (string, error) {
+				return platformPrintPDFObserved(callCtx, printerName, pdfPath, func(jobID uint32) {
+					if jobID != 0 {
+						// Publish StartDocW identity immediately, before any later GDI
+						// call can block. The Agent reads this atomically when an outer
+						// timeout returns UNKNOWN.
+						p.lastJobID.Store(uint64(jobID))
+					}
+				})
+			}
+		}
+
+		spoolerJobID, printErr := printPDFWithResult(ctx, p.SpoolerName, doc, resultFn)
+		if spoolerJobID != "" {
+			id, parseErr := strconv.ParseUint(spoolerJobID, 10, 64)
+			if parseErr != nil || id == 0 {
+				if printErr != nil {
+					resultCh <- pdfTaskResult{jobID: spoolerJobID, err: fmt.Errorf("%w; Windows PDF renderer also returned invalid spooler job ID %q", printErr, spoolerJobID)}
+					return
+				}
+				resultCh <- pdfTaskResult{jobID: spoolerJobID, err: fmt.Errorf("Windows PDF renderer returned invalid spooler job ID %q", spoolerJobID)}
+				return
+			}
+			p.lastJobID.Store(id)
+		}
+		resultCh <- pdfTaskResult{jobID: spoolerJobID, err: printErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		return result.err
+	case <-ctx.Done():
+		// The worker owns every GDI/PDFium handle and the session mutex. Give a
+		// just-completing synchronous call a bounded chance to report its real
+		// result, but never AbortDoc/DeleteDC/Close from this goroutine. If the
+		// driver remains blocked, UNKNOWN is the only physically safe answer.
+		select {
+		case result := <-resultCh:
+			return result.err
+		case <-time.After(postCancelSpoolerResultGrace):
+			jobID := p.LastSpoolerJobID()
+			if jobID != "" {
+				return MarkUnknown("Windows PDF/GDI session on %q (spooler job %s) is still active after cancellation; physical outcome is unknown: %v", p.SpoolerName, jobID, ctx.Err())
+			}
+			return MarkUnknown("Windows PDF/GDI session on %q is still active after cancellation; StartDocW may still complete, so physical outcome is unknown: %v", p.SpoolerName, ctx.Err())
+		}
 	}
-	return printErr
 }
 
 func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error {
@@ -989,7 +1110,7 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 		probe.VerdictReason = fmt.Sprintf("queue reports a blocking device condition (status 0x%08x); Agent preflight refuses new dispatch until it clears; physical outcome of existing jobs remains unknown", pi.Status)
 		return probe
 	}
-	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE)) != 0 {
+	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_SERVER_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE)) != 0 {
 		probe.Verdict = SpoolerQueueUnavailable
 		probe.VerdictReason = fmt.Sprintf("port monitor reports unavailable/offline (status 0x%08x); queue exists and is accessible; physical device state remains driver/monitor-reported (for Standard TCP/IP ports, verify 'SNMP Status Enabled'/community if this disagrees with a known-working printer)", pi.Status)
 		return probe
@@ -1062,22 +1183,23 @@ func (p *SpoolerPrinter) Status() string {
 	// preflight: a queue that merely OPENS (paused, error, jam, door open,
 	// paper out) must not report "online" or the gateway keeps routing jobs
 	// at a printer that refuses them.
+	observed := "unknown"
 	err := p.boundedPreflight(context.Background(), timeout, func() error {
-		return preFlightSpoolerCheck(p.SpoolerName)
+		status, err := observedSpoolerStatus(p.SpoolerName)
+		if err == nil {
+			observed = status
+		}
+		return err
 	})
-	switch {
-	case err == nil:
-		return "online"
-	case errors.Is(err, ErrSpoolerUnresponsive), errors.Is(err, ErrSpoolerStatusUnknown):
-		// Nothing definitive was proven about the device: an unanswered RPC
-		// or an explicit SERVER_UNKNOWN bit is not an offline printer.
+	if err == nil {
+		return observed
+	}
+	if errors.Is(err, ErrSpoolerUnresponsive) || errors.Is(err, ErrSpoolerQueueInaccessible) {
 		log.Printf("WARNING: Spooler status for %q is inconclusive: %v", p.SpoolerName, err)
 		return "unknown"
-	case errors.Is(err, ErrPrinterOffline):
-		return "offline"
-	default:
-		return "error"
 	}
+	log.Printf("WARNING: Spooler status read failed for %q: %v", p.SpoolerName, err)
+	return "unknown"
 }
 
 type printerInfo2 struct {
@@ -1135,6 +1257,9 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 			ConnectionType: "spooler",
 			Endpoint:       name,
 			SpoolerName:    name,
+			Capabilities: map[string]interface{}{
+				"discovered_via": SourceSpooler,
+			},
 		})
 	}
 	log.Printf("[discovery] registry fallback found %d printers", len(out))
@@ -1183,6 +1308,7 @@ type printerInfo4 struct {
 type printerQueueRef struct {
 	name       string
 	attributes uint32
+	scope      string // machine_local or user_connection (EnumPrinters source)
 }
 
 // enumPrinterQueues enumerates queue names and attributes with
@@ -1201,103 +1327,126 @@ type printerQueueRef struct {
 var enumerationActive atomic.Bool
 var queueDetailsActive sync.Map
 
+func enumPrinterQueuesPass(flags uintptr, scope string) ([]printerQueueRef, error) {
+	const printerEnumLevel = 4
+	structSize := unsafe.Sizeof(printerInfo4{})
+	for attempt := 0; attempt < printerEnumMaxAttempts; attempt++ {
+		var needed, returned uint32
+		ret, _, lastErr := procEnumPrintersW.Call(
+			flags, 0, uintptr(printerEnumLevel), 0, 0,
+			uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)),
+		)
+		if ret == 0 && !isInsufficientBuffer(lastErr) {
+			return nil, fmt.Errorf("EnumPrintersW %s level %d sizing failed: %w", scope, printerEnumLevel, lastErr)
+		}
+		if needed == 0 {
+			if ret == 0 {
+				return nil, fmt.Errorf("EnumPrintersW %s level %d failed: %w", scope, printerEnumLevel, lastErr)
+			}
+			return nil, nil
+		}
+
+		buf := make([]byte, needed)
+		ret, _, lastErr = procEnumPrintersW.Call(
+			flags, 0, uintptr(printerEnumLevel), uintptr(unsafe.Pointer(&buf[0])), uintptr(needed),
+			uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)),
+		)
+		if ret != 0 {
+			if structSize > 0 && uintptr(returned)*structSize > uintptr(len(buf)) {
+				returned = uint32(uintptr(len(buf)) / structSize)
+			}
+			queues := make([]printerQueueRef, 0, returned)
+			for i := uint32(0); i < returned; i++ {
+				offset := uintptr(i) * structSize
+				pi := (*printerInfo4)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
+				queues = append(queues, printerQueueRef{
+					name:       utf16PtrToString(pi.pPrinterName),
+					attributes: pi.Attributes,
+					scope:      scope,
+				})
+			}
+			runtime.KeepAlive(buf)
+			return queues, nil
+		}
+		if !isInsufficientBuffer(lastErr) {
+			return nil, fmt.Errorf("EnumPrintersW %s level %d failed: %w", scope, printerEnumLevel, lastErr)
+		}
+	}
+	return nil, fmt.Errorf("EnumPrintersW %s level %d still reports a short buffer after %d attempts", scope, printerEnumLevel, printerEnumMaxAttempts)
+}
+
 func enumPrinterQueues() ([]printerQueueRef, error) {
 	const (
 		printerEnumLocal       = 0x00000002
 		printerEnumConnections = 0x00000004
-		printerEnumLevel       = 4
 	)
 	if !enumerationActive.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("previous spooler enumeration is still pending")
 	}
-	flags := uintptr(printerEnumLocal | printerEnumConnections)
-	structSize := unsafe.Sizeof(printerInfo4{})
 
-	type enumResult struct {
+	type passResult struct {
 		queues []printerQueueRef
 		err    error
 	}
-	// Run the blocking Win32 enumeration off the discovery goroutine: a
-	// stalled spooler RPC must never hang the agent. If it overruns, the
-	// helper is abandoned (it exits on its own when the RPC finally
-	// returns) and the caller falls back to the registry.
-	done := make(chan enumResult, 1)
+	results := make(chan passResult, 2)
+	// Keep one helper responsible for both synchronous Winspool calls. It
+	// publishes the LOCAL result before entering CONNECTIONS, so if the
+	// user-scoped provider later stalls the caller can retain proven machine
+	// queues. enumerationActive stays set until the blocked helper itself
+	// exits, preventing repeated timeout calls from accumulating RPC helpers.
 	go func() {
 		defer enumerationActive.Store(false)
-		for attempt := 0; attempt < printerEnumMaxAttempts; attempt++ {
-			var needed, returned uint32
-			ret, _, lastErr := procEnumPrintersW.Call(
-				flags,
-				0,
-				uintptr(printerEnumLevel),
-				0,
-				0,
-				uintptr(unsafe.Pointer(&needed)),
-				uintptr(unsafe.Pointer(&returned)),
-			)
-			// The sizing call is expected to fail with
-			// ERROR_INSUFFICIENT_BUFFER: that is how pcbNeeded is delivered.
-			if ret == 0 && !isInsufficientBuffer(lastErr) {
-				done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d sizing failed: %w", printerEnumLevel, lastErr)}
-				return
-			}
-			if needed == 0 {
-				if ret == 0 {
-					done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d failed: %w", printerEnumLevel, lastErr)}
-					return
-				}
-				// Success: the machine genuinely has no queues.
-				done <- enumResult{}
-				return
-			}
-
-			buf := make([]byte, needed)
-			ret, _, lastErr = procEnumPrintersW.Call(
-				flags,
-				0,
-				uintptr(printerEnumLevel),
-				uintptr(unsafe.Pointer(&buf[0])),
-				uintptr(needed),
-				uintptr(unsafe.Pointer(&needed)),
-				uintptr(unsafe.Pointer(&returned)),
-			)
-			if ret != 0 {
-				// pcReturned is spooler-supplied: never index past the
-				// buffer that was actually allocated.
-				if structSize > 0 && uintptr(returned)*structSize > uintptr(len(buf)) {
-					returned = uint32(uintptr(len(buf)) / structSize)
-				}
-				queues := make([]printerQueueRef, 0, returned)
-				for i := uint32(0); i < returned; i++ {
-					offset := uintptr(i) * structSize
-					pi := (*printerInfo4)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
-					queues = append(queues, printerQueueRef{
-						name:       utf16PtrToString(pi.pPrinterName),
-						attributes: pi.Attributes,
-					})
-				}
-				runtime.KeepAlive(buf)
-				done <- enumResult{queues: queues}
-				return
-			}
-			if !isInsufficientBuffer(lastErr) {
-				done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d failed: %w", printerEnumLevel, lastErr)}
-				return
-			}
-			// Queues were added between the sizing call and the fetch:
-			// pcbNeeded now carries the larger size, so size again.
-		}
-		done <- enumResult{err: fmt.Errorf("EnumPrintersW level %d still reports a short buffer after %d attempts", printerEnumLevel, printerEnumMaxAttempts)}
+		queues, err := enumPrinterQueuesPass(printerEnumLocal, "machine_local")
+		results <- passResult{queues: queues, err: err}
+		queues, err = enumPrinterQueuesPass(printerEnumConnections, "user_connection")
+		results <- passResult{queues: queues, err: err}
 	}()
 
+	var (
+		locals      []printerQueueRef
+		connections []printerQueueRef
+		errs        []error
+	)
 	timer := time.NewTimer(printerEnumTimeout)
 	defer timer.Stop()
-	select {
-	case r := <-done:
-		return r.queues, r.err
-	case <-timer.C:
-		return nil, fmt.Errorf("EnumPrintersW exceeded %v (spooler RPC stalled)", printerEnumTimeout)
+	for completed := 0; completed < 2; completed++ {
+		select {
+		case r := <-results:
+			if r.err != nil {
+				errs = append(errs, r.err)
+			}
+			if completed == 0 {
+				locals = r.queues
+			} else {
+				connections = r.queues
+			}
+		case <-timer.C:
+			err := fmt.Errorf("EnumPrintersW exceeded %v (spooler RPC stalled)", printerEnumTimeout)
+			errs = append(errs, err)
+			completed = 2 // leave loop after building any partial LOCAL result
+		}
 	}
+
+	// A queue returned as LOCAL is machine-installed and therefore wins if
+	// the same queue name also appears as a caller-user connection.
+	queues := make([]printerQueueRef, 0, len(locals)+len(connections))
+	seen := make(map[string]struct{}, len(locals)+len(connections))
+	appendUnique := func(items []printerQueueRef) {
+		for _, item := range items {
+			key := strings.ToLower(normalizeUnicode(strings.TrimSpace(item.name)))
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			queues = append(queues, item)
+		}
+	}
+	appendUnique(locals)
+	appendUnique(connections)
+	return queues, errors.Join(errs...)
 }
 
 // queueDetail reads PRINTER_INFO_2 for one queue (port, driver, status,
@@ -1364,6 +1513,52 @@ func queueDetail(name string) (queueDetails, error) {
 	}
 }
 
+// currentProcessSessionID distinguishes a Windows service session (Session 0)
+// from an interactive desktop session. PRINTER_ENUM_CONNECTIONS is scoped to
+// the calling user, so an interactive user's remote connection must never be
+// persisted as if the LocalSystem service had proved it executable.
+func currentProcessSessionID() (uint32, error) {
+	var sessionID uint32
+	ret, _, callErr := procProcessIDSession.Call(
+		uintptr(uint32(os.Getpid())),
+		uintptr(unsafe.Pointer(&sessionID)),
+	)
+	if ret == 0 {
+		if errno, ok := callErr.(syscall.Errno); ok && errno == 0 {
+			callErr = syscall.EINVAL
+		}
+		return 0, fmt.Errorf("ProcessIdToSessionId failed: %w", callErr)
+	}
+	return sessionID, nil
+}
+
+// markInteractiveUserConnectionsCandidateOnly keeps per-user Windows printer
+// connections visible as discovery evidence but prevents them from entering
+// the shared ProgramData runtime registry used by the Session-0 service. A
+// service account's own Session-0 connection remains eligible.
+func markInteractiveUserConnectionsCandidateOnly(infos []DeviceInfo, sessionID uint32) int {
+	if sessionID == 0 {
+		return 0
+	}
+	marked := 0
+	for i := range infos {
+		scope, _ := infos[i].Capabilities["spooler_scope"].(string)
+		if scope != "user_connection" {
+			continue
+		}
+		caps := make(map[string]interface{}, len(infos[i].Capabilities)+3)
+		for key, value := range infos[i].Capabilities {
+			caps[key] = value
+		}
+		caps["verification"] = "candidate_only"
+		caps["candidate_reason"] = "per_user_spooler_connection"
+		caps["runtime_scope"] = "interactive_session_discovery_only"
+		infos[i].Capabilities = caps
+		marked++
+	}
+	return marked
+}
+
 // EnumSpoolerPrinters enumerates installed Windows print queues.
 //
 // Strategy, in order of authority:
@@ -1377,6 +1572,11 @@ func queueDetail(name string) (queueDetails, error) {
 // proved it exists.
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	infos, err := enumerateSpoolerPrintersWindows()
+	if sessionID, sessionErr := currentProcessSessionID(); sessionErr != nil {
+		err = errors.Join(err, fmt.Errorf("read discovery session: %w", sessionErr))
+	} else if marked := markInteractiveUserConnectionsCandidateOnly(infos, sessionID); marked > 0 {
+		err = errors.Join(err, discoveryDiagnosticf("%d per-user Windows printer connection(s) were discovered in interactive Session %d and kept discovery-only; the Session-0 Agent service cannot assume those user-scoped queues or credentials are available", marked, sessionID))
+	}
 	// EnumPrinters CONNECTIONS is scoped to the calling account, not the
 	// interactive desktop. Surface the limitation in the discovery report.
 	token, tokenErr := windows.OpenCurrentProcessToken()
@@ -1389,7 +1589,7 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 		return infos, errors.Join(err, fmt.Errorf("read discovery account SID: %w", userErr))
 	}
 	if user.User.Sid.String() == "S-1-5-18" {
-		err = errors.Join(err, fmt.Errorf("LocalSystem printer discovery cannot see interactive users' per-user connections; install shared queues for this service account/machine or run the service under the authorized print account"))
+		err = errors.Join(err, discoveryDiagnosticf("LocalSystem printer discovery cannot see interactive users' per-user connections; install shared queues for this service account/machine or run the service under the authorized print account"))
 	}
 	return infos, err
 }
@@ -1397,11 +1597,14 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level 4 + bounded GetPrinterW level 2)")
 
-	queues, err := enumPrinterQueues()
-	if err != nil {
-		log.Printf("[discovery] EnumPrintersW unusable (%v) — falling back to registry", err)
+	queues, enumErr := enumPrinterQueues()
+	if len(queues) == 0 && enumErr != nil {
+		log.Printf("[discovery] EnumPrintersW unusable (%v) — falling back to registry", enumErr)
 		infos, regErr := fallbackRegistryPrinters()
-		return infos, errors.Join(err, regErr)
+		return infos, errors.Join(enumErr, regErr)
+	}
+	if enumErr != nil {
+		log.Printf("[discovery] EnumPrintersW returned partial queue inventory: %v", enumErr)
 	}
 	if len(queues) == 0 {
 		// An empty answer is only trustworthy if the registry agrees: a
@@ -1454,24 +1657,38 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
 			continue
 		}
-		printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
-		out = append(out, DeviceInfo{
-			Name:           name,
-			Protocol:       "spooler",
-			ConnectionType: connectionType,
-			PrinterType:    printerType,
-			Endpoint:       name,
-			SpoolerName:    name,
-			Status:         statusText,
-			Capabilities: map[string]interface{}{
-				"port_name":   portName,
-				"driver_name": driverName,
-			},
-		})
+		info := spoolerDeviceInfo(name, portName, driverName, statusText, attributes)
+		info.Capabilities["spooler_scope"] = q.scope
+		out = append(out, info)
 	}
 	log.Printf("[discovery] spooler discovery completed: %d queues (%d with unreadable details)", len(out), unreadable)
 	if unreadable > 0 {
-		return out, fmt.Errorf("%d spooler queues have unreadable details; queue identities were retained", unreadable)
+		return out, errors.Join(enumErr, discoveryDiagnosticf("%d spooler queues have unreadable details; queue identities were retained", unreadable))
 	}
-	return out, nil
+	return out, enumErr
+}
+
+// spoolerDeviceInfo keeps queue transport identity in first-class DeviceInfo
+// fields as well as the legacy capability bag. Stable-ID generation and
+// registry rename reconciliation consume the top-level fields; capabilities
+// alone are informational and must not be the identity source of truth.
+func spoolerDeviceInfo(name, portName, driverName, statusText string, attributes uint32) DeviceInfo {
+	printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
+	return DeviceInfo{
+		Name:           name,
+		Protocol:       "spooler",
+		ConnectionType: connectionType,
+		PrinterType:    printerType,
+		Endpoint:       name,
+		SpoolerName:    name,
+		SpoolerPort:    portName,
+		SpoolerDriver:  driverName,
+		Status:         statusText,
+		Capabilities: map[string]interface{}{
+			"discovered_via":     SourceSpooler,
+			"port_name":          portName,
+			"driver_name":        driverName,
+			"spooler_attributes": attributes,
+		},
+	}
 }

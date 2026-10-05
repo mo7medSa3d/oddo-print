@@ -136,7 +136,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       tx,
       claims.tenantId,
       "max_printers",
-      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired'`,
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`,
     );
 
     const ippAddress = device.uri

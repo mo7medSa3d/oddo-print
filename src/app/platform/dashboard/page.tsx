@@ -356,7 +356,7 @@ export default function PlatformDashboardPage() {
                   href="/platform/subscriptions"
                   className="inline-flex shrink-0 items-center gap-1 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
                 >
-                  {t("platform.dashboard.manage")} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  {t("platform.dashboard.manage")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
                 </Link>
               </div>
               <SubscriptionMixChart

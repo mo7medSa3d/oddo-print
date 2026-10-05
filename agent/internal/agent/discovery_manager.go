@@ -189,7 +189,7 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 	defer cancel()
 
 	result, completed, finishedCh := runBoundedDiscovery(discoveryCtx, discoveryTimeout, func(scanCtx context.Context) printer.DiscoveryResult {
-		return printer.DiscoverWithContext(scanCtx, a.cfg, a.registryPath)
+		return printer.DiscoverLiveWithContext(scanCtx, a.cfg, a.registryPath)
 	})
 	if !completed {
 		status := "failed"
@@ -205,6 +205,16 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 		// unbounded goroutine/worker leak.
 		a.releaseDiscoverySemaphoreWhenFinished(finishedCh)
 		return
+	}
+
+	// A manager-triggered scan is also an authoritative local inventory
+	// opportunity. Persist runnable observations and reconcile only sources
+	// that completed authoritatively; candidate-only evidence remains report
+	// data and a partial source can never delete existing local inventory.
+	if merged, persistErr := a.persistLiveDiscovery(result); persistErr != nil {
+		result.Errors = append(result.Errors, "registry persistence: "+persistErr.Error())
+	} else {
+		a.reconcileRegistryPrinters(merged)
 	}
 
 	devices := make([]map[string]interface{}, 0, len(result.Printers))

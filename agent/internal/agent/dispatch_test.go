@@ -273,32 +273,47 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 	ag.inFlightMu.Lock()
 	ag.inFlight["wedged_job"] = struct{}{}
 	ag.inFlightMu.Unlock()
-	ag.wg.Add(1) // simulate a handler that never returns (wedged syscall)
+	ag.wg.Add(1) // simulate a handler blocked in an uncancellable OS print call
+
+	const grace = 60 * time.Millisecond
 	start := time.Now()
-	drained := ag.waitForJobs()
+	drained := ag.waitForJobsFor(grace)
 	elapsed := time.Since(start)
 	if drained {
-		t.Fatal("waitForJobs must report a grace-period timeout while an in-flight handler remains")
+		t.Fatal("waitForJobsFor must report a grace-period timeout while an in-flight handler remains")
 	}
-	if elapsed < shutdownGrace {
-		t.Fatalf("waitForJobs returned after %v, before the %v grace - in-flight work was not awaited", elapsed, shutdownGrace)
+	if elapsed < grace {
+		t.Fatalf("waitForJobsFor returned after %v, before the %v grace - in-flight work was not awaited", elapsed, grace)
 	}
-	if elapsed > shutdownGrace+15*time.Second {
-		t.Fatalf("waitForJobs blocked %v, beyond the %v grace + margin - bounded shutdown wait regressed", elapsed, shutdownGrace)
+	if elapsed > grace+2*time.Second {
+		t.Fatalf("waitForJobsFor blocked %v, beyond the %v grace + margin - bounded shutdown wait regressed", elapsed, grace)
 	}
 
-	// The production caller keeps SQLite open after this bounded result and
-	// waits for the handler to terminate. Simulate that final termination
-	// before exercising Close.
+	// Close must preserve the durable queue while the accepted physical-print
+	// handler is still alive; process teardown and restart recovery own this
+	// uncertain-outcome case. Crucially, this first Close must not consume the
+	// sync.Once that permits a later clean close.
+	if err := ag.Close(); err != nil {
+		t.Fatalf("Close with a wedged accepted job must leave the queue open, not fail: %v", err)
+	}
+	if _, err := ag.queue.PendingTerminalReports(1); err != nil {
+		t.Fatalf("queue must remain usable while an accepted handler is in flight: %v", err)
+	}
+
+	// Simulate the OS call finally returning. A later Close must now checkpoint
+	// and close SQLite normally.
 	ag.inFlightMu.Lock()
 	delete(ag.inFlight, "wedged_job")
 	ag.inFlightMu.Unlock()
 	ag.wg.Done()
-	if !ag.waitForJobs() {
-		t.Fatal("waitForJobs should drain immediately after the accepted handler terminates")
+	if !ag.waitForJobsFor(time.Second) {
+		t.Fatal("waitForJobsFor should drain immediately after the accepted handler terminates")
 	}
 	if err := ag.Close(); err != nil {
 		t.Fatalf("Close after drained shutdown must succeed: %v", err)
+	}
+	if _, err := ag.queue.PendingTerminalReports(1); err == nil {
+		t.Fatal("queue should be closed after the drained Close call")
 	}
 }
 

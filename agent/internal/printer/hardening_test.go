@@ -86,7 +86,9 @@ func TestMapWindowsStatus(t *testing.T) {
 		{name: "offline", status: 0x00000080, want: "offline"},
 		{name: "work offline", attributes: 0x00000400, want: "offline"},
 		{name: "server unknown stays unknown", status: 0x00800000, want: "unknown"},
+		{name: "server offline is offline", status: 0x02000000, want: "offline"},
 		{name: "server unknown plus explicit offline is offline", status: 0x00800000 | 0x00000080, want: "offline"},
+		{name: "server unknown plus server offline is offline", status: 0x00800000 | 0x02000000, want: "offline"},
 		{name: "pending deletion is non-routable error", status: 0x00000004, want: "error"},
 		{name: "paused is non-routable error", status: 0x00000001, want: "error"},
 		{name: "generic error", status: 0x00000002, want: "error"},
@@ -97,6 +99,11 @@ func TestMapWindowsStatus(t *testing.T) {
 		{name: "page punt", status: 0x00080000, want: "error"},
 		{name: "out of memory", status: 0x00200000, want: "error"},
 		{name: "busy", status: 0x00000200, want: "busy"},
+		{name: "io active", status: 0x00000100, want: "busy"},
+		{name: "printing", status: 0x00000400, want: "busy"},
+		{name: "processing", status: 0x00004000, want: "busy"},
+		{name: "initializing", status: 0x00008000, want: "busy"},
+		{name: "warming up", status: 0x00010000, want: "busy"},
 		{name: "waiting remains online", status: 0x00002000, want: "online"},
 		{name: "toner low remains online", status: 0x00020000, want: "online"},
 		{name: "power save remains online", status: 0x01000000, want: "online"},
@@ -355,6 +362,32 @@ func TestFactoryUSBWithoutSpoolerUsesDirectDevicePath(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatalf("expected printer")
+	}
+}
+
+func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
+	pc := config.PrinterConfig{ID: "usb-raw", Name: "USB Raw", Type: "usb", Protocol: "raw", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
+	p, err := New(pc)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if SupportsKind(p, KindESCPOS) {
+		t.Fatal("raw USB must not gain ESC/POS support without explicit evidence")
+	}
+	pc.Capabilities = map[string]interface{}{"supported_protocols": []string{"raw", "escpos"}}
+	p, err = New(pc)
+	if err != nil {
+		t.Fatalf("New with explicit capabilities: %v", err)
+	}
+	if !SupportsKind(p, KindESCPOS) {
+		t.Fatal("explicit supported_protocols=escpos must enable ESC/POS")
+	}
+}
+
+func TestFactoryUSBRequiresExplicitByteProtocol(t *testing.T) {
+	pc := config.PrinterConfig{ID: "usb-unknown", Name: "USB Unknown", Type: "usb", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
+	if _, err := New(pc); err == nil || !strings.Contains(strings.ToLower(err.Error()), "explicit raw or escpos") {
+		t.Fatalf("missing USB byte protocol must fail closed, got %v", err)
 	}
 }
 

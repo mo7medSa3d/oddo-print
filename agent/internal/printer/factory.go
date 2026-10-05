@@ -69,15 +69,20 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if !strings.HasPrefix(cfg.Endpoint, `\\?\`) && !strings.HasPrefix(cfg.Endpoint, `\\.\`) {
 			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path (\\?\\... or \\.\\...); configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
+		if proto != "raw" && proto != "escpos" {
+			return nil, fmt.Errorf("printer %s: direct USB transport requires an explicit raw or escpos protocol; refusing to infer a byte language", cfg.ID)
+		}
 		vid := parseHex16(cfg.USBVID)
 		pid := parseHex16(cfg.USBPID)
 		return &USBPrinter{
-			ID:           cfg.ID,
-			Name:         cfg.Name,
-			VID:          vid,
-			PID:          pid,
-			SerialNumber: cfg.USBSerial,
-			DevicePath:   cfg.Endpoint,
+			ID:             cfg.ID,
+			Name:           cfg.Name,
+			VID:            vid,
+			PID:            pid,
+			SerialNumber:   cfg.USBSerial,
+			DevicePath:     cfg.Endpoint,
+			Protocol:       proto,
+			SupportsESCPOS: proto == "escpos" || capabilityProtocolListed(cfg.Capabilities, "escpos"),
 		}, nil
 
 	case "ipp", "ipps":
@@ -93,6 +98,32 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 	default:
 		return nil, fmt.Errorf("printer %s: unknown printer type %q (expected network/usb/spooler/ipp)", cfg.ID, cfg.Type)
 	}
+}
+
+func capabilityProtocolListed(capabilities map[string]interface{}, protocol string) bool {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" || capabilities == nil {
+		return false
+	}
+	value, ok := capabilities["supported_protocols"]
+	if !ok {
+		return false
+	}
+	switch list := value.(type) {
+	case []string:
+		for _, item := range list {
+			if strings.EqualFold(strings.TrimSpace(item), protocol) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, item := range list {
+			if text, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(text), protocol) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseHex16(s string) uint16 {

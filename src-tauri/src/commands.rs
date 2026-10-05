@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -30,6 +31,7 @@ pub struct AgentStatus {
     pub version: String,
     pub hostname: String,
     pub note: String,
+    pub note_code: String,
 }
 
 #[tauri::command]
@@ -103,6 +105,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         version: env!("CARGO_PKG_VERSION").into(),
         hostname,
         note: String::new(),
+        note_code: "not_running".into(),
     };
     // `sc query` + `tasklist` are fast but still subprocess I/O; keep them off
     // the UI thread for consistency with the rest of the command surface.
@@ -112,13 +115,26 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
     // has no manager credential to query them), so they are deliberately NOT
     // included — no invented values.
     match tauri::async_runtime::spawn_blocking(move || agent::status(&app)).await {
-        Ok((running, _service_running, note)) => AgentStatus {
-            running,
-            note,
-            ..base
+        Ok((running, service_running, note)) => {
+            let note_code = if note.starts_with("service state unavailable:") {
+                "service_status_unavailable"
+            } else if service_running {
+                "service_running"
+            } else if running {
+                "background_running"
+            } else {
+                "not_running"
+            };
+            AgentStatus {
+                running,
+                note,
+                note_code: note_code.into(),
+                ..base
+            }
         },
         Err(e) => AgentStatus {
             note: format!("status check failed: {e}"),
+            note_code: "status_check_failed".into(),
             ..base
         },
     }
@@ -592,10 +608,9 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         "POST" => {
             path == "/api/printers"
                 || gateway_printer_action_path(path, "test-connection")
-                || gateway_printer_action_path(path, "test-print")
         }
-        // Printer desired-state mutation is manager-only at the HTTP
-        // boundary, so an Agent bearer must never be able to reach PATCH.
+        // Physical test-print and desired-state mutation are manager-RBAC only;
+        // the Agent bearer may perform only non-printing console actions here.
         _ => false,
     }
 }
@@ -679,43 +694,129 @@ fn read_file_or_default(path: &Path) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
-pub fn get_gateway_config() -> GatewayConfig {
-    let path = paths::settings_path();
-    let defaults = GatewayConfig { url: String::new() };
-    let raw = match read_file_or_default(&path) {
-        Ok(r) => r,
-        Err(e) => {
-            logging::error(&e);
-            return defaults;
-        }
+#[cfg(windows)]
+fn atomic_replace_file(temp_path: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    let from: Vec<u16> = temp_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let to: Vec<u16> = destination.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let ok = unsafe {
+        MoveFileExW(
+            from.as_ptr(),
+            to.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
     };
-    match serde_json::from_str::<GatewayConfig>(&raw) {
-        Ok(c) => c,
-        Err(e) => {
-            // A corrupt/old settings file must not prevent the app from starting.
-            logging::warn(&format!(
-                "settings corrupted, using defaults: {e}; path={}",
-                path.display()
-            ));
-            defaults
+    if ok == 0 {
+        return Err(format!(
+            "replace settings {}: {}",
+            destination.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn atomic_replace_file(temp_path: &Path, destination: &Path) -> Result<(), String> {
+    std::fs::rename(temp_path, destination)
+        .map_err(|e| format!("replace settings {}: {e}", destination.display()))?;
+    if let Some(parent) = destination.parent() {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            dir.sync_all()
+                .map_err(|e| format!("sync settings directory {}: {e}", parent.display()))?;
         }
     }
+    Ok(())
+}
+
+fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("settings path has no parent: {}", path.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("create settings dir {}: {e}", parent.display()))?;
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("settings.json");
+    let mut last_collision = None;
+    for attempt in 0..16u32 {
+        let temp_path = parent.join(format!(
+            ".{file_name}.tmp-{}-{attempt}",
+            std::process::id()
+        ));
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last_collision = Some(e);
+                continue;
+            }
+            Err(e) => return Err(format!("create settings temp {}: {e}", temp_path.display())),
+        };
+
+        let write_result = (|| -> Result<(), String> {
+            file.write_all(contents)
+                .map_err(|e| format!("write settings temp {}: {e}", temp_path.display()))?;
+            file.sync_all()
+                .map_err(|e| format!("sync settings temp {}: {e}", temp_path.display()))?;
+            drop(file);
+            atomic_replace_file(&temp_path, path)
+        })();
+        if write_result.is_err() {
+            let _ = std::fs::remove_file(&temp_path);
+        }
+        return write_result;
+    }
+
+    Err(format!(
+        "create settings temp in {}: {}",
+        parent.display(),
+        last_collision
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "temporary file collision".into())
+    ))
+}
+
+#[tauri::command]
+pub fn get_gateway_config() -> Result<GatewayConfig, String> {
+    let path = paths::settings_path();
+    let raw = read_file_or_default(&path).map_err(|e| {
+        logging::error(&e);
+        e
+    })?;
+    if raw.trim() == "{}" {
+        return Ok(GatewayConfig { url: String::new() });
+    }
+    serde_json::from_str::<GatewayConfig>(&raw).map_err(|e| {
+        let message = format!("settings file is invalid JSON at {}: {e}", path.display());
+        logging::error(&message);
+        message
+    })
 }
 
 #[tauri::command]
 pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, String> {
     let url = normalize_gateway_url(&url)?;
     let mut state = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
-    let previous = get_gateway_config().url;
+    let previous = get_gateway_config().map(|cfg| cfg.url).unwrap_or_default();
     let path = paths::settings_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("create settings dir: {e}"))?;
-    }
     let cfg = GatewayConfig { url: url.clone() };
     let json =
         serde_json::to_string_pretty(&cfg).map_err(|e| format!("serialize settings: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("write settings {}: {e}", path.display()))?;
+    atomic_write_settings(&path, json.as_bytes())?;
     logging::info(&format!("gateway settings saved to {}", path.display()));
     if previous != url {
         state.generation = state.generation.wrapping_add(1);
@@ -1599,7 +1700,7 @@ mod agent_console_path_tests {
     #[test]
     fn agent_console_allowlist_matches_desktop_jobs_requests() {
         assert!(allowed_agent_gateway_path("/api/printers", "POST"));
-        assert!(allowed_agent_gateway_path(
+        assert!(!allowed_agent_gateway_path(
             "/api/printers/p1/test-print",
             "POST"
         ));

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!--
+      MSI parity with the NSIS lifecycle hooks.  The bundled Agent executable
+      remains the single authority for service registration/recovery settings;
+      invoking it without -config deliberately lets DefaultConfigPath() select
+      an existing legacy paired config before falling back to the canonical
+      YaseirAgent path.
+    -->
+    <CustomAction Id="YaseirStopLegacyYasser" Directory="System64Folder"
+                  ExeCommand='sc.exe stop YasserAgent' Execute="deferred"
+                  Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirDeleteLegacyYasser" Directory="System64Folder"
+                  ExeCommand='sc.exe delete YasserAgent' Execute="deferred"
+                  Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirStopLegacyOdooPrint" Directory="System64Folder"
+                  ExeCommand='sc.exe stop OdooPrintAgent' Execute="deferred"
+                  Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirDeleteLegacyOdooPrint" Directory="System64Folder"
+                  ExeCommand='sc.exe delete OdooPrintAgent' Execute="deferred"
+                  Return="ignore" Impersonate="no" />
+
+    <CustomAction Id="YaseirInstallAgentService" Directory="INSTALLDIR"
+                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service install'
+                  Execute="deferred" Return="check" Impersonate="no" />
+    <CustomAction Id="YaseirStartAgentService" Directory="INSTALLDIR"
+                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service start'
+                  Execute="deferred" Return="check" Impersonate="no" />
+    <CustomAction Id="YaseirStopAgentService" Directory="INSTALLDIR"
+                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service stop'
+                  Execute="deferred" Return="ignore" Impersonate="no" />
+    <CustomAction Id="YaseirUninstallAgentService" Directory="INSTALLDIR"
+                  ExeCommand='&quot;resources\YaseirAgent.exe&quot; -service uninstall'
+                  Execute="deferred" Return="check" Impersonate="no" />
+
+    <InstallExecuteSequence>
+      <Custom Action="YaseirStopLegacyYasser" After="InstallFiles">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirDeleteLegacyYasser" After="YaseirStopLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirStopLegacyOdooPrint" After="YaseirDeleteLegacyYasser">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirDeleteLegacyOdooPrint" After="YaseirStopLegacyOdooPrint">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirInstallAgentService" After="YaseirDeleteLegacyOdooPrint">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+      <Custom Action="YaseirStartAgentService" After="YaseirInstallAgentService">NOT (REMOVE ~= &quot;ALL&quot;)</Custom>
+
+      <Custom Action="YaseirStopAgentService" Before="YaseirUninstallAgentService">REMOVE ~= &quot;ALL&quot;</Custom>
+      <Custom Action="YaseirUninstallAgentService" Before="RemoveFiles">REMOVE ~= &quot;ALL&quot;</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

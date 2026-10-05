@@ -926,7 +926,7 @@
   /* ---------- Sidebar navigation ---------- */
   .sidebar {
     background: var(--surface);
-    border-right: 1px solid var(--border);
+    border-inline-end: 1px solid var(--border);
   }
 
   .sidebar-item {

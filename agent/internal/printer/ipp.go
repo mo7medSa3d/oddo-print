@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,10 +27,28 @@ import (
 // capability model (capability.go / src/lib/routing.ts) rejects it pre
 // dispatch.
 type IPPPrinter struct {
-	URL        string // normalized http(s) transport URL, always credential-free
-	PrinterURI string // credential-free URI carried in the IPP printer-uri attribute
-	Name       string
-	creds      *url.Userinfo // optional basic-auth from the configured URL
+	URL              string // normalized http(s) transport URL, always credential-free
+	PrinterURI       string // credential-free URI carried in the IPP printer-uri attribute
+	Name             string
+	creds            *url.Userinfo // optional basic-auth from the configured URL
+	statusMu         sync.RWMutex
+	lastStatusDetail string
+}
+
+func (p *IPPPrinter) setStatusDetail(detail string) {
+	p.statusMu.Lock()
+	p.lastStatusDetail = detail
+	p.statusMu.Unlock()
+}
+
+// StatusDetail exposes the most recent protocol-level reason without changing
+// the canonical health enum. The Agent heartbeat carries it as diagnostic
+// capability metadata so Gateway/UI can distinguish administrative stop/reject
+// from physical offline while keeping routing based on the status enum.
+func (p *IPPPrinter) StatusDetail() string {
+	p.statusMu.RLock()
+	defer p.statusMu.RUnlock()
+	return p.lastStatusDetail
 }
 
 func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
@@ -264,46 +283,60 @@ func (p *IPPPrinter) Status() string {
 	defer cancel()
 	attrs, err := p.getPrinterAttributes(ctx)
 	if err != nil {
-		var netErr net.Error
-		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
-			return "unknown"
-		}
-		if preDispatchIRErr(err) || errors.Is(err, errIPPStatusUnsupported) {
-			if errors.Is(err, errIPPStatusUnsupported) {
-				return "unknown"
-			}
-			return "offline"
-		}
-		if strings.Contains(err.Error(), "HTTP 4") || strings.Contains(err.Error(), "IPP status") {
-			return "unknown"
-		}
-		return "offline"
-	}
-	if attrs == nil {
+		// Probe/auth/protocol/transport failures are control-plane evidence only.
+		// They do not prove the physical device is offline.
+		p.setStatusDetail("probe_failed")
 		return "unknown"
 	}
-	if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
-		return "offline"
+	if attrs == nil {
+		p.setStatusDetail("attributes_missing")
+		return "unknown"
 	}
+
+	reasons := strings.ToLower(attrs["printer-state-reasons"])
+	if reasons != "" {
+		p.setStatusDetail(reasons)
+	} else {
+		p.setStatusDetail("none")
+	}
+	if reasons != "" && reasons != "none" {
+		for _, marker := range []string{"media-empty", "media-needed", "cover-open", "door-open", "toner-empty", "developer-empty", "marker-supply-empty", "jam", "interlock-open"} {
+			if strings.Contains(reasons, marker) {
+				return "error"
+			}
+		}
+		if strings.Contains(reasons, "offline") || strings.Contains(reasons, "shutdown") {
+			return "offline"
+		}
+		for _, marker := range []string{"paused", "moving-to-paused", "hold-new-jobs", "spool-area-full"} {
+			if strings.Contains(reasons, marker) {
+				return "error"
+			}
+		}
+	}
+
 	if state, ok := attrs["printer-state"]; ok {
 		switch state {
 		case "3":
+			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+				return "error"
+			}
 			return "online"
 		case "4":
+			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+				return "error"
+			}
 			return "busy"
 		case "5":
-			return "offline"
-		}
-		return "unknown"
-	}
-	if reasons, ok := attrs["printer-state-reasons"]; ok {
-		lower := strings.ToLower(reasons)
-		if strings.Contains(lower, "media-empty") || strings.Contains(lower, "media-needed") || strings.Contains(lower, "cover-open") || strings.Contains(lower, "toner-empty") {
+			// STOPPED is not synonymous with physical offline. Reasons above
+			// decide offline vs device/admin error when available.
 			return "error"
+		default:
+			return "unknown"
 		}
-		if strings.Contains(lower, "offline") || strings.Contains(lower, "shutdown") {
-			return "offline"
-		}
+	}
+	if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+		return "error"
 	}
 	return "unknown"
 }

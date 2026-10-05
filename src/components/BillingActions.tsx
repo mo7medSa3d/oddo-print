@@ -133,7 +133,7 @@ export function BillingActions({
                 onClick={continueWithSelectedPlan}
                 disabled={busy !== ""}
                 loading={busy === "selected-plan"}
-                icon={<ArrowRight className="h-4 w-4" aria-hidden />}
+                icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />}
                 className="shrink-0"
               >
                 {busy === "selected-plan"
@@ -193,7 +193,7 @@ export function BillingActions({
           <Button
             variant="primary"
             href={checkoutUrl}
-            icon={<ArrowRight className="h-4 w-4" aria-hidden />}
+            icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden />}
           >
             {t("billingActions.continueExistingCheckout")}
           </Button>

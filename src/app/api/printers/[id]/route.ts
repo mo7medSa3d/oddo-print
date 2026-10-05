@@ -29,6 +29,10 @@ const patchSchema = z.object({
     serial: z.string().max(255).optional(),
     address: z.string().max(512).optional(),
     spooler_name: z.string().max(255).optional(),
+    passthrough_protocols: z.array(z.enum(["raw", "escpos"])).max(2).optional(),
+    paper_widths: z.array(z.number().int().min(1).max(500)).max(32).optional(),
+    color_capable: z.boolean().optional(),
+    duplex_capable: z.boolean().optional(),
   }).strict().optional(),
 }).strict();
 
@@ -102,6 +106,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       connectionType = "spooler";
       protocol = "spooler";
     }
+    // passthrough_protocols is meaningful only for a Windows spooler queue.
+    // Reject an explicitly invalid request, but when a manager changes an
+    // existing spooler printer to another transport, scrub the old desired
+    // state so stale RAW/ESC-POS permission cannot poison the new config.
+    if (parsed.data.config?.passthrough_protocols !== undefined && connectionType !== "spooler") {
+      return { kind: "invalid" as const, message: "passthrough_protocols is only valid for Windows spooler printers" };
+    }
+    const scrubInheritedPassthrough = connectionType !== "spooler" && Object.prototype.hasOwnProperty.call(cfg, "passthrough_protocols");
+    if (scrubInheritedPassthrough) delete cfg.passthrough_protocols;
     if (
       parsed.data.connectionType !== undefined ||
       parsed.data.protocol !== undefined ||
@@ -139,7 +152,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (parsed.data.deviceClass !== undefined) update.deviceClass = parsed.data.deviceClass;
     if (parsed.data.connectionType !== undefined || connectionType !== existing.connectionType) update.connectionType = connectionType;
     if (parsed.data.protocol !== undefined || protocol !== existing.protocol) update.protocol = protocol;
-    if (parsed.data.config !== undefined) update.config = cfg;
+    if (parsed.data.config !== undefined || scrubInheritedPassthrough) update.config = cfg;
     if (parsed.data.lifecycle !== undefined) update.lifecycle = parsed.data.lifecycle;
 
     const setValues = desiredStateChanged

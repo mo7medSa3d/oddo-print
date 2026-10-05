@@ -1,10 +1,10 @@
 import React from "react";
 import { Activity, Cpu, HardDrive, Play, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Square, Lock } from "lucide-react";
 import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, StatusBadge, StatusDot } from "../../components/ui";
-import { DetailList, StatCard } from "../ui";
+import { DetailList, StatItem, StatStrip } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { friendlyAgentError, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
+import { agentStatusNoteKey, friendlyAgentError, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const { t, locale, formatDateTime } = useI18n();
@@ -15,11 +15,11 @@ export function AgentsPage({ s }: { s: DesktopState }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard label={t("desktop.agents.statLocalAgent")} value={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} sub={String(anyStatus?.hostname || t("desktop.agents.thisPc"))} tone={s.isOnline ? "ok" : "bad"} icon={<Cpu className="h-4 w-4" />} />
-        <StatCard label={t("desktop.agents.statPrinters")} value={`${online} / ${physical.length}`} sub={attention > 0 ? t("desktop.agents.needAttentionCount", { count: attention }) : t("desktop.status.online")} tone={physical.length > 0 && attention === 0 ? "ok" : physical.length === 0 ? "neutral" : "warn"} icon={<HardDrive className="h-4 w-4" />} />
-        <StatCard label={t("desktop.agents.statFleet")} value={s.gatewayUrl && s.fleetOnline !== null ? `${s.fleetOnline} / ${s.fleetTotal}` : "—"} sub={s.gatewayUrl ? t("desktop.agents.agentsOnline") : t("desktop.agents.notConfigured")} tone={s.gatewayUrl && s.fleetOnline !== null && s.fleetOnline > 0 ? "ok" : "neutral"} icon={<Server className="h-4 w-4" />} />
-      </div>
+      <StatStrip columns={3}>
+        <StatItem label={t("desktop.agents.statLocalAgent")} value={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} sub={String(anyStatus?.hostname || t("desktop.agents.thisPc"))} tone={s.isOnline ? "ok" : "bad"} icon={<Cpu className="h-4 w-4" />} />
+        <StatItem label={t("desktop.agents.statPrinters")} value={`${online} / ${physical.length}`} sub={attention > 0 ? t("desktop.agents.needAttentionCount", { count: attention }) : t("desktop.status.online")} tone={physical.length > 0 && attention === 0 ? "ok" : physical.length === 0 ? "neutral" : "warn"} icon={<HardDrive className="h-4 w-4" />} />
+        <StatItem label={t("desktop.agents.statFleet")} value={s.gatewayUrl && s.fleetOnline !== null ? `${s.fleetOnline} / ${s.fleetTotal}` : "—"} sub={s.gatewayUrl ? t("desktop.agents.agentsOnline") : t("desktop.agents.notConfigured")} tone={s.gatewayUrl && s.fleetOnline !== null && s.fleetOnline > 0 ? "ok" : "neutral"} icon={<Server className="h-4 w-4" />} />
+      </StatStrip>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="overflow-hidden">
@@ -38,7 +38,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               { label: t("desktop.agents.hostname"), value: <Mono>{String(anyStatus?.hostname || "—")}</Mono> },
               { label: t("desktop.overview.statPrinters"), value: t("desktop.agents.printersRow", { online, total: physical.length, attention }) },
             ]} />
-            {anyStatus?.note ? <p className="rounded-md border border-edge bg-surface-2 px-3 py-2.5 text-xs text-ink-2">{String(anyStatus.note)}</p> : null}
+            {anyStatus ? <p className="rounded-md border border-edge bg-surface-2 px-3 py-2.5 text-xs text-ink-2">{t(agentStatusNoteKey(anyStatus))}</p> : null}
             {anyStatus?.error ? <ErrorState title={t("desktop.agents.statusUnavailable")} message={friendlyAgentError(String(anyStatus.error), locale)} retry={s.refreshStatus} /> : null}
           </div>
         </Card>

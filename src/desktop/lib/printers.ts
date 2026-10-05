@@ -5,8 +5,11 @@ import { isVirtualPrinterRecord } from "../../lib/printer-virtual";
 export {
   agentLiveView,
   jobLabel,
+  jobDisplayLabel,
   jobTone,
   jobGuidance,
+  jobFailurePresentation,
+  printerObservationFreshness,
   deriveOutcome,
   printerLabel,
   printerTone,
@@ -15,7 +18,7 @@ export {
 import {
   agentLiveView,
   deriveOutcome as deriveOutcomeImpl,
-  jobLabel as jobLabelImpl,
+  jobDisplayLabel as jobDisplayLabelImpl,
   jobTone as jobToneImpl,
   printerLabel as printerLabelImpl,
 } from "../../shared/job-vocabulary";
@@ -37,6 +40,18 @@ function tr(locale: Locale, key: MessageKey): string {
    Status vocabulary (icon + colour + label) lives here so every
    page renders the same status the same way.
    ============================================================ */
+
+
+export function agentStatusNoteKey(status: { note_code?: unknown; running?: unknown } | null | undefined): MessageKey {
+  switch (status?.note_code) {
+    case "service_running": return "desktop.agents.note.serviceRunning";
+    case "background_running": return "desktop.agents.note.backgroundRunning";
+    case "service_status_unavailable": return "desktop.agents.note.serviceStatusUnavailable";
+    case "status_check_failed": return "desktop.agents.note.statusCheckFailed";
+    case "not_running": return "desktop.agents.note.notRunning";
+    default: return status?.running ? "desktop.agents.note.running" : "desktop.agents.note.notRunning";
+  }
+}
 
 /* ---------- Virtual / software printer safety net ---------- */
 /**
@@ -66,6 +81,14 @@ export function printerAgentView(
   );
 }
 
+export function printerIsStale(p: PrinterInfo | null | undefined): boolean {
+  return !!p && p.freshness === "stale";
+}
+
+export function printerDisplayStatus(p: PrinterInfo): string {
+  return printerIsStale(p) && p.reportedStatus ? p.reportedStatus : p.status;
+}
+
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
   if (!p) return false;
   const anyP = p as unknown as Record<string, unknown>;
@@ -93,7 +116,7 @@ export function labelPrinter(status: string, locale: Locale = DEFAULT_LOCALE): s
 }
 
 export function labelJob(status: string, error?: unknown, locale: Locale = DEFAULT_LOCALE): string {
-  return jobLabelImpl(status, deriveOutcomeImpl(status, error == null ? "" : String(error)), locale);
+  return jobDisplayLabelImpl(status, error == null ? "" : String(error), locale);
 }
 
 export function toneJob(status: string, error?: unknown): Tone {
