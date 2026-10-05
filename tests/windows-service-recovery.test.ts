@@ -36,7 +36,7 @@ describe("windows-service-recovery", () => {
 
     expect(nsis).toContain('taskkill /F /T /IM "Yaseir Print Manager.exe"');
     expect(nsis).toContain("taskkill /F /T /IM YaseirAgent.exe");
-    expect(nsis).toContain('"-service purge');
+    expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 
     expect(wix).toContain('Id="YaseirKillManagerProcesses"');
@@ -47,6 +47,13 @@ describe("windows-service-recovery", () => {
     expect(agentMain).toContain('case "purge":');
     expect(agentMain).toContain("stopServiceForRemoval");
     expect(agentMain).toContain("purgeInstallationData()");
+    expect(agentMain).toContain("acquireAgentRuntimeSingleton");
+    expect(fs.readFileSync("agent/cmd/agent/runtime_singleton_windows.go", "utf8")).toContain(
+      "Global\\YaseirAgent.Runtime.Singleton.v1",
+    );
+    expect(fs.readFileSync("src-tauri/src/agent.rs", "utf8")).toContain(
+      "exited during startup with status",
+    );
     for (const dir of [
       "YaseirAgent",
       "YasserAgent",
@@ -57,6 +64,9 @@ describe("windows-service-recovery", () => {
     ]) {
       expect(windowsInstall).toContain(`"${dir}"`);
     }
+    expect(windowsInstall).toContain('filepath.Join(systemDrive+string(os.PathSeparator), "Users")');
+    expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Local")');
+    expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Roaming")');
   });
 
   it("service status API returns BLOCKED explicit with required fields", () => {

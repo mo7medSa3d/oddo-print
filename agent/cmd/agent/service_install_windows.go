@@ -61,7 +61,6 @@ func updateInstalledService(wanted *service.Config) error {
 	return existing.UpdateConfig(current)
 }
 
-
 func purgeInstallationData() error {
 	var roots []string
 	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
@@ -76,16 +75,41 @@ func purgeInstallationData() error {
 			roots = append(roots, filepath.Join(programData, name))
 		}
 	}
+	userDataNames := []string{
+		"YaseirManager",
+		"YasserManager",
+		"Yaseir Print Manager",
+		"Yasser Print Manager",
+		"com.yasser.manager",
+	}
 	for _, envName := range []string{"LOCALAPPDATA", "APPDATA"} {
 		if root := strings.TrimSpace(os.Getenv(envName)); root != "" {
-			for _, name := range []string{
-				"YaseirManager",
-				"YasserManager",
-				"Yaseir Print Manager",
-				"Yasser Print Manager",
-				"com.yasser.manager",
-			} {
+			for _, name := range userDataNames {
 				roots = append(roots, filepath.Join(root, name))
+			}
+		}
+	}
+
+	// MSI deferred custom actions run as LocalSystem, whose LOCALAPPDATA is not
+	// the interactive user's profile. Enumerate fixed product subdirectories
+	// under every local profile so uninstall leaves no Yaseir cache/session
+	// state behind for another login.
+	if systemDrive := strings.TrimSpace(os.Getenv("SystemDrive")); systemDrive != "" {
+		usersRoot := filepath.Join(systemDrive+string(os.PathSeparator), "Users")
+		if entries, err := os.ReadDir(usersRoot); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				profile := filepath.Join(usersRoot, entry.Name())
+				for _, base := range []string{
+					filepath.Join(profile, "AppData", "Local"),
+					filepath.Join(profile, "AppData", "Roaming"),
+				} {
+					for _, name := range userDataNames {
+						roots = append(roots, filepath.Join(base, name))
+					}
+				}
 			}
 		}
 	}

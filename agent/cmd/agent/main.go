@@ -297,6 +297,9 @@ func stopServiceForRemoval(s service.Service) error {
 		return nil
 	}
 	if err := s.Stop(); err != nil {
+		if errors.Is(err, service.ErrNotInstalled) {
+			return nil
+		}
 		return fmt.Errorf("stop service before removal: %w", err)
 	}
 	deadline := time.Now().Add(30 * time.Second)
@@ -436,7 +439,15 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 2. Normal runtime path
+	// 2. Normal runtime path. Enforce one runtime process per machine even
+	// when the executable is launched manually or two desktop starts race.
+	releaseRuntimeSingleton, err := acquireAgentRuntimeSingleton()
+	if err != nil {
+		log.Printf("Refusing duplicate Agent runtime: %v", err)
+		return
+	}
+	defer releaseRuntimeSingleton()
+
 	// Logging setup
 	logRotator, err := setupLogging(*configPath)
 	if err != nil {

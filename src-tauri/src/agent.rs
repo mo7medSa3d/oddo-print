@@ -679,6 +679,25 @@ fn spawn_persist_or_reconcile(
 ) -> Result<u32, String> {
     let mut child = spawn()?;
     let pid = child.id();
+
+    // A duplicate runtime or startup validation failure exits almost
+    // immediately. Give it a short grace window before recording ownership so
+    // a dead process can never be persisted as a healthy background Agent.
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!(
+                "YaseirAgent.exe pid={pid} exited during startup with status {status}"
+            ));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("verify Agent startup pid={pid}: {error}"));
+        }
+    }
+
     match persist(pid) {
         Ok(()) => Ok(pid),
         Err(e) => {
