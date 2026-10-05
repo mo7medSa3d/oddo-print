@@ -426,29 +426,55 @@ export default function DashboardClient({
   const [debouncedJobSearch, setDebouncedJobSearch] = useState("");
   const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [selectedJobPayload, setSelectedJobPayload] = useState<unknown>(undefined);
-  const selectedJobPayloadLoading =
-    selectedJob !== null && selectedJob.payload === undefined && selectedJobPayload === undefined;
+  const [selectedJobPayload, setSelectedJobPayload] = useState<{ jobId: string; value: unknown } | null>(null);
+  const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
+  const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
 
   useEffect(() => {
-    if (!selectedJob || selectedJob.payload !== undefined) return;
+    if (!selectedJob) {
+      setSelectedJobPayload(null);
+      setSelectedJobPayloadLoading(false);
+      setSelectedJobPayloadError(false);
+      return;
+    }
+    if (selectedJob.payload !== undefined) {
+      setSelectedJobPayload({ jobId: selectedJob.id, value: selectedJob.payload });
+      setSelectedJobPayloadLoading(false);
+      setSelectedJobPayloadError(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
-    void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}`, { credentials: "include", cache: "no-store" })
+    setSelectedJobPayload(null);
+    setSelectedJobPayloadLoading(true);
+    setSelectedJobPayloadError(false);
+
+    void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    })
       .then(async (res) => {
-        if (cancelled) return;
-        if (!res.ok) {
-          setSelectedJobPayload(null);
-          return;
-        }
-        const row = (await res.json()) as { payload?: unknown };
-        setSelectedJobPayload(row?.payload ?? null);
+        if (!res.ok) throw new Error(`job details request failed with ${res.status}`);
+        const row = (await res.json()) as { diagnosticPayload?: unknown };
+        if (!cancelled) setSelectedJobPayload({ jobId: selectedJob.id, value: row?.diagnosticPayload ?? null });
       })
       .catch(() => {
-        if (!cancelled) setSelectedJobPayload(null);
+        if (!cancelled) {
+          setSelectedJobPayload({ jobId: selectedJob.id, value: null });
+          setSelectedJobPayloadError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedJobPayloadLoading(false);
       });
+
     return () => {
       cancelled = true;
-      setSelectedJobPayload(undefined);
+      window.clearTimeout(timeout);
+      controller.abort();
     };
   }, [selectedJob]);
 
@@ -1941,13 +1967,29 @@ export default function DashboardClient({
                 <ChevronRight className="h-4 w-4 text-ink-4 transition-transform duration-200 group-open:rotate-90" aria-hidden />
               </summary>
               <div className="border-t border-edge-subtle p-3">
-                <div className="mb-2 flex justify-end">
-                  <CopyButton value={stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload, t)} label={t("job.copyPayload")} />
-                </div>
+                {!selectedJobPayloadLoading && !selectedJobPayloadError && (
+                  <div className="mb-2 flex justify-end">
+                    <CopyButton
+                      value={stringifyDiagnosticPayload(
+                        selectedJobPayload?.jobId === selectedJob.id ? selectedJobPayload.value : selectedJob.payload,
+                        t,
+                      )}
+                      label={t("job.copyPayload")}
+                    />
+                  </div>
+                )}
                 <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
                   {selectedJobPayloadLoading
                     ? t("loading.payload")
-                    : diagnosticPayloadPreview(stringifyDiagnosticPayload(selectedJobPayload ?? selectedJob.payload, t), t)}
+                    : selectedJobPayloadError
+                      ? t("job.payloadLoadFailed")
+                      : diagnosticPayloadPreview(
+                          stringifyDiagnosticPayload(
+                            selectedJobPayload?.jobId === selectedJob.id ? selectedJobPayload.value : selectedJob.payload,
+                            t,
+                          ),
+                          t,
+                        )}
                 </pre>
               </div>
             </details>

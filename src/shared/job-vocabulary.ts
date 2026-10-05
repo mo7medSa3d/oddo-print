@@ -7,7 +7,7 @@
 // in src/lib/job-status.ts (a unit test locks both lists).
 // ============================================================
 
-import { agentStaleThresholdSeconds } from "../lib/stale-threshold";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../lib/stale-threshold";
 import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
 import { translate } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
@@ -177,21 +177,24 @@ export function agentLiveView(
 }
 
 /**
- * Derives effective printer status taking into account parent agent connectivity.
- * If the parent agent is stale or offline, the printer is effectively offline.
+ * Derives the customer-facing printer state from printer evidence only. Agent
+ * connectivity is rendered separately and is a distinct routing gate; losing
+ * an Agent heartbeat makes printer evidence stale/unknown, never physically
+ * offline by implication.
  */
 export function effectivePrinterStatus(
-  printer: { status?: string | null; lifecycle?: string | null },
-  agent?: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null } | null,
+  printer: { status?: string | null; lifecycle?: string | null; lastSeenAt?: Date | string | null },
+  _agent?: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null } | null,
   nowMs = Date.now(),
 ): string {
   if (printer.lifecycle && printer.lifecycle !== "active") {
     return printer.lifecycle;
   }
-  if (!agent) return "offline";
-  const agentView = agentLiveView(agent, nowMs);
-  if (agentView.tone !== "ok") {
-    return "offline";
+  if (printer.lastSeenAt) {
+    const seen = parseSharedTimeMs(printer.lastSeenAt);
+    const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
+    if (ageMs < 0 || ageMs > printerStaleThresholdSeconds() * 1000) return "unknown";
   }
-  return printer.status?.toLowerCase() === "online" ? "online" : (printer.status || "offline");
+  const status = String(printer.status || "unknown").toLowerCase();
+  return ["online", "offline", "busy", "error", "unknown"].includes(status) ? status : "unknown";
 }

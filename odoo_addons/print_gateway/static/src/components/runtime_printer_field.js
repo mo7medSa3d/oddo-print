@@ -102,11 +102,16 @@ export class RuntimePrinterField extends Component {
             return this.state.printers;
         }
         if (dest === "pos" || dest === "pos_printer") {
-            // No fallback to the full list: laser/inkjet rows would be
-            // selectable here but rejected by the server binding scope
-            // (binding.py), so an empty filter must stay empty and show
-            // the empty message instead.
-            return this.state.printers.filter(p => !["laser", "inkjet"].includes((p.deviceClass || "").toLowerCase()));
+            // POS sends a rendered JPEG. Match the Gateway's physical image
+            // capability instead of guessing from deviceClass: any installed
+            // Windows spooler queue can render it through its driver, while a
+            // direct byte transport needs an explicit supported ESC/POS path.
+            return this.state.printers.filter((p) => {
+                const connectionType = String(p.connectionType || "").trim().toLowerCase();
+                const protocol = String(p.protocol || "").trim().toLowerCase();
+                return connectionType === "spooler" || protocol === "spooler"
+                    || (connectionType === "network" && protocol === "escpos");
+            });
         }
         if (dest === "picking_type" && !this.reportId && !["delivery", "invoice", "order", "purchase_order"].includes(this.documentType)) {
             return this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
@@ -191,8 +196,18 @@ export class RuntimePrinterField extends Component {
         const updateData = { [this.props.name]: selectedId };
         if (selectedId) {
             const found = this.state.printers.find((p) => p.id === selectedId);
-            if (found && found.protocol && found.protocol !== "unknown" && this.props.record?.fields?.printer_protocol) {
-                updateData.printer_protocol = found.protocol;
+            if (found && this.props.record?.fields?.printer_protocol) {
+                const protocol = String(found.protocol || "").trim().toLowerCase();
+                const connectionType = String(found.connectionType || "").trim().toLowerCase();
+                const declared = ["spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"].includes(protocol)
+                    ? protocol
+                    : ["spooler", "ipp", "ipps"].includes(connectionType)
+                        ? connectionType
+                        : "unknown";
+                // Always write the selected printer's canonical transport,
+                // including unknown, so a previous printer's byte protocol
+                // cannot survive a new selection.
+                updateData.printer_protocol = declared;
             }
         }
         this.props.record.update(updateData);

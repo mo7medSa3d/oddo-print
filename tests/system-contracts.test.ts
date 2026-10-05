@@ -69,8 +69,13 @@ describe("System Interface Contracts (Section 36)", () => {
       // Printer freshness is independently required at the delivery boundary.
       // Keep the fixture fresh so the assertion isolates agent staleness.
       const printer = { lifecycle: "active", status: "online", lastSeenAt: now };
-      expect(getEffectivePrinterStatus(printer, staleAgent, now)).toBe("offline");
+      // Agent reachability is a separate fact: fresh printer evidence is not
+      // rewritten to offline just because the Agent heartbeat is stale.
+      expect(getEffectivePrinterStatus(printer, staleAgent, now)).toBe("online");
       expect(getEffectivePrinterStatus(printer, freshAgent, now)).toBe("online");
+      expect(getEffectivePrinterStatus({ lifecycle: "active", status: "busy", lastSeenAt: now }, freshAgent, now)).toBe("busy");
+      expect(getEffectivePrinterStatus({ lifecycle: "active", status: "error", lastSeenAt: now }, freshAgent, now)).toBe("error");
+      expect(getEffectivePrinterStatus({ lifecycle: "active", status: "online", lastSeenAt: staleDate }, freshAgent, now)).toBe("unknown");
     });
 
     it("verifies routing availability gating for active printers", () => {

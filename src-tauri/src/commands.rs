@@ -1060,17 +1060,32 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             };
             return Err(format!("discover failed: {}", msg));
         }
-        let errors = if stderr.is_empty() {
-            vec![]
-        } else {
-            vec![stderr]
-        };
+        let errors = parse_discovery_diagnostics(&stderr);
         // --json returns this scan's inventory. Registry persistence can fail;
         // rereading the file would silently substitute stale or empty results.
         let printers = parse_discovery_stdout(&stdout)?;
         Ok(DiscoverResult { printers, errors })
     })
     .await
+}
+
+fn parse_discovery_diagnostics(stderr: &str) -> Vec<String> {
+    let mut diagnostics = Vec::new();
+    for raw in stderr.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let actionable = ["Failed to persist discovery:", "Discovery warning:"]
+            .iter()
+            .find_map(|marker| line.find(marker).map(|index| line[index..].trim().to_string()));
+        if let Some(message) = actionable {
+            if !diagnostics.iter().any(|existing| existing == &message) {
+                diagnostics.push(message);
+            }
+        }
+    }
+    diagnostics
 }
 
 fn parse_discovery_stdout(stdout: &str) -> Result<Vec<PrinterInfo>, String> {

@@ -55,7 +55,7 @@ describe("gateway clock calibration", () => {
 
     __setClockSkewForTests(null);
     expect(getAgentAvailability(agent).reason).toBe("stale");
-    expect(getEffectivePrinterStatus({ lifecycle: "active", status: "online" }, agent)).toBe("offline");
+    expect(getEffectivePrinterStatus({ lifecycle: "active", status: "online" }, agent)).toBe("unknown");
   });
 
   it("expires a heartbeat that is older than the threshold on the database clock", () => {

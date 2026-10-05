@@ -15,6 +15,60 @@ import (
 	"github.com/yaseir-agent/agent/internal/config"
 )
 
+// IsRuntimeDiscoveryPrinter reports whether a discovery observation can be
+// promoted into the production inventory. Some discovery sources deliberately
+// return candidates that prove only that a service answered; those candidates
+// remain useful to manager discovery but must not be persisted/count as local
+// runnable printers until an execution backend exists.
+func IsRuntimeDiscoveryPrinter(d DeviceInfo) bool {
+	protocol := strings.ToLower(strings.TrimSpace(d.Protocol))
+	if protocol == "lpr" {
+		return false
+	}
+	if d.Capabilities != nil {
+		if verification, ok := d.Capabilities["verification"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(verification)) {
+			case "candidate_only", "device_detected_only":
+				return false
+			}
+		}
+	}
+
+	connection := strings.ToLower(strings.TrimSpace(d.ConnectionType))
+	if (connection == "network" || connection == "tcp") && (protocol == "" || protocol == "unknown") {
+		// Automatic WSD/SNMP/TCP observations can prove that a printer-like
+		// host or print socket exists without proving its byte/document
+		// language. Keep those observations as discovery candidates; do not
+		// count/persist them as runnable printers because printer.New rejects
+		// an undeclared network protocol. Explicit manual/config registrations
+		// remain visible so operator intent is not silently destroyed.
+		if d.Capabilities != nil {
+			if source, ok := d.Capabilities["registration_source"].(string); ok {
+				switch strings.ToLower(strings.TrimSpace(source)) {
+				case "manual", "config":
+					return true
+				}
+			}
+			if _, discovered := d.Capabilities["discovered_via"]; discovered {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// RuntimeDiscoveryPrinters returns only observations for which this Agent has
+// a production execution path. It never mutates the input slice.
+func RuntimeDiscoveryPrinters(printers []DeviceInfo) []DeviceInfo {
+	filtered := make([]DeviceInfo, 0, len(printers))
+	for _, di := range printers {
+		if IsRuntimeDiscoveryPrinter(di) {
+			filtered = append(filtered, di)
+		}
+	}
+	return filtered
+}
+
 func isValidDiscoveredPrinter(d DeviceInfo) bool {
 	// Virtual printers are always valid where they are expected
 	if d.IsVirtual {

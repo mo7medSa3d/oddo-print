@@ -167,3 +167,20 @@ func TestLoadDiscoverySessionByID(t *testing.T) {
 		t.Fatalf("missing discovery session should return nil, got %#v", missing)
 	}
 }
+
+func TestDiscoveryVerificationDoesNotPromoteNonRuntimeNetworkEvidence(t *testing.T) {
+	di := printer.DeviceInfo{
+		ID:             "tcp-candidate",
+		Name:           "Open 9100",
+		ConnectionType: "network",
+		Protocol:       "unknown",
+		Capabilities: map[string]interface{}{
+			"discovered_via": "tcp_port_scan",
+			"verification":   "print_endpoint_verified",
+			"snmp_verified":  true,
+		},
+	}
+	if got := discoveryVerification(di); got != "candidate" {
+		t.Fatalf("non-runtime network evidence must remain candidate, got %q", got)
+	}
+}

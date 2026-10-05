@@ -12,15 +12,14 @@ type Printer interface {
 }
 
 // SpoolerJobIDReporter is an OPTIONAL interface for printers that receive
-// a platform job identity for completed submissions (Windows spooler
-// StartDocPrinterW return value). It is deliberately optional — not part
-// of Printer — so network/USB/IPP backends (which have no such identity)
-// do not change. Use SpoolerJobIDOf to read it without a type switch at
-// every call site.
+// a platform job identity once Windows allocates a spool document
+// (StartDocPrinterW/StartDocW return value). It is deliberately optional —
+// not part of Printer — so network/USB/IPP backends do not change. The ID is
+// evidence, not a success signal: later submission may still fail or become
+// ambiguous. Use SpoolerJobIDOf without type switches at every call site.
 type SpoolerJobIDReporter interface {
-	// LastSpoolerJobID returns the platform job ID of the most recent
-	// successfully completed session on this printer, or "" when none
-	// (never completed, or backend has no platform identity).
+	// LastSpoolerJobID returns the platform job ID allocated for the current
+	// print attempt, or "" when no platform identity was allocated.
 	LastSpoolerJobID() string
 }
 

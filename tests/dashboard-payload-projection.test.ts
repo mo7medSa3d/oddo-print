@@ -30,8 +30,8 @@ const suite = describe.skipIf(!hasTestDatabase);
 
 // Audit P1-02 regression: the dashboard 50-row list (page.tsx initial props
 // AND the getDashboardState poll payload) must be metadata-only. Full
-// payloads (base64 documents, multi-MB per job) are fetched per-job through
-// GET /api/jobs/[id] by the inspector.
+// payloads (base64 documents, multi-MB per job) remain server-side. The
+// inspector fetches only a redacted diagnostic summary from GET /api/jobs/[id].
 suite("dashboard list queries never carry full job payloads", () => {
   let fixture: Fixture;
 

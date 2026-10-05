@@ -48,6 +48,8 @@ export interface DesktopState {
 
   /* printers */
   printers: PrinterInfo[];
+  discoveredPrinters: PrinterInfo[];
+  discoveryWarning: string | null;
   printersLoading: boolean;
   printersError: string | null;
   printersFilter: string;

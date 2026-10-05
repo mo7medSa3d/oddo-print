@@ -315,10 +315,40 @@ class PrintGatewayBinding(models.Model):
             raise ValidationError(_("A Print Gateway configuration is required for this Odoo Company."))
         return config
 
-    def _validate_runtime_target(self):
+    @api.model
+    def _canonical_runtime_printer_protocol(self, printer):
+        """Return the executable protocol represented by a Gateway printer row.
+
+        A spooler/IPP connection type is itself an explicit document transport,
+        so it remains safe to use when the legacy/optional protocol field is
+        unknown. For direct byte transports we never guess a printer language.
+        """
+        if not isinstance(printer, dict):
+            return "unknown"
+        protocol = str(printer.get("protocol") or "").strip().lower()
+        supported = {"spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"}
+        if protocol in supported:
+            return protocol
+        connection_type = str(printer.get("connectionType") or "").strip().lower()
+        if connection_type in {"spooler", "ipp", "ipps"}:
+            return connection_type
+        return "unknown"
+
+    @api.model
+    def _runtime_printer_accepts_image(self, printer):
+        if not isinstance(printer, dict):
+            return False
+        connection_type = str(printer.get("connectionType") or "").strip().lower()
+        protocol = self._canonical_runtime_printer_protocol(printer)
+        # Mirror Gateway validatePayloadForPrinter( type=image ): Windows
+        # spooler queues render JPEG through the installed driver; ESC/POS
+        # image conversion is supported for the explicit network backend.
+        return connection_type == "spooler" or protocol == "spooler" or (connection_type == "network" and protocol == "escpos")
+
+    def _validate_runtime_target(self, *, enforce_destination_compatibility=True):
         self.ensure_one()
         if not self.runtime_agent_id:
-            return
+            return None
         config = self._get_gateway_config()
         assignment_model = self.env["print_gateway.runtime_agent_assignment"]
         if not assignment_model.is_agent_assigned(
@@ -367,13 +397,15 @@ class PrintGatewayBinding(models.Model):
         agent = selected_printer.get("agent") if isinstance(selected_printer.get("agent"), dict) else {}
         if agent.get("id") != self.runtime_agent_id:
             raise ValidationError(_("Gateway Runtime Printer does not belong to the selected Runtime Agent."))
-        device_class = str(selected_printer.get("deviceClass") or "").strip().lower()
-        if self.destination_type == "pos" and device_class in ("laser", "inkjet"):
-            raise ValidationError(_("POS receipts require a thermal receipt printer, not a document/laser printer."))
-        if self.destination_type == "pos_printer" and device_class in ("laser", "inkjet"):
-            raise ValidationError(_("POS Kitchen / Preparation printing requires a thermal printer, not a document/laser printer."))
-        if self.destination_type == "picking_type" and device_class in ("laser", "inkjet") and not self.report_id:
-            raise ValidationError(_("Direct inventory/warehouse operations require a label or thermal printer."))
+        if enforce_destination_compatibility:
+            if self.destination_type in ("pos", "pos_printer") and not self._runtime_printer_accepts_image(selected_printer):
+                raise ValidationError(_(
+                    "POS receipt/kitchen printing requires a printer transport that accepts rendered images. Windows-installed printers should use the spooler connection; supported ESC/POS network printers are also accepted."
+                ))
+            device_class = str(selected_printer.get("deviceClass") or "").strip().lower()
+            if self.destination_type == "picking_type" and device_class in ("laser", "inkjet") and not self.report_id:
+                raise ValidationError(_("Direct inventory/warehouse operations require a label or thermal printer."))
+        return selected_printer
 
 
     @api.constrains("company_id", "branch_id")
@@ -469,7 +501,14 @@ class PrintGatewayBinding(models.Model):
         # internal users, which would otherwise never fire here).
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only Odoo system administrators can dispatch test pages."))
-        self._validate_runtime_target()
+        runtime_printer = self._validate_runtime_target(enforce_destination_compatibility=False)
+        runtime_protocol = self._canonical_runtime_printer_protocol(runtime_printer)
+        if runtime_protocol == "unknown":
+            raise ValidationError(_(
+                "The selected printer does not declare a printable protocol. Windows-installed printers should use the spooler connection; direct USB/network printers must declare their real printer language before a test can be sent."
+            ))
+        if self.printer_protocol != runtime_protocol:
+            self.write({"printer_protocol": runtime_protocol})
         router = self.env["print_gateway.print_router"]
         res = router.route_test_page(self)
         return {

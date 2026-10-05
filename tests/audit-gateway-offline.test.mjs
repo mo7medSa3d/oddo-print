@@ -108,7 +108,7 @@ test("desktop discovery preserves a failed Gateway refresh and uses translated o
   const api = await loadModule("src/desktop/main.tsx", {
     useCallback: (fn) => fn, isTauri: true, locale: "ar",
     setPrintersLoading: () => {}, setPrintersError: (error) => errors.push(error),
-    setDiscoveredPrinters: () => {}, refreshPrinters: refresh,
+    setDiscoveryWarning: () => {}, setDiscoveredPrinters: () => {}, refreshPrinters: refresh,
     discoverPrinters: async () => ({ printers: [{ id: "physical" }], errors: [] }),
     isProductionPrinter: () => true,
     t: (key, values) => `${key}:${values?.count ?? ""}`,
@@ -160,4 +160,45 @@ test("failed WebSocket handshake releases capacity and pending registration", as
   } finally {
     wss.close();
   }
+});
+
+
+test("desktop discovery surfaces persistence warnings and keeps local printers visible", async () => {
+  const source = await readFile("src/desktop/main.tsx", "utf8");
+  const start = source.indexOf("  const handleDiscover = useCallback(");
+  const end = source.indexOf("  const updatePrinterLifecycle", start);
+  const warnings = [], discovered = [], messages = [];
+  const api = await loadModule("src/desktop/main.tsx", {
+    useCallback: (fn) => fn, isTauri: true, locale: "en",
+    setPrintersLoading: () => {}, setPrintersError: () => {},
+    setDiscoveryWarning: (value) => warnings.push(value),
+    setDiscoveredPrinters: (value) => discovered.push(value),
+    refreshPrinters: async () => true,
+    discoverPrinters: async () => ({ printers: [{ id: "local-1", connectionType: "spooler", protocol: "spooler" }], errors: ["Failed to persist discovery: access denied"] }),
+    isProductionPrinter: () => true,
+    t: (key, values) => `${key}:${values?.count ?? ""}`,
+    setMsg: (message) => messages.push(message),
+    friendlyPrinterError: (text) => text, errMsg: String,
+  }, () => `${source.slice(start, end)}\nexport { handleDiscover };`);
+  await api.handleDiscover();
+  assert.equal(discovered.at(-1).length, 1);
+  assert.match(warnings.at(-1), /Failed to persist discovery/);
+  assert.equal(messages.at(-1).text, "desktop.app.discoveryPartial:1");
+  assert.equal(messages.at(-1).type, "info");
+
+  const page = await readFile("src/desktop/pages/Printers.tsx", "utf8");
+  assert.match(page, /pendingLocal/);
+  assert.match(page, /waitingForSync/);
+  assert.match(page, /s\.discoveredPrinters/);
+});
+
+test("printer evidence stays independent from agent reachability in shared UI vocabulary", async () => {
+  const api = await loadModule("src/shared/job-vocabulary.ts");
+  const nowMs = Date.parse("2026-10-05T10:00:00Z");
+  const freshPrinter = { lifecycle: "active", status: "online", lastSeenAt: new Date(nowMs - 30_000).toISOString() };
+  const staleAgent = { lifecycle: "active", status: "online", lastSeenAt: new Date(nowMs - 10 * 60_000).toISOString() };
+  assert.equal(api.effectivePrinterStatus(freshPrinter, staleAgent, nowMs), "online");
+  assert.equal(api.effectivePrinterStatus({ ...freshPrinter, status: "busy" }, staleAgent, nowMs), "busy");
+  assert.equal(api.effectivePrinterStatus({ ...freshPrinter, status: "error" }, staleAgent, nowMs), "error");
+  assert.equal(api.effectivePrinterStatus({ ...freshPrinter, lastSeenAt: new Date(nowMs - 10 * 60_000).toISOString() }, staleAgent, nowMs), "unknown");
 });

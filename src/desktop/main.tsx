@@ -157,6 +157,7 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
+  const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
   const [printersFilter, setPrintersFilter] = useState("");
@@ -330,16 +331,21 @@ export default function App() {
     if (!isTauri) return;
     setPrintersLoading(true);
     setPrintersError(null);
+    setDiscoveryWarning(null);
     try {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
+      const warning = res.errors.length > 0 ? res.errors.join(" • ") : null;
+      setDiscoveryWarning(warning);
       const refreshed = await refreshPrinters();
       setMsg({
         text: list.length === 0
           ? t("desktop.app.noPhysicalPrinters")
-          : t("desktop.app.discoveryFound", { count: list.length }),
-        type: refreshed && list.length > 0 ? "success" : "info",
+          : warning
+            ? t("desktop.app.discoveryPartial", { count: list.length })
+            : t("desktop.app.discoveryFound", { count: list.length }),
+        type: warning || !refreshed ? "info" : list.length > 0 ? "success" : "info",
       });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e), locale));
@@ -781,6 +787,8 @@ export default function App() {
     setPairCode,
     pair,
     printers: physicalPrinters,
+    discoveredPrinters,
+    discoveryWarning,
     printersLoading,
     printersError,
     printersFilter,

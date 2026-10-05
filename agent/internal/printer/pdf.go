@@ -36,6 +36,11 @@ const (
 
 type PDFPrintFunc func(ctx context.Context, printerName, pdfPath string) error
 
+// PDFPrintResultFunc is the result-bearing form used by platform paths that
+// can return a durable spooler identity. An empty job ID is valid for
+// transports that cannot expose one.
+type PDFPrintResultFunc func(ctx context.Context, printerName, pdfPath string) (string, error)
+
 func ValidatePDF(data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to print empty PDF payload")
@@ -124,24 +129,24 @@ func isWindowsChmodUnsupported(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not supported")
 }
 
-// PrintPDF preserves the assigned renderer deadline and cancellation, using
-// a 120-second fallback only without a deadline. A callback can be supplied for
-// deterministic tests; production uses the platform renderer.
-func PrintPDF(ctx context.Context, printerName string, doc Document, printFn PDFPrintFunc) error {
+// printPDFWithResult preserves the assigned renderer deadline and cancellation,
+// using a 120-second fallback only without a deadline. The result-bearing
+// callback lets Windows propagate StartDocW's spooler job identifier without
+// changing the generic Printer interface.
+func printPDFWithResult(ctx context.Context, printerName string, doc Document, printFn PDFPrintResultFunc) (string, error) {
 	if err := ValidatePDF(doc.Data); err != nil {
-		return err
+		return "", err
 	}
 	if err := ValidatePDFPrinterName(printerName); err != nil {
-		return fmt.Errorf("refusing to print PDF: %w", err)
+		return "", fmt.Errorf("refusing to print PDF: %w", err)
 	}
-
 	if printFn == nil {
-		printFn = platformPrintPDF
+		return "", fmt.Errorf("PDF print result function is nil")
 	}
 
 	path, cleanup, err := writeSecurePDFTemp(doc.Data)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer cleanup()
 
@@ -154,9 +159,25 @@ func PrintPDF(ctx context.Context, printerName string, doc Document, printFn PDF
 	}
 	defer cancel()
 
-	if err := printFn(printCtx, printerName, path); err != nil {
-		return fmt.Errorf("PDF print on %q failed: %w", printerName, err)
+	spoolerJobID, err := printFn(printCtx, printerName, path)
+	if err != nil {
+		// Preserve a platform identity allocated before a later GDI/spooler
+		// failure. The caller needs it to reconcile an ambiguous submission.
+		return spoolerJobID, fmt.Errorf("PDF print on %q failed: %w", printerName, err)
 	}
 	log.Printf("PDF job %s (%d bytes) submitted to printer %q via embedded PDFium path", doc.JobID, len(doc.Data), printerName)
-	return nil
+	return spoolerJobID, nil
+}
+
+// PrintPDF preserves the public/test callback contract. Production callers
+// that need a spooler job ID use printPDFWithResult with the platform result
+// callback instead.
+func PrintPDF(ctx context.Context, printerName string, doc Document, printFn PDFPrintFunc) error {
+	if printFn == nil {
+		printFn = platformPrintPDF
+	}
+	_, err := printPDFWithResult(ctx, printerName, doc, func(callCtx context.Context, name, path string) (string, error) {
+		return "", printFn(callCtx, name, path)
+	})
+	return err
 }

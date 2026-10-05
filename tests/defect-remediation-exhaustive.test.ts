@@ -58,7 +58,7 @@ describe("DEFECT #2 — Printer Status After Agent Heartbeat Loss", () => {
   const freshTime = new Date(nowMs - 30_000); // 30s ago (fresh, <= 90s)
   const staleTime = new Date(nowMs - 120_000); // 120s ago (stale, > 90s)
 
-  it("marks printer online only when both agent and printer are fresh and active", () => {
+  it("keeps fresh printer evidence independent from agent presence", () => {
     const agent = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
     const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
 
@@ -66,23 +66,24 @@ describe("DEFECT #2 — Printer Status After Agent Heartbeat Loss", () => {
     expect(status).toBe("online");
   });
 
-  it("marks printer offline immediately if agent heartbeat is stale (>90s), even if DB printer status is 'online'", () => {
+  it("does not invent physical offline when the agent heartbeat is stale", () => {
     const agent = { status: "online", lastSeenAt: staleTime, lifecycle: "active" };
     const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
 
-    const status = getEffectivePrinterStatus(printer, agent, nowDate);
-    expect(status).toBe("offline");
+    expect(getEffectivePrinterStatus(printer, agent, nowDate)).toBe("online");
+    expect(isAgentAvailableForPrinter(agent, nowDate)).toBe(false);
   });
 
-  it("marks printer offline if parent agent is marked offline or disabled", () => {
+  it("keeps agent lifecycle/reachability separate from fresh printer evidence", () => {
     const agent = { status: "offline", lastSeenAt: freshTime, lifecycle: "active" };
     const printer = { status: "online", lastSeenAt: freshTime, lifecycle: "active" };
 
-    const status = getEffectivePrinterStatus(printer, agent, nowDate);
-    expect(status).toBe("offline");
+    expect(getEffectivePrinterStatus(printer, agent, nowDate)).toBe("online");
+    expect(isAgentAvailableForPrinter(agent, nowDate)).toBe(false);
 
     const disabledAgent = { status: "online", lastSeenAt: freshTime, lifecycle: "inactive" };
-    expect(getEffectivePrinterStatus(printer, disabledAgent, nowDate)).toBe("offline");
+    expect(getEffectivePrinterStatus(printer, disabledAgent, nowDate)).toBe("online");
+    expect(isAgentAvailableForPrinter(disabledAgent, nowDate)).toBe(false);
   });
 
   it("routing service isPrinterAvailableForJob refuses dispatch to printer with stale agent", () => {
@@ -107,7 +108,7 @@ describe("DEFECT #2 — Printer Status After Agent Heartbeat Loss", () => {
     const agent = { status: "online", lastSeenAt: staleTime.toISOString(), lifecycle: "active" };
     const printer = { status: "online", lastSeenAt: freshTime.toISOString(), lifecycle: "active" };
 
-    expect(effectivePrinterStatus(printer, agent, nowMs)).toBe("offline");
+    expect(effectivePrinterStatus(printer, agent, nowMs)).toBe("online");
   });
 });
 
@@ -150,7 +151,11 @@ describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
     expect(widgetSource).toContain("configuredPrinterMissing");
     // The OWL widget resolves its labels through the translation registry.
     expect(widgetSource).toContain('_t("saved / currently unavailable")');
-    expect(widgetSource).toContain("updateData.printer_protocol = found.protocol");
+    expect(widgetSource).toContain('const connectionType = String(found.connectionType || "").trim().toLowerCase()');
+    expect(widgetSource).toContain('updateData.printer_protocol = declared');
+    expect(widgetSource).toContain(': "unknown";');
+    expect(widgetSource).toContain('connectionType === "spooler" || protocol === "spooler"');
+    expect(widgetSource).not.toContain('!["laser", "inkjet"].includes');
   });
 });
 

@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"sync"
 	"unsafe"
 
@@ -143,14 +144,14 @@ func deviceCaps(hdc uintptr, index int) int {
 	return int(int32(ret))
 }
 
-func startGDIPrint(hdc uintptr, jobID, printerName string) error {
+func startGDIPrint(hdc uintptr, jobID, printerName string) (uint32, error) {
 	title := "YaseirAgent PDF"
 	if jobID != "" {
 		title += " " + jobID
 	}
 	titlePtr, err := windows.UTF16PtrFromString(title)
 	if err != nil {
-		return fmt.Errorf("encode print document name: %w", err)
+		return 0, fmt.Errorf("encode print document name: %w", err)
 	}
 	info := winDOCINFOW{
 		CbSize:      int32(unsafe.Sizeof(winDOCINFOW{})),
@@ -158,9 +159,9 @@ func startGDIPrint(hdc uintptr, jobID, printerName string) error {
 	}
 	ret, _, callErr := procStartDocW.Call(hdc, uintptr(unsafe.Pointer(&info)))
 	if int32(ret) <= 0 {
-		return fmt.Errorf("StartDocW(%q) failed: %w", printerName, callErr)
+		return 0, fmt.Errorf("StartDocW(%q) failed: %w", printerName, callErr)
 	}
-	return nil
+	return uint32(ret), nil
 }
 
 func endGDIPrint(hdc uintptr) error {
@@ -325,14 +326,29 @@ func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request 
 // platformPrintPDF reads the generated temporary PDF file and submits it to
 // the Windows GDI print pipeline rendered via embedded PDFium.
 func platformPrintPDF(ctx context.Context, printerName, pdfPath string) error {
-	data, err := os.ReadFile(pdfPath)
-	if err != nil {
-		return fmt.Errorf("read PDF file %q: %w", pdfPath, err)
-	}
-	return renderAndPrintPDFWithPDFium(ctx, printerName, data)
+	_, err := platformPrintPDFWithJobID(ctx, printerName, pdfPath)
+	return err
 }
 
-func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data []byte) (retErr error) {
+func platformPrintPDFWithJobID(ctx context.Context, printerName, pdfPath string) (string, error) {
+	data, err := os.ReadFile(pdfPath)
+	if err != nil {
+		return "", fmt.Errorf("read PDF file %q: %w", pdfPath, err)
+	}
+	var spoolerJobID uint32
+	printErr := renderAndPrintPDFWithPDFiumResult(ctx, printerName, data, &spoolerJobID)
+	jobID := ""
+	if spoolerJobID != 0 {
+		jobID = strconv.FormatUint(uint64(spoolerJobID), 10)
+	}
+	return jobID, printErr
+}
+
+func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data []byte) error {
+	return renderAndPrintPDFWithPDFiumResult(ctx, printerName, data, nil)
+}
+
+func renderAndPrintPDFWithPDFiumResult(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32) (retErr error) {
 	// Ctx-aware acquisition: a job that is already cancelled (or a service
 	// stop racing a long first render) must not block on the holder past
 	// the SCM stop bound. The holder checks ctx per page, so the wait is
@@ -351,7 +367,7 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		return err
 	}
 	if err := runPreflightBounded(printerName, preflightTimeout, ctx, func() error {
-		return preFlightSpoolerCheck(printerName)
+		return dispatchPreFlightSpoolerCheck(printerName)
 	}); err != nil {
 		return fmt.Errorf("pre-flight spooler check failed: %w", err)
 	}
@@ -435,9 +451,13 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		return fmt.Errorf("prepare PDF page 1/%d bitmap: %w", pages.PageCount, err)
 	}
 
-	if err := startGDIPrint(hdc, "embedded-pdf", printerName); err != nil {
+	gdiJobID, err := startGDIPrint(hdc, "embedded-pdf", printerName)
+	if err != nil {
 		cleanup()
 		return err
+	}
+	if spoolerJobID != nil {
+		*spoolerJobID = gdiJobID
 	}
 	docStarted := true
 	docEnded := false

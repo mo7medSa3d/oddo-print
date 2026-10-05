@@ -202,7 +202,7 @@ describe("production hardening contracts", () => {
     expect(agent).toContain('localStatus == "printing"');
     expect(agent).toContain('panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg');
     expect(agent).toContain('a.queue.UpdateStatusWithError(jobID, "failed", panicMsg)');
-    expect(agent).toContain('a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken)');
+    expect(agent).toContain('a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken, "")');
   });
 
   it("keeps tenant scoping fail-closed in manager dashboard and agent lifecycle routes", () => {

@@ -106,6 +106,12 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 		// working hardware. Virtual / redirected evidence still outranks this
 		// — see IsProductionPrinter.
 		d = withRegistrationSource(d, "registry")
+		// The registry is durable inventory/configuration, not live status. It
+		// has no observation timestamp, so replaying a persisted online/offline
+		// value during concurrent quick discovery makes status depend on source
+		// completion order and can overwrite a fresher Windows spooler result.
+		// Force registry status to unknown; live OS/backend probes repopulate it.
+		d.Status = "unknown"
 		if !IsProductionPrinter(d) {
 			hidden = append(hidden, d)
 			continue

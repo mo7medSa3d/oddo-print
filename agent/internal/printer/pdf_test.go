@@ -483,3 +483,22 @@ func TestPrintPDFPreservesAssignedBudgetAndCancellation(t *testing.T) {
 		t.Fatalf("cancelled PDF result: %v", err)
 	}
 }
+
+func TestPrintPDFWithResultPreservesAllocatedJobIDOnFailure(t *testing.T) {
+	jobID, err := printPDFWithResult(context.Background(), "Evidence Printer", Document{
+		Kind:  KindPDF,
+		Data:  validPDF(),
+		JobID: "pdf-partial-evidence",
+	}, func(context.Context, string, string) (string, error) {
+		return "42", MarkUnknown("simulated failure after StartDocW")
+	})
+	if err == nil {
+		t.Fatal("result-bearing PDF callback must surface the print failure")
+	}
+	if jobID != "42" {
+		t.Fatalf("allocated spooler identity must survive the error result, got %q", jobID)
+	}
+	if !OutcomeUnknown(err) {
+		t.Fatalf("wrapped failure must preserve unknown-outcome classification, got %v", err)
+	}
+}

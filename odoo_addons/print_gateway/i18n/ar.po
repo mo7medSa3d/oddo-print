@@ -1794,11 +1794,6 @@ msgid "POS Kitchen / Preparation bindings must not select an Odoo Report."
 msgstr "يجب ألا تختار روابط مطبخ POS / التحضير تقريرًا في Odoo."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "POS Kitchen / Preparation printing requires a thermal printer, not a document/laser printer."
-msgstr "طباعة مطبخ POS / التحضير تتطلب طابعة حرارية، لا طابعة مستندات أو ليزر."
-
-#. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_binding__destination_type__pos
 msgid "POS Receipt"
 msgstr "إيصال نقطة البيع"
@@ -1828,11 +1823,6 @@ msgstr "طلب POS لا يحتوي على إعداد POS لتوجيه الطبا
 #: code:addons/print_gateway/models/binding.py:0
 msgid "POS receipts must use a POS or report destination."
 msgstr "يجب أن تستخدم إيصالات POS وجهة من نوع POS أو تقرير."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "POS receipts require a thermal receipt printer, not a document/laser printer."
-msgstr "إيصالات POS تتطلب طابعة إيصالات حرارية، لا طابعة مستندات أو ليزر."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -3535,3 +3525,13 @@ msgstr "تعذّرت الطباعة"
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "saved / currently unavailable"
 msgstr "محفوظة / غير متاحة حاليًا"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "The selected printer does not declare a printable protocol. Windows-installed printers should use the spooler connection; direct USB/network printers must declare their real printer language before a test can be sent."
+msgstr "الطابعة المحددة لا تعلن بروتوكول طباعة قابلًا للتنفيذ. يجب استخدام اتصال Windows spooler للطابعات المثبتة في Windows، أما طابعات USB/الشبكة المباشرة فيجب تحديد لغة الطابعة الحقيقية قبل إرسال اختبار."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "POS receipt/kitchen printing requires a printer transport that accepts rendered images. Windows-installed printers should use the spooler connection; supported ESC/POS network printers are also accepted."
+msgstr "تتطلب طباعة إيصالات ونماذج المطبخ في نقطة البيع مسار طابعة يقبل الصور المرسومة. يجب أن تستخدم الطابعات المثبتة في Windows اتصال spooler، كما تُقبل طابعات ESC/POS الشبكية المدعومة."

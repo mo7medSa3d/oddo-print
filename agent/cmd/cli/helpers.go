@@ -14,6 +14,11 @@ import (
 
 func discoverHelper(cfg *config.Config, registryPath string, jsonOutput bool) []printer.DeviceInfo {
 	result := printer.Discover(cfg, registryPath)
+	allObserved := result.Printers
+	result.Printers = printer.RuntimeDiscoveryPrinters(allObserved)
+	if skipped := len(allObserved) - len(result.Printers); skipped > 0 {
+		log.Printf("Discovery warning: %d candidate-only printer endpoint(s) were not added because this Agent has no execution backend for them", skipped)
+	}
 	if len(result.Printers) > 0 {
 		if _, err := printer.UpsertRegistry(registryPath, result.Printers); err != nil {
 			log.Printf("Failed to persist discovery: %v", err)

@@ -22,12 +22,20 @@ import (
 )
 
 type statusUpdate struct {
-	JobID      string `json:"jobId"`
-	Status     string `json:"status"`
-	Error      string `json:"error"`
-	Reason     string `json:"reason"`
-	ClaimToken string `json:"claimToken"`
+	JobID        string `json:"jobId"`
+	Status       string `json:"status"`
+	Error        string `json:"error"`
+	Reason       string `json:"reason"`
+	ClaimToken   string `json:"claimToken"`
+	SpoolerJobID string `json:"spoolerJobId"`
 }
+
+type spoolerEvidenceFakePrinter struct {
+	*fakePrinter
+	spoolerJobID string
+}
+
+func (p *spoolerEvidenceFakePrinter) LastSpoolerJobID() string { return p.spoolerJobID }
 
 type recordingGateway struct {
 	mu        sync.Mutex
@@ -256,7 +264,7 @@ func captureAgentLogs(t *testing.T) *synchronizedLogBuffer {
 
 func TestTerminalOutcomeOutboxReplaysWithoutPhysicalReprint(t *testing.T) {
 	gw := newRecordingGateway(t)
-	p := &fakePrinter{}
+	p := &spoolerEvidenceFakePrinter{fakePrinter: &fakePrinter{}, spoolerJobID: "741"}
 	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
 	gw.failTerminalOnce = true
 
@@ -285,6 +293,9 @@ func TestTerminalOutcomeOutboxReplaysWithoutPhysicalReprint(t *testing.T) {
 	if len(reports) != 1 || reports[0].ID != "job-terminal-outbox" || reports[0].Status != "success" {
 		t.Fatalf("expected one durable success report, got %+v", reports)
 	}
+	if reports[0].SpoolerJobID != "741" {
+		t.Fatalf("durable terminal outbox lost spooler job identity: %+v", reports[0])
+	}
 
 	gw.mu.Lock()
 	gw.failTerminalOnce = false
@@ -310,10 +321,62 @@ func TestTerminalOutcomeOutboxReplaysWithoutPhysicalReprint(t *testing.T) {
 	for _, update := range updates {
 		if update.JobID == "job-terminal-outbox" && update.Status == "success" {
 			successCount++
+			if update.SpoolerJobID != "741" {
+				t.Fatalf("terminal success replay lost spoolerJobId: %+v", update)
+			}
 		}
 	}
 	if successCount != 2 {
 		t.Fatalf("expected one failed and one retried terminal success report, got %d updates=%+v", successCount, updates)
+	}
+}
+
+func TestFailedTerminalOutboxPreservesSpoolerEvidence(t *testing.T) {
+	gw := newRecordingGateway(t)
+	p := &spoolerEvidenceFakePrinter{fakePrinter: &fakePrinter{failOnCall: 1}, spoolerJobID: "852"}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+	gw.failTerminalOnce = true
+
+	job := map[string]interface{}{
+		"id":         "job-failed-spooler-evidence",
+		"agentId":    "agt_test",
+		"printerId":  "p1",
+		"status":     "claimed",
+		"payload":    makeJobPayload("job-failed-spooler-evidence"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "claim-failed-spooler-evidence",
+	}
+	ag.processJob(context.Background(), job)
+	ag.waitForJobs()
+
+	reports, err := ag.queue.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].Status != "failed" || reports[0].SpoolerJobID != "852" {
+		t.Fatalf("failed terminal outbox must retain spooler evidence, got %+v", reports)
+	}
+
+	gw.mu.Lock()
+	gw.failTerminalOnce = false
+	gw.mu.Unlock()
+	ag.reportPendingTerminalStatuses(context.Background())
+
+	updates := gw.Updates()
+	var failedReports int
+	for _, update := range updates {
+		if update.JobID == "job-failed-spooler-evidence" && update.Status == "failed" {
+			failedReports++
+			if update.SpoolerJobID != "852" {
+				t.Fatalf("failed terminal report lost spoolerJobId: %+v", update)
+			}
+		}
+	}
+	if failedReports != 2 {
+		t.Fatalf("expected failed report plus durable replay, got %d updates=%+v", failedReports, updates)
+	}
+	if p.calls != 1 {
+		t.Fatalf("failed terminal replay must never execute the printer twice, got %d calls", p.calls)
 	}
 }
 
@@ -948,5 +1011,54 @@ func TestUpdateJobStatusDetectsFenceRejection(t *testing.T) {
 	gw.rejectPrinting = false
 	if err := ag.updateJobStatus(context.Background(), "job_x", "printing", "", "claim-live", ""); err != nil {
 		t.Fatalf("expected nil error once the fence accepts, got %v", err)
+	}
+}
+
+func TestFailedTerminalOutcomePreservesSpoolerEvidence(t *testing.T) {
+	gw := newRecordingGateway(t)
+	gw.failTerminalOnce = true
+	p := &spoolerEvidenceFakePrinter{
+		fakePrinter:  &fakePrinter{failOnCall: 1},
+		spoolerJobID: "990",
+	}
+	ag := newAgentAgainst(t, gw.server.URL, "p1", p)
+
+	job := map[string]interface{}{
+		"id":         "job-failed-spool-evidence",
+		"agentId":    "agt_test",
+		"printerId":  "p1",
+		"status":     "claimed",
+		"payload":    makeJobPayload("job-failed-spool-evidence"),
+		"expiresAt":  time.Now().Add(time.Hour).Format(time.RFC3339),
+		"claimToken": "claim-failed-spool-evidence",
+	}
+	ag.processJob(context.Background(), job)
+	ag.waitForJobs()
+
+	updates := gw.Updates()
+	var failed *statusUpdate
+	for i := range updates {
+		if updates[i].JobID == "job-failed-spool-evidence" && updates[i].Status == "failed" {
+			copy := updates[i]
+			failed = &copy
+			break
+		}
+	}
+	if failed == nil {
+		t.Fatalf("expected failed terminal update, got %+v", updates)
+	}
+	if failed.SpoolerJobID != "990" {
+		t.Fatalf("failed terminal update lost allocated spooler identity: %+v", failed)
+	}
+
+	reports, err := ag.queue.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "job-failed-spool-evidence" || reports[0].Status != "failed" {
+		t.Fatalf("expected one durable failed report, got %+v", reports)
+	}
+	if reports[0].SpoolerJobID != "990" {
+		t.Fatalf("durable failed outbox lost allocated spooler identity: %+v", reports[0])
 	}
 }

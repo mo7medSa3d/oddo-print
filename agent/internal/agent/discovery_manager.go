@@ -165,6 +165,18 @@ func discoverySessionTimeout(session map[string]interface{}) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+// releaseDiscoverySemaphoreWhenFinished transfers semaphore cleanup to an
+// untracked waiter. The underlying detector may be stuck in synchronous OS
+// I/O that cannot be cancelled by a Go context; holding the semaphore prevents
+// overlapping scans, while keeping the waiter out of runtimeWG lets process
+// shutdown complete.
+func (a *Agent) releaseDiscoverySemaphoreWhenFinished(finished <-chan struct{}) {
+	go func() {
+		<-finished
+		<-a.discoverySem
+	}()
+}
+
 func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string, session map[string]interface{}) {
 	log.Printf("[discovery] executing session %s", discoveryID)
 
@@ -191,10 +203,7 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 		// synchronous and does not accept Go context cancellation. At most one
 		// such blocked scan can exist, so cancellation cannot create an
 		// unbounded goroutine/worker leak.
-		a.launchTracked(func() {
-			<-finishedCh
-			<-a.discoverySem
-		})
+		a.releaseDiscoverySemaphoreWhenFinished(finishedCh)
 		return
 	}
 
@@ -278,6 +287,13 @@ func discoveryDevicePayload(agentID string, di printer.DeviceInfo) map[string]in
 }
 
 func discoveryVerification(di printer.DeviceInfo) string {
+	// Manager discovery may expose evidence the local Agent deliberately does
+	// not promote to its runnable inventory. Never label such evidence
+	// "verified" merely because WSD/SNMP/mDNS answered; executable transport
+	// capability is a separate requirement.
+	if !printer.IsRuntimeDiscoveryPrinter(di) {
+		return "candidate"
+	}
 	verification := "candidate"
 	if di.ConnectionType == "spooler" {
 		verification = "verified"

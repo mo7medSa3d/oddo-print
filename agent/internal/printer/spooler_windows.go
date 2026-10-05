@@ -36,16 +36,20 @@ var (
 const (
 	PRINTER_STATUS_PAUSED            = 0x00000001
 	PRINTER_STATUS_ERROR             = 0x00000002
+	PRINTER_STATUS_PENDING_DELETION  = 0x00000004
 	PRINTER_STATUS_PAPER_JAM         = 0x00000008
 	PRINTER_STATUS_PAPER_OUT         = 0x00000010
+	PRINTER_STATUS_MANUAL_FEED       = 0x00000020
 	PRINTER_STATUS_PAPER_PROBLEM     = 0x00000040
 	PRINTER_STATUS_OFFLINE           = 0x00000080
 	PRINTER_STATUS_OUTPUT_BIN_FULL   = 0x00000800
 	PRINTER_STATUS_NOT_AVAILABLE     = 0x00001000
 	PRINTER_STATUS_NO_TONER          = 0x00040000
-	PRINTER_STATUS_SERVER_UNKNOWN    = 0x00800000
+	PRINTER_STATUS_PAGE_PUNT         = 0x00080000
 	PRINTER_STATUS_USER_INTERVENTION = 0x00100000
+	PRINTER_STATUS_OUT_OF_MEMORY     = 0x00200000
 	PRINTER_STATUS_DOOR_OPEN         = 0x00400000
+	PRINTER_STATUS_SERVER_UNKNOWN    = 0x00800000
 )
 
 const PRINTER_ATTRIBUTE_WORK_OFFLINE = 0x00000400
@@ -68,8 +72,11 @@ type SpoolerPrinter struct {
 	Name        string
 	SpoolerName string
 	PDFPrint    PDFPrintFunc
-	ProbeFunc   func(spoolerName string) string
-	Timeout     time.Duration
+	// PDFPrintResult is an injectable result-bearing seam used by the Windows
+	// GDI/PDF path to propagate StartDocW job identity. Tests may override it.
+	PDFPrintResult PDFPrintResultFunc
+	ProbeFunc      func(spoolerName string) string
+	Timeout        time.Duration
 	// preflightActive single-flights the readiness probe per printer: at
 	// most one helper goroutine may ever be stuck inside Win32 for this
 	// printer. Only pointer receivers ever exist (see NewSpooler and all
@@ -82,11 +89,10 @@ type SpoolerPrinter struct {
 	// sync.Mutex is safe as a zero value, so struct literals in tests and
 	// all constructors behave identically.
 	sessionMu sync.Mutex
-	// lastJobID holds the StartDocPrinterW return value of the most recent
-	// SUCCESSFULLY completed session, for Gateway evidence linkage. It is
-	// only read on the success path (sessions are serialized by sessionMu,
-	// so no failed session can interleave), and only written on success —
-	// a failed session never overwrites a previous success's identity.
+	// lastJobID holds the current attempt's Windows spooler identity
+	// (StartDocPrinterW for RAW/ESC-POS or StartDocW for PDF/image) after a
+	// successful submission. Each new attempt clears it first so a later
+	// document can never report an unrelated previous job ID.
 	lastJobID atomic.Uint64
 }
 
@@ -117,6 +123,12 @@ const preflightTimeout = 5 * time.Second
 // must not be reported as broken, and a device that is printing must never
 // be reported offline).
 var ErrSpoolerUnresponsive = errors.New("spooler RPC unresponsive")
+
+// ErrSpoolerStatusUnknown means Windows returned an explicit
+// PRINTER_STATUS_SERVER_UNKNOWN bit. The queue exists, but Windows has no
+// authoritative device status; dispatch fails closed while heartbeat reports
+// "unknown" rather than inventing a physical offline condition.
+var ErrSpoolerStatusUnknown = errors.New("spooler status unknown")
 
 // boundedPreflight runs one readiness check with single-flight semantics
 // for this printer: if a previous check is still stuck inside Win32, fail
@@ -257,8 +269,8 @@ func finishSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName 
 	return nil
 }
 
-func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
-	return executeSpoolerSessionWithSyscalls(spoolerName, data, cancelNotice, defaultSpoolerSyscalls)
+func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+	return executeSpoolerSessionWithSyscallsObserved(spoolerName, data, cancelNotice, defaultSpoolerSyscalls, onJobID)
 }
 
 // currentExecuteSpoolerSession runs the Win32 session for Print. It is a
@@ -268,6 +280,10 @@ func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan 
 var currentExecuteSpoolerSession = executeSpoolerSession
 
 func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNotice <-chan struct{}, sys spoolerSyscalls) spoolerTaskResult {
+	return executeSpoolerSessionWithSyscallsObserved(spoolerName, data, cancelNotice, sys, nil)
+}
+
+func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, cancelNotice <-chan struct{}, sys spoolerSyscalls, onJobID func(uintptr)) spoolerTaskResult {
 	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)}
@@ -300,6 +316,12 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	jobID, err := sys.startDocPrinterW(hPrinter, &di)
 	if jobID == 0 {
 		return spoolerTaskResult{err: fmt.Errorf("StartDocPrinterW(%q) failed: %w", spoolerName, err)}
+	}
+	// Publish the platform identity immediately after StartDocPrinterW succeeds,
+	// not only after the whole session succeeds. If a later Write/End call blocks
+	// or fails, reconciliation still needs the allocated Windows job identity.
+	if onJobID != nil {
+		onJobID(jobID)
 	}
 	// Every path after StartDocPrinterW succeeded must close the document
 	// session: EndDocPrinter releases a COMPLETE document, AbortPrinter
@@ -589,8 +611,8 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	if (pi.Status & PRINTER_STATUS_NOT_AVAILABLE) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is not available (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
 	}
-	if (pi.Status & PRINTER_STATUS_SERVER_UNKNOWN) != 0 {
-		return fmt.Errorf("%w: spooler printer %q status unknown from server (status 0x%08x)", ErrPrinterOffline, spoolerName, pi.Status)
+	if (pi.Status & PRINTER_STATUS_PENDING_DELETION) != 0 {
+		return fmt.Errorf("%w: spooler printer %q is pending deletion and cannot accept new jobs (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
 	}
 	if (pi.Status & PRINTER_STATUS_PAUSED) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is paused (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
@@ -601,6 +623,24 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	if (pi.Status & PRINTER_STATUS_PAPER_JAM) != 0 {
 		return fmt.Errorf("%w: spooler printer %q has a paper jam (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
 	}
+	if (pi.Status & PRINTER_STATUS_PAPER_PROBLEM) != 0 {
+		return fmt.Errorf("%w: spooler printer %q reports a paper problem (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_MANUAL_FEED) != 0 {
+		return fmt.Errorf("%w: spooler printer %q requires manual feed (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_OUTPUT_BIN_FULL) != 0 {
+		return fmt.Errorf("%w: spooler printer %q output bin is full (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_NO_TONER) != 0 {
+		return fmt.Errorf("%w: spooler printer %q is out of toner (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_PAGE_PUNT) != 0 {
+		return fmt.Errorf("%w: spooler printer %q cannot print the current page (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
+	if (pi.Status & PRINTER_STATUS_OUT_OF_MEMORY) != 0 {
+		return fmt.Errorf("%w: spooler printer %q is out of memory (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
+	}
 	if (pi.Status & PRINTER_STATUS_USER_INTERVENTION) != 0 {
 		return fmt.Errorf("%w: spooler printer %q requires user intervention (status 0x%08x)", ErrPrinterNotReady, spoolerName, pi.Status)
 	}
@@ -610,7 +650,28 @@ func preFlightSpoolerCheck(spoolerName string) error {
 	if (pi.Status & PRINTER_STATUS_PAPER_OUT) != 0 {
 		return fmt.Errorf("%w: spooler printer %q is out of paper (status 0x%08x)", ErrPrinterPaperOut, spoolerName, pi.Status)
 	}
+	// SERVER_UNKNOWN is inconclusive evidence, so it is considered only
+	// after every explicit non-routable queue/device condition above.
+	// This matches mapWindowsStatus: a concrete paused/error/media state
+	// must not be hidden by a simultaneously reported unknown-server bit.
+	if (pi.Status & PRINTER_STATUS_SERVER_UNKNOWN) != 0 {
+		return fmt.Errorf("%w: %w: spooler printer %q status is unknown from the print server (status 0x%08x)", ErrPrinterNotReady, ErrSpoolerStatusUnknown, spoolerName, pi.Status)
+	}
 	return nil
+}
+
+// dispatchPreFlightSpoolerCheck applies the same concrete blocking checks as
+// preFlightSpoolerCheck but does not turn SERVER_UNKNOWN into a hard dispatch
+// rejection. SERVER_UNKNOWN means Windows cannot report device status; it is
+// not an OFFLINE/PAUSED/ERROR bit. The queue is still allowed to prove its own
+// admission through StartDocPrinterW/StartDocW. Status()/diagnostics continue
+// to surface the evidence as unknown rather than online.
+func dispatchPreFlightSpoolerCheck(spoolerName string) error {
+	err := preFlightSpoolerCheck(spoolerName)
+	if errors.Is(err, ErrSpoolerStatusUnknown) {
+		return nil
+	}
+	return err
 }
 
 // waitBeginSession acquires this printer's session slot with a bounded
@@ -649,6 +710,7 @@ func (p *SpoolerPrinter) endSession() {
 }
 
 func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
+	p.lastJobID.Store(0)
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to print empty payload")
 	}
@@ -668,7 +730,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	// guarantees repeated timeouts cannot accumulate stuck helpers.
 	preflightStart := time.Now()
 	if err := p.boundedPreflight(ctx, preflightTimeout, func() error {
-		return preFlightSpoolerCheck(p.SpoolerName)
+		return dispatchPreFlightSpoolerCheck(p.SpoolerName)
 	}); err != nil {
 		log.Printf("print.trace spooler_preflight printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(preflightStart).Milliseconds())
 		return fmt.Errorf("pre-flight spooler check failed: %w", err)
@@ -697,7 +759,11 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 
 	go func() {
 		defer p.endSession()
-		resultCh <- currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice)
+		resultCh <- currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice, func(jobID uintptr) {
+			if jobID != 0 {
+				p.lastJobID.Store(uint64(jobID))
+			}
+		})
 	}()
 
 	select {
@@ -711,21 +777,24 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 		// not-printed failure, which would invite a duplicate reprint.
 		select {
 		case res := <-resultCh:
+			if res.jobID != 0 {
+				p.lastJobID.Store(uint64(res.jobID))
+			}
 			return res.err
 		case <-time.After(30 * time.Second):
 			return MarkUnknown("spooler session on %q still active after cancellation (bytes written unknown): %v", p.SpoolerName, ctx.Err())
 		}
 	case res := <-resultCh:
+		// Record the Windows job identity as soon as this attempt reports one,
+		// even when a later WritePrinter/EndDoc failure makes the outcome
+		// unsuccessful or ambiguous. New attempts clear lastJobID before work,
+		// so this cannot leak a previous job's evidence.
+		if res.jobID != 0 {
+			p.lastJobID.Store(uint64(res.jobID))
+		}
 		if res.err != nil {
 			log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(printStart).Milliseconds())
 			return res.err
-		}
-		// Record the Windows spooler job ID BEFORE reporting success: it is
-		// the one piece of evidence that disambiguates "print occurred but
-		// the status report was lost" during later investigation. A zero ID
-		// means the platform assigned none and is reported as "".
-		if res.jobID != 0 {
-			p.lastJobID.Store(uint64(res.jobID))
 		}
 		log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=true", p.SpoolerName, time.Since(printStart).Milliseconds())
 		log.Printf("Spooler printed %d bytes to %s (job %d)", res.written, p.SpoolerName, res.jobID)
@@ -733,8 +802,9 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	}
 }
 
-// LastSpoolerJobID implements SpoolerJobIDReporter: the StartDocPrinterW
-// return value of the most recent successful session, "" when none.
+// LastSpoolerJobID implements SpoolerJobIDReporter: the StartDocPrinterW/StartDocW
+// identity allocated for the current attempt, including an attempt whose later
+// outcome failed or became unknown. It is cleared before every new attempt.
 func (p *SpoolerPrinter) LastSpoolerJobID() string {
 	if id := p.lastJobID.Load(); id != 0 {
 		return strconv.FormatUint(id, 10)
@@ -751,16 +821,42 @@ func (p *SpoolerPrinter) SupportsKind(kind string) bool {
 	}
 }
 
+func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) error {
+	// A PDF/image attempt must never inherit evidence from an earlier RAW
+	// job. Legacy injected callbacks cannot supply a platform ID, so success
+	// through that seam intentionally leaves the ID empty.
+	p.lastJobID.Store(0)
+	if p.PDFPrint != nil {
+		return PrintPDF(ctx, p.SpoolerName, doc, p.PDFPrint)
+	}
+	resultFn := p.PDFPrintResult
+	if resultFn == nil {
+		resultFn = platformPrintPDFWithJobID
+	}
+	spoolerJobID, printErr := printPDFWithResult(ctx, p.SpoolerName, doc, resultFn)
+	if spoolerJobID != "" {
+		id, parseErr := strconv.ParseUint(spoolerJobID, 10, 64)
+		if parseErr != nil || id == 0 {
+			if printErr != nil {
+				return fmt.Errorf("%w; Windows PDF renderer also returned invalid spooler job ID %q", printErr, spoolerJobID)
+			}
+			return fmt.Errorf("Windows PDF renderer returned invalid spooler job ID %q", spoolerJobID)
+		}
+		p.lastJobID.Store(id)
+	}
+	return printErr
+}
+
 func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error {
 	switch NormalizeKind(doc.Kind) {
 	case KindPDF:
-		return PrintPDF(ctx, p.SpoolerName, doc, p.PDFPrint)
+		return p.printPDFDocument(ctx, doc)
 	case KindImage:
 		pdf, err := JPEGToPDF(doc.Data)
 		if err != nil {
 			return fmt.Errorf("render image for Windows spooler: %w", err)
 		}
-		return PrintPDF(ctx, p.SpoolerName, Document{Kind: KindPDF, Data: pdf, JobID: doc.JobID}, p.PDFPrint)
+		return p.printPDFDocument(ctx, Document{Kind: KindPDF, Data: pdf, JobID: doc.JobID})
 	case KindRaw, KindESCPOS:
 		return p.Print(ctx, doc.Data)
 	default:
@@ -878,19 +974,29 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 		probe.VerdictReason = "WorkOffline attribute set (\"Use Printer Offline\"); spooler holds jobs"
 		return probe
 	}
+	if (pi.Status & PRINTER_STATUS_PENDING_DELETION) != 0 {
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = "queue pending deletion; Windows refuses new print jobs"
+		return probe
+	}
 	if (pi.Status & PRINTER_STATUS_PAUSED) != 0 {
 		probe.Verdict = SpoolerQueueUnavailable
 		probe.VerdictReason = "queue paused; spooler holds jobs"
 		return probe
 	}
-	if (pi.Status & (PRINTER_STATUS_ERROR | PRINTER_STATUS_PAPER_JAM | PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_PAPER_PROBLEM | PRINTER_STATUS_OUTPUT_BIN_FULL | PRINTER_STATUS_NO_TONER | PRINTER_STATUS_DOOR_OPEN | PRINTER_STATUS_USER_INTERVENTION)) != 0 {
+	if (pi.Status & (PRINTER_STATUS_ERROR | PRINTER_STATUS_PAPER_JAM | PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_MANUAL_FEED | PRINTER_STATUS_PAPER_PROBLEM | PRINTER_STATUS_OUTPUT_BIN_FULL | PRINTER_STATUS_NO_TONER | PRINTER_STATUS_PAGE_PUNT | PRINTER_STATUS_USER_INTERVENTION | PRINTER_STATUS_OUT_OF_MEMORY | PRINTER_STATUS_DOOR_OPEN)) != 0 {
 		probe.Verdict = SpoolerStatusUnknown
-		probe.VerdictReason = fmt.Sprintf("queue reports device condition (status 0x%08x); submission may queue; physical outcome unknown", pi.Status)
+		probe.VerdictReason = fmt.Sprintf("queue reports a blocking device condition (status 0x%08x); Agent preflight refuses new dispatch until it clears; physical outcome of existing jobs remains unknown", pi.Status)
 		return probe
 	}
-	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE | PRINTER_STATUS_SERVER_UNKNOWN)) != 0 {
+	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE)) != 0 {
+		probe.Verdict = SpoolerQueueUnavailable
+		probe.VerdictReason = fmt.Sprintf("port monitor reports unavailable/offline (status 0x%08x); queue exists and is accessible; physical device state remains driver/monitor-reported (for Standard TCP/IP ports, verify 'SNMP Status Enabled'/community if this disagrees with a known-working printer)", pi.Status)
+		return probe
+	}
+	if (pi.Status & PRINTER_STATUS_SERVER_UNKNOWN) != 0 {
 		probe.Verdict = SpoolerStatusUnknown
-		probe.VerdictReason = fmt.Sprintf("port monitor reports unreachable (status 0x%08x); queue exists and is accessible; physical device state unproven (for Standard TCP/IP ports, verify 'SNMP Status Enabled'/community — a wrong SNMP setting is the most common false-offline cause)", pi.Status)
+		probe.VerdictReason = fmt.Sprintf("print server reports printer status unknown (status 0x%08x); queue exists and is accessible; physical device state is unproven", pi.Status)
 		return probe
 	}
 	probe.Verdict = SpoolerReadyToAccept
@@ -909,7 +1015,7 @@ func (p *SpoolerPrinter) Test(ctx context.Context) error {
 	// (queue exists, driver loads, spooler answered) — the physical outcome
 	// of any later document remains UNKNOWN until observed.
 	if err := p.boundedPreflight(ctx, preflightTimeout, func() error {
-		return preFlightSpoolerCheck(p.SpoolerName)
+		return dispatchPreFlightSpoolerCheck(p.SpoolerName)
 	}); err != nil {
 		return fmt.Errorf("spooler test probe for %q (SPOOLER_QUEUE_UNAVAILABLE): %w", p.SpoolerName, err)
 	}
@@ -962,10 +1068,10 @@ func (p *SpoolerPrinter) Status() string {
 	switch {
 	case err == nil:
 		return "online"
-	case errors.Is(err, ErrSpoolerUnresponsive):
-		// Nothing was proven about the device: an unanswered RPC is not an
-		// offline printer.
-		log.Printf("WARNING: Spooler status probe for %q did not complete: %v", p.SpoolerName, err)
+	case errors.Is(err, ErrSpoolerUnresponsive), errors.Is(err, ErrSpoolerStatusUnknown):
+		// Nothing definitive was proven about the device: an unanswered RPC
+		// or an explicit SERVER_UNKNOWN bit is not an offline printer.
+		log.Printf("WARNING: Spooler status for %q is inconclusive: %v", p.SpoolerName, err)
 		return "unknown"
 	case errors.Is(err, ErrPrinterOffline):
 		return "offline"

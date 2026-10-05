@@ -249,9 +249,10 @@ type Agent struct {
 }
 
 type terminalExecutionResult struct {
-	status     string
-	errMsg     string
-	claimToken string
+	status       string
+	errMsg       string
+	claimToken   string
+	spoolerJobID string
 }
 
 type printerProbeState struct {
@@ -498,6 +499,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	// Phase14: Do quick local discovery synchronously (config+spooler+registry) to avoid
 	// blocking startup on 8s LAN scan. Full network/USB discovery runs asynchronously.
 	quick := printer.DiscoverQuick(cfg, registryPath)
+	quick.Printers = printer.RuntimeDiscoveryPrinters(quick.Printers)
 	quick.Printers = a.filterGatewayOwned(quick.Printers)
 	if len(quick.Errors) > 0 {
 		for _, e := range quick.Errors {
@@ -531,7 +533,10 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 func (a *Agent) persistDiscoveredPrinters(infos []printer.DeviceInfo) ([]printer.DeviceInfo, error) {
 	merged, err := printer.UpsertRegistry(a.registryPath, infos)
 	if err == nil {
-		return merged, nil
+		// UpsertRegistry merges the current observations with historical rows.
+		// Re-apply the runtime-capability filter so an old candidate-only LPR
+		// row cannot re-enter the production inventory after a newer scan.
+		return printer.RuntimeDiscoveryPrinters(merged), nil
 	}
 	log.Printf("WARNING: failed to persist discovery registry; retaining %d runtime observations: %v", len(infos), err)
 	for index := range infos {
@@ -552,12 +557,13 @@ func (a *Agent) ListPrinters() []printer.DeviceInfo {
 		log.Printf("[printer] failed to list printers: %v", err)
 		return nil
 	}
-	return infos
+	return printer.RuntimeDiscoveryPrinters(infos)
 }
 
 // Discover runs discovery and refreshes the local registry + printer map.
 func (a *Agent) Discover() printer.DiscoveryResult {
 	result := printer.Discover(a.cfg, a.registryPath)
+	result.Printers = printer.RuntimeDiscoveryPrinters(result.Printers)
 	result.Printers = a.filterGatewayOwned(result.Printers)
 	if len(result.Printers) > 0 {
 		merged, persistErr := a.persistDiscoveredPrinters(result.Printers)
@@ -596,8 +602,38 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 	default:
 	}
 
-	log.Printf("[discovery] starting async full discovery (network+USB)")
-	full := printer.DiscoverWithContext(ctx, a.cfg, a.registryPath)
+	// Share the same one-scan semaphore used by manager-triggered discovery.
+	// If a manager scan already owns it, startup discovery is opportunistic and
+	// can safely defer to the next explicit/periodic discovery request.
+	select {
+	case a.discoverySem <- struct{}{}:
+	case <-ctx.Done():
+		return
+	default:
+		log.Printf("[discovery] async full discovery deferred: another discovery is already running")
+		return
+	}
+	releaseSemaphore := true
+	defer func() {
+		if releaseSemaphore {
+			<-a.discoverySem
+		}
+	}()
+
+	log.Printf("[discovery] starting bounded async full discovery (network+USB)")
+	full, completed, finishedCh := runBoundedDiscovery(ctx, defaultDiscoveryTimeout, func(scanCtx context.Context) printer.DiscoveryResult {
+		return printer.DiscoverWithContext(scanCtx, a.cfg, a.registryPath)
+	})
+	if !completed {
+		// A synchronous Win32 call can outlive its Go context. Keep the semaphore
+		// owned until that worker actually returns, but do not attach this waiter
+		// to runtimeWG: graceful shutdown must not wait forever on OS RPC.
+		releaseSemaphore = false
+		a.releaseDiscoverySemaphoreWhenFinished(finishedCh)
+		log.Printf("[discovery] async full discovery exceeded %s bound; worker may still be finishing", defaultDiscoveryTimeout)
+		return
+	}
+	full.Printers = printer.RuntimeDiscoveryPrinters(full.Printers)
 	full.Printers = a.filterGatewayOwned(full.Printers)
 	if len(full.Errors) > 0 {
 		for _, e := range full.Errors {
@@ -939,7 +975,7 @@ func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken, ""); err != nil {
+		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken, report.SpoolerJobID); err != nil {
 			log.Printf("Job %s: pending terminal status report failed: %v", report.ID, err)
 		}
 	}
@@ -1473,7 +1509,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
 		log.Printf("Job %s already has a process-local terminal physical result; refusing duplicate dispatch and re-reporting", jobID)
-		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken, ""); err != nil {
+		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken, terminal.spoolerJobID); err != nil {
 			log.Printf("Job %s: failed to re-report process-local terminal result: %v", jobID, err)
 		}
 		return false
@@ -1555,7 +1591,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 				if readErr != nil || (found && localStatus == "printing") {
 					panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg + " (physical outcome cannot be proven absent after agent panic)"
 					if err := a.queue.UpdateStatusWithError(jobID, "failed", panicMsg); err != nil {
-						a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken)
+						a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken, "")
 					}
 				} else if found && localStatus == "success" {
 					status = "success"
@@ -1639,13 +1675,13 @@ func (a *Agent) forgetJob(id string) {
 	a.inFlightMu.Unlock()
 }
 
-func (a *Agent) rememberTerminalExecution(jobID, status, errMsg, claimToken string) {
+func (a *Agent) rememberTerminalExecution(jobID, status, errMsg, claimToken, spoolerJobID string) {
 	a.inFlightMu.Lock()
 	defer a.inFlightMu.Unlock()
 	if a.terminalExecution == nil {
 		a.terminalExecution = make(map[string]terminalExecutionResult)
 	}
-	a.terminalExecution[jobID] = terminalExecutionResult{status: status, errMsg: errMsg, claimToken: claimToken}
+	a.terminalExecution[jobID] = terminalExecutionResult{status: status, errMsg: errMsg, claimToken: claimToken, spoolerJobID: spoolerJobID}
 }
 
 func (a *Agent) deliveryReceivedAt(jobID string) time.Time {
@@ -2375,6 +2411,10 @@ func (a *Agent) reloadRegistryPrinters() {
 		log.Printf("WARNING: failed to reload printer registry: %v", err)
 		return
 	}
+	// Old releases could persist candidate-only LPR observations even though
+	// there is no LPR execution backend. Keep those historical rows from
+	// re-entering runtime reconciliation/heartbeat after upgrade.
+	infos = printer.RuntimeDiscoveryPrinters(infos)
 	a.reconcileRegistryPrinters(infos)
 }
 
@@ -2805,6 +2845,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	printErr := printer.PrintDocument(printCtx, p, printer.Document{Kind: kind, Data: printData, JobID: jobID})
 	log.Printf("print.trace transport_complete request_id=%s job_id=%s printer_id=%s transport_latency_ms=%d success=%t", requestID, jobID, printerID, time.Since(printStart).Milliseconds(), printErr == nil)
 
+	// Capture platform submission evidence for this attempt regardless of the
+	// terminal result. Windows can allocate a spool job before a later write or
+	// render error, and that identity is essential for safe reconciliation.
+	spoolerJobID := printer.SpoolerJobIDOf(p)
 	failureMsg := ""
 	if printErr != nil {
 		failureMsg = printErr.Error()
@@ -2817,28 +2861,29 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		if physicalPeripheralSideEffect && !printer.HasUnknownOutcomeMarker(failureMsg) {
 			failureMsg = "UNKNOWN_PARTIAL_DELIVERY: peripheral side effect succeeded before main print outcome was known: " + failureMsg
 		}
-		if err := a.queue.UpdateStatusWithError(jobID, "failed", failureMsg); err != nil {
+		if err := a.queue.UpdateTerminalWithEvidence(jobID, "failed", failureMsg, spoolerJobID); err != nil {
 			log.Printf("Job %s: ledger write failed after print failure: %v", jobID, err)
 			// Physical execution already happened (or is ambiguous). If the
 			// durable terminal row cannot be written, keep an in-process fence
-			// so duplicate delivery cannot execute the printer again.
-			a.rememberTerminalExecution(jobID, "failed", failureMsg, claimToken)
+			// including any platform identity so duplicate delivery cannot
+			// execute the printer again and later reconciliation keeps its evidence.
+			a.rememberTerminalExecution(jobID, "failed", failureMsg, claimToken, spoolerJobID)
 		}
 	} else {
-		if err := a.queue.UpdateStatus(jobID, "success"); err != nil {
+		if err := a.queue.UpdateTerminalWithEvidence(jobID, "success", "", spoolerJobID); err != nil {
 			// Physical execution already succeeded. If SQLite cannot persist
-			// the terminal row, keep an in-process fence so duplicate delivery
-			// cannot execute the printer again. On process restart the durable
-			// row remains `printing`, and MarkInterrupted converts it into an
-			// explicit unknown outcome instead of allowing silent reprint.
+			// the terminal row, keep an in-process fence INCLUDING the platform
+			// job identity so a lost Gateway acknowledgement can be re-reported
+			// without executing the printer again. On restart, a durable row that
+			// remained `printing` is converted to an explicit unknown outcome.
 			log.Printf("Job %s: ledger write failed after successful print: %v", jobID, err)
-			a.rememberTerminalExecution(jobID, "success", "", claimToken)
+			a.rememberTerminalExecution(jobID, "success", "", claimToken, spoolerJobID)
 		}
 	}
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, "")
+		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, printer.SpoolerJobIDOf(p))
 		return
 	}
 
@@ -2846,7 +2891,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// Surface the platform job identity (Windows spooler) when the backend
 	// reports one. SpoolerJobIDOf returns "" for every other backend, so
 	// this stays a no-op off Windows and the Gateway contract is unchanged.
-	a.updateJobStatus(ctx, jobID, "success", "", claimToken, printer.SpoolerJobIDOf(p))
+	a.updateJobStatus(ctx, jobID, "success", "", claimToken, spoolerJobID)
 }
 
 // ErrStaleClaim is returned by updateJobStatus when the gateway rejects a

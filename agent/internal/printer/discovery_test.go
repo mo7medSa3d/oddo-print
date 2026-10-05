@@ -765,3 +765,38 @@ func TestMergeNetworkDevices(t *testing.T) {
 		t.Errorf("expected serial 'VNC3R01234', got %v", res.Capabilities["serial"])
 	}
 }
+
+func TestRuntimeDiscoveryPrintersExcludesCandidateOnlyLPR(t *testing.T) {
+	input := []DeviceInfo{
+		{ID: "spooler-1", Name: "Office", ConnectionType: "spooler", Protocol: "spooler"},
+		{ID: "lpr-1", Name: "LPD candidate", ConnectionType: "network", Protocol: "lpr", Capabilities: map[string]interface{}{"verification": "candidate_only"}},
+		{ID: "network-1", Name: "Raw printer", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"verification": "verified"}},
+	}
+	got := RuntimeDiscoveryPrinters(input)
+	if len(got) != 2 {
+		t.Fatalf("expected only executable discoveries, got %#v", got)
+	}
+	if got[0].ID != "spooler-1" || got[1].ID != "network-1" {
+		t.Fatalf("candidate-only discovery leaked into production inventory: %#v", got)
+	}
+	if len(input) != 3 {
+		t.Fatal("filter must not mutate caller inventory")
+	}
+}
+
+func TestRuntimeDiscoveryPrintersExcludesAutomaticUnknownNetworkEvidence(t *testing.T) {
+	input := []DeviceInfo{
+		{ID: "tcp-candidate", Name: "Open 9100", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"discovered_via": "tcp_port_scan", "verification": "print_endpoint_verified"}},
+		{ID: "wsd-candidate", Name: "WSD", ConnectionType: "network", Protocol: "", Capabilities: map[string]interface{}{"discovered_via": SourceWSD, "verification": "device_detected_only"}},
+		{ID: "snmp-candidate", Name: "SNMP", ConnectionType: "network", Protocol: "", Capabilities: map[string]interface{}{"discovered_via": SourceSNMP, "verification": "device_detected_only"}},
+		{ID: "manual-unknown", Name: "Operator inventory", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"registration_source": "manual"}},
+		{ID: "raw-runtime", Name: "Declared RAW", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"discovered_via": SourceSNMP, "verification": "verified"}},
+	}
+	got := RuntimeDiscoveryPrinters(input)
+	if len(got) != 2 {
+		t.Fatalf("expected only explicit unknown + executable RAW rows, got %#v", got)
+	}
+	if got[0].ID != "manual-unknown" || got[1].ID != "raw-runtime" {
+		t.Fatalf("unexpected runtime discovery rows: %#v", got)
+	}
+}

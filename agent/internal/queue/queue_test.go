@@ -167,6 +167,36 @@ func TestPendingTerminalReportsSurviveRestartUntilGatewayAck(t *testing.T) {
 	}
 }
 
+func TestPendingTerminalReportPersistsSpoolerEvidenceAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox-evidence.db")
+	q, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := q.BeginPrint("spool-evidence", "printer-1", []byte("payload"), "claim-spool", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateTerminalWithEvidence("spool-evidence", "success", "", "741"); err != nil {
+		t.Fatalf("UpdateTerminalWithEvidence: %v", err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatalf("Close before restart: %v", err)
+	}
+
+	q, err = New(path)
+	if err != nil {
+		t.Fatalf("reopen queue: %v", err)
+	}
+	defer q.Close()
+	reports, err := q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "spool-evidence" || reports[0].SpoolerJobID != "741" || reports[0].ClaimToken != "claim-spool" {
+		t.Fatalf("restart lost terminal spooler evidence: %#v", reports)
+	}
+}
+
 func TestQueueUpdateWithError(t *testing.T) {
 	dir := t.TempDir()
 	q, err := New(filepath.Join(dir, "x.db"))
@@ -594,6 +624,10 @@ func TestNonemptyLegacyQueueMigratesDurablyWithoutLosingRows(t *testing.T) {
 	}
 	if err := q.Push("new", "p1", []byte("receipt")); err != nil {
 		t.Fatal(err)
+	}
+	var spoolerColumn int
+	if err := q.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('print_jobs') WHERE name = 'spooler_job_id'`).Scan(&spoolerColumn); err != nil || spoolerColumn != 1 {
+		t.Fatalf("legacy migration missing spooler_job_id column: count=%d err=%v", spoolerColumn, err)
 	}
 	var missing int
 	if err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE updated_at IS NULL`).Scan(&missing); err != nil || missing != 0 {
