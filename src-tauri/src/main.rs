@@ -57,15 +57,24 @@ fn focus_existing_manager_window() {
 #[cfg(windows)]
 fn acquire_single_instance() -> Result<Option<SingleInstanceGuard>, String> {
     const ERROR_ALREADY_EXISTS: u32 = 183;
-    let name: Vec<u16> = "Local\\YaseirPrintManager.SingleInstance.v1"
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    let name: Vec<u16> = "Global\\YaseirPrintManager.SingleInstance.v1"
         .encode_utf16()
         .chain(Some(0))
         .collect();
     let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
     if handle.is_null() {
+        let error = unsafe { GetLastError() };
+        // A manager running at a different integrity level/session can own the
+        // machine-wide mutex while denying MUTEX_ALL_ACCESS to this process.
+        // Treat that as "already running" rather than allowing a second
+        // manager to race Agent startup.
+        if error == ERROR_ACCESS_DENIED {
+            focus_existing_manager_window();
+            return Ok(None);
+        }
         return Err(format!(
-            "CreateMutexW failed while enforcing single-instance startup: {}",
-            unsafe { GetLastError() }
+            "CreateMutexW failed while enforcing single-instance startup: {error}"
         ));
     }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
