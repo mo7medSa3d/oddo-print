@@ -474,7 +474,7 @@ export async function POST(req: Request) {
             stripeSubscriptionId: recoveredSubscriptionId,
             status: recoveredStatus,
             currentPeriodStart: recoveredPeriod.start,
-            currentPeriodEnd: recoveredPeriod.end,
+            currentPeriodEnd: recoveredPeriod.end ?? sql`NULL`,
             cancelAtPeriodEnd: recoveredSubscription.cancel_at_period_end === true,
             checkoutStatus: "completed",
             checkoutPlanId: recoveredPlan.id,
@@ -617,6 +617,24 @@ export async function POST(req: Request) {
         openPlanId: state.openPlanId,
       },
       { status: 409 },
+    );
+  }
+  if (state.kind === "recovery_blocked") {
+    return NextResponse.json(
+      {
+        error: state.reason,
+        code: "CHECKOUT_RECONCILIATION_BLOCKED",
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (state.kind !== "proceed") {
+    return NextResponse.json(
+      {
+        error: "Checkout state could not be advanced safely. Retry with the current workspace state.",
+        code: "CHECKOUT_STATE_CHANGED",
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
     );
   }
 
