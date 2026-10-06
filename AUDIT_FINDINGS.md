@@ -14,6 +14,16 @@ Generic, manager, and platform logout validated database-backed sessions before 
 ### P2 — Stale printer protocol-alias unit fixture
 The fixture used a removed printerType value and omitted required agentId. Runtime schema was correct; the test was updated without weakening validation.
 
+
+### P1 — Heartbeat rejected current TCP/Windows-spooler connection aliases
+The desktop/CLI legitimately emits `connectionType=tcp` and legacy installations may emit `connectionType=windows_spooler`. Heartbeat normalization only canonicalized those aliases when they arrived through the legacy `type` field, so otherwise-valid printers could exist locally but be skipped by Gateway inventory. Both current and legacy fields now canonicalize to `network` / `spooler`, with an integration regression covering persistence.
+
+### P1 — Manual Agent registry accepted non-executable transport/protocol contracts
+`RegisterManual()` persisted arbitrary connection/protocol strings without sharing the Agent runtime validator. This allowed a CLI/manual printer to be saved locally while being impossible to construct or rejected later by heartbeat. Manual registration now canonicalizes aliases, normalizes USB driver queues to spooler, and reuses `config.ValidatePrinterConfig()` before persistence.
+
+### P2 — Windows Rust logger harness drifted behind ACL helper contract
+The production logger gained Manager ACL helper calls, but `src-tauri/tests/audit_logging.rs` mocked only the old data-root function. Windows CI therefore failed before installer construction. The harness now exposes the same security-helper surface without weakening production ACL enforcement.
+
 ## Reviewed with no confirmed defect in this batch
 
 - Agent pairing: one-time code, collision fence, rate limit, tenant/billing lock, hashed Gateway secret.
