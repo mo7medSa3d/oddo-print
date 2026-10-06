@@ -17,11 +17,13 @@ describe("printer-capability-matrix", () => {
     expect(getSupportedDocumentTypes("spooler", "spooler")).not.toContain("raw");
     expect(getSupportedDocumentTypes("windows_spooler", "spooler")).not.toContain("escpos");
     expect(isSpoolerTransport("spooler", "spooler")).toBe(true);
-    expect(isSpoolerTransport("network", "windows_spooler")).toBe(true);
+    expect(isSpoolerTransport("spooler", "windows_spooler")).toBe(true);
+    expect(isSpoolerTransport("network", "windows_spooler")).toBe(false);
   });
 
-  it("treats windows_spooler and network IPPS aliases as document transports everywhere", () => {
-    expect(getSupportedDocumentTypes("windows_spooler", "network")).toEqual(["pdf", "image"]);
+  it("keeps legacy windows_spooler protocol scoped to a spooler transport", () => {
+    expect(getSupportedDocumentTypes("windows_spooler", "spooler")).toEqual(["pdf", "image"]);
+    expect(getSupportedDocumentTypes("windows_spooler", "network")).toEqual([]);
     expect(getSupportedDocumentTypes("ipps", "network")).toEqual(["pdf"]);
   });
 
