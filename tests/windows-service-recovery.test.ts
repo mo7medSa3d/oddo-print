@@ -82,7 +82,7 @@ describe("windows-service-recovery", () => {
     const start = source.slice(source.indexOf("fn start_inner"), source.indexOf("pub fn stop("));
     expect(start).toContain("match sc_query()?");
     expect(start).toContain("Some(4) => Ok(())");
-    expect(start).toContain("Some(1) => { if (is_process_running(app) { stop_inner(app)?; } run_net(\"start\")?");
+    expect(start).toContain("Some(1) => { if is_process_running(app) { stop_inner(app)?; } run_net(\"start\")?");
     expect(start).toContain("None =>");
     expect(start).toContain("spawn_background(app)");
     expect(start.indexOf("spawn_background(app)")).toBeGreaterThan(start.indexOf("None =>"));
