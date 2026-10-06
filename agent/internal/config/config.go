@@ -151,7 +151,6 @@ func Load(path string) (*Config, error) {
 		cfg.Agent.ReprintAfterCrash = boolPtr(false)
 	}
 
-	dir := filepath.Dir(path)
 	store := storage.NewStore(dir)
 	if sealed, serr := store.GetSecret(secretStoreKey); serr == nil && sealed != "" {
 		cfg.Agent.Secret = sealed
