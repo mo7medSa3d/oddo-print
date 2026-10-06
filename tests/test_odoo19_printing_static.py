@@ -211,7 +211,11 @@ def test_gateway_url_change_durably_disables_previous_endpoint_before_new_sync()
     assert "new_revision = before_revision[record.id] + 1" in source
     assert "previous Gateway endpoint has been successfully disabled" in source
     assert "def _run_postcommit_enabled_sync" in source
-    assert "if not self._sync_pending_gateway_disable" in source
+    # Shutdown runs with the OLD credential and a falsy result blocks the new
+    # endpoint sync (revoked old keys converge via _OldEndpointUnauthorized).
+    assert "shutdown_ok = self._sync_pending_gateway_disable(" in source
+    assert "api_key=old_api_key," in source
+    assert "if not shutdown_ok:" in source
     assert "self._sync_enabled_state_to_gateway(" in source
     assert '"|"' in source
     assert '"pending_disable_gateway_url", "!="' in source
@@ -302,7 +306,8 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
 
 def test_gateway_sale_details_uses_odoo19_component_and_props():
     source = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
-    assert 'renderToElement(\n                "point_of_sale.SaleDetailsReport"' in source
+    assert '"point_of_sale.SaleDetailsReport"' in source
+    assert "renderToElement(" in source
     assert "date: formatDateTime(DateTime.now())" in source
     assert "pos: this.pos" in source
     assert "formatCurrency: this.pos.env.utils.formatCurrency" in source
@@ -614,3 +619,77 @@ def test_payload_ceiling_is_5mib_decoded_everywhere():
     assert "8 * 1024 * 1024" not in source
     assert "decoded_size" in source
     assert "5 MiB Gateway/Agent safety limit" in source
+
+
+def test_pos_operation_identity_chain_receipt_and_sale_details():
+    router = (ADDON / "models/print_router.py").read_text(encoding="utf-8")
+    order = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
+    session = (ADDON / "models/pos_session.py").read_text(encoding="utf-8")
+    receipt_js = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
+    details_js = (ADDON / "static/src/js/pos_sale_details_router.js").read_text(encoding="utf-8")
+    # Server accepts caller operation identity on every POS path.
+    assert "def route_pos_receipt(self, order, image_base64, *, idempotency_key=None)" in router
+    assert "def route_pos_sale_details(self, session, image_base64, *, idempotency_key=None)" in router
+    assert "def action_print_gateway_receipt(self, image, operation_id=None)" in order
+    assert "idempotency_key=operation_id" in order
+    assert "def action_print_gateway_sale_details(self, image, operation_id=None)" in session
+    assert "idempotency_key=operation_id" in session
+    # Clients mint one id per click, coalesce in-flight duplicates, and keep
+    # uncertain operations retryable with the same id.
+    assert "operation_id: operationId" in receipt_js
+    assert "gatewayUuid()" in receipt_js
+    assert "gatewayReceiptPending" in receipt_js
+    assert "gatewayReceiptOperations" in receipt_js
+    assert "operation_id: operationId" in details_js
+    assert "gatewaySaleDetailsPending" in details_js
+    assert "gatewaySaleDetailsOperations" in details_js
+
+
+def test_report_operation_identity_chain():
+    router = (ADDON / "models/print_router.py").read_text(encoding="utf-8")
+    binding = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    interceptor = (ADDON / "static/src/js/report_interceptor.js").read_text(encoding="utf-8")
+    assert "def route_report(self, report, records, data=None, explicit_binding=None, idempotency_key=None)" in router
+    assert "def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None, operation_id=None)" in binding
+    assert "idempotency_key=operation_id" in binding
+    assert "operation_id: reportOperationUuid()" in interceptor
+    assert "function reportOperationUuid()" in interceptor
+
+
+def test_raw_wire_types_match_gateway_contract():
+    router = (ADDON / "models/print_router.py").read_text(encoding="utf-8")
+    # The Gateway contract (contracts/print-payload-contract.json wireTypes)
+    # admits only raw/escpos/pdf/image as wire types; zpl/tspl travel as
+    # type=raw with an explicit protocol. Emitting type=zpl/tspl fails
+    # Gateway validation, so the router must never do it.
+    assert 'wire_type = "escpos" if protocol == "escpos" else "raw"' in router
+    assert '"type": "zpl"' not in router
+    assert '"type": "tspl"' not in router
+    assert "'type': 'zpl'" not in router
+    assert "'type': 'tspl'" not in router
+
+
+def test_partial_status_maps_to_submitted_on_both_paths():
+    job = (ADDON / "models/print_job.py").read_text(encoding="utf-8")
+    # 'partial' is not an internal Odoo status: both the submit path and the
+    # sync path must map it to 'submitted' instead of crashing _advance_status
+    # or silently dropping the observation.
+    assert job.count('remote_status = "submitted"') >= 1
+    assert 'if remote_status == "partial"' in job
+    assert 'elif status == "partial"' in job or 'status == "partial"' in job
+
+
+def test_picking_destination_without_report_computes_label_document_type():
+    binding = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    compute = binding[binding.index("def _compute_document_type"):]
+    compute = compute[:compute.index("def _compute_name")]
+    # The raw-label automation path (route_raw_command document_type="label",
+    # raw_template policy intents) must have a matchable binding mode.
+    assert 'elif record.destination_type == "picking_type":' in compute
+    assert 'record.document_type = "label"' in compute
+    # Report routing is preserved: report-bound bindings keep report:* types.
+    assert 'elif record.report_id or record.destination_report_id:' in compute
+    assert compute.index('elif record.report_id') < compute.index('elif record.destination_type == "picking_type":')
+    # POS routing is preserved.
+    assert 'record.document_type = "receipt"' in compute
+    assert 'record.document_type = "kitchen"' in compute

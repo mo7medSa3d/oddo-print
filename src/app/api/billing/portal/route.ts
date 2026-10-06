@@ -10,7 +10,10 @@ import { stripeRequest } from "../../../../lib/stripe";
 
 export async function POST(req: Request) {
   const claims = await validateWorkspaceManager(req);
-  if (!claims?.userId || !hasManagerPermission(claims, "billing.manage")) {
+  if (!claims?.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasManagerPermission(claims, "billing.manage")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

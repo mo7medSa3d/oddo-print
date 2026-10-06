@@ -206,6 +206,95 @@ func TestSpoolerWritePartialBytesThenErrorIsUnknown(t *testing.T) {
 	}
 }
 
+func TestSpoolerWriteOverReportCannotSucceed(t *testing.T) {
+	mockSyscalls := defaultSpoolerSyscalls
+	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
+		*hPrinter = 322
+		return 1, nil
+	}
+	mockSyscalls.closePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.startDocPrinterW = func(hPrinter syscall.Handle, di *docInfo1) (uintptr, error) { return 457, nil }
+	mockSyscalls.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.writePrinter = func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		// Faulty driver: reports success with more bytes than submitted.
+		*bytesWritten = uint32(length) + 10
+		return 1, nil
+	}
+	mockSyscalls.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	endDocCalled := false
+	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		endDocCalled = true
+		return 1, nil
+	}
+	abortCalled := false
+	mockSyscalls.abortPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		abortCalled = true
+		return 1, nil
+	}
+
+	data := []byte("receipt payload")
+	res := executeSpoolerSessionWithSyscalls("OverReportPrinter", data, nil, mockSyscalls)
+	if res.err == nil {
+		t.Fatal("driver over-report must not finalize as a successful print")
+	}
+	if !OutcomeUnknown(res.err) {
+		t.Fatalf("driver over-report must be classified unknown: %v", res.err)
+	}
+	if endDocCalled {
+		t.Fatal("a truncated document with uncertain wire state must never reach EndDocPrinter")
+	}
+	if !abortCalled {
+		t.Fatal("an uncertain document session must be aborted so truncated output is discarded")
+	}
+	if res.written != 0 {
+		t.Fatalf("over-report evidence must stay at honestly confirmed bytes, got %d", res.written)
+	}
+}
+
+func TestSpoolerFailedWriteWithOverReportedCountStillAborts(t *testing.T) {
+	mockSyscalls := defaultSpoolerSyscalls
+	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
+		*hPrinter = 323
+		return 1, nil
+	}
+	mockSyscalls.closePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.startDocPrinterW = func(hPrinter syscall.Handle, di *docInfo1) (uintptr, error) { return 458, nil }
+	mockSyscalls.startPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	mockSyscalls.writePrinter = func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		// Faulty driver: fails while claiming more bytes than remain.
+		// The evidence counter caps at the payload size, which must not
+		// read as completion evidence for the session cleanup.
+		*bytesWritten = uint32(length) + 100000
+		return 0, syscall.Errno(31)
+	}
+	mockSyscalls.endPagePrinter = func(hPrinter syscall.Handle) (uintptr, error) { return 1, nil }
+	endDocCalled := false
+	mockSyscalls.endDocPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		endDocCalled = true
+		return 1, nil
+	}
+	abortCalled := false
+	mockSyscalls.abortPrinter = func(hPrinter syscall.Handle) (uintptr, error) {
+		abortCalled = true
+		return 1, nil
+	}
+
+	data := []byte("receipt payload")
+	res := executeSpoolerSessionWithSyscalls("FailedOverReportPrinter", data, nil, mockSyscalls)
+	if res.err == nil {
+		t.Fatal("failed WritePrinter must not report success")
+	}
+	if !OutcomeUnknown(res.err) {
+		t.Fatalf("failed WritePrinter with bytes folded in must stay unknown: %v", res.err)
+	}
+	if endDocCalled {
+		t.Fatal("a capped byte counter must never finalize the document via EndDocPrinter")
+	}
+	if !abortCalled {
+		t.Fatal("a failed document session must be aborted")
+	}
+}
+
 func TestSpoolerEndPagePrinterFailureCannotSucceed(t *testing.T) {
 	mockSyscalls := defaultSpoolerSyscalls
 	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {
@@ -941,5 +1030,52 @@ func TestServerOfflineBitBlocksDispatchAndReportsOffline(t *testing.T) {
 	p := &SpoolerPrinter{Name: "T", SpoolerName: "Remote Server Offline", Timeout: time.Second}
 	if st := p.Status(); st != "offline" {
 		t.Fatalf("SERVER_OFFLINE heartbeat status=%q want offline", st)
+	}
+}
+
+func TestSpoolerRejectedAttemptPreservesRunningJobIdentity(t *testing.T) {
+	p := &SpoolerPrinter{SpoolerName: "RacePrinter", Name: "Race Printer"}
+	// Simulate a still-running worker: session held, StartDoc identity published.
+	p.sessionMu.Lock()
+	defer p.sessionMu.Unlock()
+	p.lastJobID.Store(12345)
+	// A second attempt rejected before acquiring the session (here via an
+	// already-cancelled context, before any Win32 call) must not erase the
+	// running attempt's evidence. Previously Print cleared lastJobID on entry.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.Print(ctx, []byte("second attempt payload")); err == nil {
+		t.Fatal("cancelled attempt must fail")
+	}
+	if got := p.lastJobID.Load(); got != 12345 {
+		t.Fatalf("rejected attempt erased running job identity: got %d want 12345", got)
+	}
+	if got := p.LastSpoolerJobID(); got != "12345" {
+		t.Fatalf("reporter must still publish the running job ID, got %q", got)
+	}
+}
+
+func TestSpoolerQueueIdentityKeepsServerAndShareDistinct(t *testing.T) {
+	// Two queues on the same port/driver but different servers (or shares)
+	// are different printers: cross-server identity must retain provenance
+	// so dedup never merges them into one inventory row.
+	a := spoolerQueueDeviceInfo("Receipt", "USB001", "Generic Thermal", "PRINT-SRV-01", "ReceiptShare", "online", 0)
+	b := spoolerQueueDeviceInfo("Receipt", "USB001", "Generic Thermal", "PRINT-SRV-02", "ReceiptShare", "online", 0)
+	if a.SpoolerServer != "PRINT-SRV-01" || a.SpoolerShare != "ReceiptShare" {
+		t.Fatalf("server/share provenance lost: %+v", a)
+	}
+	keyA, okA := physicalIdentityKey(a)
+	keyB, okB := physicalIdentityKey(b)
+	if !okA || !okB {
+		t.Fatal("queue identity must resolve a physical key")
+	}
+	if keyA == keyB {
+		t.Fatalf("cross-server queues share one identity key: %q", keyA)
+	}
+	// Identical coordinates stay identical (no spurious duplication).
+	c := spoolerQueueDeviceInfo("Receipt", "USB001", "Generic Thermal", "PRINT-SRV-01", "ReceiptShare", "online", 0)
+	keyC, _ := physicalIdentityKey(c)
+	if keyA != keyC {
+		t.Fatalf("identical queues diverged: %q vs %q", keyA, keyC)
 	}
 }

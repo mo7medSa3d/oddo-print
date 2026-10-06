@@ -129,9 +129,40 @@ function gatewayErrorMessage(body: string, fallback: string): string {
   return raw.length <= 512 ? raw : fallback;
 }
 
-function gatewayHttpError(status: number, body: string, fallback: string): Error & { status?: number } {
-  const err: Error & { status?: number } = new Error(gatewayErrorMessage(body, fallback));
+/** Structured Gateway failure: message/status for display plus the machine-
+ * readable fields callers need for localization and action selection
+ * (upgrade dialogs, entitlement copy). Transport layers must preserve these
+ * instead of reducing failures to a string (C043). */
+export interface GatewayApiError extends Error {
+  status?: number;
+  code?: string;
+  entitlement?: string;
+  upgradeRequired?: boolean;
+  limit?: number | "unlimited" | null;
+  used?: number | null;
+}
+
+function readApiField(body: Record<string, unknown>, key: string): unknown {
+  return body[key];
+}
+
+function gatewayHttpError(status: number, body: string, fallback: string): GatewayApiError {
+  const err = new Error(gatewayErrorMessage(body, fallback)) as GatewayApiError;
   err.status = status;
+  try {
+    const parsed = JSON.parse(body.trim()) as Record<string, unknown>;
+    if (parsed && typeof parsed === "object") {
+      if (typeof readApiField(parsed, "code") === "string") err.code = readApiField(parsed, "code") as string;
+      if (typeof readApiField(parsed, "entitlement") === "string") err.entitlement = readApiField(parsed, "entitlement") as string;
+      if (readApiField(parsed, "upgradeRequired") === true) err.upgradeRequired = true;
+      const limit = readApiField(parsed, "limit");
+      if (typeof limit === "number" || limit === "unlimited") err.limit = limit;
+      const used = readApiField(parsed, "used");
+      if (typeof used === "number") err.used = used;
+    }
+  } catch {
+    // Non-JSON bodies carry no structured fields; message/status still apply.
+  }
   return err;
 }
 
@@ -171,8 +202,9 @@ async function gatewayRequest(
     try {
       await refreshManagerSession(base);
       return gatewayRequest(base, path, method, headers, body, false);
-    } catch {
-      await clearManagerSession();
+    } catch (e) {
+      // Authoritative rejection ends the session; transient failures keep it.
+      await clearManagerSessionUnlessTransient(e);
     }
   }
 
@@ -191,7 +223,7 @@ async function gatewayConsoleRequest(
     return gatewayRequest(base, path, method, headers, body);
   }
   const responseEnvelope = await invoke<string>("gateway_agent_request", {
-    args: { path, method, body: body ?? null },
+    args: { path, method, body: body ?? null, expected_origin: base },
   });
   const response = JSON.parse(responseEnvelope) as Partial<GatewayResponse>;
   if (typeof response.status !== "number" || typeof response.body !== "string") {
@@ -236,19 +268,45 @@ export async function loginManager(
   return { authenticated: true, expiresAt: data.expiresAt };
 }
 
+const refreshFlights = new Map<string, Promise<ManagerSessionStatus>>();
+
 export async function refreshManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const headers: Record<string, string> = isTauri
-    ? { "X-Odoo-Print-Desktop": "1" }
-    : {};
-  const { status, body } = await gatewayRequest(base, "/api/auth/manager/refresh", "POST", headers);
-  const data = JSON.parse(body || "{}") as { ok?: boolean; expiresAt?: string; error?: string };
-  if (status < 200 || status >= 300 || !data.ok || typeof data.expiresAt !== "string") {
-    const err: Error & { status?: number } = new Error(data.error || `Manager session refresh failed (${status})`);
-    err.status = status;
-    throw err;
+  // One refresh flight per origin: concurrent 401s join the same request
+  // instead of racing rotations against each other (C042).
+  const ongoing = refreshFlights.get(base);
+  if (ongoing) return ongoing;
+  const flight = (async (): Promise<ManagerSessionStatus> => {
+    const headers: Record<string, string> = isTauri
+      ? { "X-Odoo-Print-Desktop": "1" }
+      : {};
+    const { status, body } = await gatewayRequest(base, "/api/auth/manager/refresh", "POST", headers);
+    const data = JSON.parse(body || "{}") as { ok?: boolean; expiresAt?: string; error?: string };
+    if (status < 200 || status >= 300 || !data.ok || typeof data.expiresAt !== "string") {
+      const err: Error & { status?: number } = new Error(data.error || `Manager session refresh failed (${status})`);
+      err.status = status;
+      throw err;
+    }
+    return { authenticated: true, expiresAt: data.expiresAt };
+  })();
+  refreshFlights.set(base, flight);
+  try {
+    return await flight;
+  } finally {
+    if (refreshFlights.get(base) === flight) refreshFlights.delete(base);
   }
-  return { authenticated: true, expiresAt: data.expiresAt };
+}
+
+/** Clear the local session only on authoritative rejection (invalid/revoked
+ * family). Transient failures (timeout, 503, 5xx, network) must preserve the
+ * live session instead of signing the operator out (C042). */
+export async function clearManagerSessionUnlessTransient(error: unknown): Promise<boolean> {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 401) {
+    await clearManagerSession();
+    return true;
+  }
+  return false;
 }
 
 export async function getManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
@@ -258,8 +316,8 @@ export async function getManagerSession(gatewayUrl: string): Promise<ManagerSess
     if (status === 401) {
       try {
         return await refreshManagerSession(base);
-      } catch {
-        await clearManagerSession();
+      } catch (e) {
+        await clearManagerSessionUnlessTransient(e);
         return { authenticated: false };
       }
     }
@@ -270,8 +328,8 @@ export async function getManagerSession(gatewayUrl: string): Promise<ManagerSess
   if (!data.authenticated || typeof data.exp !== "number") {
     try {
       return await refreshManagerSession(base);
-    } catch {
-      await clearManagerSession();
+    } catch (e) {
+      await clearManagerSessionUnlessTransient(e);
       return { authenticated: false };
     }
   }
@@ -560,8 +618,9 @@ export async function updateGatewayPrinter(
     headers,
     JSON.stringify(patch),
   );
-  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
+    // No local clear: gatewayRequest already ran the refresh-then-clear
+    // cycle above (authoritative rejection only).
     throw gatewayHttpError(status, body, "printer update failed (" + status + ")");
   }
   return JSON.parse(body) as PrinterInfo;
@@ -583,16 +642,19 @@ export function discoverPrinters(): Promise<DiscoverResult> {
 export async function testGatewayPrinter(
   gatewayUrl: string,
   printerId: string,
+  idempotencyKey?: string,
 ): Promise<Record<string, unknown>> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const { status, body } = await gatewayRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
     "POST",
-    {},
+    idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
   );
-  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
+    // No local clear here: gatewayRequest already ran the refresh-then-clear
+    // cycle, clearing only on authoritative rejection. Clearing again on a
+    // preserved (transient-failure) session would sign the operator out.
     throw gatewayHttpError(status, body, "Gateway test print failed (" + status + ")");
   }
   return JSON.parse(body) as Record<string, unknown>;
@@ -633,7 +695,7 @@ export function setAutostart(enabled: boolean): Promise<string> {
 
 export async function fetchGatewayJobs(
   gatewayUrl: string,
-  options?: { status?: string; search?: string; limit?: number }
+  options?: { status?: string; search?: string; limit?: number; printerId?: string }
 ): Promise<Record<string, unknown>[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const params = new URLSearchParams();
@@ -643,6 +705,9 @@ export async function fetchGatewayJobs(
   }
   if (options?.search?.trim()) {
     params.set("search", options.search.trim());
+  }
+  if (options?.printerId) {
+    params.set("printerId", options.printerId);
   }
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};

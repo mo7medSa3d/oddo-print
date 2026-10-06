@@ -211,6 +211,15 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 			}
 			return fmt.Errorf("WriteFile to %s wrote 0 bytes", p.DevicePath)
 		}
+		if int64(n) > int64(len(chunk)) {
+			// A driver/helper that reports more bytes than the submitted
+			// chunk is faulty and the wire state is uncertain: report
+			// UNKNOWN with the honestly confirmed byte count (bytes
+			// accepted before this chunk). The counter is NOT advanced to
+			// the payload size — a fabricated total must never read as
+			// completion evidence.
+			return MarkUnknown("WriteFile to %s over-reported %d bytes for a %d-byte chunk after %d/%d confirmed bytes", p.DevicePath, n, len(chunk), written, len(data))
+		}
 		written += int(n)
 	}
 	log.Printf("Direct USB printed %d bytes to %s (%s)", written, p.DevicePath, p.Identify())
@@ -227,6 +236,14 @@ func sanitizeZPLTestText(s string) string {
 
 func sanitizeTSPLTestText(s string) string {
 	return strings.NewReplacer("\"", "'", "\\", "/").Replace(sanitizeTestText(s))
+}
+
+// SessionMayBeLive implements LiveSessionReporter: a wedged latch means an
+// abandoned kernel write may still complete and emit bytes. A replacement
+// backend starts with a fresh latch, so swapping while wedged would permit a
+// new submission to interleave with the stuck write.
+func (p *USBPrinter) SessionMayBeLive() bool {
+	return p.wedged.Load()
 }
 
 func (p *USBPrinter) testPayload() []byte {
@@ -312,7 +329,12 @@ type spDeviceInterfaceData struct {
 	Reserved           uintptr
 }
 
-var guidDevInterfaceUSBPrint = windows.GUID{Data1: 0x28d78fad, Data2: 0x100a, Data3: 0x48d4, Data4: [8]byte{0xa4, 0x89, 0x38, 0xd5, 0xbe, 0xd3, 0x41, 0xb0}}
+// GUID_DEVINTERFACE_USBPRINT from Microsoft usbprint.h
+// (https://raw.githubusercontent.com/microsoft/win32metadata/main/generation/WinSDK/RecompiledIdlHeaders/shared/usbprint.h):
+// USBPRINT {28D78FAD-5A12-11d1-AE5B-0000F803A8C2}. This is the
+// printer-specific device-interface class; enumerating any other GUID here
+// misses real USB printers (or matches unrelated USB devices).
+var guidDevInterfaceUSBPrint = windows.GUID{Data1: 0x28d78fad, Data2: 0x5a12, Data3: 0x11d1, Data4: [8]byte{0xae, 0x5b, 0x00, 0x00, 0xf8, 0x03, 0xa8, 0xc2}}
 
 func discoverUSBPrinters() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting USB discovery (SetupDi)")
@@ -353,11 +375,23 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		if !isUSB {
 			continue
 		}
-		hwIDs, _ := getDeviceRegistryProperty(handle, &devInfo, spdrpHardwareID)
-		compatIDs, _ := getDeviceRegistryProperty(handle, &devInfo, spdrpCompatibleIDs)
-		classVal, _ := getDeviceRegistryPropertySingle(handle, &devInfo, spdrpClass)
-		if !isPrinterUSBDevice(hwIDs, compatIDs, classVal) {
+		hwIDs, hwErr := getDeviceRegistryProperty(handle, &devInfo, spdrpHardwareID)
+		compatIDs, compatErr := getDeviceRegistryProperty(handle, &devInfo, spdrpCompatibleIDs)
+		classVal, classErr := getDeviceRegistryPropertySingle(handle, &devInfo, spdrpClass)
+		keep, incomplete := keepPrimaryUSBDevice(hwIDs, compatIDs, classVal, hwErr, compatErr, classErr)
+		if !keep {
+			// Properties read successfully and the device is
+			// affirmatively not printer-like: skip it.
 			continue
+		}
+		enrichmentIncomplete := incomplete
+		if enrichmentIncomplete {
+			// Optional enrichment failed, but enumeration under the
+			// printer-specific USBPRINT interface GUID is itself
+			// affirmative printer evidence. Preserve the device and
+			// surface the incomplete enrichment separately instead of
+			// discarding a real printer over an unreadable property.
+			diagnostics = append(diagnostics, fmt.Errorf("USB device %q: hardware/class properties unreadable (hw:%v compat:%v class:%v); keeping interface-enumerated device with incomplete enrichment", instanceID, hwErr, compatErr, classErr))
 		}
 		vid, pid, serial := parseVIDPIDSerial(instanceID)
 		friendlyName, _ := getDeviceRegistryPropertySingle(handle, &devInfo, spdrpFriendlyName)
@@ -400,6 +434,9 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		caps["hardware_ids"] = hwIDs
 		caps["compatible_ids"] = compatIDs
 		caps["device_instance_id"] = instanceID
+		if enrichmentIncomplete {
+			caps["enrichment_incomplete"] = true
+		}
 		if mfg != "" {
 			caps["manufacturer"] = mfg
 		}

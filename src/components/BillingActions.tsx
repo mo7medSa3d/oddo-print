@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
 import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
 import { useI18n } from "../i18n/react";
+import { billingIntervalLabel } from "../lib/billing-labels";
 import type { MessageKey } from "../i18n/messages/en";
 import type { Translator } from "../i18n/translate";
 
@@ -125,7 +126,7 @@ export function BillingActions({
                   <StatusBadge size="sm" tone="brand" label={hasSubscription ? t("billingActions.changePlan") : t("billingActions.newSubscription")} />
                 </div>
                 <div className="mt-1 text-sm text-ink-3">
-                  {t("billingActions.perInterval", { currency: selectedPlan.currency?.toUpperCase() ?? "USD", interval: selectedPlan.interval ?? "month" })}
+                  {t("billingActions.perInterval", { currency: selectedPlan.currency?.toUpperCase() ?? "USD", interval: billingIntervalLabel(selectedPlan.interval, t) })}
                 </div>
               </div>
               <Button

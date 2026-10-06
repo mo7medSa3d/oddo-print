@@ -92,4 +92,21 @@ suite("agent health (database-backed)", () => {
     const f = await seedFixture();
     expect(await getAgentHealth(f.tenantId, "agt_does_not_exist")).toBeNull();
   });
+
+  it("excludes stale and non-active printers from the online count (C018)", async () => {
+    const f = await seedFixture();
+    // Fixture printer is active/fresh/online: counted.
+    let health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.onlinePrinterCount).toBe(1);
+    expect(health!.printerCount).toBe(1);
+    // Stale observation: present but not evidence of availability.
+    await pool().query("UPDATE printers SET last_seen_at = now() - interval '1 hour' WHERE id = $1", [f.printerId]);
+    health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.printerCount).toBe(1);
+    expect(health!.onlinePrinterCount).toBe(0);
+    // Disabled lifecycle with a fresh observation: still not capacity.
+    await pool().query("UPDATE printers SET lifecycle = 'disabled', last_seen_at = now() WHERE id = $1", [f.printerId]);
+    health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.onlinePrinterCount).toBe(0);
+  });
 });

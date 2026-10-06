@@ -80,6 +80,17 @@ function readStoredLocale(): Locale | null {
   } catch {
     /* storage unavailable — fall through to the session fallback */
   }
+  if (raw === null) {
+    // Cookie-only preference (cleared site data, fresh profile): resolve
+    // from the locale cookie so a server-rendered Arabic session does not
+    // stay LTR in the client tree.
+    try {
+      const match = /(?:^|;\s*)yaseir_locale=(ar|en)/.exec(document.cookie || "");
+      if (match) raw = match[1];
+    } catch {
+      /* cookies unreadable — fall through */
+    }
+  }
   if (raw === null && sessionLocale) return sessionLocale;
   if (raw === cachedRaw && cachedLocale) return cachedLocale;
   cachedRaw = raw;

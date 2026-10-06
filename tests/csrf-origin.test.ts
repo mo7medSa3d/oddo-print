@@ -67,4 +67,26 @@ describe("cookie-authenticated mutation CSRF boundary", () => {
       "sec-fetch-site": "cross-site",
     }, "GET"))).toBe(true);
   });
+
+  it("applies origin proof to refresh-only requests (expired access cookie)", () => {
+    // After access expiry the browser sends mgr_refresh alone. That request
+    // authenticates (refresh family) and mutates, so it must not bypass the
+    // guard that access-cookie requests face.
+    expect(isCookieMutationSameOrigin(request({
+      host: "app.example.com",
+      cookie: "mgr_refresh=token",
+      origin: "https://attacker.example",
+      "sec-fetch-site": "cross-site",
+    }))).toBe(false);
+    expect(isCookieMutationSameOrigin(request({
+      host: "app.example.com",
+      cookie: "cust_refresh=token",
+      origin: "https://app.example.com",
+      "sec-fetch-site": "same-origin",
+    }))).toBe(true);
+    expect(isCookieMutationSameOrigin(request({
+      host: "app.example.com",
+      cookie: "plt_refresh=token",
+    }))).toBe(false);
+  });
 });

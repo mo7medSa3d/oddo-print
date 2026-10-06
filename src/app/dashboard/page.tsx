@@ -123,6 +123,17 @@ export default async function DashboardPage() {
 
   const now = new Date();
   const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
+  // Effective permissions drive client controls: read-authorized roles must
+  // not be offered mutations that end in predictable 403s, and retired
+  // printers must not be offered reactivation the server rejects (C058).
+  // Server fences stay authoritative; this only shapes the UI.
+  const canMutate = {
+    printers: hasManagerPermission(claims, "printers.manage"),
+    printersTest: hasManagerPermission(claims, "printers.test"),
+    agentsLifecycle: hasManagerPermission(claims, "agents.disable") || hasManagerPermission(claims, "agents.retire"),
+    jobsCancel: hasManagerPermission(claims, "jobs.cancel"),
+    jobsRetry: hasManagerPermission(claims, "jobs.retry"),
+  };
 
   return (
     <>
@@ -144,7 +155,7 @@ export default async function DashboardPage() {
             <Button variant="ghost" size="sm" href="/system-health" icon={<LifeBuoy className="h-4 w-4" />}>
               {t("dashboard.page.systemHealth")}
             </Button>
-            {!databaseError ? <JobCleanupButton /> : null}
+            {!databaseError && canMutate.jobsCancel ? <JobCleanupButton /> : null}
           </>
         }
       />
@@ -169,6 +180,7 @@ export default async function DashboardPage() {
             initialPrinters={allPrinters}
             initialJobs={allJobs}
             databaseError={null}
+            canMutate={canMutate}
           />
         )}
       </PageContainer>

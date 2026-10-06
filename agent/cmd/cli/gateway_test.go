@@ -74,3 +74,22 @@ func TestValidateManualPrinterTransport(t *testing.T) {
 		t.Fatalf("spooler printer should accept spooler name: %v", err)
 	}
 }
+
+func TestNormalizeOriginForCompare(t *testing.T) {
+	cases := []struct {
+		a, b  string
+		equal bool
+	}{
+		{"https://print.example.com", "https://print.example.com/", true},
+		{"https://print.example.com/", "HTTPS://PRINT.EXAMPLE.COM", true},
+		{"https://print.example.com:443", "https://print.example.com/", false},
+		{"https://print.example.com", "https://other.example.com", false},
+		{"", "", true},
+		{"https://print.example.com", "", false},
+	}
+	for _, tc := range cases {
+		if got := normalizeOriginForCompare(tc.a) == normalizeOriginForCompare(tc.b); got != tc.equal {
+			t.Fatalf("origin compare %q vs %q = %v, want %v", tc.a, tc.b, got, tc.equal)
+		}
+	}
+}

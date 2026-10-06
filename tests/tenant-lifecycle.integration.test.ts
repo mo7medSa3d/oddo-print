@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { db } from "../src/db";
-import { tenants } from "../src/db/schema";
+import { tenants, users, tenantUsers } from "../src/db/schema";
 import { issueSessionPair } from "../src/lib/session-tokens";
 import { eq } from "drizzle-orm";
 import { hasTestDatabase, applyMigrations, closePool, pool } from "./helpers/pg";
@@ -214,6 +214,49 @@ suite("Tenant Lifecycle", () => {
       await transitionTenantLifecycle(idA, "suspended", "Only A", { type: "platform", id: "admin1" });
       expect(await requireActiveTenant(idB)).toBe("active");
       await expect(requireActiveTenant(idA)).rejects.toThrow(TenantSuspendedError);
+    });
+  });
+
+  describe("legacy platform authority boundary (C066)", () => {
+    async function tenantOwnerSession(tenantId: string): Promise<{ cookie: string; userId: string }> {
+      const userId = `usr_${nanoid(12)}`;
+      await db.insert(users).values({ id: userId, email: `owner_${nanoid(8)}@tenant.local`, passwordHash: "argon2id$test" });
+      await db.insert(tenantUsers).values({ userId, tenantId, role: "owner" });
+      const pair = await issueSessionPair({ kind: "manager", tenantId, userId, role: "owner" });
+      return { cookie: `mgr_session=${pair.accessToken}`, userId };
+    }
+
+    it("denies tenant manager sessions on the global metrics endpoint", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      const session = await tenantOwnerSession(id);
+      // Non-vacuous: the session itself validates as a tenant manager.
+      const { validateManager } = await import("../src/lib/manager-auth");
+      const claims = await validateManager(new Request("http://gateway.test/api/metrics", { headers: { cookie: session.cookie } }));
+      expect(claims?.userId).toBe(session.userId);
+      const { GET } = await import("../src/app/api/metrics/route");
+      const res = await GET(new Request("http://gateway.test/api/metrics", { headers: { cookie: session.cookie } }));
+      expect(res.status).toBe(401);
+    });
+
+    it("denies tenant manager sessions on the legacy tenant lifecycle endpoint", async () => {
+      const id = tenantId();
+      await createTestTenant(id);
+      const victim = tenantId();
+      await createTestTenant(victim);
+      const session = await tenantOwnerSession(id);
+      const { PATCH } = await import("../src/app/api/admin/tenants/[id]/lifecycle/route");
+      const res = await PATCH(
+        new Request("http://gateway.test/api/admin/tenants/x/lifecycle", {
+          method: "PATCH",
+          headers: { cookie: session.cookie, "content-type": "application/json" },
+          body: JSON.stringify({ lifecycle: "suspended", reason: "privilege escalation probe" }),
+        }),
+        { params: Promise.resolve({ id: victim }) },
+      );
+      expect(res.status).toBe(401);
+      const row = await db.query.tenants.findFirst({ where: eq(tenants.id, victim) });
+      expect(row!.lifecycle).toBe("active");
     });
   });
 });

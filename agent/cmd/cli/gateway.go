@@ -25,12 +25,28 @@ var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._
 // diagnostics. Both surfaces are read-only.
 var gatewayAgentPathRe = regexp.MustCompile("^/api/agents(?:/[A-Za-z0-9._~-]+)?$")
 
+func normalizeOriginForCompare(raw string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Hostname() == "" {
+		return strings.ToLower(trimmed)
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.Fragment, parsed.RawQuery = "", ""
+	return strings.TrimRight(parsed.String(), "/")
+}
+
 func handleGatewayRequest(args []string, configPath string) {
 	fs := flag.NewFlagSet("gateway-request", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "API-relative Gateway path")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "Optional JSON request body")
+	expectOrigin := fs.String("expect-origin", "", "Manager-visible Gateway origin the request must target")
 	configOverride := fs.String("config", configPath, "Path to the paired agent config file")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -66,6 +82,16 @@ func handleGatewayRequest(args []string, configPath string) {
 	if err != nil || base.Hostname() == "" {
 		fmt.Fprintln(os.Stderr, "configured Gateway URL is invalid")
 		os.Exit(1)
+	}
+	// The desktop Manager origin and the paired Agent origin are distinct
+	// identities: the caller must name the origin it intends to act on, and
+	// the paired config must agree. Otherwise a Manager origin change would
+	// show or mutate the old Agent Gateway under the new displayed origin.
+	if expected := normalizeOriginForCompare(*expectOrigin); expected != "" {
+		if normalizeOriginForCompare(strings.TrimSpace(cfg.Server.URL)) != expected {
+			fmt.Fprintln(os.Stderr, "paired Agent Gateway origin differs from the requested Manager origin; re-pair or correct the Manager Gateway URL")
+			os.Exit(2)
+		}
 	}
 	target, err := base.Parse(reqPath)
 	if err != nil || target.Scheme != base.Scheme || target.Host != base.Host {

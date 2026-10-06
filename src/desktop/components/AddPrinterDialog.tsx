@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   Button,
@@ -9,7 +9,7 @@ import {
   Checkbox,
   ErrorState,
 } from "../../components/ui";
-import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
+import { fetchGatewayAgents, registerGatewayPrinter, type GatewayApiError, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { agentLiveView, errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 import { useI18n } from "../../i18n/react";
@@ -43,10 +43,13 @@ export function AddPrinterDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [agents, setAgents] = useState<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsError, setAgentsError] = useState(false);
   // Which gateway URL the cached agents were fetched from. The cache must
   // be keyed by URL: reusing gateway A's agents after switching to gateway
   // B would register the printer against an agentId B never issued.
   const [agentsForUrl, setAgentsForUrl] = useState("");
+  const agentsGeneration = useRef(0);
 
   // Staleness is derived from the heartbeat (90s by default), so an honest
   // status needs a clock that advances while the screen stays open.
@@ -64,8 +67,14 @@ export function AddPrinterDialog({
 
   const loadAgents = useCallback(async () => {
     if (!gatewayUrl || agentsForUrl === gatewayUrl) return;
+    // Generation guard: a late response for a previous gateway (or an older
+    // attempt) must never overwrite the current picker's list.
+    const generation = ++agentsGeneration.current;
+    setAgentsLoading(true);
+    setAgentsError(false);
     try {
       const rows = await fetchGatewayAgents(gatewayUrl);
+      if (agentsGeneration.current !== generation) return;
       setAgents(rows);
       setAgentsForUrl(gatewayUrl);
       const active = rows.find((row) => row.lifecycle === "active");
@@ -73,8 +82,12 @@ export function AddPrinterDialog({
       // fall back to its active agent (or empty when none is active).
       setAgentId((current) => rows.some((row) => row.id === current) ? current : (active?.id ?? ""));
     } catch {
+      if (agentsGeneration.current !== generation) return;
       setAgents([]);
       setAgentsForUrl("");
+      setAgentsError(true);
+    } finally {
+      if (agentsGeneration.current === generation) setAgentsLoading(false);
     }
   }, [gatewayUrl, agentsForUrl]);
 
@@ -208,27 +221,41 @@ export function AddPrinterDialog({
       onClose();
       reset();
     } catch (e) {
-      const raw = errMsg(e);
-      let parsed: Record<string, unknown> = {};
-      try {
-        const value = JSON.parse(raw);
-        if (value && typeof value === "object") parsed = value as Record<string, unknown>;
-      } catch {
-        // Keep the normal friendly Gateway error path for non-JSON failures.
+      // Prefer the structured fields preserved across the IPC transport;
+      // fall back to parsing the message for legacy/unexpected shapes.
+      const api = e as Partial<GatewayApiError>;
+      let code = typeof api.code === "string" ? api.code : "";
+      let entitlement = typeof api.entitlement === "string" ? api.entitlement : "";
+      let upgradeRequired = api.upgradeRequired === true;
+      let used = typeof api.used === "number" ? api.used : null;
+      let limit: number | "unlimited" | null = typeof api.limit === "number" || api.limit === "unlimited" ? api.limit : null;
+      if (!code && !entitlement && !upgradeRequired) {
+        const raw = errMsg(e);
+        let parsed: Record<string, unknown> = {};
+        try {
+          const value = JSON.parse(raw);
+          if (value && typeof value === "object") parsed = value as Record<string, unknown>;
+        } catch {
+          // Keep the normal friendly Gateway error path for non-JSON failures.
+        }
+        if (typeof parsed.code === "string") code = parsed.code;
+        if (typeof parsed.entitlement === "string") entitlement = parsed.entitlement;
+        if (parsed.upgradeRequired === true) upgradeRequired = true;
+        if (typeof parsed.used === "number") used = parsed.used;
+        if (typeof parsed.limit === "number" || parsed.limit === "unlimited") limit = parsed.limit;
       }
-      const entitlement = typeof parsed.entitlement === "string" ? parsed.entitlement : "";
       if (
-        parsed.upgradeRequired === true &&
-        (entitlement === "max_printers" || parsed.code === "MAX_PRINTERS_EXCEEDED")
+        upgradeRequired === true &&
+        (entitlement === "max_printers" || code === "MAX_PRINTERS_EXCEEDED")
       ) {
         setError(null);
         setUpgradeLimit({
           resource: "printers",
-          used: typeof parsed.used === "number" ? parsed.used : null,
-          limit: typeof parsed.limit === "number" || parsed.limit === "unlimited" ? parsed.limit : null,
+          used,
+          limit,
         });
       } else {
-        setError(friendlyGatewayError(raw, locale));
+        setError(friendlyGatewayError(errMsg(e), locale));
       }
     } finally {
       setBusy(false);
@@ -264,13 +291,19 @@ export function AddPrinterDialog({
           hint={t("desktop.add.agentHint")}
         >
           <Select id="pp-agent" value={agentId} onFocus={loadAgents} onChange={(e) => setAgentId(e.target.value)}>
-            <option value="">{t("desktop.add.selectActiveAgent")}</option>
+            <option value="">{agentsLoading ? t("desktop.add.loadingAgents") : t("desktop.add.selectActiveAgent")}</option>
             {agents.filter((a) => a.lifecycle === "active").map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name} ({agentLiveView({ status: a.status ?? null, lifecycle: a.lifecycle ?? null, lastSeenAt: a.lastSeenAt ?? null }, nowMs, locale).label})
               </option>
             ))}
           </Select>
+          {agentsError && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-ink-3">
+              <span>{t("desktop.add.agentsLoadFailed")}</span>
+              <Button variant="ghost" size="sm" onClick={() => { setAgentsForUrl(""); void loadAgents(); }}>{t("common.retry")}</Button>
+            </div>
+          )}
         </Field>
         <Field label={t("desktop.add.printerName")} htmlFor="pp-name">
           <Input

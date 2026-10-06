@@ -4,10 +4,10 @@
 For multi-tenant Manager login, add a verified `tenant_domains` row for each customer hostname. During single-tenant bootstrap, `MANAGER_TENANT_ID` may be used.
 
 ## Metrics endpoint
-`GET /api/metrics` requires a manager session whose `tenantId` equals
-`PLATFORM_TENANT_ID` (set it in the gateway environment; without it the
-endpoint answers 403 even for valid managers). Prometheus scraping therefore
-needs both a manager credential AND the platform tenant configured.
+`GET /api/metrics` requires a platform owner session (`plt_session`). Tenant
+manager sessions are never sufficient, even for members of the platform
+workspace: global telemetry is control-plane data. Configure Prometheus
+scraping with a platform owner credential (static `Cookie` header).
 
 ## API key rotation
 Gateway API-key rotation supports a bounded read-only grace window for in-flight

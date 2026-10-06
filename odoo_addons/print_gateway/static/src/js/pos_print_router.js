@@ -175,13 +175,55 @@ patch(PosStore.prototype, {
             }
 
             const image = await renderReceiptImage(this, currentOrder, basic);
-            const result = await this.data.call(
-                "pos.order",
-                "action_print_gateway_receipt",
-                [[orderId]],
-                { image },
-                true
-            );
+            // One operation identity per user click, with a bounded reuse
+            // window for uncertain outcomes: a lost response retried with the
+            // same id is deduplicated server-side, while a deliberate later
+            // print mints a fresh id. A second click for the same order while
+            // one is still in flight is coalesced, never a second operation.
+            // Reuse applies only while the previous outcome is uncertain
+            // (unknown/partial/transport error) and recent (5 minutes): after
+            // an accepted or definitively failed outcome the next click is a
+            // new deliberate operation, matching native print semantics.
+            const receiptOps = (this.gatewayReceiptOperations ||= new Map());
+            const pendingReceipts = (this.gatewayReceiptPending ||= new Set());
+            if (pendingReceipts.has(orderId)) {
+                return false;
+            }
+            const lastOp = receiptOps.get(orderId);
+            const reuseUncertain = lastOp && lastOp.terminal === false
+                && (Date.now() - lastOp.at < 5 * 60 * 1000);
+            const operationId = reuseUncertain ? lastOp.id : gatewayUuid();
+            pendingReceipts.add(orderId);
+            let result;
+            try {
+                try {
+                    result = await this.data.call(
+                        "pos.order",
+                        "action_print_gateway_receipt",
+                        [[orderId]],
+                        { image, operation_id: operationId },
+                        true
+                    );
+                } catch (rpcError) {
+                    // Transport failure: the server may or may not have
+                    // accepted the job. Keep the operation uncertain so a
+                    // retry reuses this id instead of printing twice.
+                    receiptOps.set(orderId, { id: operationId, at: Date.now(), terminal: false });
+                    throw rpcError;
+                }
+            } finally {
+                pendingReceipts.delete(orderId);
+            }
+            // Resolve the operation: definitive outcomes (accepted for
+            // printing, or definitively rejected) close the reuse window;
+            // uncertain statuses keep it for a retry. Transport failures are
+            // recorded uncertain by the inner catch above.
+            receiptOps.set(orderId, {
+                id: operationId,
+                at: Date.now(),
+                terminal: result && !["unknown", "partial"].includes(result.status)
+                    && ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status),
+            });
 
             // Truthful feedback: "submitted" means QUEUED for the agent, not
             // printed; "unknown" means the outcome cannot be trusted. Only

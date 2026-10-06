@@ -211,6 +211,9 @@ func newAgentAgainst(t *testing.T, serverURL, printerID string, p printer.Printe
 }
 
 func claimedEnvelope(jobID, printerID string) map[string]interface{} {
+	// Canonical single-payload representation: the document travels only
+	// inside job.payload. The gateway no longer duplicates it at the top
+	// level (that doubled maximum-size frames past the 8 MiB read limit).
 	return map[string]interface{}{
 		"type": "print_job",
 		"job": map[string]interface{}{
@@ -226,7 +229,6 @@ func claimedEnvelope(jobID, printerID string) map[string]interface{} {
 		},
 		"id":        jobID,
 		"printerId": printerID,
-		"payload":   makeJobPayload(jobID),
 		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
 	}
 }
@@ -1060,5 +1062,108 @@ func TestFailedTerminalOutcomePreservesSpoolerEvidence(t *testing.T) {
 	}
 	if reports[0].SpoolerJobID != "990" {
 		t.Fatalf("durable failed outbox lost allocated spooler identity: %+v", reports[0])
+	}
+}
+
+func TestWSEnvelopeBudgetFitsMaximumPayloadOnce(t *testing.T) {
+	// A 5 MiB document is the largest the payload contract admits. Its
+	// base64 form (~6.9 MiB JSON) must fit the 8 MiB inbound frame exactly
+	// once; the historical duplicated representation cannot fit and would
+	// strand jobs the gateway recorded as delivered.
+	big := base64.StdEncoding.EncodeToString(make([]byte, 5*1024*1024))
+	payload := map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": big}
+	job := map[string]interface{}{
+		"id": "job-budget", "agentId": "agt_test", "printerId": "p1",
+		"documentType": "document", "status": "claimed", "claimToken": "claim-budget",
+		"payload": payload, "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339), "retries": 0,
+	}
+	canonical := map[string]interface{}{
+		"type": "print_job", "job": job,
+		"id": "job-budget", "printerId": "p1",
+		"expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339), "requestId": nil,
+	}
+	wire, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatalf("marshal canonical envelope: %v", err)
+	}
+	if len(wire) >= maxWSFrameBytes {
+		t.Fatalf("canonical maximum envelope %d bytes exceeds the %d-byte frame limit", len(wire), maxWSFrameBytes)
+	}
+	duplicated := map[string]interface{}{"payload": payload}
+	for k, v := range canonical {
+		duplicated[k] = v
+	}
+	wireDup, err := json.Marshal(duplicated)
+	if err != nil {
+		t.Fatalf("marshal duplicated envelope: %v", err)
+	}
+	if len(wireDup) <= maxWSFrameBytes {
+		t.Fatalf("duplicated maximum envelope unexpectedly fits (%d bytes); budget reasoning changed", len(wireDup))
+	}
+	// The canonical envelope must still parse to the same job.
+	parsed, err := extractJobFromWSMessage(mustUnmarshalEnvelope(t, wire))
+	if err != nil {
+		t.Fatalf("canonical envelope must parse: %v", err)
+	}
+	fields, err := decodeJobFields(parsed)
+	if err != nil {
+		t.Fatalf("canonical job fields must decode: %v", err)
+	}
+	if fields.ID != "job-budget" || fields.Status != "claimed" {
+		t.Fatalf("canonical job mis-decoded: %+v", fields)
+	}
+}
+
+func mustUnmarshalEnvelope(t *testing.T, wire []byte) map[string]interface{} {
+	t.Helper()
+	var envelope map[string]interface{}
+	if err := json.Unmarshal(wire, &envelope); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	return envelope
+}
+
+// gatewayMaxPollResponseBytes mirrors MAX_POLL_RESPONSE_BYTES in
+// src/app/api/agent/jobs/route.ts: the gateway trims poll responses to
+// this many ENCODED wire bytes, strictly below pollJobsByteLimit.
+const gatewayMaxPollResponseBytes = 64 * 1024 * 1024
+
+func TestPollBatchBudgetRequiresGatewayTrim(t *testing.T) {
+	// One maximum-size job must fit the gateway budget on its own
+	// (progress is guaranteed); twenty must exceed it (the trim engages)
+	// and must also exceed the agent reader (an untrimmed batch would fail
+	// the whole decode while claims stayed delivery-pending).
+	big := base64.StdEncoding.EncodeToString(make([]byte, 5*1024*1024))
+	payload := map[string]interface{}{"type": "raw", "protocol": "raw", "encoding": "base64", "data": big}
+	row := func(id string) map[string]interface{} {
+		return map[string]interface{}{
+			"id": id, "agentId": "agt_test", "printerId": "p1",
+			"documentType": "document", "status": "claimed",
+			"payload": payload, "expiresAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
+	}
+	single, err := json.Marshal([]interface{}{row("j1")})
+	if err != nil {
+		t.Fatalf("marshal single: %v", err)
+	}
+	if len(single) >= gatewayMaxPollResponseBytes {
+		t.Fatalf("single maximum job %d bytes does not fit the gateway poll budget %d", len(single), gatewayMaxPollResponseBytes)
+	}
+	batch := make([]interface{}, 0, 20)
+	for i := 0; i < 20; i++ {
+		batch = append(batch, row("j"))
+	}
+	wire, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatalf("marshal batch: %v", err)
+	}
+	if len(wire) <= gatewayMaxPollResponseBytes {
+		t.Fatalf("twenty maximum jobs unexpectedly fit (%d bytes); trim reasoning changed", len(wire))
+	}
+	if int64(len(wire)) <= pollJobsByteLimit {
+		t.Fatalf("twenty maximum jobs fit the agent reader (%d bytes); batching hazard changed", len(wire))
+	}
+	if gatewayMaxPollResponseBytes >= int(pollJobsByteLimit) {
+		t.Fatal("gateway poll budget must stay strictly below the agent poll reader")
 	}
 }

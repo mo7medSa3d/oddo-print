@@ -166,14 +166,21 @@ fn main() {
                 });
             }
 
-            // Start exactly one agent. A missing/unregistered configuration is
-            // not fatal to the desktop app; the agent logs the situation.
+            // Start exactly one agent on a background thread. SCM queries and
+            // service waits are blocking with their own bounds, but setup
+            // itself must return promptly so the window appears even when the
+            // service control plane is slow; the outcome is logged.
             if std::env::var("YASEIR_MANAGER_AUTOSTART_AGENT").as_deref() == Ok("0") {
                 logging::info("automatic Agent startup disabled by explicit environment setting");
-            } else if let Err(e) = agent::ensure_started(app.handle()) {
-                logging::warn(&format!("agent could not be started during setup: {e}"));
             } else {
-                logging::info("agent process/service started during setup");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = agent::ensure_started(&handle) {
+                        logging::warn(&format!("agent could not be started during setup: {e}"));
+                    } else {
+                        logging::info("agent process/service started during setup");
+                    }
+                });
             }
 
             logging::info("application setup completed");

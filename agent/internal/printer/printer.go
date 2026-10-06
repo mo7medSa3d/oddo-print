@@ -23,6 +23,20 @@ type SpoolerJobIDReporter interface {
 	LastSpoolerJobID() string
 }
 
+// LiveSessionReporter is implemented by backends whose transport session
+// can outlive the caller's return. A wedged Win32 worker keeps its session
+// after the caller reports UNKNOWN; an abandoned USB kernel write can still
+// complete after Print gives up. Backend replacement must defer while a
+// prior session may still own the physical queue/device: the replacement
+// carries a fresh mutex/latch, so swapping eagerly would permit overlapping
+// submissions to the same hardware.
+type LiveSessionReporter interface {
+	// SessionMayBeLive reports whether a prior print session may still own
+	// the transport. It is advisory and fail-safe: true defers replacement,
+	// false permits it.
+	SessionMayBeLive() bool
+}
+
 // SpoolerJobIDOf returns the printer's last platform job ID, or "" when
 // the printer does not report one. Safe to call on any Printer.
 func SpoolerJobIDOf(p Printer) string {

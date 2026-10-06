@@ -19,6 +19,7 @@ import {
   type JobStatus,
 } from "../lib/job-status";
 import { canTransitionLifecycle } from "../lib/lifecycle";
+import { RECEIPT_MATERIALIZE_BATCH_ROWS } from "../shared/job-retention";
 import { transitionAgentLifecycle, LifecycleConflict } from "../lib/agent-lifecycle";
 import { ActionError } from "../lib/action-error";
 import { getServerLocale, makeT } from "../i18n/server";
@@ -70,27 +71,35 @@ export async function deleteAgent(id: string) {
       ...(printerIds.length ? [inArray(printJobs.printerId, printerIds)] : [])));
     let archivedJobs = 0;
     // Preserve accepted operation keys/outcomes before deleting FK-bound runtime rows.
-    // Bound document memory per batch; no job can be newly admitted while locks are held.
+    // Full rows carry payloads up to 5 MiB: fetch IDs per outer batch, then
+    // materialize at most RECEIPT_MATERIALIZE_BATCH_ROWS full rows at a time
+    // so peak memory stays bounded no matter how many jobs the agent owns.
+    // No job can be newly admitted while locks are held.
     while (true) {
-      const jobs = await tx.select().from(printJobs).where(ownedJobs).limit(100).for("update");
-      if (!jobs.length) break;
-      for (const row of jobs) {
-        const terminal = isTerminal(row.status as JobStatus);
-        const uncertain = row.status === "printing" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;
-        await tx.insert(printJobReceipts).values({
-          id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
-          fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
-          printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
-          destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
-          status: terminal ? row.status : "failed",
-          error: terminal ? row.error : uncertain ? "UNKNOWN_PARTIAL_DELIVERY: Agent deleted during an accepted execution; inspect the physical printer before reprinting." : "AGENT_DELETED: Cancelled before delivery by workspace administrator.",
-          closedClaimTokenHash: row.closedClaimTokenHash ?? (row.claimToken ? createHash("sha256").update(row.claimToken).digest("hex") : null),
-          deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt,
-          updatedAt: terminal ? row.updatedAt : sql`clock_timestamp()`,
-        });
+      const idRows = await tx.select({ id: printJobs.id }).from(printJobs).where(ownedJobs).limit(100).for("update");
+      if (!idRows.length) break;
+      for (let offset = 0; offset < idRows.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
+        const batchIds = idRows.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS).map((row) => row.id);
+        const jobs = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds)).for("update");
+        for (const row of jobs) {
+          const terminal = isTerminal(row.status as JobStatus);
+          const uncertain = row.status === "printing" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;
+          await tx.insert(printJobReceipts).values({
+            id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
+            fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
+            printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
+            destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
+            status: terminal ? row.status : "failed",
+            error: terminal ? row.error : uncertain ? "UNKNOWN_PARTIAL_DELIVERY: Agent deleted during an accepted execution; inspect the physical printer before reprinting." : "AGENT_DELETED: Cancelled before delivery by workspace administrator.",
+            closedClaimTokenHash: row.closedClaimTokenHash ?? (row.claimToken ? createHash("sha256").update(row.claimToken).digest("hex") : null),
+            deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt,
+            updatedAt: terminal ? row.updatedAt : sql`clock_timestamp()`,
+          });
+        }
+        if (!jobs.length) continue;
+        await tx.delete(printJobs).where(and(eq(printJobs.tenantId, manager.tenantId), inArray(printJobs.id, jobs.map(row => row.id))));
+        archivedJobs += jobs.length;
       }
-      await tx.delete(printJobs).where(and(eq(printJobs.tenantId, manager.tenantId), inArray(printJobs.id, jobs.map(row => row.id))));
-      archivedJobs += jobs.length;
     }
     await tx.delete(discoveredDevices).where(and(eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, manager.tenantId)));
     await tx.delete(discoverySessions).where(and(eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, manager.tenantId)));

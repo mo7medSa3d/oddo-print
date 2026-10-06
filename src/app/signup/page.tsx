@@ -8,9 +8,11 @@ import { ArrowRight, MailCheck } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, ErrorState } from "../../components/ui";
 import { codeMessageKey } from "../../lib/api-error-keys";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 
 export default function Signup() {
-  const [email, setEmail] = useState("");
+  const params = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const [email, setEmail] = useState(params?.get("email") ?? "");
   const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
@@ -23,7 +25,7 @@ export default function Signup() {
     setLoading(true);
     setErr("");
     try {
-      const response = await fetch("/api/auth/register", {
+      const response = await fetchWithTimeout("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -36,8 +38,10 @@ export default function Signup() {
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "auth.signup.failed"));
       setDone(true);
       const planId = new URLSearchParams(window.location.search).get("plan") ?? "";
+      const inviteToken = new URLSearchParams(window.location.search).get("invite") ?? "";
       const next = new URLSearchParams({ email });
       if (planId) next.set("plan", planId);
+      if (inviteToken) next.set("invite", inviteToken);
       router.push(`/verify-email?${next.toString()}`);
     } catch (error) {
       setErr(error instanceof Error ? error.message : t("auth.signup.failed"));

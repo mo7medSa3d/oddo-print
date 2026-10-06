@@ -113,7 +113,11 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
 
     const mainTsx = read("src/desktop/main.tsx");
     expect(mainTsx).toContain("onGatewayConfigChanged");
-    expect(mainTsx).toContain("const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);");
+    // Affirmative health only (C046): an empty/missing health object, a stale
+    // probe, or a non-true ok flag must never read as connected.
+    expect(mainTsx).toContain("ok === true");
+    expect(mainTsx).toContain("healthFresh");
+    expect(mainTsx).toContain("healthCheckedAt");
     expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const [checkedGatewayUrl, setCheckedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const probeGateway = useCallback(async (targetUrl: string): Promise<boolean>");

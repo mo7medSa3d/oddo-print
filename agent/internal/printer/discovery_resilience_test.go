@@ -75,3 +75,18 @@ func TestWSDDiscoveryUnblocksOnMidListenCancel(t *testing.T) {
 		t.Fatalf("mid-listen cancel took %v to unwind, want < 2s", elapsed)
 	}
 }
+
+func TestCancelledScanReportsTruncationNotCompletion(t *testing.T) {
+	// A scan that cannot dispatch every target is partial inventory: it
+	// must surface an error so callers do not treat it as a complete
+	// snapshot (C006). Cancellation before any dispatch is the sharpest
+	// deterministic case; both scanners share the dispatched-count rule.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := discoverNetworkPrinters(ctx); err == nil {
+		t.Fatal("cancelled network scan must report truncation, got nil error")
+	}
+	if _, err := discoverIPPviaTCP(ctx); err == nil {
+		t.Fatal("cancelled IPP scan must report truncation, got nil error")
+	}
+}

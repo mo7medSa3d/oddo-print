@@ -526,6 +526,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function handleLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
+    // Revoke the manager family through its own cookie path FIRST: the
+    // mgr_refresh cookie is scoped to /api/auth/manager and the generic
+    // logout below cannot see it (nor revoke the family when the access
+    // cookie already expired). Manager logout also clears the manager
+    // cookies; generic logout then revokes the customer family and clears
+    // every remaining pair. Either request failing still ends in redirect;
+    // the server answers 503 so an outage stays visible instead of silent.
+    try {
+      await fetch("/api/auth/manager/logout", { method: "POST", credentials: "include", cache: "no-store" });
+    } catch {
+      // Fall through to generic logout, which still clears browser state.
+    }
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
     } finally {

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -523,5 +524,37 @@ func TestPrintPDFWithResultPlainFailureAfterAllocatedJobIDBecomesUnknown(t *test
 	}
 	if !strings.HasPrefix(err.Error(), "PDF print on") || !strings.Contains(err.Error(), "UNKNOWN_PARTIAL_DELIVERY") {
 		t.Fatalf("wrapped failure must carry the gateway unknown marker, got %v", err)
+	}
+}
+
+func TestSecurePDFTempRestrictsPermissions(t *testing.T) {
+	path, cleanup, err := writeSecurePDFTemp(validPDF())
+	if err != nil {
+		t.Fatalf("writeSecurePDFTemp: %v", err)
+	}
+	defer cleanup()
+	if runtime.GOOS != "windows" {
+		dirInfo, err := os.Stat(filepath.Dir(path))
+		if err != nil {
+			t.Fatalf("stat temp dir: %v", err)
+		}
+		if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+			t.Fatalf("temp PDF directory permits %o, want 700", perm)
+		}
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat temp file: %v", err)
+		}
+		if perm := fileInfo.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("temp PDF file permits %o, want 600", perm)
+		}
+	} else {
+		// On Windows, mode bits are meaningless (Go Chmod only toggles
+		// read-only); restriction is enforced by EnsureSecureDirectoryACL /
+		// EnsureSecureFileACL (protected DACL + secure owner), which the
+		// Windows CI exercises through the storage contract tests.
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("temp PDF missing: %v", err)
+		}
 	}
 }

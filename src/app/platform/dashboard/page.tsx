@@ -21,6 +21,7 @@ import {
 } from "../../../components/platform/overview-charts";
 import {
   Button,
+  Callout,
   Card,
   CardHeader,
   PageHeader,
@@ -107,7 +108,11 @@ export default function PlatformDashboardPage() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [partialError, setPartialError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Single-observation snapshot age: the badge states when the numbers were
+  // read instead of claiming a live feed (C061).
+  const [statsFetchedAt, setStatsFetchedAt] = useState("—");
 
   useEffect(() => {
     let ignore = false;
@@ -131,16 +136,25 @@ export default function PlatformDashboardPage() {
         }
 
         const statsData = (await statsRes.json()) as Stats;
-        const tenantsData = tenantsRes.ok ? await tenantsRes.json() : { tenants: [] };
-        const subscriptionsData = subsRes.ok ? await subsRes.json() : { subscriptions: [] };
+        // Secondary lists degrade independently: a failed tenants/subscriptions
+        // fetch must surface as incomplete data, never as a silent empty list
+        // that reads "no workspaces" (C061).
+        const tenantsFailed = !tenantsRes.ok;
+        const subsFailed = !subsRes.ok;
+        const tenantsData = tenantsFailed ? { tenants: [] } : await tenantsRes.json();
+        const subscriptionsData = subsFailed ? { subscriptions: [] } : await subsRes.json();
 
         if (!ignore) {
           setStats(statsData);
+          setStatsFetchedAt(new Date().toLocaleTimeString());
           setTenants(Array.isArray(tenantsData.tenants) ? tenantsData.tenants : []);
           setSubscriptions(
             Array.isArray(subscriptionsData.subscriptions) ? subscriptionsData.subscriptions : [],
           );
           setError(null);
+          setPartialError(
+            tenantsFailed || subsFailed ? t("platform.dashboard.partialData") : null,
+          );
         }
       } catch {
         if (!ignore) {
@@ -223,6 +237,12 @@ export default function PlatformDashboardPage() {
                 setReloadKey((value) => value + 1);
               }}
             />
+          )}
+
+          {partialError && (
+            <Callout tone="warn" title={t("platform.dashboard.partialDataTitle")}>
+              {partialError}
+            </Callout>
           )}
 
           <OperationalSignals
@@ -310,7 +330,7 @@ export default function PlatformDashboardPage() {
                     {t("platform.dashboard.fleetHealthSubtitle")}
                   </p>
                 </div>
-                <StatusBadge tone="ok" label={t("platform.dashboard.liveState")} pulse />
+                <StatusBadge tone="neutral" label={t("platform.dashboard.snapshotState", { time: statsFetchedAt })} />
               </div>
 
               <FleetHealthChart

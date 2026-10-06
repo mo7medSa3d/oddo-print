@@ -313,10 +313,17 @@ fn reject_windows_reparse_point(path: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn run_icacls(path: &Path, args: &[&str]) -> std::io::Result<()> {
-    let output = Command::new(windows_system32_exe("icacls.exe")?)
-        .arg(path)
-        .args(args)
-        .output()?;
+    // Bounded like every other privileged subprocess: an unbounded .output()
+    // would hang the caller on a wedged helper with no deadline.
+    let mut cmd = Command::new(windows_system32_exe("icacls.exe")?);
+    cmd.arg(path).args(args);
+    let output = crate::agent::run_bounded_command(
+        cmd,
+        std::time::Duration::from_secs(30),
+        64 * 1024,
+        64 * 1024,
+    )
+    .map_err(|e| std::io::Error::new(std::io::ErrorKind::TimedOut, e))?;
     if output.status.success() {
         return Ok(());
     }
@@ -453,7 +460,231 @@ fn verify_windows_manager_readonly_security(path: &Path, is_directory: bool) -> 
             ),
         ));
     }
+    // A pre-existing explicit grant for ANOTHER user is invisible to the
+    // writability probe above (it only tests the current user) yet leaves
+    // the shared trust root mutable. The exact-DACL check below rejects it.
+    verify_windows_manager_dacl_exact(path, is_directory)?;
     Ok(())
+}
+
+/// Trustee classes permitted on Manager trust roots. Anything else holding
+/// an allow ACE is an unexpected grant (for example a pre-created explicit
+/// FullControl ACE that `/grant:r` never touches, since it only replaces
+/// grants for the SIDs it names).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ManagerTrustee {
+    System,
+    Administrators,
+    Users,
+    Other,
+}
+
+/// Classify a raw SID by value: S-1-5-18 (SYSTEM), S-1-5-32-544
+/// (Administrators), S-1-5-32-545 (Users). Pure byte logic, no OS calls, so
+/// the classification itself is unit-testable on any platform.
+fn well_known_manager_trustee(sid: &[u8]) -> ManagerTrustee {
+    if sid.len() < 8 || sid[0] != 1 || sid[2..8] != [0, 0, 0, 0, 0, 5] {
+        return ManagerTrustee::Other;
+    }
+    let count = sid[1] as usize;
+    if sid.len() != 8 + 4 * count {
+        return ManagerTrustee::Other;
+    }
+    let sub = |i: usize| {
+        u32::from_le_bytes([sid[8 + 4 * i], sid[8 + 4 * i + 1], sid[8 + 4 * i + 2], sid[8 + 4 * i + 3]])
+    };
+    if count == 1 && sub(0) == 18 {
+        return ManagerTrustee::System;
+    }
+    if count == 2 && sub(0) == 32 && sub(1) == 544 {
+        return ManagerTrustee::Administrators;
+    }
+    if count == 2 && sub(0) == 32 && sub(1) == 545 {
+        return ManagerTrustee::Users;
+    }
+    ManagerTrustee::Other
+}
+
+const ACCESS_ALLOWED_ACE_TYPE: u8 = 0x00;
+
+/// Write-class rights that must never be granted to anyone outside
+/// SYSTEM/Administrators on a Manager trust root, regardless of how the
+/// granting ACE encodes them (generic, standard or object-specific bits).
+/// Note 0x8 is FILE_READ_EA (harmless read); the write bit is 0x10.
+const MANAGER_WRITE_MASK: u32 = 0x4000_0000 // GENERIC_WRITE
+    | 0x1000_0000 // GENERIC_ALL
+    | 0x0100_0000 // ACCESS_SYSTEM_SECURITY
+    | 0x0004_0000 // WRITE_DAC
+    | 0x0008_0000 // WRITE_OWNER
+    | 0x0001_0000 // DELETE
+    | 0x0000_0002 // FILE_WRITE_DATA / FILE_ADD_FILE
+    | 0x0000_0004 // FILE_APPEND_DATA / FILE_ADD_SUBDIRECTORY
+    | 0x0000_0010 // FILE_WRITE_EA
+    | 0x0000_0040 // FILE_DELETE_CHILD
+    | 0x0000_0100; // FILE_WRITE_ATTRIBUTES
+
+/// Verify that every allow ACE on a Manager trust root belongs to the
+/// intended trustee set with safe rights. Deny ACEs restrict access and grant
+/// nothing, so they are ignored here. Pure logic over already-read entries,
+/// unit-testable on any platform.
+fn verify_manager_dacl_entries(
+    entries: &[(ManagerTrustee, u32, u8)],
+    context: &str,
+) -> Result<(), String> {
+    for (trustee, mask, ace_type) in entries {
+        if *ace_type != ACCESS_ALLOWED_ACE_TYPE {
+            continue;
+        }
+        match trustee {
+            ManagerTrustee::System | ManagerTrustee::Administrators => {}
+            ManagerTrustee::Users => {
+                if mask & MANAGER_WRITE_MASK != 0 {
+                    return Err(format!(
+                        "standard Users hold write rights (mask {mask:#010x}) on {context}"
+                    ));
+                }
+            }
+            ManagerTrustee::Other => {
+                return Err(format!(
+                    "unexpected trustee holds an allow ACE (mask {mask:#010x}) on {context}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn read_manager_dacl_entries(path: &Path) -> std::io::Result<Vec<(ManagerTrustee, u32, u8)>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    type RawHandle = *mut std::ffi::c_void;
+    const SE_FILE_OBJECT: u32 = 1;
+    const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
+    const ACL_SIZE_INFORMATION_CLASS: u32 = 2;
+
+    #[repr(C)]
+    struct AclSizeInformation {
+        ace_count: u32,
+        _acl_bytes_in_use: u32,
+        _acl_bytes_free: u32,
+    }
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn GetNamedSecurityInfoW(
+            object_name: *const u16,
+            object_type: u32,
+            security_info: u32,
+            owner: *mut RawHandle,
+            group: *mut RawHandle,
+            dacl: *mut RawHandle,
+            sacl: *mut RawHandle,
+            security_descriptor: *mut RawHandle,
+        ) -> u32;
+        fn GetAclInformation(
+            acl: RawHandle,
+            info: *mut std::ffi::c_void,
+            length: u32,
+            class: u32,
+        ) -> i32;
+        fn GetAce(acl: RawHandle, index: u32, ace: *mut RawHandle) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LocalFree(memory: RawHandle) -> RawHandle;
+    }
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut dacl: RawHandle = std::ptr::null_mut();
+    let mut descriptor: RawHandle = std::ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    let result = (|| {
+        if dacl.is_null() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Manager runtime path has no DACL (unprotected discretionary access)",
+            ));
+        }
+        let mut size_info = AclSizeInformation {
+            ace_count: 0,
+            _acl_bytes_in_use: 0,
+            _acl_bytes_free: 0,
+        };
+        let ok = unsafe {
+            GetAclInformation(
+                dacl,
+                &mut size_info as *mut AclSizeInformation as *mut std::ffi::c_void,
+                std::mem::size_of::<AclSizeInformation>() as u32,
+                ACL_SIZE_INFORMATION_CLASS,
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut entries = Vec::with_capacity(size_info.ace_count as usize);
+        for index in 0..size_info.ace_count {
+            let mut ace: RawHandle = std::ptr::null_mut();
+            if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // ACCESS_ALLOWED_ACE layout: ACE_HEADER (type u8, flags u8,
+            // size u16), Mask u32, then the trustee SID.
+            let bytes = unsafe { std::slice::from_raw_parts(ace as *const u8, 8) };
+            let ace_type = bytes[0];
+            let mask = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+            // SID header: revision + sub-authority count at ACE offset 8.
+            // Cap the count at the architectural SID maximum (15) so a
+            // malformed ACE cannot drive an unbounded read.
+            let count = unsafe { *((ace as *const u8).add(9)) } as usize;
+            if count > 15 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Manager runtime path has a malformed ACE",
+                ));
+            }
+            let sid_len = 8 + 4 * count;
+            if sid_len < 12 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Manager runtime path has a malformed ACE",
+                ));
+            }
+            let sid_bytes = unsafe { std::slice::from_raw_parts((ace as *const u8).add(8), sid_len) };
+            entries.push((well_known_manager_trustee(sid_bytes), mask, ace_type));
+        }
+        Ok(entries)
+    })();
+    unsafe {
+        LocalFree(descriptor);
+    }
+    result
+}
+
+#[cfg(windows)]
+fn verify_windows_manager_dacl_exact(path: &Path, is_directory: bool) -> std::io::Result<()> {
+    let kind = if is_directory { "directory" } else { "file" };
+    let entries = read_manager_dacl_entries(path)?;
+    verify_manager_dacl_entries(&entries, kind).map_err(|detail| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("Manager runtime {} has an unexpected DACL ({}): {detail}", kind, path.display()),
+        )
+    })
 }
 
 #[cfg(windows)]
@@ -492,7 +723,13 @@ fn ensure_windows_manager_acl(path: &Path, is_directory: bool) -> std::io::Resul
     })();
 
     match harden {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            // icacls /grant:r replaces grants only for the SIDs it names: a
+            // pre-existing explicit grant for any other trustee survives
+            // hardening. Verify the installed DACL is exactly the intended
+            // one instead of trusting the subprocess exit code.
+            verify_windows_manager_dacl_exact(path, is_directory)
+        }
         // Normal standard-user launches cannot rewrite a protected DACL. They
         // may still read the Manager configuration, but only after proving the
         // path is owned by Administrators, is not a reparse point, and is not
@@ -560,4 +797,127 @@ pub fn ensure_runtime_dirs() -> std::io::Result<()> {
     ensure_dir(&manager_log_dir())?;
     ensure_agent_data_root()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod manager_dacl_tests {
+    use super::{well_known_manager_trustee, verify_manager_dacl_entries, ManagerTrustee};
+
+    fn sid(subauthorities: &[u32]) -> Vec<u8> {
+        let mut out = vec![1u8, subauthorities.len() as u8, 0, 0, 0, 0, 0, 5];
+        for sub in subauthorities {
+            out.extend_from_slice(&sub.to_le_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn well_known_sids_classify_by_value() {
+        assert_eq!(well_known_manager_trustee(&sid(&[18])), ManagerTrustee::System);
+        assert_eq!(
+            well_known_manager_trustee(&sid(&[32, 544])),
+            ManagerTrustee::Administrators
+        );
+        assert_eq!(
+            well_known_manager_trustee(&sid(&[32, 545])),
+            ManagerTrustee::Users
+        );
+        // Everyone, malformed headers and truncated buffers are Other.
+        assert_eq!(well_known_manager_trustee(&sid(&[0])), ManagerTrustee::Other);
+        assert_eq!(well_known_manager_trustee(&[1, 1, 0]), ManagerTrustee::Other);
+        assert_eq!(well_known_manager_trustee(&[]), ManagerTrustee::Other);
+        assert_eq!(
+            well_known_manager_trustee(&sid(&[32, 544])[..15]),
+            ManagerTrustee::Other
+        );
+    }
+
+    #[test]
+    fn intended_manager_dacl_passes() {
+        use super::ACCESS_ALLOWED_ACE_TYPE;
+        let entries = [
+            (ManagerTrustee::System, 0x001F_01FFu32, ACCESS_ALLOWED_ACE_TYPE),
+            (ManagerTrustee::Administrators, 0x001F_01FFu32, ACCESS_ALLOWED_ACE_TYPE),
+            (ManagerTrustee::Users, 0x0012_00A9u32, ACCESS_ALLOWED_ACE_TYPE),
+        ];
+        assert!(verify_manager_dacl_entries(&entries, "directory").is_ok());
+    }
+
+    #[test]
+    fn third_party_full_control_grant_fails() {
+        use super::ACCESS_ALLOWED_ACE_TYPE;
+        let entries = [
+            (ManagerTrustee::System, 0x001F_01FFu32, ACCESS_ALLOWED_ACE_TYPE),
+            (ManagerTrustee::Administrators, 0x001F_01FFu32, ACCESS_ALLOWED_ACE_TYPE),
+            (ManagerTrustee::Users, 0x0012_00A9u32, ACCESS_ALLOWED_ACE_TYPE),
+            // Pre-created explicit grant for an unrelated trustee: this is
+            // exactly what /grant:r leaves behind, and it must fail.
+            (ManagerTrustee::Other, 0x001F_01FFu32, ACCESS_ALLOWED_ACE_TYPE),
+        ];
+        assert!(verify_manager_dacl_entries(&entries, "directory").is_err());
+    }
+
+    #[test]
+    fn users_write_bits_fail() {
+        use super::ACCESS_ALLOWED_ACE_TYPE;
+        for mask in [
+            0x0004_0000u32,
+            0x0008_0000,
+            0x4000_0000,
+            0x1000_0000,
+            0x0001_0000,
+            0x0000_0010,
+            0x0000_0040,
+            0x0100_0000,
+        ] {
+            let entries = [(ManagerTrustee::Users, mask, ACCESS_ALLOWED_ACE_TYPE)];
+            assert!(
+                verify_manager_dacl_entries(&entries, "file").is_err(),
+                "mask {mask:#x} must be rejected for Users"
+            );
+        }
+    }
+
+    #[test]
+    fn deny_aces_grant_nothing_and_are_ignored() {
+        let entries = [(ManagerTrustee::Other, 0x001F_01FFu32, 0x01u8)];
+        assert!(verify_manager_dacl_entries(&entries, "file").is_ok());
+    }
+
+    /// Pre-created explicit FullControl for an unrelated trustee (S-1-1-0
+    /// Everyone) must fail hardening: `/grant:r` only replaces grants for
+    /// the SIDs it names, so the foreign ACE survives icacls and only the
+    /// exact-DACL verification catches it. Reading a DACL needs no
+    /// elevation, so the verification itself is asserted precisely; the
+    /// end-to-end ensure call must fail either way (elevated: verification
+    /// after hardening; standard user: untrusted path).
+    #[cfg(windows)]
+    #[test]
+    fn precreated_third_party_grant_fails_hardening() {
+        use super::{ensure_windows_manager_acl, verify_windows_manager_dacl_exact};
+        let dir = std::env::temp_dir().join(format!(
+            "yaseir-acl-audit-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("test temp dir");
+        let grant = std::process::Command::new("icacls.exe")
+            .arg(&dir)
+            .arg("/grant")
+            .arg("*S-1-1-0:(OI)(CI)F")
+            .output()
+            .expect("icacls grant");
+        assert!(grant.status.success(), "test setup: pre-grant Everyone FullControl");
+        let verify_err =
+            verify_windows_manager_dacl_exact(&dir, true).expect_err("foreign FullControl grant must fail exact-DACL verification");
+        assert!(
+            verify_err.to_string().contains("unexpected trustee"),
+            "unexpected error (wanted trustee rejection): {verify_err}"
+        );
+        ensure_windows_manager_acl(&dir, true)
+            .expect_err("third-party FullControl grant must fail Manager hardening");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

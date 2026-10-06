@@ -87,12 +87,21 @@ export default function PlatformAuditPage() {
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
+  // Actor scope, not actor kind, decides the bucket: a `user` row carrying a
+  // tenantId is tenant-scoped activity, not platform staff. Only platform
+  // actors (or users without tenant scope) count as staff (C061).
+  const inStaff = (tenantId: string | null, actorType: ActorType) =>
+    actorType === "platform" || (actorType === "user" && !tenantId);
+  const inTenant = (tenantId: string | null, actorType: ActorType) =>
+    !!tenantId || actorType === "system" || actorType === "odoo";
+  const inMachine = (actorType: ActorType) => actorType === "agent" || actorType === "desktop";
+
   const counts = useMemo(
     () => ({
       all: events.length,
-      platform: events.filter((e) => e.actorType === "platform" || e.actorType === "user").length,
-      tenant: events.filter((e) => e.actorType === "system" || e.actorType === "odoo").length,
-      machine: events.filter((e) => e.actorType === "agent" || e.actorType === "desktop").length,
+      platform: events.filter((e) => inStaff(e.tenantId, e.actorType)).length,
+      tenant: events.filter((e) => inTenant(e.tenantId, e.actorType)).length,
+      machine: events.filter((e) => inMachine(e.actorType)).length,
     }),
     [events],
   );
@@ -109,10 +118,10 @@ export default function PlatformAuditPage() {
       filter === "all"
         ? true
         : filter === "platform"
-          ? e.actorType === "platform" || e.actorType === "user"
+          ? inStaff(e.tenantId, e.actorType)
           : filter === "tenant"
-            ? e.actorType === "system" || e.actorType === "odoo"
-            : e.actorType === "agent" || e.actorType === "desktop";
+            ? inTenant(e.tenantId, e.actorType)
+            : inMachine(e.actorType);
     return matchesSearch && matchesFilter;
   });
 

@@ -19,6 +19,31 @@ const MAX_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
 /// per-stream output budget. On timeout/output overflow the child is killed
 /// and reaped before the error is returned, so no helper process or pipe can
 /// survive a failed IPC call.
+/// Reader-thread join bound for [`run_bounded_command`]. After the child is
+/// reaped its pipes normally EOF promptly — unless a forked descendant
+/// inherited them and keeps them open. An unbounded `join()` would then hang
+/// the caller forever, so the join itself carries a deadline. On expiry the
+/// call fails (the reader threads plus one join-waiter thread are detached,
+/// never accumulated by the caller — at most three per hung invocation, and
+/// invocations are finite operator/system actions, not loops); the child
+/// itself was already killed and reaped above.
+fn join_reader_thread(
+    handle: std::thread::JoinHandle<Result<Vec<u8>, String>>,
+    what: &str,
+) -> Result<Vec<u8>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(format!("{what} reader thread panicked")),
+        Err(_) => Err(format!(
+            "{what} reader thread did not finish within 10s (a descendant process may hold the pipe); output discarded"
+        )),
+    }
+}
+
 pub(crate) fn run_bounded_command(
     mut cmd: Command,
     timeout: std::time::Duration,
@@ -76,8 +101,8 @@ pub(crate) fn run_bounded_command(
         if overflow.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = out_thread.join();
-            let _ = err_thread.join();
+            join_reader_thread(out_thread, "stdout")?;
+            join_reader_thread(err_thread, "stderr")?;
             return Err(format!(
                 "command output exceeded the {} byte stream budget",
                 max_stdout.max(max_stderr)
@@ -89,8 +114,8 @@ pub(crate) fn run_bounded_command(
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    let _ = out_thread.join();
-                    let _ = err_thread.join();
+                    join_reader_thread(out_thread, "stdout")?;
+                    join_reader_thread(err_thread, "stderr")?;
                     return Err(format!(
                         "command exceeded timeout of {} seconds",
                         timeout.as_secs()
@@ -101,25 +126,21 @@ pub(crate) fn run_bounded_command(
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = out_thread.join();
-                let _ = err_thread.join();
+                join_reader_thread(out_thread, "stdout")?;
+                join_reader_thread(err_thread, "stderr")?;
                 return Err(format!("wait for command failed: {e}"));
             }
         };
     };
 
     if overflow.load(Ordering::Acquire) {
-        let _ = out_thread.join();
-        let _ = err_thread.join();
+        join_reader_thread(out_thread, "stdout")?;
+        join_reader_thread(err_thread, "stderr")?;
         return Err("command output exceeded the configured stream budget".to_string());
     }
 
-    let stdout = out_thread
-        .join()
-        .map_err(|_| "stdout reader thread panicked".to_string())??;
-    let stderr = err_thread
-        .join()
-        .map_err(|_| "stderr reader thread panicked".to_string())??;
+    let stdout = join_reader_thread(out_thread, "stdout")??;
+    let stderr = join_reader_thread(err_thread, "stderr")??;
     if overflow.load(Ordering::Acquire) {
         return Err("command output exceeded the configured stream budget".to_string());
     }
@@ -143,20 +164,11 @@ fn current_exe_dir() -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn system32_exe(name: &str) -> Result<PathBuf, String> {
-    if name.is_empty() || name.contains('\\') || name.contains('/') {
-        return Err("invalid Windows system executable name".into());
-    }
-    let root = std::env::var_os("SystemRoot")
-        .or_else(|| std::env::var_os("WINDIR"))
-        .ok_or_else(|| "Windows SystemRoot is unavailable".to_string())?;
-    let path = PathBuf::from(root).join("System32").join(name);
-    if !path.is_file() {
-        return Err(format!(
-            "Windows system executable not found: {}",
-            path.display()
-        ));
-    }
-    Ok(path)
+    // Never resolve privileged executables from inherited environment
+    // variables: SystemRoot/WINDIR can be spoofed to redirect net.exe /
+    // taskkill.exe execution to an attacker-controlled file. Share the
+    // OS-resolved system-directory helper (GetSystemDirectoryW).
+    crate::paths::windows_system32_exe(name).map_err(|e| e.to_string())
 }
 
 pub fn agent_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1055,6 +1067,37 @@ mod tests {
             let path = system32_exe(name).expect("Windows system executable must exist");
             assert!(path.ends_with(["System32", name].iter().collect::<std::path::PathBuf>()));
         }
+    }
+
+    #[test]
+    fn inherited_system_root_cannot_redirect_privileged_execution() {
+        // Spoof the inherited environment: resolution must come from the OS
+        // (GetSystemDirectoryW), never from SystemRoot/WINDIR, and must never
+        // return a binary under the spoofed directory.
+        let spoof = std::env::temp_dir().join("yaseir-system32-spoof");
+        let _ = std::fs::create_dir_all(&spoof);
+        let prior_root = std::env::var_os("SystemRoot");
+        let prior_windir = std::env::var_os("WINDIR");
+        unsafe {
+            std::env::set_var("SystemRoot", &spoof);
+            std::env::set_var("WINDIR", &spoof);
+        }
+        let resolved = system32_exe("net.exe");
+        match prior_root {
+            Some(root) => unsafe { std::env::set_var("SystemRoot", root) },
+            None => unsafe { std::env::remove_var("SystemRoot") },
+        }
+        match prior_windir {
+            Some(windir) => unsafe { std::env::set_var("WINDIR", windir) },
+            None => unsafe { std::env::remove_var("WINDIR") },
+        }
+        let path = resolved.expect("system resolution must not depend on inherited environment");
+        assert!(
+            !path.starts_with(&spoof),
+            "privileged executable resolved under spoofed directory: {}",
+            path.display()
+        );
+        assert!(path.ends_with(["System32", "net.exe"].iter().collect::<std::path::PathBuf>()));
     }
 }
 

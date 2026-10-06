@@ -1023,6 +1023,11 @@ msgstr "حالة إيقاف/ترحيل نقطة نهاية الـ Gateway غير
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Gateway endpoint shutdown/migration state cannot be decrypted; configure the deployment-managed credential encryption key to finish the pending migration."
+msgstr "تعذّر فك تشفير حالة إيقاف/ترحيل نقطة نهاية الـ Gateway؛ اضبط مفتاح تشفير بيانات الاعتماد المُدار من النشر لإتمام الترحيل المعلّق."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
 msgid "Gateway health check failed (HTTP %s)."
 msgstr "تعذّر فحص صحة الـ Gateway (HTTP %s)."
 
@@ -2634,6 +2639,8 @@ msgstr "بحث في نشاط الطباعة"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Secure random number generator is unavailable; cannot generate print operation idempotency key"
 msgstr "مولد الأرقام العشوائية الآمن غير متاح؛ تعذر إنشاء مفتاح لمنع تكرار عملية الطباعة"
 
@@ -3515,6 +3522,11 @@ msgstr "تتطلب طباعة إيصالات ونماذج المطبخ في نق
 #: code:addons/print_gateway/models/binding.py:0
 msgid "A print protocol must be selected on the binding."
 msgstr "يجب تحديد بروتوكول طباعة في ربط الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "The selected binding belongs to company/branch '%(binding_co)s', but your active company is '%(active_co)s'. Switch your active company to '%(binding_co)s' in the top navigation bar before sending a test print."
+msgstr "الربط المحدد يتبع الشركة/الفرع '%(binding_co)s'، لكن شركتك النشطة هي '%(active_co)s'. بدّل شركتك النشطة إلى '%(binding_co)s' من شريط التنقل العلوي قبل إرسال اختبار الطباعة."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0

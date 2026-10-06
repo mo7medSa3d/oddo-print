@@ -29,6 +29,26 @@ func isPrinterUSBDevice(hwIDs, compatIDs []string, classVal string) bool {
 	return false
 }
 
+// keepPrimaryUSBDevice decides whether a device enumerated under the
+// printer-specific USBPRINT interface GUID stays in inventory.
+//
+// Interface membership is affirmative printer evidence: when optional
+// hardware/class enrichment reads fail, the device is preserved with
+// incomplete=true so the failure is surfaced separately instead of
+// discarding a real printer over an unreadable property. Only a
+// successfully read, affirmatively non-printer property set discards the
+// device. The ALLCLASSES fallback stays strict and does not use this
+// helper.
+func keepPrimaryUSBDevice(hwIDs, compatIDs []string, classVal string, hwErr, compatErr, classErr error) (keep bool, enrichmentIncomplete bool) {
+	if isPrinterUSBDevice(hwIDs, compatIDs, classVal) {
+		return true, false
+	}
+	if hwErr == nil && compatErr == nil && classErr == nil {
+		return false, false
+	}
+	return true, true
+}
+
 func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
 	if strings.TrimSpace(printerName) == "" {
 		return false

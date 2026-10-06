@@ -8,6 +8,7 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, ErrorState, Skeleton } from "../../components/ui";
 import { codeMessageKey } from "../../lib/api-error-keys";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 
 function ResetPasswordContent() {
   const token = useSearchParams().get("token") ?? "";
@@ -23,7 +24,7 @@ function ResetPasswordContent() {
     setErr("");
     setLoading(true);
     try {
-      const response = await fetch("/api/auth/reset-password", {
+      const response = await fetchWithTimeout("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password: pw }),

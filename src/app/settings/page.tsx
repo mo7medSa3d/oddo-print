@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { apiMessageKey } from "../../lib/api-error-keys";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
+import { roleLabel } from "../../lib/roles";
 import { useI18n } from "../../i18n/react";
 import {
   Building2,
@@ -43,17 +45,25 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/settings", { credentials: "include", cache: "no-store" })
+    // Generation guard: a locale-triggered reload must not let an older
+    // response overwrite a newer snapshot — or the operator's dirty draft
+    // (C063). The fetched name seeds the field only when it is still pristine.
+    let cancelled = false;
+    fetchWithTimeout("/api/settings", { credentials: "include", cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(t("settings.loadFailed"));
         const d = (await r.json()) as SettingsPayload;
-        setName(d.tenant?.name ?? "");
+        if (cancelled) return;
+        setName((current) => (current === "" ? (d.tenant?.name ?? "") : current));
         setEmail(d.email ?? "");
         setRole(d.role ?? "");
         setTenantCreatedAt(d.tenant?.createdAt ?? null);
       })
-      .catch((e) => setMessage({ text: e instanceof Error ? e.message : t("settings.loadFailed"), type: "err" }))
-      .finally(() => setLoading(false));
+      .catch((e) => { if (!cancelled) setMessage({ text: e instanceof Error ? e.message : t("settings.loadFailed"), type: "err" }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => {
+      cancelled = true;
+    };
   }, [t]);
 
   async function save(e: React.FormEvent) {
@@ -148,7 +158,7 @@ export default function SettingsPage() {
                 <KeyValueList
                   rows={[
                     { label: t("settings.signedInAs"), value: email || "—" },
-                    { label: t("settings.role"), value: <span>{["owner", "admin", "operator", "viewer"].includes(role) ? t(`team.role.${role}` as import("../../i18n/messages/en").MessageKey) : t("common.unknown")}</span> },
+                    { label: t("settings.role"), value: <span>{roleLabel(role, t)}</span> },
                     {
                       label: t("settings.workspaceCreated"),
                       value: tenantCreatedAt ? formatDate(tenantCreatedAt) : "—",

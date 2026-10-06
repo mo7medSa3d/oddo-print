@@ -32,8 +32,57 @@ export function Sidebar({
   isOnline: boolean; version: string; lastStatusCheck: string | null;
 }) {
   const { t, formatTime } = useI18n();
+  const asideRef = React.useRef<HTMLElement | null>(null);
+  // Mobile drawer keyboard behavior: while open on small screens the drawer
+  // acts as a dialog - Escape closes, Tab cycles inside (C048). Desktop
+  // widths keep the persistent sidebar.
+  React.useEffect(() => {
+    if (!sidebarOpen) return;
+    if (typeof window === "undefined" || window.matchMedia("(min-width: 1024px)").matches) return;
+    const aside = asideRef.current;
+    if (!aside) return;
+    aside.setAttribute("role", "dialog");
+    aside.setAttribute("aria-modal", "true");
+    const previous = document.activeElement as HTMLElement | null;
+    aside.querySelector<HTMLElement>("button:not([disabled]), a[href]")?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSidebarOpen(false);
+        return;
+      }
+      if (event.key !== "Tab" || !asideRef.current) return;
+      const root = asideRef.current;
+      const items = [...root.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]")].filter(
+        (el) => el.offsetParent !== null
+      );
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      if (!root.contains(document.activeElement)) {
+        event.preventDefault();
+        firstItem.focus();
+      } else if (event.shiftKey && document.activeElement === firstItem) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && document.activeElement === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      aside.removeAttribute("role");
+      aside.removeAttribute("aria-modal");
+      previous?.focus?.();
+    };
+  }, [sidebarOpen, setSidebarOpen]);
   return (
-    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[248px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
+    <aside ref={asideRef} className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[248px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
       <div className={`flex h-[68px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (

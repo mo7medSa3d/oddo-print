@@ -2,6 +2,7 @@ import { db } from "../../../../db";
 import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -30,6 +31,22 @@ const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
 function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
+}
+
+/**
+ * Agent-scoped identity for colliding local discovery IDs. Agent stable IDs
+ * derive from local coordinates (USB serial, spooler queue, ip:port), so two
+ * agents in one tenant can legitimately observe the same local ID for two
+ * distinct physical devices. The printers table is keyed (tenant_id, id):
+ * the first agent keeps the bare local ID (all existing mappings preserved)
+ * while a colliding agent's row is stored under a deterministic alias. The
+ * "~" sentinel never appears in locally generated stable IDs, so the agent
+ * recovers its local backend by stripping the suffix; the alias is a pure
+ * function of (agent, localId), hence stable across reconnects.
+ */
+export function aliasPrinterIdForAgent(localId: string, agentId: string): string {
+  const suffix = createHash("sha256").update(`printer-alias:${agentId}:${localId}`, "utf8").digest("hex").slice(0, 8);
+  return `${localId}~${suffix}`;
 }
 
 type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };
@@ -312,6 +329,27 @@ export async function POST(req: Request) {
       // inventory transitions from absent -> present, not only when a brand-new
       // database ID is inserted. Otherwise a tombstoned stable ID can reappear
       // after a replacement consumes its slot and silently exceed max_printers.
+      //
+      // Cross-agent identity: local stable IDs derive from local coordinates,
+      // so two agents in one tenant can report the same ID for distinct
+      // physical devices. The row owner keeps the bare ID; colliding
+      // reporters move to their deterministic per-agent alias BEFORE any
+      // inventory read, so every check below operates on stored identities
+      // and existing unambiguous mappings never change.
+      const reportedLocalIds = [...new Set(sanitizedPrinters.map(p => p.id))];
+      const localRows = reportedLocalIds.length ? await tx.query.printers.findMany({
+        where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, reportedLocalIds)),
+      }) : [];
+      const localById = new Map(localRows.map(p => [p.id, p]));
+      const printerIdAliases: Record<string, string> = {};
+      for (const p of sanitizedPrinters) {
+        const existing = localById.get(p.id);
+        if (existing && existing.agentId !== agent.id) {
+          const alias = aliasPrinterIdForAgent(p.id, agent.id);
+          printerIdAliases[p.id] = alias;
+          p.id = alias;
+        }
+      }
       const inventoryIds = [...new Set(sanitizedPrinters.map(p => p.id))];
       const inventoryRows = inventoryIds.length ? await tx.query.printers.findMany({
         where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, inventoryIds)),
@@ -512,6 +550,7 @@ export async function POST(req: Request) {
       return {
         kind: "ok" as const,
         skippedPrinters: skipped,
+        printerIdAliases,
         desiredState: desiredRows,
         isFinalPage: isFinalHeartbeatPage,
       };
@@ -529,6 +568,9 @@ export async function POST(req: Request) {
       success: true,
       skippedPrinters: result.skippedPrinters,
     };
+    if (Object.keys(result.printerIdAliases).length > 0) {
+      response.printerIdAliases = result.printerIdAliases;
+    }
     if (result.isFinalPage) {
       response.desiredState = result.desiredState.map((row) => ({
         id: row.id,

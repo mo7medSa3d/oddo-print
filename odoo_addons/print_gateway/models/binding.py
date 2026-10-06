@@ -240,6 +240,14 @@ class PrintGatewayBinding(models.Model):
                 # the 2.10 migration completes. New rows use report_id.
                 report = record.report_id or record.destination_report_id
                 record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % (report.report_name or report.id).strip().lower())
+            elif record.destination_type == "picking_type":
+                # Direct inventory/warehouse operations address label
+                # hardware with byte-stream protocols (route_raw_command
+                # defaults to document_type="label", and runtime-printer
+                # assignment already requires a label/thermal printer here
+                # when no report is bound). Without this mode no normal
+                # binding can ever match the raw-label automation path.
+                record.document_type = "label"
             else:
                 record.document_type = False
 
@@ -674,7 +682,7 @@ class PrintGatewayBinding(models.Model):
         ], order="priority asc, id asc", limit=1)
 
     @api.model
-    def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None):
+    def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None, operation_id=None):
         context = dict(context or self.env.context)
         binding_model = self.with_context(**context)
         report = False
@@ -729,7 +737,7 @@ class PrintGatewayBinding(models.Model):
             return {"dispatched": False, "has_binding": False, "success": False}
 
         try:
-            route = router.route_report(report, records, data=data, explicit_binding=binding)
+            route = router.route_report(report, records, data=data, explicit_binding=binding, idempotency_key=operation_id)
             if route.get("native"):
                 return {"dispatched": False, "has_binding": False, "success": False}
 

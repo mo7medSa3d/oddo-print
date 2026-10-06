@@ -60,6 +60,8 @@ export interface DesktopState {
   totalPrinters: number;
   onlinePrinters: number;
   offlinePrinters: number;
+  /** Advancing wall clock (15s tick) so freshness re-derives on open screens. */
+  nowMs: number;
   refreshPrinters: () => void;
   handleDiscover: () => void;
   handleTest: (id: string) => void;
@@ -81,7 +83,7 @@ export interface DesktopState {
   jobCounts: Record<JobTab | "all", number>;
   pendingJobs: number;
   failedJobs: number;
-  refreshJobs: (options?: { status?: string; search?: string; limit?: number }) => Promise<void> | void;
+  refreshJobs: (options?: { status?: string; search?: string; limit?: number; printerId?: string; merge?: boolean }) => Promise<void> | void;
   jobPrinterFilter: string | null;
   setJobPrinterFilter: (v: string | null) => void;
   printerFilterName: string;

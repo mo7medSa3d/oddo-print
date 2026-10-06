@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
+import { statusMessageKey } from "../../lib/api-error-keys";
 import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import {
@@ -85,18 +86,26 @@ function StateIcon({ state, className = "h-4 w-4" }: { state: HealthState; class
   return <HelpCircle className={className} aria-hidden />;
 }
 
-function relativeTime(iso: string) {
+function relativeTime(iso: string, locale: string) {
   const ms = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(ms)) return "just now";
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  return `${minutes}m ago`;
+  if (Number.isNaN(ms)) return "—";
+  try {
+    // Arabic keeps Latin digits (ar-u-nu-latn) per the project i18n convention.
+    const rtf = new Intl.RelativeTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en", { numeric: "auto" });
+    const seconds = Math.max(0, Math.round(ms / 1000));
+    if (seconds < 60) return rtf.format(-seconds, "second");
+    return rtf.format(-Math.round(seconds / 60), "minute");
+  } catch {
+    // Runtimes without Intl.RelativeTimeFormat fall back to English.
+    const seconds = Math.max(0, Math.round(ms / 1000));
+    if (seconds < 60) return `${seconds}s ago`;
+    return `${Math.round(seconds / 60)}m ago`;
+  }
 }
 
 export default function SystemHealthClient() {
   const [health, setHealth] = useState<SystemHealth | null>(null);
-  const { t, tc } = useI18n();
+  const { t, tc, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,9 +114,11 @@ export default function SystemHealthClient() {
     if (mode === "initial") setLoading(true);
     else setRefreshing(true);
     setError(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      const res = await fetch("/api/system/health", { cache: "no-store" });
-      if (!res.ok) throw new Error(t("errors.gatewayUnavailable"));
+      const res = await fetch("/api/system/health", { cache: "no-store", signal: controller.signal });
+      if (!res.ok) throw new Error(t(statusMessageKey(res.status) ?? "errors.gatewayUnavailable"));
       const data = (await res.json()) as SystemHealth;
       setHealth(data);
     } catch (e) {
@@ -116,6 +127,7 @@ export default function SystemHealthClient() {
       console.warn("health_check_failed:", detail);
       setError(t("health.refreshFailedBody"));
     } finally {
+      clearTimeout(timer);
       setLoading(false);
       setRefreshing(false);
     }
@@ -200,7 +212,7 @@ export default function SystemHealthClient() {
                 <span aria-hidden>·</span>
                 <span>{t("health.versionSchema", { version: health.version.schema })}</span>
                 <span aria-hidden>·</span>
-                <span>{t("health.sampledAt", { time: relativeTime(health.timestamp) })}</span>
+                <span>{t("health.sampledAt", { time: relativeTime(health.timestamp, locale) })}</span>
               </div>
             </div>
           </div>

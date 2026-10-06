@@ -643,3 +643,94 @@ func TestNonemptyLegacyQueueMigratesDurablyWithoutLosingRows(t *testing.T) {
 		t.Fatalf("migration broke terminal idempotency: %v", err)
 	}
 }
+
+func TestLocalLedgerRejectsGatewayOnlyStatuses(t *testing.T) {
+	// The Gateway lifecycle (queued/claimed/printing/success/failed/expired)
+	// is wider than the local ledger (queued/printing/success/failed).
+	// Gateway `claimed`/`expired` must never be persisted locally: the CHECK
+	// is the enforcer and it fails closed. If this test fails because the
+	// CHECK was widened, the local writers must be re-audited first.
+	q := newTestQueue(t)
+	if err := q.Push("gw-state-guard", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	for _, status := range []string{"claimed", "expired"} {
+		if err := q.UpdateStatus("gw-state-guard", status); err == nil {
+			t.Fatalf("local ledger accepted Gateway-only status %q", status)
+		}
+		if err := q.UpdateStatusWithError("gw-state-guard", status, "x"); err == nil {
+			t.Fatalf("local ledger with error accepted Gateway-only status %q", status)
+		}
+		if err := q.UpdateTerminalWithEvidence("gw-state-guard", status, "x", ""); err == nil {
+			t.Fatalf("terminal evidence accepted Gateway-only status %q", status)
+		}
+	}
+}
+
+func TestRecordSpoolerJobIDDuringPrintingPhase(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("spool-early", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-early", "4242"); err == nil {
+		t.Fatal("must not record platform identity before the printing phase")
+	}
+	if err := q.BeginPrint("spool-early", "printer_1", []byte("x"), "claim-1", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-early", ""); err == nil {
+		t.Fatal("must refuse an empty platform identity")
+	}
+	if err := q.RecordSpoolerJobID("spool-early", "4242"); err != nil {
+		t.Fatalf("RecordSpoolerJobID: %v", err)
+	}
+	if err := q.UpdateStatusWithError("spool-early", "failed", "UNKNOWN_PARTIAL_DELIVERY: boom"); err != nil {
+		t.Fatalf("terminal write: %v", err)
+	}
+	// Terminal evidence is authoritative: a stale mid-phase observation must
+	// never overwrite it.
+	if err := q.RecordSpoolerJobID("spool-early", "9999"); err == nil {
+		t.Fatal("must not overwrite terminal platform evidence")
+	}
+	reports, err := q.PendingTerminalReports(32)
+	if err != nil {
+		t.Fatalf("PendingReports: %v", err)
+	}
+	found := false
+	for _, r := range reports {
+		if r.ID == "spool-early" {
+			found = true
+			if r.SpoolerJobID != "4242" {
+				t.Fatalf("terminal evidence lost the mid-phase identity: %q", r.SpoolerJobID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("terminal row missing from outbox reports")
+	}
+}
+
+func TestMarkInterruptedRetainsSpoolerJobID(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("spool-crash", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.BeginPrint("spool-crash", "printer_1", []byte("x"), "claim-9", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-crash", "777"); err != nil {
+		t.Fatalf("RecordSpoolerJobID: %v", err)
+	}
+	// Simulate a crash between StartDoc and the terminal write: the process
+	// dies with the row still printing; recovery must keep the identity.
+	marked, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted: %v", err)
+	}
+	if len(marked) != 1 || marked[0].ID != "spool-crash" {
+		t.Fatalf("expected one interrupted job, got %+v", marked)
+	}
+	if marked[0].SpoolerJobID != "777" {
+		t.Fatalf("crash recovery lost the platform identity: %q", marked[0].SpoolerJobID)
+	}
+}

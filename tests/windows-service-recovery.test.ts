@@ -44,10 +44,18 @@ describe("windows-service-recovery", () => {
     const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
     const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
 
-    expect(nsis).toContain("taskkill /F /T /IM yaseir-manager.exe");
-    expect(nsis).toContain('taskkill /F /T /IM "Yaseir Print Manager.exe"');
-    expect(nsis).toContain("taskkill /F /T /IM YaseirAgent.exe");
-    expect(nsis.indexOf("sc stop YaseirAgent")).toBeLessThan(nsis.indexOf("taskkill /F /T /IM YaseirAgent.exe"));
+    // Privileged utilities must resolve outside inherited PATH search.
+    expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'net (stop|start)/);
+    expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'sc (stop|start|delete|query)/);
+    expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'taskkill /);
+    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM yaseir-manager.exe');
+    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM "Yaseir Print Manager.exe"');
+    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM YaseirAgent.exe');
+    // Verified stop precedes process termination and binary replacement.
+    expect(nsis).toContain("STOPPED");
+    expect(nsis).toContain("YASEIR_STOP_SERVICE_VERIFY");
+    expect(nsis).toContain("YASEIR_UN_STOP_SERVICE_VERIFY");
+    expect(nsis.indexOf("YASEIR_UN_STOP_SERVICE_VERIFY")).toBeLessThan(nsis.indexOf("$SYSDIR\\taskkill.exe"));
     expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 
@@ -55,8 +63,8 @@ describe("windows-service-recovery", () => {
     expect(tauriConf.bundle.targets).toEqual(["nsis"]);
     expect(tauriConf.bundle.windows.wix).toBeUndefined();
     expect(nsis).toContain("NSIS_HOOK_PREUNINSTALL");
-    expect(nsis).toContain('sc delete YasserAgent');
-    expect(nsis).toContain('sc delete OdooPrintAgent');
+    expect(nsis).toContain('sc.exe" delete YasserAgent');
+    expect(nsis).toContain('sc.exe" delete OdooPrintAgent');
 
     expect(agentMain).toContain('case "uninstall":');
     expect(agentMain).toContain('case "purge":');

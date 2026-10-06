@@ -90,7 +90,7 @@ export default function PlatformTenantsPage() {
     setActionError(null);
   }
 
-  function handleRefresh() { setError(null); setNotice(null); setReloadKey((k) => k + 1); }
+  function handleRefresh() { setError(null); setReloadKey((k) => k + 1); }
   function openSuspend(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("suspend"); setSuspendReason(""); setActionError(null); }
   function openReactivate(tenant: Tenant) { setSelectedTenant(tenant); setDialogMode("reactivate"); setSuspendReason(""); setActionError(null); }
 
@@ -354,7 +354,7 @@ export default function PlatformTenantsPage() {
         )}
       </Modal>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + tenants.length) })}</span>
+        <span className="text-sm text-ink-3">{tenants.length === 0 ? t("common.pageEmpty") : t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + tenants.length) })}</span>
         <div className="flex gap-2">
           <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
           <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>

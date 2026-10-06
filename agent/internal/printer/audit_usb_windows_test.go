@@ -4,6 +4,7 @@ package printer
 
 import (
 	"encoding/binary"
+	"fmt"
 	"syscall"
 	"testing"
 )
@@ -29,5 +30,24 @@ func TestAuditSetupAPIRejectsShortAndNonDevicePaths(t *testing.T) {
 		if _, err := usbDeviceInterfacePath(buf); err == nil {
 			t.Fatalf("accepted invalid buffer: %v", buf)
 		}
+	}
+}
+
+func TestAuditUSBPrintInterfaceGUIDMatchesMicrosoft(t *testing.T) {
+	// GUID_DEVINTERFACE_USBPRINT per Microsoft usbprint.h:
+	// {28D78FAD-5A12-11d1-AE5B-0000F803A8C2}. A wrong GUID makes primary
+	// USB printer discovery and path enumeration target an unrelated
+	// device-interface class (previously 100a-48d4, which matches nothing
+	// printer-specific). Format the constant the way SetupDi consumers
+	// render interface paths so drift is caught textually.
+	got := fmt.Sprintf("{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}",
+		guidDevInterfaceUSBPrint.Data1, guidDevInterfaceUSBPrint.Data2, guidDevInterfaceUSBPrint.Data3,
+		guidDevInterfaceUSBPrint.Data4[0], guidDevInterfaceUSBPrint.Data4[1],
+		guidDevInterfaceUSBPrint.Data4[2], guidDevInterfaceUSBPrint.Data4[3],
+		guidDevInterfaceUSBPrint.Data4[4], guidDevInterfaceUSBPrint.Data4[5],
+		guidDevInterfaceUSBPrint.Data4[6], guidDevInterfaceUSBPrint.Data4[7])
+	const want = "{28d78fad-5a12-11d1-ae5b-0000f803a8c2}"
+	if got != want {
+		t.Fatalf("USBPRINT interface GUID drift: got %s want %s", got, want)
 	}
 }

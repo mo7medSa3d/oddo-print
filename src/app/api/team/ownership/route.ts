@@ -22,7 +22,12 @@ class OwnershipConflict extends Error {
 
 export async function POST(req: Request) {
   const claims = await validateWorkspaceManager(req);
-  if (!claims?.userId || claims.role !== "owner" || !hasManagerPermission(claims, "users.manage")) return NextResponse.json({ error: "Only the workspace owner can transfer ownership" }, { status: 403 });
+  if (!claims?.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (claims.role !== "owner" || !hasManagerPermission(claims, "users.manage")) {
+    return NextResponse.json({ error: "Only the workspace owner can transfer ownership" }, { status: 403 });
+  }
   const currentUserId = claims.userId;
   let body: { userId?: unknown };
   try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }

@@ -55,6 +55,7 @@ type fakePrinter struct {
 	afterPrint    func()
 	panicOnPrint  bool
 	failOnCall    int
+	spoolerID     string
 }
 
 type printSpan struct {
@@ -150,6 +151,12 @@ func (f *fakePrinter) Status() string {
 		return f.status
 	}
 	return "online"
+}
+
+func (f *fakePrinter) LastSpoolerJobID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.spoolerID
 }
 
 func newStatusTestServer(t *testing.T) *httptest.Server {
@@ -1370,5 +1377,40 @@ func TestReconcileRegistryDropsStaleBackendWhenCurrentRowCannotInstantiate(t *te
 	ag.printersMu.RUnlock()
 	if configStillPresent || ownedStillPresent {
 		t.Fatalf("failed registry row remained runtime-owned: config=%v owned=%v", configStillPresent, ownedStillPresent)
+	}
+}
+
+func TestClassifyPanicOutcomePreservesPriorUnknown(t *testing.T) {
+	cases := []struct {
+		name        string
+		readErr     error
+		found       bool
+		localStatus string
+		prior       bool
+		wantStatus  string
+		wantUnknown bool
+	}{
+		{"ledger unreadable", errors.New("db down"), false, "", false, "failed", true},
+		{"row printing", nil, true, "printing", false, "failed", true},
+		{"row success stands", nil, true, "success", false, "success", false},
+		{"failed with prior unknown marker", nil, true, "failed", true, "failed", true},
+		{"failed plain stays plain", nil, true, "failed", false, "failed", false},
+		{"queued stays plain", nil, true, "queued", false, "failed", false},
+		{"missing row stays plain", nil, false, "", false, "failed", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, msg := classifyPanicOutcome(tc.readErr, tc.found, tc.localStatus, tc.prior, "boom")
+			if status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q", status, tc.wantStatus)
+			}
+			gotUnknown := strings.HasPrefix(msg, "UNKNOWN_PARTIAL_DELIVERY: ")
+			if gotUnknown != tc.wantUnknown {
+				t.Fatalf("unknown marker = %v, want %v (msg %q)", gotUnknown, tc.wantUnknown, msg)
+			}
+			if status == "success" && msg != "" {
+				t.Fatalf("success must not carry a message, got %q", msg)
+			}
+		})
 	}
 }

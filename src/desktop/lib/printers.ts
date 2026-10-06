@@ -81,8 +81,16 @@ export function printerAgentView(
   );
 }
 
-export function printerIsStale(p: PrinterInfo | null | undefined): boolean {
-  return !!p && p.freshness === "stale";
+export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.now()): boolean {
+  if (!p) return false;
+  if (p.freshness === "stale") return true;
+  // The snapshot field above ages: recompute from the observation timestamp
+  // as the screen stays open so a printer cannot stay green after its
+  // observations go stale (C045).
+  if (p.lastSeenAt == null) return false;
+  const seen = Date.parse(String(p.lastSeenAt));
+  if (!Number.isFinite(seen)) return true;
+  return printerObservationFreshness(new Date(seen), nowMs) !== "fresh";
 }
 
 export function printerDisplayStatus(p: PrinterInfo): string {
@@ -308,6 +316,16 @@ export function jobTimestamp(
   const raw = j[key] ?? (key === "createdAt" ? j.created_at : j.updated_at);
   if (typeof raw === "string" || typeof raw === "number") return raw;
   return undefined;
+}
+
+/** Millis for newest-first ordering of bounded job snapshots. */
+export function jobTimeMs(j: Record<string, unknown>): number {
+  for (const key of ["updatedAt", "createdAt", "updated_at", "created_at"] as const) {
+    const raw = j[key];
+    const ms = typeof raw === "number" ? raw : Date.parse(String(raw ?? ""));
+    if (Number.isFinite(ms)) return ms;
+  }
+  return 0;
 }
 export function jobStatus(j: Record<string, unknown>): string {
   return String(j.status ?? "");

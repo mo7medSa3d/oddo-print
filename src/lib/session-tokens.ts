@@ -640,6 +640,12 @@ export async function rotateRefreshToken(
         WHERE family_id = ${row.familyId} AND revoked_at IS NULL
       `);
 
+      // The family revocation above is the security decision and must stay
+      // durable even if the optional audit write fails. In PostgreSQL a
+      // failed statement aborts the whole transaction, so catching the
+      // application exception alone cannot preserve the revocation: isolate
+      // the telemetry write behind a savepoint instead.
+      await tx.execute(sql`SAVEPOINT refresh_reuse_audit`);
       try {
         const actorType = row.kind === "platform" ? "platform" : row.userId ? "user" : "system";
         await writeAuditEvent({
@@ -654,7 +660,9 @@ export async function rotateRefreshToken(
             revokedReason: "refresh_reuse_detected",
           },
         }, tx);
+        await tx.execute(sql`RELEASE SAVEPOINT refresh_reuse_audit`);
       } catch (auditError) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT refresh_reuse_audit`);
         logError("auth.refresh.reuse_audit_failed", {
           familyId: row.familyId,
           error: auditError instanceof Error ? auditError.message : "unknown",

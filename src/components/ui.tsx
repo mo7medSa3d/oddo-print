@@ -69,20 +69,12 @@ const toneIconSurface: Record<Tone, string> = {
   brand: "border-edge-accent bg-brand-subtle text-brand",
 };
 
-export function agentTone(status: string): Tone {
-  const s = String(status).toLowerCase();
-  if (s === "online" || s === "running" || s === "active") return "ok";
-  if (s === "offline" || s === "stopped" || s === "error" || s === "retired") return "bad";
-  if (s === "disabled") return "warn";
-  return "neutral";
-}
-
 export function printerTone(status: string): Tone {
   return sharedPrinterTone(String(status)) as Tone;
 }
 
-export function jobTone(status: string): Tone {
-  return sharedJobTone(String(status)) as Tone;
+export function jobTone(status: string, outcome?: "printed" | "not_printed" | "unknown"): Tone {
+  return sharedJobTone(String(status), outcome) as Tone;
 }
 
 /** Focus treatment shared by every interactive control. */
@@ -167,6 +159,12 @@ export function Button({
       }
       props.onClick?.(event as unknown as React.MouseEvent<HTMLButtonElement>);
     };
+    // Button props are button-element attributes: forward only the
+    // global/ARIA/data attributes a link may carry, never button-only ones.
+    const linkPassthrough: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(props)) {
+      if (key.startsWith("aria-") || key.startsWith("data-")) linkPassthrough[key] = value;
+    }
 
     return (
       <Link
@@ -180,6 +178,7 @@ export function Button({
         onClick={handleLinkClick}
         title={props.title}
         id={props.id}
+        {...linkPassthrough}
       >
         {content}
       </Link>
@@ -959,13 +958,22 @@ export function Checkbox({
   const descId = description ? `${inputId}-description` : undefined;
   return (
     <div className={`flex items-start gap-2.5 ${className}`}>
-      <input
-        id={inputId}
-        type="checkbox"
-        aria-describedby={descId}
-        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
-        {...props}
-      />
+      <span className="relative mt-0.5 flex h-4 w-4 shrink-0">
+        <input
+          id={inputId}
+          type="checkbox"
+          aria-describedby={descId}
+          className="peer h-4 w-4 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
+          {...props}
+        />
+        {/* Non-color checked indicator: the brand fill alone is not
+            discernible without color vision (C048). */}
+        <Check
+          className="pointer-events-none absolute inset-0 h-4 w-4 p-[3px] text-brand-contrast opacity-0 transition-opacity duration-[120ms] peer-checked:opacity-100 peer-disabled:opacity-0"
+          aria-hidden
+          strokeWidth={3.5}
+        />
+      </span>
       <div className="min-w-0">
         <label htmlFor={inputId} className="block cursor-pointer text-sm font-[500] text-ink">
           {label}
@@ -1383,7 +1391,16 @@ export function Menu({
                     aria-disabled={item.disabled || undefined}
                     data-variant={item.tone === "danger" ? "danger" : undefined}
                     className="menu-item"
-                    onClick={() => close(false)}
+                    onClick={(event) => {
+                      // aria-disabled alone does not stop a link: a disabled
+                      // menu link must not navigate (C048).
+                      if (item.disabled) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                      }
+                      close(false);
+                    }}
                   >
                     {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
@@ -1553,6 +1570,7 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             type="button"
             aria-pressed={selected}
+            aria-label={option.icon ? option.label : undefined}
             onClick={() => onChange(option.value)}
             className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected

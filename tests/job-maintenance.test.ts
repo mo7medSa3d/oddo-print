@@ -146,6 +146,33 @@ suite("server-side print job maintenance", () => {
     ]);
   });
 
+  it("archives large terminal backlogs in bounded inner batches without losing evidence", async () => {
+    // C065: 45 terminal jobs exceed the 20-row materialization bound, so the
+    // cleanup must loop inner batches. Every job still lands in receipts
+    // with a verifiable fingerprint and leaves print_jobs.
+    const total = 45;
+    for (let i = 0; i < total; i++) {
+      await insertJob(`retention-batch-${i}`, i % 2 === 0 ? "success" : "failed", 0, 49 * 60 * 60, 3600);
+    }
+    expect(await cleanupTerminalPrintJobs()).toBe(total);
+
+    const remaining = await pool().query("SELECT COUNT(*)::int AS n FROM print_jobs WHERE id LIKE 'retention-batch-%'");
+    expect(Number(remaining.rows[0]?.n)).toBe(0);
+    const receipts = await pool().query("SELECT COUNT(*)::int AS n FROM print_job_receipts WHERE id LIKE 'retention-batch-%'");
+    expect(Number(receipts.rows[0]?.n)).toBe(total);
+    const sample = await pool().query(
+      "SELECT fingerprint, printer_id, document_type, destination, payload FROM print_job_receipts WHERE id = $1",
+      ["retention-batch-0"],
+    );
+    const { idempotencyDigest } = await import("../src/lib/print-job-service");
+    expect(sample.rows[0]?.fingerprint).toBe(idempotencyDigest({
+      printerId: sample.rows[0]?.printer_id,
+      documentType: sample.rows[0]?.document_type,
+      destination: sample.rows[0]?.destination,
+      payload: sample.rows[0]?.payload,
+    }));
+  });
+
   it("fails a stale printing lease after retry history without creating another print attempt", async () => {
     await insertJob("job-stale-printing-history", "printing", MAX_RETRIES, 11 * 60, 3600);
     const result = await sweepPrintJobs();

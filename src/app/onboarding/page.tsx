@@ -70,6 +70,7 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState("");
+  const [workspaceProvisioned, setWorkspaceProvisioned] = useState(false);
   const router = useRouter();
 
   const fetchPlans = useCallback(async (): Promise<Plan[]> => {
@@ -91,8 +92,30 @@ export default function Onboarding() {
       const nextPlans = await fetchPlans();
       const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
       setPlans(nextPlans);
+      // Hydrate existing workspace state from the onboarding contract: a
+      // returning operator sees their saved name and plan, and an already
+      // provisioned subscription reconciles instead of offering a second
+      // trial after a lost response (C060).
+      let existingPlanId = "";
+      let provisioned = false;
+      try {
+        const stateRes = await fetch("/api/onboarding", { credentials: "include", cache: "no-store" });
+        if (stateRes.ok) {
+          const state = await stateRes.json();
+          const tenantName = typeof state?.tenant?.name === "string" ? state.tenant.name : "";
+          if (tenantName) setName((current) => current || tenantName);
+          const subPlanId = typeof state?.subscription?.planId === "string" ? state.subscription.planId : "";
+          if (subPlanId && nextPlans.some((plan) => plan.id === subPlanId)) existingPlanId = subPlanId;
+          const subStatus = typeof state?.subscription?.status === "string" ? state.subscription.status : "";
+          provisioned = subStatus === "trialing" || subStatus === "active" || subStatus === "past_due";
+        }
+      } catch {
+        // State hydration is best-effort; plans remain selectable.
+      }
+      setWorkspaceProvisioned(provisioned);
       setPlanId((current) => {
         if (current && nextPlans.some((plan) => plan.id === current)) return current;
+        if (existingPlanId) return existingPlanId;
         if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
         return nextPlans[0]?.id ?? "";
       });
@@ -148,7 +171,14 @@ export default function Onboarding() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.failed"));
+        const code = typeof data.code === "string" ? data.code : undefined;
+        // An accepted-but-unobserved trial (lost response, double submit)
+        // reconciles against current state instead of offering the trial
+        // again as a generic conflict (C060).
+        if (response.status === 409) {
+          await loadPlans();
+        }
+        throw new Error(t(codeMessageKey(code) ?? "onboarding.failed"));
       }
       if (trial) {
         router.replace("/dashboard");
@@ -322,6 +352,11 @@ export default function Onboarding() {
               {err && (
                 <Callout tone="bad" title={t("onboarding.setupFailedTitle")} icon={<AlertTriangle className="h-4 w-4" />}>
                   {err}
+                </Callout>
+              )}
+              {workspaceProvisioned && !err && (
+                <Callout tone="ok" title={t("onboarding.alreadySetupTitle")}>
+                  {t("onboarding.alreadySetupBody")}
                 </Callout>
               )}
             </div>

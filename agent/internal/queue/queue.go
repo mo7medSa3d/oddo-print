@@ -446,9 +446,10 @@ const InterruptedMarker = "AGENT_RESTART_DURING_PRINT"
 
 // InterruptedJob is a job that was left mid-print by a crash/restart.
 type InterruptedJob struct {
-	ID         string
-	PrinterID  string
-	ClaimToken string
+	ID           string
+	PrinterID    string
+	ClaimToken   string
+	SpoolerJobID string
 }
 
 // MarkInterrupted moves every job still recorded as 'printing' into a terminal
@@ -458,14 +459,14 @@ type InterruptedJob struct {
 // a row in 'printing' after a fresh start can only mean the previous process
 // died while the document was at the printer.
 func (q *Queue) MarkInterrupted() ([]InterruptedJob, error) {
-	rows, err := q.db.Query(`SELECT id, printer_id, COALESCE(claim_token, '') FROM print_jobs WHERE status = 'printing'`)
+	rows, err := q.db.Query(`SELECT id, printer_id, COALESCE(claim_token, ''), COALESCE(spooler_job_id, '') FROM print_jobs WHERE status = 'printing'`)
 	if err != nil {
 		return nil, err
 	}
 	var found []InterruptedJob
 	for rows.Next() {
 		var j InterruptedJob
-		if err := rows.Scan(&j.ID, &j.PrinterID, &j.ClaimToken); err != nil {
+		if err := rows.Scan(&j.ID, &j.PrinterID, &j.ClaimToken, &j.SpoolerJobID); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -486,6 +487,30 @@ func (q *Queue) MarkInterrupted() ([]InterruptedJob, error) {
 		marked = append(marked, j)
 	}
 	return marked, nil
+}
+
+// RecordSpoolerJobID persists platform submission evidence observed during
+// the printing phase, before the terminal write. A crash between StartDoc
+// (identity allocated) and the terminal ledger write must not lose the only
+// durable link to the platform job. It only touches rows still in
+// 'printing': terminal evidence is written once by the terminal path and
+// never overwritten by a stale observation.
+func (q *Queue) RecordSpoolerJobID(id, spoolerJobID string) error {
+	if strings.TrimSpace(spoolerJobID) == "" {
+		return fmt.Errorf("refusing to record an empty spooler job ID for %s", id)
+	}
+	res, err := q.db.Exec(`UPDATE print_jobs SET spooler_job_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'printing'`, strings.TrimSpace(spoolerJobID), id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return fmt.Errorf("spooler job ID not recorded for %s: no printing row", id)
+	}
+	return nil
 }
 
 // UnknownOutcomeMarkers lists the local last_error prefixes whose physical

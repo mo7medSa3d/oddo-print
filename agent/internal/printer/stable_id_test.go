@@ -226,3 +226,24 @@ func TestUpsertRegistryMatchesLegacyCapabilityOnlySpoolerIdentity(t *testing.T) 
 		t.Fatalf("legacy row did not migrate to current spooler identity tuple: %#v", rows[0])
 	}
 }
+
+func TestIPPDefaultQueueConvergesTCPAndMDNSIdentity(t *testing.T) {
+	// The TCP 631 scan builds endpoint ipp://host:631/ipp/print with a
+	// StableIDFromNetwork ID; mDNS with a default/absent rp builds the same
+	// endpoint string and must converge to the same ID so one device yields
+	// one inventory row. Non-default resource paths stay separate: they
+	// address distinct queues on multi-queue servers.
+	tcpID := StableIDFromNetwork("192.168.1.20", 631)
+	for _, endpoint := range []string{
+		"ipp://192.168.1.20:631/ipp/print",
+		"ipp://192.168.1.20:631",
+	} {
+		if got := StableIDFromIPPURI(endpoint, "192.168.1.20", 631); got != tcpID {
+			t.Fatalf("default-queue endpoint %q must share the TCP identity: got %s want %s", endpoint, got, tcpID)
+		}
+	}
+	other := StableIDFromIPPURI("ipp://192.168.1.20:631/printers/office", "192.168.1.20", 631)
+	if other == tcpID {
+		t.Fatalf("non-default queue path must keep a distinct identity, got %s", other)
+	}
+}

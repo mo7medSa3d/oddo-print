@@ -119,6 +119,10 @@ function CertificationSession({ printerId }: { printerId: string }) {
 
   const operationKey = useRef<string | null>(null);
   const [terminal, setTerminal] = useState(false);
+  // Authoritative live outcome for the accepted operation, refreshed by the
+  // poll below. Stages/steps describe acceptance-time diagnostics; this is
+  // the execution evidence and may disagree with them (C054).
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [inspectBeforeRepeat, setInspectBeforeRepeat] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -136,6 +140,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
         if (controller.signal.aborted) return;
         const done = ["success", "failed", "expired"].includes(job.status);
         setTerminal(done);
+        setLiveStatus(typeof job.status === "string" ? job.status : null);
         setInspectBeforeRepeat(derivePhysicalOutcome(job.status, job.error) === "unknown");
         if (!done) timer = setTimeout(() => { void poll(); }, 3000);
       } catch { if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, 5000); }
@@ -151,7 +156,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
       if (inspectBeforeRepeat && !window.confirm(t("job.reprintClearPrinter"))) return;
       operationKey.current = null;
       try { sessionStorage.removeItem(storageKey); } catch { /* in-memory operation remains available */ }
-      setJobId(null); setSteps(null); setTerminal(false);
+      setJobId(null); setSteps(null); setTerminal(false); setLiveStatus(null);
     }
     if (!operationKey.current) {
       try { operationKey.current = sessionStorage.getItem(storageKey); } catch { /* storage unavailable */ }
@@ -189,7 +194,12 @@ function CertificationSession({ printerId }: { printerId: string }) {
   const completedCount = steps?.filter((step) => step.status === "ok").length ?? 0;
   const failedCount = steps?.filter((step) => step.status === "error").length ?? 0;
   const blockedCount = steps?.filter((step) => step.status === "blocked").length ?? 0;
-  const overallTone: Tone = certified ? "ok" : blocked ? "warn" : "bad";
+  // Acceptance-time verdict (from the POST) vs live execution evidence (from
+  // the poll). A terminal failure/unknown outcome overrides an accepted
+  // "certified" — the stages below stay labeled as acceptance diagnostics.
+  const liveFailed = terminal && (liveStatus === "failed" || liveStatus === "expired");
+  const liveRunning = !!jobId && !terminal;
+  const overallTone: Tone = liveFailed ? "bad" : certified ? "ok" : blocked ? "warn" : "bad";
 
   return (
     <div className="space-y-4">
@@ -266,7 +276,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
               <div className="mt-1.5 flex items-center gap-2">
                 <StatusBadge
                   tone={overallTone}
-                  label={certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
+                  label={liveFailed ? t("cert.result.review") : certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
                 />
               </div>
               <div className="mt-1.5 text-sm text-ink-3">
@@ -293,6 +303,9 @@ function CertificationSession({ printerId }: { printerId: string }) {
               <div className="label-caps">{t("cert.printJob")}</div>
               <div className="mt-1.5">
                 {jobId ? <Mono className="block truncate">{jobId}</Mono> : <span className="text-sm text-ink-3">{t("cert.jobNotCreated")}</span>}
+              </div>
+              <div className="mt-1.5 text-sm text-ink-2">
+                {liveRunning ? t("cert.liveRunning") : liveStatus === "success" ? t("cert.liveSuccess") : liveStatus === "failed" || liveStatus === "expired" ? t("cert.liveFailed") : null}
               </div>
               <div className="mt-1 truncate text-sm text-ink-3" title={requestId ?? undefined}>
                 {requestId ? t("cert.requestShort", { id: requestId.slice(0, 12) }) : t("cert.noRequestRecorded")}

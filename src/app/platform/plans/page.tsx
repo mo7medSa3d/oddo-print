@@ -83,6 +83,7 @@ export default function PlatformPlansPage() {
   const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<Plan | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -113,7 +114,7 @@ export default function PlatformPlansPage() {
   function closeEditor() { setCreating(false); setEditing(null); }
 
   async function archivePlan(plan: Plan) {
-    setError(null); setNotice(null);
+    setError(null); setNotice(null); setArchiveError(null);
     setArchiveBusy(true);
     try {
       const res = await fetch(`/api/platform/plans/${plan.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: false }) });
@@ -121,7 +122,11 @@ export default function PlatformPlansPage() {
       setNotice(t("platform.plans.archivedNotice", { name: plan.name }));
       setArchiving(null);
       refresh(false);
-    } catch (err) { setError(err instanceof Error ? err.message : t("platform.plans.archiveFailed")); }
+    } catch (err) {
+      // Inside the confirm dialog's focus scope: the page-level error would
+      // render behind the inert modal and read as unrelated (C061).
+      setArchiveError(err instanceof Error ? err.message : t("platform.plans.archiveFailed"));
+    }
     finally { setArchiveBusy(false); }
   }
 
@@ -386,7 +391,7 @@ export default function PlatformPlansPage() {
 
       <ConfirmDialog
         open={archiving !== null}
-        onClose={() => { if (!archiveBusy) setArchiving(null); }}
+        onClose={() => { if (!archiveBusy) { setArchiving(null); setArchiveError(null); } }}
         onConfirm={() => { if (archiving) void archivePlan(archiving); }}
         busy={archiveBusy}
         tone="primary"
@@ -395,6 +400,11 @@ export default function PlatformPlansPage() {
         confirmLabel={t("platform.plans.archiveTitle")}
         cancelLabel={t("platform.plans.keepPlan")}
       >
+        {archiveError && (
+          <p role="alert" className="mb-3 rounded-sg border border-bad-edge bg-bad-bg px-3.5 py-2.5 text-sm text-bad">
+            {archiveError}
+          </p>
+        )}
         {archiving && (
           <div className="flex items-start gap-3 rounded-sg border border-edge bg-surface-2 p-3.5">
             <ArchiveRestore className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />

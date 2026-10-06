@@ -74,10 +74,15 @@ func maxPollJobsBytes() int64 {
 	return int64(maxClaimBatch) * int64(payload.MaxPayloadBytes)
 }
 
-// pollJobsByteLimit is the live poll-response ceiling. It defaults to the
-// documented batch product and is only varied by tests in this package
-// (which run sequentially), so a bounded read can be exercised without
-// transferring the full production ceiling.
+// pollJobsByteLimit is the live poll-response ceiling: the decoded-bytes
+// batch product above (20 x 5 MiB = 100 MiB). The gateway additionally
+// trims every poll response to MAX_POLL_RESPONSE_BYTES = 64 MiB of ENCODED
+// wire bytes (src/app/api/agent/jobs/route.ts), so this reader always has
+// headroom: twenty maximum-size jobs would frame at ~140 MiB encoded and
+// fail the whole batch decode while their claims stayed delivery-pending.
+// It defaults to the documented batch product and is only varied by tests
+// in this package (which run sequentially), so a bounded read can be
+// exercised without transferring the full production ceiling.
 var pollJobsByteLimit = maxPollJobsBytes()
 
 // shutdownGrace bounds how long Run waits for in-flight jobs after the agent
@@ -356,6 +361,22 @@ func (a *Agent) legacyPrinterDisabled(id string) bool {
 // goroutine started in New and by Discover/RegisterManual, while heartbeat
 // status payloads and job dispatch read it concurrently — all access must go
 // through these helpers.
+// priorSessionMayBeLive reports whether replacing the given backend could
+// overlap a still-running transport session. The dispatch path holds the
+// per-printer lock across synchronous hardware I/O, so the only live case
+// at replacement time is a detached session that outlived its caller's
+// return (wedged Win32 worker, abandoned kernel write). Backends without
+// live-session reporting never block replacement.
+func priorSessionMayBeLive(old printer.Printer) bool {
+	if old == nil {
+		return false
+	}
+	if r, ok := old.(printer.LiveSessionReporter); ok {
+		return r.SessionMayBeLive()
+	}
+	return false
+}
+
 func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {
 	if !pc.IsEnabled() || a.legacyPrinterDisabled(id) {
 		return false
@@ -382,6 +403,15 @@ func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig
 		if reflect.DeepEqual(old, pc) {
 			return false
 		}
+		if priorSessionMayBeLive(a.printers[id]) {
+			// A prior session (wedged Win32 worker, abandoned kernel
+			// write) may still own the physical transport. The replacement
+			// carries a fresh mutex/latch, so swapping now would permit
+			// overlapping submissions to the same device. Defer: the next
+			// discovery sweep retries once the session drains.
+			log.Printf("printer %q backend replacement deferred: a prior print session may still own the transport; retrying on a later sweep", id)
+			return false
+		}
 		log.Printf("printer %q re-registered with changed configuration; refreshing runtime backend and facts", id)
 	}
 	a.printers[id] = p
@@ -394,6 +424,34 @@ func (a *Agent) getPrinter(id string) (printer.Printer, bool) {
 	defer a.printersMu.RUnlock()
 	p, ok := a.printers[id]
 	return p, ok
+}
+
+// resolvePrinterAlias maps a Gateway-issued cross-agent alias back to the
+// local backend. Aliases have the form "<local stable ID>~<8 hex chars>";
+// locally generated stable IDs never contain "~", so stripping the suffix
+// recovers the local device. An exact local match always wins: resolution
+// only fires when the alias itself names no local backend.
+func (a *Agent) resolvePrinterAlias(printerID string) string {
+	if _, ok := a.getPrinter(printerID); ok {
+		return printerID
+	}
+	if i := strings.LastIndexByte(printerID, '~'); i > 0 && len(printerID)-i-1 == 8 {
+		suffix := printerID[i+1:]
+		valid := true
+		for j := 0; j < len(suffix); j++ {
+			c := suffix[j]
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			if _, ok := a.getPrinter(printerID[:i]); ok {
+				return printerID[:i]
+			}
+		}
+	}
+	return printerID
 }
 
 func (a *Agent) printerCount() int {
@@ -1036,7 +1094,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 				log.Printf("Job %s: cannot request crash requeue without the preserved claim token; leaving the local unknown outcome terminal", job.ID)
 				continue
 			}
-			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken, "", "agent_reprint_after_crash"); err != nil {
+			if err := a.updateJobStatus(ctx, job.ID, "queued", "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery", job.ClaimToken, job.SpoolerJobID, "agent_reprint_after_crash"); err != nil {
 				log.Printf("Job %s: Gateway rejected crash-requeue request; lease/recovery remains authoritative: %v", job.ID, err)
 				continue
 			}
@@ -1054,7 +1112,7 @@ func (a *Agent) recoverInterruptedJobs(ctx context.Context) {
 			job.ID, job.PrinterID, reprint,
 		)
 		a.updateJobStatus(ctx, job.ID, "failed", queue.InterruptedMarker+
-			": the agent stopped while this job was printing; the physical output is unknown (full, partial or none)", job.ClaimToken, "")
+			": the agent stopped while this job was printing; the physical output is unknown (full, partial or none)", job.ClaimToken, job.SpoolerJobID)
 	}
 	if len(interrupted) > 0 {
 		log.Printf("Crash recovery: %d job(s) were interrupted mid-print (reprint_after_crash=%v)", len(interrupted), reprint)
@@ -1459,6 +1517,32 @@ func (a *Agent) runWSAckWorker(ctx context.Context, queue <-chan wsAckWork) {
 	}
 }
 
+// classifyPanicOutcome decides the terminal report for a panic during job
+// execution. A panic is phase-ambiguous: it may strike before admission,
+// after BeginPrint, or after bytes reached the device. The only safe rule is:
+//
+//   - ledger unreadable or row in `printing`: UNKNOWN (bytes may be sent);
+//   - row already `success`: success stands (never reopened);
+//   - row already failed with an unknown-outcome marker: UNKNOWN is preserved
+//     so the Gateway cannot misclassify the job as provably not printed and
+//     auto-retry onto possibly existing paper;
+//   - otherwise (queued, plain failed, missing row): plain failed.
+//
+// Pure function of its inputs so the matrix stays pinned by unit tests.
+func classifyPanicOutcome(readErr error, found bool, localStatus string, priorUnknown bool, r interface{}) (status, msg string) {
+	panicMsg := fmt.Sprintf("AGENT_PANIC: %v", r)
+	if readErr != nil || (found && localStatus == "printing") {
+		return "failed", "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg + " (physical outcome cannot be proven absent after agent panic)"
+	}
+	if found && localStatus == "success" {
+		return "success", ""
+	}
+	if priorUnknown {
+		return "failed", "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg + " (prior attempt outcome unknown; physical outcome cannot be proven absent after agent panic)"
+	}
+	return "failed", panicMsg
+}
+
 // dispatchJob schedules exactly one job for execution under three safety
 // rules:
 //
@@ -1607,16 +1691,11 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 				// would permit a later same-token redelivery to reopen the hardware
 				// attempt after the in-process fence is cleaned up.
 				_, localStatus, found, readErr := a.queue.Get(jobID)
-				panicMsg := fmt.Sprintf("AGENT_PANIC: %v", r)
-				status := "failed"
-				if readErr != nil || (found && localStatus == "printing") {
-					panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg + " (physical outcome cannot be proven absent after agent panic)"
+				status, panicMsg := classifyPanicOutcome(readErr, found, localStatus, a.queue.WasOutcomeUnknown(jobID), r)
+				if status == "failed" && strings.HasPrefix(panicMsg, "UNKNOWN_PARTIAL_DELIVERY: ") {
 					if err := a.queue.UpdateStatusWithError(jobID, "failed", panicMsg); err != nil {
 						a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken, "")
 					}
-				} else if found && localStatus == "success" {
-					status = "success"
-					panicMsg = ""
 				}
 				a.updateJobStatus(executionCtx, jobID, status, panicMsg, fields.ClaimToken, "")
 			}
@@ -2751,6 +2830,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state")
 		return
 	}
+	// Two agents in one tenant can share local discovery coordinates; the
+	// Gateway then addresses this agent's device under a deterministic
+	// "<local>~<agent>" alias. Recover the local backend: exact local IDs
+	// always win, so an operator-configured overlapping ID is never
+	// shadowed by suffix stripping.
+	printerID = a.resolvePrinterAlias(printerID)
 	p, ok := a.getPrinter(printerID)
 	if !ok {
 		a.queue.AbortPrint(jobID, "printer_not_configured")
@@ -2868,7 +2953,14 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	printStart := time.Now()
 	log.Printf("print.trace render_transport_start request_id=%s job_id=%s printer_id=%s local_execution_ms=%d payload_bytes=%d kind=%s", requestID, jobID, printerID, time.Since(receivedAt).Milliseconds(), len(printData), kind)
+	// Persist platform submission evidence DURING the printing phase, not
+	// only with the terminal result: a crash between StartDoc (identity
+	// allocated) and the terminal ledger write must not lose the only
+	// durable link to the platform job. The observer stops when dispatch
+	// returns; the terminal path remains authoritative.
+	stopSpoolWatch := a.watchSpoolerJobID(jobID, p)
 	printErr := printer.PrintDocument(printCtx, p, printer.Document{Kind: kind, Data: printData, JobID: jobID})
+	stopSpoolWatch()
 	log.Printf("print.trace transport_complete request_id=%s job_id=%s printer_id=%s transport_latency_ms=%d success=%t", requestID, jobID, printerID, time.Since(printStart).Milliseconds(), printErr == nil)
 
 	// Capture platform submission evidence for this attempt regardless of the
@@ -2918,6 +3010,54 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// reports one. SpoolerJobIDOf returns "" for every other backend, so
 	// this stays a no-op off Windows and the Gateway contract is unchanged.
 	a.updateJobStatus(ctx, jobID, "success", "", claimToken, spoolerJobID)
+}
+
+// watchSpoolerJobID persists platform submission evidence observed while
+// hardware dispatch runs. It polls the backend's reported identity and
+// records the first non-empty value into the printing ledger row, then
+// stops when dispatch returns (the returned closure blocks until the
+// observer exits, so no write races the terminal update). Failures are
+// best-effort by design: the terminal path re-captures the identity and
+// stays authoritative. Non-reporting backends yield "" forever and cost one
+// woken poll per dispatch.
+func (a *Agent) watchSpoolerJobID(jobID string, p printer.Printer) (stop func()) {
+	stopCh := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		record := func() bool {
+			if id := printer.SpoolerJobIDOf(p); id != "" {
+				// Log failures for diagnostics but keep watching: a
+				// transient SQLite error must not lose later evidence,
+				// and the final stop-time read gets one more chance.
+				if err := a.queue.RecordSpoolerJobID(jobID, id); err != nil {
+					log.Printf("Job %s: mid-phase spooler identity persist failed: %v", jobID, err)
+				}
+				return true
+			}
+			return false
+		}
+		for {
+			select {
+			case <-stopCh:
+				record()
+				return
+			case <-ticker.C:
+				if record() {
+					// Identity is stable for the attempt; further polls
+					// only repeat the same write. Keep watching cheaply:
+					// a backend could theoretically reallocate, and the
+					// stop-time read covers the common case anyway.
+				}
+			}
+		}
+	}()
+	return func() {
+		close(stopCh)
+		<-done
+	}
 }
 
 // ErrStaleClaim is returned by updateJobStatus when the gateway rejects a

@@ -7,6 +7,7 @@ import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { clampListLimit } from "../../../lib/request-limits";
+import { RECEIPT_MATERIALIZE_BATCH_ROWS } from "../../../shared/job-retention";
 import {
   isJobFilterStatus,
   derivePhysicalOutcome,
@@ -158,7 +159,10 @@ export async function DELETE(req: Request) {
 
   const deleted = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${claims.tenantId}`}))`);
-    const candidates = await tx.select().from(printJobs).where(
+    // IDs first: materializing up to 5000 full rows (payloads up to 5 MiB)
+    // would exhaust Gateway memory. Full rows are fetched in small inner
+    // batches below, so peak memory stays bounded by RECEIPT_MATERIALIZE_BATCH_ROWS.
+    const candidateIds = await tx.select({ id: printJobs.id }).from(printJobs).where(
       and(
         eq(printJobs.tenantId, claims.tenantId),
         inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]),
@@ -170,19 +174,25 @@ export async function DELETE(req: Request) {
         lt(printJobs.updatedAt, before),
       ),
     ).orderBy(printJobs.updatedAt).limit(requestedLimit).for("update");
-    if (candidates.length === 0) return 0;
-    for (const row of candidates) {
-      await tx.insert(printJobReceipts).values({
-        id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
-        fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
-        printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
-        destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
-        status: row.status, error: row.error, closedClaimTokenHash: row.closedClaimTokenHash,
-        deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
-      });
+    if (candidateIds.length === 0) return 0;
+    let count = 0;
+    for (let offset = 0; offset < candidateIds.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
+      const batchIds = candidateIds.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS).map((row) => row.id);
+      const candidates = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds)).for("update");
+      for (const row of candidates) {
+        await tx.insert(printJobReceipts).values({
+          id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
+          fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
+          printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
+          destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
+          status: row.status, error: row.error, closedClaimTokenHash: row.closedClaimTokenHash,
+          deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
+        });
+      }
+      const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, batchIds)));
+      count += result.rowCount ?? 0;
     }
-    const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, candidates.map((row) => row.id))));
-    return result.rowCount ?? 0;
+    return count;
   });
   return NextResponse.json({ deleted, before: before.toISOString(), limit: requestedLimit });
 }

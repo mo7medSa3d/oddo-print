@@ -44,8 +44,8 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div><div className="mb-2 text-xs font-semibold text-ink">{t("desktop.settings.serviceControl")}</div><div className="flex flex-wrap gap-2"><Button variant="primary" onClick={s.startAgent} disabled={s.busy} icon={<Play className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.start")}</Button><Button variant="secondary" onClick={s.requestStopAgent} disabled={s.busy} icon={<Square className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.stop")}</Button><Button variant="ghost" onClick={s.restartAgent} disabled={s.busy} icon={<RotateCcw className="h-4 w-4" />} className="h-9">{t("desktop.agents.restart")}</Button></div></div>
           <div className="border-t border-edge pt-4">
             <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-2.5"><Power className="mt-0.5 h-4 w-4 text-ink-3" /><div><div className="text-sm font-semibold text-ink">{t("desktop.settings.startWithWindows")}</div><p className="mt-1 text-2xs text-ink-3">{t("desktop.settings.startWithWindowsBody")}</p></div></div>
-              <button role="switch" aria-checked={!!s.autostart} aria-busy={s.autostart === null || autostartBusy} disabled={s.autostart === null || autostartBusy} onClick={async () => {
+              <div className="flex items-start gap-2.5"><Power className="mt-0.5 h-4 w-4 text-ink-3" /><div><div className="text-sm font-semibold text-ink" id="autostart-label">{t("desktop.settings.startWithWindows")}</div><p className="mt-1 text-2xs text-ink-3">{t("desktop.settings.startWithWindowsBody")}</p></div></div>
+              <button role="switch" aria-checked={!!s.autostart} aria-labelledby="autostart-label" aria-busy={s.autostart === null || autostartBusy} disabled={s.autostart === null || autostartBusy} onClick={async () => {
                 if (s.autostart === null || autostartBusy) return; const next = !s.autostart; setAutostartBusy(true);
                 try { await setAutostart(next); const st = await getAutostart(); s.setAutostartState(st.enabled); s.setMsg({ text: st.enabled ? t("desktop.settings.autostartOn") : t("desktop.settings.autostartOff"), type: "success" }); }
                 catch (error) { s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : t("desktop.settings.autostartFailed"), locale), type: "error" }); }
@@ -54,6 +54,29 @@ export function SettingsPage({ s }: { s: DesktopState }) {
                 <span className={`inline-block h-4 w-4 transform rounded-sm bg-white shadow-xs transition-transform ${s.autostart ? "ltr:translate-x-6 rtl:-translate-x-6" : "ltr:translate-x-1 rtl:-translate-x-1"}`} />
               </button>
             </div>
+            {s.autostart === null && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-ink-3">
+                <span>{t("desktop.settings.autostartUnknown")}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={autostartBusy}
+                  onClick={async () => {
+                    setAutostartBusy(true);
+                    try {
+                      const st = await getAutostart();
+                      s.setAutostartState(st.enabled);
+                    } catch (error) {
+                      s.setMsg({ text: friendlyAgentError(error instanceof Error ? error.message : t("desktop.settings.autostartFailed"), locale), type: "error" });
+                    } finally {
+                      setAutostartBusy(false);
+                    }
+                  }}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
+            )}
           </div>
         </SettingsSection>
       </div>
@@ -71,7 +94,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           </ol>
           <div className="flex w-full max-w-sm flex-col gap-3">
             <Field label={t("desktop.settings.pairCodeLabel")} htmlFor="pair-code" className="flex-1">
-              <div className="flex items-center gap-2"><Input id="pair-code" value={s.pairCode} onChange={(e) => s.setPairCode(e.target.value.toUpperCase())} placeholder="AB12CD" maxLength={6} className="text-center font-mono text-lg font-bold uppercase tracking-[0.3em] h-11 rounded-md" autoComplete="off" /><Button variant="primary" onClick={s.pair} loading={s.busy} disabled={!s.pairCode.trim() || s.pairCode.trim().length !== 6} icon={<ShieldCheck className="h-4 w-4" />} className="h-11 rounded-md">{t("desktop.settings.pair")}</Button></div>
+              <div className="flex items-center gap-2"><Input id="pair-code" value={s.pairCode} onChange={(e) => s.setPairCode(e.target.value.toUpperCase())} placeholder="KQ7XTM" maxLength={6} className="text-center font-mono text-lg font-bold uppercase tracking-[0.3em] h-11 rounded-md" autoComplete="off" /><Button variant="primary" onClick={s.pair} loading={s.busy} disabled={!s.pairCode.trim() || s.pairCode.trim().length !== 6} icon={<ShieldCheck className="h-4 w-4" />} className="h-11 rounded-md">{t("desktop.settings.pair")}</Button></div>
             </Field>
           </div>
         </div>

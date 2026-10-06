@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   });
   if (!row || row.email !== email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });
-  if (!user) return NextResponse.json({ error: "Create an account with the invited email before accepting the invitation" }, { status: 409 });
+  if (!user) return NextResponse.json({ error: "Create an account with the invited email before accepting the invitation", code: "ACCOUNT_REQUIRED" }, { status: 409 });
 
   try {
     await db.transaction(async (tx) => {

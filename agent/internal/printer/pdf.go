@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 // PDF printing.
@@ -84,10 +86,11 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temp dir for PDF: %w", err)
 	}
-	// Secure the directory: only the owner can read/write/execute.
-	// MkdirTemp creates with 0700 on POSIX, but be explicit for clarity and
-	// to guard against any future changes to MkdirTemp behavior.
-	if err := os.Chmod(dir, 0o700); err != nil && !isWindowsChmodUnsupported(err) {
+	// Harden ownership/DACL, not just mode bits: Go's Chmod on Windows only
+	// toggles the read-only flag and never restricts which users can read
+	// the rendered document. The shared storage helper applies a protected
+	// DACL with secure ownership on Windows and 0700 on POSIX.
+	if err := config.EnsureSecureDirectoryACL(dir); err != nil {
 		os.RemoveAll(dir)
 		return "", func() {}, fmt.Errorf("secure temp PDF directory: %w", err)
 	}
@@ -103,7 +106,7 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("create temp PDF file: %w", err)
 	}
 	path := f.Name()
-	if err := f.Chmod(0o600); err != nil && !isWindowsChmodUnsupported(err) {
+	if err := config.EnsureSecureFileACL(path); err != nil {
 		_ = f.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("restrict temp PDF permissions: %w", err)
@@ -123,10 +126,6 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("close temp PDF: %w", err)
 	}
 	return path, cleanup, nil
-}
-
-func isWindowsChmodUnsupported(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not supported")
 }
 
 // printPDFWithResult preserves the assigned renderer deadline and cancellation,

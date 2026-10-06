@@ -49,8 +49,8 @@ describe("deployment security contracts", () => {
     expect(windowsWorkflow).not.toContain("Build Tauri Windows installer (MSI + NSIS EXE)");
     expect(nsisHooks).toContain('"$1" -service install');
     expect(nsisHooks).not.toContain('-service install -config');
-    expect(nsisHooks).toContain('sc delete YasserAgent');
-    expect(nsisHooks).toContain('sc delete OdooPrintAgent');
+    expect(nsisHooks).toContain('sc.exe" delete YasserAgent');
+    expect(nsisHooks).toContain('sc.exe" delete OdooPrintAgent');
     expect(agentMain).toContain('errors.Is(err, service.ErrNotInstalled)');
     expect(agentMain).toContain('errors.Is(statusErr, service.ErrNotInstalled)');
     expect(agentMain).toContain('YaseirAgent service is already uninstalled');

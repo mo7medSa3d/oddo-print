@@ -217,6 +217,20 @@ export function validatePayloadForPrinter(
   return { ok: false, reason: `CAPABILITY_MISMATCH: unsupported payload type ${pt}` };
 }
 
+/**
+ * Membership test for an explicitly declared capability token. The
+ * capabilities blob comes from agent-reported JSON: a malformed non-array
+ * value must read as absent (callers fail closed elsewhere), never throw a
+ * TypeError or match by string-substring semantics.
+ */
+export function hasDeclaredProtocol(
+  capabilities: { supported_protocols?: unknown } | null | undefined,
+  token: string,
+): boolean {
+  const raw = capabilities?.supported_protocols;
+  return Array.isArray(raw) && raw.some((value) => String(value).toLowerCase().trim() === token);
+}
+
 export function getSupportedDocumentTypes(protocol: ProtocolType, transport: TransportType, capabilities?: { supported_protocols?: string[] } | null): DocumentType[] {
   const normalizedTransport = transport === ("windows_spooler" as TransportType) ? "spooler" : transport;
   const normalized = protocol === "windows_spooler" && normalizedTransport === "spooler" ? "spooler" : protocol;
@@ -224,7 +238,7 @@ export function getSupportedDocumentTypes(protocol: ProtocolType, transport: Tra
   return candidates.filter(type => {
     const payload: PayloadSpec = type === "zpl" || type === "tspl"
       ? { type: "raw", protocol: type }
-      : type === "raw" ? { type: "raw", protocol: BYTE_PROTOCOLS.includes(normalized) ? normalized : capabilities?.supported_protocols?.includes("escpos") ? "escpos" : "raw" }
+      : type === "raw" ? { type: "raw", protocol: BYTE_PROTOCOLS.includes(normalized) ? normalized : hasDeclaredProtocol(capabilities, "escpos") ? "escpos" : "raw" }
       : type === "escpos" ? { type, protocol: "escpos" } : { type };
     return validatePayloadForPrinter(payload, { protocol: normalized, connectionType: normalizedTransport, capabilities }).ok;
   });

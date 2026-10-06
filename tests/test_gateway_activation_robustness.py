@@ -149,3 +149,47 @@ def test_queue_invalid_credentials_does_not_open_a_second_cursor_while_write_loc
     assert 'with_context(skip_enabled_sync=True).sudo().write({' in error_path
     assert '"last_enabled_sync_error": str(exc)[:4000]' in error_path
     assert "record.invalidate_recordset(" in error_path
+
+
+def test_key_removal_shutdown_never_stores_plaintext():
+    source = (ADDON / "models/gateway_config.py").read_text(encoding="utf-8")
+    # The pending-disable reader requires authenticated ciphertext; storing
+    # the plaintext shutdown credential both exposes the old installation key
+    # in PostgreSQL/backups and makes the reader reject its own stored state.
+    assert "key_removal_shutdowns[record.id] = (\n" in source or "key_removal_shutdowns[record.id] = (" in source
+    assert "self._protected_gateway_api_key(credentials[1])" in source
+    assert "key_removal_shutdowns[record.id] = credentials\n" not in source
+
+
+def test_pending_disable_reader_heals_legacy_plaintext_once():
+    source = (ADDON / "models/gateway_config.py").read_text(encoding="utf-8")
+    heal = source[source.index("def _pending_disable_credentials"):]
+    heal = heal[:heal.index("def _run_postcommit_enabled_sync")]
+    assert "is_encrypted_gateway_api_key(stored_key)" in heal
+    assert '"pending_disable_gateway_api_key": stored_key' in heal
+
+
+def test_broken_pending_shutdown_blocks_new_endpoint_sync():
+    source = (ADDON / "models/gateway_config.py").read_text(encoding="utf-8")
+    # A malformed/incomplete pending shutdown credential must never be
+    # silently replaced with None: enabling the new endpoint without
+    # confirming old-endpoint shutdown bypasses the durable migration fence.
+    assert "pending_disable_error" in source
+    assert source.count("pending_disable_error=pending_disable_error") >= 2
+    runner = source[source.index("def _run_postcommit_enabled_sync"):]
+    runner = runner[:runner.index("def _sync_enabled_state_to_gateway")]
+    assert "if pending_disable_error:" in runner
+    assert "_persist_gateway_migration_result(success=False, error=pending_disable_error)" in runner
+
+
+def test_same_endpoint_shutdown_binds_credential_identity():
+    source = (ADDON / "models/gateway_config.py").read_text(encoding="utf-8")
+    # Gateway activation is scoped to each API-key row: skipping the old-key
+    # shutdown on same-origin URLs regardless of credential identity leaves
+    # a rotated key enabled forever. The skip requires identical credentials;
+    # otherwise shutdown runs with the OLD key, and a revoked old key
+    # converges instead of blocking.
+    assert "def _same_credential(" in source
+    assert "class _OldEndpointUnauthorized(ValidationError)" in source
+    assert source.count("_same_credential(old_api_key") >= 2
+    assert "shutdown_api_key = api_key" not in source

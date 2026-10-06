@@ -383,11 +383,13 @@ export default function DashboardClient({
   initialPrinters,
   initialJobs,
   databaseError,
+  canMutate,
 }: {
   initialAgents: Agent[];
   initialPrinters: Printer[];
   initialJobs: Job[];
   databaseError: string | null;
+  canMutate: { printers: boolean; printersTest: boolean; agentsLifecycle: boolean; jobsCancel: boolean; jobsRetry: boolean };
 }) {
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
   const [printers, setPrinters] = useState<Printer[]>(initialPrinters);
@@ -425,6 +427,12 @@ export default function DashboardClient({
   const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
+  // Agent ids known when the current pairing attempt started, keyed by the
+  // pairing code so manual dismissals cannot leak a stale baseline into the
+  // next attempt. A brand-new agent has no id yet, so completion is the
+  // appearance of a NEW online identity rather than any historical
+  // heartbeat (C057).
+  const pairingBaseline = React.useRef<{ code: string; ids: Set<string> } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [countdownText, setCountdownText] = useState("10:00");
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
@@ -454,6 +462,10 @@ export default function DashboardClient({
   const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
   const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
   const [selectedJobPayloadReloadKey, setSelectedJobPayloadReloadKey] = useState(0);
+  // Inspector metadata refresh generation: the drawer stays open while the
+  // job advances, so details are re-polled while non-terminal instead of
+  // going stale next to a live timeline (C057).
+  const [selectedJobRefreshTick, setSelectedJobRefreshTick] = useState(0);
 
   const openJobDetails = React.useCallback((job: Job) => {
     setSelectedJob(job);
@@ -486,6 +498,7 @@ export default function DashboardClient({
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}?includePayload=1`, {
       credentials: "include",
@@ -498,6 +511,11 @@ export default function DashboardClient({
         if (!cancelled) {
           setSelectedJobDetails(row);
           setSelectedJobPayload({ jobId: selectedJob.id, value: row.diagnosticPayload ?? null });
+          // Keep status/actions fresh while the job is still moving; terminal
+          // rows settle (the separately loaded payload is retained).
+          if (!["success", "failed", "expired"].includes(String(row.status ?? ""))) {
+            refreshTimer = window.setTimeout(() => setSelectedJobRefreshTick((tick) => tick + 1), 5000);
+          }
         }
       })
       .catch(() => {
@@ -514,9 +532,10 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
       controller.abort();
     };
-  }, [selectedJob, selectedJobPayloadReloadKey]);
+  }, [selectedJob, selectedJobPayloadReloadKey, selectedJobRefreshTick]);
 
   const selectedJobView =
     selectedJob && selectedJobDetails?.id === selectedJob.id
@@ -646,22 +665,43 @@ export default function DashboardClient({
         }
 
         setActivePairing((currentPairing) => {
-          if (!currentPairing) return null;
-          const target = data.agents.find(
-            (a) =>
-              (currentPairing.id && a.id === currentPairing.id) ||
-              a.pairingCode === currentPairing.code
-          );
-          if (
-            target &&
-            (target.status === "online" ||
-              target.lastSeenAt !== null ||
-              target.pairingCodeExpiresAt === null)
-          ) {
+          if (!currentPairing) {
+            pairingBaseline.current = null;
+            return null;
+          }
+          const online = (a: (typeof data.agents)[number]) => a.status === "online";
+          if (currentPairing.id !== undefined) {
+            // Known identity (re-pair/re-enable): completion is that identity
+            // observed online. Status is availability-derived server-side, so
+            // online implies a fresh heartbeat — a preserved lastSeenAt from
+            // before re-enabling cannot complete it (C057).
+            const target = data.agents.find((a) => a.id === currentPairing.id);
+            if (target && online(target)) {
+              setMessage({
+                text: t("success.agentPairedOnline", { name: target.name }),
+                type: "ok",
+              });
+              pairingBaseline.current = null;
+              return null;
+            }
+            return currentPairing;
+          }
+          // New agent (id not yet known): baseline the known ids on the first
+          // tick for THIS code, then complete when a NEW online identity
+          // appears. Freshness comes from the online status itself, never
+          // from a historical lastSeenAt or a cleared expiry (C057).
+          const baseline = pairingBaseline.current;
+          if (baseline === null || baseline.code !== currentPairing.code) {
+            pairingBaseline.current = { code: currentPairing.code, ids: new Set(data.agents.map((a) => a.id)) };
+            return currentPairing;
+          }
+          const newcomer = data.agents.find((a) => !baseline.ids.has(a.id) && online(a));
+          if (newcomer) {
             setMessage({
-              text: t("success.agentPairedOnline", { name: target.name }),
+              text: t("success.agentPairedOnline", { name: newcomer.name }),
               type: "ok",
             });
+            pairingBaseline.current = null;
             return null;
           }
           return currentPairing;
@@ -720,7 +760,17 @@ export default function DashboardClient({
     ).length;
     const failedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "failed" && deriveOutcome(j.status, j.error) === "not_printed").length;
     const expiredJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "expired").length;
-    const resolvedJobs = completedJobs + failedJobs + attentionJobs + expiredJobs;
+    // Mutually exclusive terminal buckets for the rate denominator: success
+    // rows report outcome unknown by design (transport success is not paper
+    // proof) and expired rows with markers are already inside attentionJobs,
+    // so naively summing the display counts double-counts them (C057).
+    const expiredDefiniteJobs = kpiJobs.filter(
+      (j) => j.status.toLowerCase() === "expired" && deriveOutcome(j.status, j.error) === "not_printed"
+    ).length;
+    const attentionTerminalJobs = kpiJobs.filter(
+      (j) => (j.status.toLowerCase() === "failed" || j.status.toLowerCase() === "expired") && deriveOutcome(j.status, j.error) === "unknown"
+    ).length;
+    const resolvedJobs = completedJobs + failedJobs + expiredDefiniteJobs + attentionTerminalJobs;
     const successRate =
       resolvedJobs > 0 ? Math.round((completedJobs / resolvedJobs) * 100) : null;
 
@@ -927,12 +977,17 @@ export default function DashboardClient({
   const filteredJobs = useMemo(() => {
     if (!jobSearch.trim()) return jobs;
     const q = jobSearch.toLowerCase();
+    // Superset of the server search fields (id, destination, document type,
+    // printer, agent, error): the client pass must never remove a row the
+    // server matched (C056).
     return jobs.filter((j) => {
       return (
         j.id.toLowerCase().includes(q) ||
         j.printerId.toLowerCase().includes(q) ||
+        (j.agentId && j.agentId.toLowerCase().includes(q)) ||
         (j.destination && j.destination.toLowerCase().includes(q)) ||
-        (j.documentType && j.documentType.toLowerCase().includes(q))
+        (j.documentType && j.documentType.toLowerCase().includes(q)) ||
+        (j.error && j.error.toLowerCase().includes(q))
       );
     });
   }, [jobs, jobSearch]);
@@ -960,8 +1015,9 @@ export default function DashboardClient({
     // Server rule (src/app/api/jobs/[id]/reprint/route.ts): reprint requires a
     // terminal job AND rejects `success` with JOB_REPRINT_NOT_ALLOWED, because
     // the document already printed. Offering it here would be a dead-end
-    // action that always fails, so success is excluded explicitly.
-    const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
+    // action that always fails, so success is excluded explicitly. Reprint is
+    // also a mutation: read-only roles don't see it (C058).
+    const canReprint = canMutate.jobsRetry && job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
       { key: "inspect", label: t("job.viewDetails"), icon: <Eye className="h-4 w-4" />, onSelect: () => openJobDetails(job) },
       {
@@ -986,14 +1042,19 @@ export default function DashboardClient({
 
   const printerActions = (printer: Printer): MenuItemSpec[] => {
     const active = printer.lifecycle === "active";
+    const retired = printer.lifecycle === "retired";
     return [
-      {
-        key: "test",
-        label: t("printer.sendTestPage"),
-        icon: <PlayCircle className="h-4 w-4" />,
-        disabled: busy || testingPrinterId !== null || !active,
-        onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
-      },
+      ...(canMutate.printersTest
+        ? [
+            {
+              key: "test",
+              label: t("printer.sendTestPage"),
+              icon: <PlayCircle className="h-4 w-4" />,
+              disabled: busy || testingPrinterId !== null || !active,
+              onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
+            },
+          ]
+        : []),
       { key: "certify", label: t("cert.run"), icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
       {
         key: "copy",
@@ -1001,17 +1062,24 @@ export default function DashboardClient({
         icon: <Copy className="h-4 w-4" />,
         onSelect: () => void copyTextToClipboard(printer.id),
       },
-      {
-        key: "lifecycle",
-        label: active ? t("printer.disable") : t("printer.enable"),
-        separatorBefore: true,
-        disabled: busy,
-        onSelect: () =>
-          void runAction(
-            () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
-            active ? t("printer.disabled") : t("printer.enabled"),
-          ),
-      },
+      // Terminal lifecycle cannot reactivate: retired printers are never
+      // offered enable/disable (the server rejects it). Read-only roles see
+      // no lifecycle item at all (C058).
+      ...(canMutate.printers && !retired
+        ? [
+            {
+              key: "lifecycle",
+              label: active ? t("printer.disable") : t("printer.enable"),
+              separatorBefore: true,
+              disabled: busy,
+              onSelect: () =>
+                void runAction(
+                  () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
+                  active ? t("printer.disabled") : t("printer.enabled"),
+                ),
+            },
+          ]
+        : []),
     ];
   };
 
@@ -1027,7 +1095,7 @@ export default function DashboardClient({
   };
 
   const agentActions = (agent: Agent): MenuItemSpec[] => [
-    ...(agent.lifecycle === "active"
+    ...(canMutate.agentsLifecycle && agent.lifecycle === "active"
       ? [
           {
             key: "disable",
@@ -1038,7 +1106,7 @@ export default function DashboardClient({
           },
         ]
       : []),
-    ...(agent.lifecycle === "disabled"
+    ...(canMutate.agentsLifecycle && agent.lifecycle === "disabled"
       ? [
           {
             key: "enable",
@@ -1049,7 +1117,7 @@ export default function DashboardClient({
           },
         ]
       : []),
-    ...(agent.lifecycle !== "retired"
+    ...(canMutate.agentsLifecycle && agent.lifecycle !== "retired"
       ? [
           {
             key: "retire",

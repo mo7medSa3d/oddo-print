@@ -27,6 +27,26 @@ async function elementToJpeg(element, renderService) {
     return canvas.toDataURL("image/jpeg", 0.65).replace(/^data:image\/[a-z]+;base64,/, "");
 }
 
+// Secure per-click operation identity (mirrors gatewayUuid in
+// pos_print_router.js): lost-response retries reuse the id, deliberate
+// later prints mint a fresh one. Fail closed when no secure RNG exists so
+// distinct operations can never collapse into one idempotency key.
+function gatewayOperationUuid() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        crypto.getRandomValues(bytes);
+    } else {
+        throw new Error(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 patch(SaleDetailsButton.prototype, {
     async onClick() {
         const sessionId = this.pos.session?.id;
@@ -51,22 +71,62 @@ patch(SaleDetailsButton.prototype, {
                 "get_sale_details",
                 [false, false, false, [sessionId]]
             );
-            const report = renderToElement(
-                "point_of_sale.SaleDetailsReport",
-                Object.assign({}, saleDetails, {
-                    date: formatDateTime(DateTime.now()),
-                    pos: this.pos,
-                    formatCurrency: this.pos.env.utils.formatCurrency,
-                })
-            );
-            const image = await elementToJpeg(report, this.env.services.render);
-            const result = await this.pos.data.call(
-                "pos.session",
-                "action_print_gateway_sale_details",
-                [[sessionId]],
-                { image },
-                true
-            );
+            // One operation identity per user click with cached payload for
+            // uncertain retries: the render embeds the current timestamp, so
+            // a retry must resend the IDENTICAL bytes (same id + same image)
+            // or the server rejects it as a conflicting operation. A reuse
+            // applies only while the previous outcome is uncertain and recent
+            // (5 minutes); accepted/definitively-failed outcomes and older
+            // operations mint a fresh id with a fresh render.
+            const saleDetailsOps = (this.pos.gatewaySaleDetailsOperations ||= new Map());
+            if (this.pos.gatewaySaleDetailsPending) {
+                return false;
+            }
+            const lastOp = saleDetailsOps.get(sessionId);
+            const reuseUncertain = lastOp && lastOp.terminal === false
+                && (Date.now() - lastOp.at < 5 * 60 * 1000);
+            let operationId;
+            let image;
+            if (reuseUncertain) {
+                operationId = lastOp.id;
+                image = lastOp.image;
+            } else {
+                operationId = gatewayOperationUuid();
+                const report = renderToElement(
+                    "point_of_sale.SaleDetailsReport",
+                    Object.assign({}, saleDetails, {
+                        date: formatDateTime(DateTime.now()),
+                        pos: this.pos,
+                        formatCurrency: this.pos.env.utils.formatCurrency,
+                    })
+                );
+                image = await elementToJpeg(report, this.env.services.render);
+            }
+            this.pos.gatewaySaleDetailsPending = true;
+            let result;
+            try {
+                try {
+                    result = await this.pos.data.call(
+                        "pos.session",
+                        "action_print_gateway_sale_details",
+                        [[sessionId]],
+                        { image, operation_id: operationId },
+                        true
+                    );
+                } catch (rpcError) {
+                    saleDetailsOps.set(sessionId, { id: operationId, image, at: Date.now(), terminal: false });
+                    throw rpcError;
+                }
+            } finally {
+                this.pos.gatewaySaleDetailsPending = false;
+            }
+            saleDetailsOps.set(sessionId, {
+                id: operationId,
+                image,
+                at: Date.now(),
+                terminal: result && !["unknown", "partial"].includes(result.status)
+                    && ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status),
+            });
             if (!result?.gateway_enabled) {
                 throw new Error(_t("Print Gateway returned an invalid Sale Details response."));
             }

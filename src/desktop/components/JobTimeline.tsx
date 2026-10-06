@@ -6,27 +6,33 @@ type TimelineProps = {
   status: string;
   error?: string | null;
   claimedAt?: string | null;
+  deliveredAt?: string | null;
+  ackedAt?: string | null;
 };
 
 /**
  * Queued → Claimed → Printing → Outcome pipeline for a print job.
  *
- * Steps are marked reached from EVIDENCE (the claimedAt timestamp, the
- * status, and unknown-outcome markers), not from the terminal state alone:
+ * Steps are marked reached from EVIDENCE (delivery timestamps, the status,
+ * and unknown-outcome markers), not from the terminal state alone:
  * a job that failed pre-dispatch never shows "Claimed ✓ Printing ✓" like a
- * job that really printed.
+ * job that really printed. In particular an ambiguous failure (e.g.
+ * UNKNOWN_PARTIAL_DELIVERY from a delivery attempt alone) marks later steps
+ * reached only when delivery evidence exists — otherwise the stages stay
+ * unreached and the outcome reads uncertain (C039).
  */
-export function JobTimeline({ status, error = null, claimedAt = null }: TimelineProps) {
+export function JobTimeline({ status, error = null, claimedAt = null, deliveredAt = null, ackedAt = null }: TimelineProps) {
   const { t, locale } = useI18n();
   const s = String(status).toLowerCase();
   const outcome = deriveOutcome(s, error);
   const done = s === "success";
   const failed = s === "failed" || s === "expired";
   const unknown = outcome === "unknown";
+  const delivered = Boolean(deliveredAt ?? ackedAt);
 
   const reachedQueued = true;
-  const reachedClaimed = Boolean(claimedAt) || ["claimed", "printing", "success"].includes(s) || (failed && unknown);
-  const reachedPrinting = ["printing", "success"].includes(s) || (failed && unknown);
+  const reachedClaimed = Boolean(claimedAt) || ["claimed", "printing", "success"].includes(s) || (failed && unknown && delivered);
+  const reachedPrinting = ["printing", "success"].includes(s) || (failed && unknown && delivered);
 
   // `id` is the stable identity the logic compares against; `label` is what
   // the operator reads, so it follows the active language.

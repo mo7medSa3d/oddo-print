@@ -290,7 +290,7 @@ export default function PlatformSubscriptionsPage() {
         )}
       </Card>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + subscriptions.length) })}</span>
+        <span className="text-sm text-ink-3">{subscriptions.length === 0 ? t("common.pageEmpty") : t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + subscriptions.length) })}</span>
         <div className="flex gap-2">
           <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
           <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>

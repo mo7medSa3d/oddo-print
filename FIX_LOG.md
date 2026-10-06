@@ -1,33 +1,1048 @@
-RESUME HERE: PHASE 3 / final production audit | fixed Windows installer ACL smoke false-positive and added regression | wait for final-head CI/Docker/Windows/Security/Static Security, inspect any failure immediately | blockers: none
+RESUME HERE: PHASE 2 repair pass | C039 fixed | current task: C048 accessible controls | next exact task: autostart naming, dialog keyboard, menu links, checkbox glyph | blockers: none
+
+# Current audit checkpoint — 2026-10-06
+
+- Source: existing workspace, including uncommitted prior repairs. No archive supplied. Safe copy excludes dependencies, generated outputs, caches, git metadata and actual environment credentials. No symlinks encountered. Original workspace preserved.
+- Isolated work root: `/tmp/production-readiness-20261006/project`.
+- Historical findings and verification below are evidence only; none are newly certified.
+- Current source review: pending; no production edits or checks run in this audit yet.
+
+## Historical FIX_LOG (first line retained as evidence only)
+
+RESUME HERE: PHASE 2 — lane B complete (P0 + 2 Agent P1 + IPP P2 + 5 DB + 4 UI + 3 Gateway P2, all verified as runnable); lane A owns billing 401-split + Odoo P1s (in progress, see Next task) | current task: lane B idle — final gate + packaging after lane A lands | next exact task (lane A): finish billing 401-split + Odoo P1-1/P1-2/P1-3/P1-4, then joint contradiction sweep + CI | blockers: none
 
 # FIX LOG
 
-## 2026-10-06 final production audit
+## 2026-10-06 batch 1-4 repairs (complete)
+- Secure cookie: production always returns Secure=true
+- Manager ACL hardening: DACL/ownership/reparse guard on ProgramData path
+- Logout cookie clearing during session-store outage
+- Heartbeat alias canonicalization: tcp/windows_spooler → network/spooler
+- Manual printer registry validation shares Agent runtime validator
+- Windows Rust logger harness updated for ACL helper contract
+- Direct USB ZPL/TSPL: factory + SupportsKind now accept all 4 byte languages
+- Protocol-aware local diagnostic tickets + ZPL/TSPL injection sanitizers
+- Windows installer smoke test: composite→atomic ACE check fix + regression
 
-- Production session cookies are now unconditionally Secure when NODE_ENV=production; COOKIE_SECURE=0 is development-only.
-- Added regression coverage for the production Secure-cookie invariant.
-- Repaired stale printer-model alias fixture so the unit suite exercises the current canonical printer schema rather than weakening that schema.
-- Hardened the Windows desktop Manager data root and settings/log files: protected DACL, Administrators ownership, SYSTEM/Administrators full control, standard Users read-only, direct System32 icacls resolution, and reparse-point refusal.
-- Added Windows installer smoke coverage for the Manager data ACL/owner invariant.
-- Made generic, manager, and platform logout handlers clear browser cookies even when database-backed session validation is unavailable; server-side revocation failure is still surfaced as HTTP 503.
-- Added regression coverage for logout cookie clearing during session-store failure.
-- Security/CodeQL/supply-chain gates were green on the intermediate heads checked. Final workflow verification must be performed against the final head after this audit batch.
+## 2026-10-06 Phase 2 — Open findings pending repair
 
+### P1 — Billing/team 403 vs 401 on unauthenticated
+billing/cancel, billing/resume, billing/portal, billing/checkout, team/ownership
+Fix: guard userId present → 401 BEFORE ownership/DB lookup
 
-- Completed route-level authorization inventory for all 76 `src/app/api/**/route.ts` handlers; authenticated resource routes are scoped through manager/agent/Odoo/platform boundaries, while intentionally public token/webhook/health routes use token/signature/rate-limit controls.
-- Fixed heartbeat canonicalization so modern `connectionType=tcp` and `connectionType=windows_spooler` inputs converge to Gateway `network` / `spooler` rather than being silently skipped.
-- Added PostgreSQL-backed heartbeat regression coverage for both aliases.
-- Hardened `RegisterManual()` so CLI/manual printers cannot be persisted with a transport/protocol contract the Agent runtime validator rejects; added Go regressions for aliases, invalid combinations, and USB-spooler normalization.
-- Repaired the Windows Rust logger test harness after the ACL API expansion; production ACL behavior remains unchanged.
+### P1-1 — POS idempotency
+print_router.py pos_print_router.js pos_sale_details_router.js report_interceptor.js
+Fix: stable intent key before uuid4
 
+### P1-2 — route_raw_command escpos wire type
+print_router.py:672-677
+Fix: emit type=escpos when protocol=escpos
 
-- Cross-layer payload/runtime parity review found direct USB ZPL/TSPL was admitted by Agent config + Gateway capability logic but rejected by the Agent USB factory. Factory and both USB build-target capability surfaces now support validated ZPL/TSPL byte streams.
-- Local Windows USB diagnostic ticket generation is now protocol-aware for ESC/POS, ZPL, TSPL and generic RAW.
-- Added printer-language injection hardening for user/operator-controlled printer names embedded in local ZPL/TSPL diagnostic tickets.
+### P1-3 — partial status inconsistency submit vs sync
+print_job.py
+Fix: unify both branches on shared marker tuple; define partial handling
 
+### P1-4 — test-print cross-company no switch hint
+print_router.py:855-880
+Fix: catch company assertion, return friendly error with switch hint
 
-- Fixed the failing Windows installer workflow: its smoke test used composite FileSystemRights.Write/Modify values, which overlap ReadAndExecute/Synchronize and falsely classified the intended read-only BUILTIN\Users ACE as writable. The gate now checks only atomic mutation rights, and a Vitest contract prevents regression.
+## 2026-10-06 lane B — P0 team roleLabel i18n (done, awaiting CI)
+- `src/app/team/page.tsx`: `roleLabel(role, t)` maps owner/admin/operator/viewer/integration_admin/billing_admin through existing `team.role.*` keys; all 4 call sites pass `t`; unknown roles keep English fallback.
+- Added `tests/team-role-i18n.contract.test.ts` (key presence en+ar, no untranslated call shapes).
+- Verification: contract logic PASS via static node check; `vitest`/`tsc` execution BLOCKED (no node_modules; installs forbidden by audit rule).
+
+## 2026-10-06 lane B — Agent P1s + DB P1s (done, CI pending)
+- Agent panic-marker: extracted `classifyPanicOutcome` (pure) in `agent/internal/agent/agent.go`; prior-unknown now preserved as UNKNOWN; `TestClassifyPanicOutcomePreservesPriorUnknown` 7-case matrix passes.
+- Agent over-report: chunk-bound tripwire in `spooler_windows.go` + `usb_windows.go` → UNKNOWN instead of EndDocPrinter success; `TestSpoolerWriteOverReportCannotSucceed` added (windows gate; GOOS=windows vet OK, runtime UNVERIFIED).
+- IPP dual-ID P1 refuted-narrowed to P2: common case converges (numeric-IP mDNS + default rp + StableIDFromIPPURI rule); non-default rp = intentional multi-queue separation; `TestIPPDefaultQueueConvergesTCPAndMDNSIdentity` pins it.
+- `go test ./internal/agent/ ./internal/queue/ ./internal/printer/ ./internal/config/`: 520 passed; full printer pkg: 288 passed.
+- DB receipts: `check-db-docs.py` passes 25/25; added `tests/test_receipts_repair_parity.py` (3 passed); historical DDL immutable (content-hashed).
+- Go SQLite CHECK: `TestLocalLedgerRejectsGatewayOnlyStatuses` pins claimed/expired rejection.
+- pg_constraint guards: downgraded P2 (production=public always; test helper already scopes rewrites `pg.ts:38-41`).
+- md5/sha256: accepted historical (migrations immutable).
+- `JOB_RETENTION_SWEEP_LIMIT`: documented in `.env.example`.
+
+## 2026-10-06 lane B — UI P1 batch 1 (done, CI pending)
+- `system-health-client.tsx`: locale-aware `relativeTime` (Intl + ar-u-nu-latn), 8s abort bound, `statusMessageKey` 401/403 mapping.
+- Desktop `Agents.tsx` attention + `Overview.tsx` printer stat include unknown/stale; row button focus-visible ring.
+- Added `tests/desktop-health-ui.contract.test.ts` (logic PASS static; vitest BLOCKED).
+
+## 2026-10-06 lane B — Gateway P2 batch + final sweep (done)
+- `agents/route.ts` POST: auth-before-permission reorder (net behavior unchanged, edit-safe).
+- `print/jobs/batch-status`: body ceiling 8MB→64KB (legit max ~12KB).
+- `auth/select-tenant`: no throttle change — DB-backed single-use fence + high-entropy tokens already bound the path (P2 rationale recorded).
+- Contradiction re-sweep: staleness thresholds centralized (`stale-threshold.ts` 90s floor, 30s heartbeat, Odoo 300s sync fence separate) — consistent; status/claim vocabularies pinned by existing + new tests.
+- Verification (lane B files): `go test ./...` 586 passed/10 pkgs; `GOOS=windows go build ./...` OK; `GOOS=windows go vet` printer+agent OK; pytest offline subset 7 passed; `check-db-docs.py` 25/25 OK. vitest/tsc/eslint BLOCKED (no node_modules, installs forbidden); Windows runtime + physical print UNVERIFIED.
 
 ## Next exact task
+Read billing cancel/resume/portal/checkout/team-ownership and patch 401-split.
 
-Complete the route-by-route authorization audit for the remaining platform/print/printer/settings/system/team surfaces, inspect any suspicious exception/logging paths, repair confirmed defects, then require the final main head workflows to be green or record exact blockers.
+Current research/coverage update: Odoo models/router/controllers and POS/report producers fully read; C030–C033 recorded with affected consumers. Stripe official webhook ordering reference: https://docs.stripe.com/webhooks . Partial architecture map and consistency matrix saved; exit gate remains incomplete. Next: remaining Odoo assets/security/views/data, Rust/Desktop/UI, migrations/scripts/tests/docs. No production edits or verification checks executed.
+
+Current static batch update: Odoo assets/security/views/data and Rust production sources read through paths/tray. C034–C038 persisted. Official references: https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls and https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemdirectoryw . Desktop frontend and remaining first-party files still pending; no production edits/checks executed.
+
+Current static desktop frontend update: IPC and main application fully read through batch 80. C039–C045 saved, including the exact discovered N -> picker 0 Agent-ID drop. Next: remaining Desktop pages/theme/types, shared UI/app/i18n and remaining migrations/scripts/tests/docs. No production edits or checks executed.
+
+Static review update: C046–C055 saved. The Agent-console origin mismatch was traced from TypeScript through Rust into Go CLI cfg.Server.URL. Shared UI reviewed completely through batch 88; app actions, API-key and billing screens reviewed through batch 90. Next: acknowledge batch 90, continue dashboard and remaining app/i18n, migrations/scripts/CI/tests/docs. No production edits or checks executed.
+
+Source review checkpoint: dashboard source fully read through batch 93; CSS through line 1079 in pending batch 94. C056–C058 and browser extensions to C047/C039/C045/C046 saved. Official Odoo 19 patch signatures, save ordering, RPC abort and Node 24 Argon2 contracts verified online. Next exact: acknowledge batch 94, read remaining CSS/app and continue source-read inventory. No production edits/tests/build/lint executed.
+
+Current static review update: platform and release/pricing screens fully read through batch 100. C059–C062 saved with cookie-only Arabic, invitation recovery, platform result/session evidence. Next: remaining web app, i18n, migrations, scripts, tests and docs. Production edits and check execution remain gated by the full source read.
+
+Current static review update: all web app screens and the full Arabic catalog read through batch 109. C063–C066 saved; destructive cleanup reviewed only, never executed. Next: English catalog, remaining i18n/shared modules, migrations/scripts/tests/docs. No production edits/tests/builds/lints yet.
+
+Current Phase 1 update: scripts, workflows, current docs, Odoo Arabic catalog and addon migrations fully read; C067/C068 and supplemental evidence saved. Batch 141 fully displayed, awaiting acknowledgement. No production edits, tests/builds/lints, downloads or physical printing.
+
+## Current full-read coverage ledger
+
+- `package.json:1-87`
+- `agent/go.mod:1-28`
+- `src-tauri/Cargo.toml:1-33`
+- `contracts/print-payload-contract.json:1-53`
+- `ARCHITECTURE.md:1-279`
+- `PRINTING_ARCHITECTURE.md:1-135`
+- `agent/internal/config/config.go:1-596`
+- `agent/internal/config/config_test.go:1-26`
+- `agent/internal/config/config_test.go:27-329`
+- `agent/internal/config/paths.go:1-65`
+- `agent/internal/config/paths_test.go:1-58`
+- `agent/internal/config/replace_file_posix.go:1-25`
+- `agent/internal/config/replace_file_windows.go:1-74`
+- `agent/internal/config/reprint_policy_test.go:1-32`
+- `agent/internal/config/security_other.go:1-12`
+- `agent/internal/config/security_windows.go:1-12`
+- `agent/internal/printer/audit_regressions_test.go:1-150`
+- `agent/internal/printer/audit_regressions_test.go:151-251`
+- `agent/internal/printer/audit_usb_windows_test.go:1-33`
+- `agent/internal/printer/capability.go:1-227`
+- `agent/internal/printer/capability_test.go:1-133`
+- `agent/internal/printer/classify.go:1-97`
+- `agent/internal/printer/classify.go:98-244`
+- `agent/internal/printer/classify_device.go:1-555`
+- `agent/internal/printer/classify_device_test.go:1-666`
+- `agent/internal/printer/discovery.go:1-245`
+- `agent/internal/printer/discovery.go:246-1033`
+- `agent/internal/printer/discovery_extended.go:1-268`
+- `agent/internal/printer/discovery_extended.go:269-402`
+- `agent/internal/printer/discovery_other.go:1-9`
+- `agent/internal/printer/discovery_windows.go:1-7`
+- `agent/internal/printer/document.go:1-128`
+- `agent/internal/printer/factory.go:1-140`
+- `agent/internal/printer/health.go:1-169`
+- `agent/internal/printer/image.go:1-240`
+- `agent/internal/printer/ipp.go:1-165`
+- `agent/internal/printer/ipp.go:166-615`
+- `agent/internal/printer/ipp_discovery.go:1-400`
+- `agent/internal/printer/network.go:1-207`
+- `agent/internal/printer/network.go:208-242`
+- `agent/internal/printer/network_discovery.go:1-511`
+- `agent/internal/printer/outcome.go:1-64`
+- `agent/internal/printer/pdf.go:1-189`
+- `agent/internal/printer/pdf_other.go:1-14`
+- `agent/internal/printer/pdf_windows.go:1-250`
+- `agent/internal/printer/pdf_windows.go:251-564`
+- `agent/internal/printer/peripherals.go:1-79`
+- `agent/internal/printer/printer.go:1-70`
+- `agent/internal/printer/raster_capability.go:1-143`
+- `agent/internal/printer/registry.go:1-333`
+- `agent/internal/printer/registry.go:334-560`
+- `agent/internal/printer/snmp_discovery.go:1-233`
+- `agent/internal/printer/spooler_stub.go:1-202`
+- `agent/internal/printer/spooler_windows.go:1-231`
+- `agent/internal/printer/spooler_windows.go:232-1016`
+- `agent/internal/printer/spooler_windows.go:1017-1707`
+- `agent/internal/printer/stable_id.go:1-153`
+- `agent/internal/printer/stable_id.go:154-283`
+- `agent/internal/printer/usb_other.go:1-89`
+- `agent/internal/printer/usb_windows.go:1-610`
+- `agent/internal/printer/usb_windows.go:611-834`
+- `agent/internal/printer/wsd_discovery.go:1-382`
+- `agent/internal/queue/cleanup.go:1-95`
+- `agent/internal/queue/queue.go:1-234`
+- `agent/internal/queue/queue.go:235-558`
+- `agent/internal/agent/agent.go:1-517`
+- `agent/internal/agent/agent.go:518-1402`
+- `agent/internal/agent/agent.go:1403-2235`
+- `agent/internal/agent/agent.go:2236-2993`
+- `agent/internal/agent/agent.go:2994-3061`
+- `agent/internal/agent/desired_state.go:1-654`
+- `agent/internal/agent/device_class.go:1-56`
+- `agent/internal/agent/discovery_manager.go:1-216`
+- `agent/internal/agent/discovery_manager.go:217-407`
+- `agent/internal/agent/heartbeat_pagination.go:1-166`
+- `agent/internal/agent/pairing.go:1-124`
+- `agent/internal/payload/payload.go:1-212`
+- `agent/internal/storage/replace_file_posix.go:1-9`
+- `agent/internal/storage/replace_file_windows.go:1-58`
+- `agent/internal/storage/secure.go:1-206`
+- `agent/internal/storage/secure_posix.go:1-19`
+- `agent/internal/storage/secure_windows.go:1-78`
+- `agent/internal/storage/security_other.go:1-17`
+- `agent/internal/storage/security_windows.go:1-144`
+- `agent/cmd/agent/main.go:1-512`
+- `agent/cmd/agent/runtime_singleton_other.go:1-7`
+- `agent/cmd/agent/runtime_singleton_windows.go:1-37`
+- `agent/cmd/agent/service_install_other.go:1-25`
+- `agent/cmd/agent/service_install_windows.go:1-245`
+- `agent/cmd/cli/cleanup.go:1-54`
+- `agent/cmd/cli/cleanup.go:55-134`
+- `agent/cmd/cli/diagnose.go:1-327`
+- `agent/cmd/cli/gateway.go:1-177`
+- `agent/cmd/cli/helpers.go:1-138`
+- `agent/cmd/cli/main.go:1-239`
+- `agent/cmd/cli/main.go:240-372`
+- `src/lib/action-error.ts:1-16`
+- `src/lib/agent-auth.ts:1-78`
+- `src/lib/agent-availability.ts:1-112`
+- `src/lib/agent-control.ts:1-103`
+- `src/lib/agent-health.ts:1-251`
+- `src/lib/agent-lifecycle.ts:1-60`
+- `src/lib/agent-lifecycle.ts:61-124`
+- `src/lib/agent-presence-maintenance.ts:1-24`
+- `src/lib/api-error-keys.ts:1-107`
+- `src/lib/audit.ts:1-79`
+- `src/lib/auth-rate-limit.ts:1-360`
+- `src/lib/authorization.ts:1-58`
+- `src/lib/billing-operation.ts:1-113`
+- `src/lib/billing-operation.ts:114-272`
+- `src/lib/cache.ts:1-7`
+- `src/lib/canonicalize.ts:1-15`
+- `src/lib/circuit-breaker.ts:1-89`
+- `src/lib/clipboard.ts:1-39`
+- `src/lib/console-auth.ts:1-18`
+- `src/lib/customer-auth.ts:1-205`
+- `src/lib/database-clock.ts:1-138`
+- `src/lib/database-timestamp.ts:1-19`
+- `src/lib/discovery.ts:1-53`
+- `src/lib/email.ts:1-52`
+- `src/lib/entitlements.ts:1-410`
+- `src/lib/idempotency.ts:1-45`
+- `src/lib/job-delivery.ts:1-261`
+- `src/lib/job-delivery.ts:262-321`
+- `src/lib/job-diagnostic-payload.ts:1-82`
+- `src/lib/job-fencing.ts:1-59`
+- `src/lib/job-maintenance.ts:1-314`
+- `src/lib/job-status.ts:1-239`
+- `src/lib/job-status.ts:240-243`
+- `src/lib/job-timeline.ts:1-139`
+- `src/lib/lifecycle-labels.ts:1-26`
+- `src/lib/lifecycle.ts:1-16`
+- `src/lib/limit-signal.ts:1-58`
+- `src/lib/log.ts:1-111`
+- `src/lib/manager-auth.ts:1-454`
+- `src/lib/manager-auth.ts:455-498`
+- `src/lib/metrics.ts:1-126`
+- `src/lib/nanoid.ts:1-5`
+- `src/lib/nav.ts:1-13`
+- `src/lib/network-address.ts:1-47`
+- `src/lib/odoo-auth.ts:1-90`
+- `src/lib/password.ts:1-77`
+- `src/lib/payload.ts:1-273`
+- `src/lib/platform-auth.ts:1-100`
+- `src/lib/platform-auth.ts:101-258`
+- `src/lib/print-job-service.ts:1-537`
+- `src/lib/printer-capability.ts:1-49`
+- `src/lib/printer-capability.ts:50-295`
+- `src/lib/printer-health.ts:1-270`
+- `src/lib/printer-model.ts:1-101`
+- `src/lib/printer-model.ts:102-231`
+- `src/lib/printer-virtual.ts:1-222`
+- `src/lib/request-limits.ts:1-32`
+- `src/lib/routing.ts:1-83`
+- `src/lib/runtime-secret.ts:1-24`
+- `src/lib/session-config.ts:1-43`
+- `src/lib/session-tokens.ts:1-277`
+- `src/lib/session-tokens.ts:278-804`
+- `src/lib/stale-threshold.ts:1-47`
+- `src/lib/stripe.ts:1-257`
+- `src/lib/stripe.ts:258-263`
+- `src/lib/system-health.ts:1-217`
+- `src/lib/tenant-guard.ts:1-98`
+- `src/lib/tenant-lifecycle.ts:1-158`
+- `src/lib/trust-proxy-config.ts:1-3`
+- `src/lib/utils.ts:1-30`
+- `src/lib/worker-schema.ts:1-46`
+- `src/lib/ws-rate-limit.ts:1-71`
+- `src/server/api-defaults.ts:1-47`
+- `src/server/content-security-policy.ts:1-40`
+- `src/server/correlation.ts:1-70`
+- `src/server/cors.ts:1-49`
+- `src/server/request-guard.ts:1-317`
+- `src/server/trusted-proxy.ts:1-74`
+- `src/server/ws.ts:1-304`
+- `src/server/ws.ts:305-1042`
+- `src/server/ws.ts:1043-1117`
+- `server.ts:1-259`
+- `src/db/client.ts:1-31`
+- `src/db/index.ts:1-103`
+- `src/db/schema.ts:1-187`
+- `src/db/schema.ts:188-598`
+- `src/app/api/admin/tenants/[id]/lifecycle/route.ts:1-80`
+- `src/app/api/agent/discovery/route.ts:1-54`
+- `src/app/api/agent/discovery/route.ts:55-246`
+- `src/app/api/agent/heartbeat/route.ts:1-398`
+- `src/app/api/agent/heartbeat/route.ts:399-563`
+- `src/app/api/agent/jobs/route.ts:1-490`
+- `src/app/api/agent/jobs/route.ts:491-649`
+- `src/app/api/agent/register/route.ts:1-211`
+- `src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts:1-227`
+- `src/app/api/agents/[id]/discovered-printers/[deviceId]/verify/route.ts:1-50`
+- `src/app/api/agents/[id]/discovery/[discoveryId]/cancel/route.ts:1-40`
+- `src/app/api/agents/[id]/discovery/[discoveryId]/route.ts:1-22`
+- `src/app/api/agents/[id]/discovery/route.ts:1-97`
+- `src/app/api/agents/[id]/route.ts:1-59`
+- `src/app/api/agents/health/route.ts:1-28`
+- `src/app/api/agents/route.ts:1-67`
+- `src/app/api/agents/service-status/route.ts:1-62`
+- `src/app/api/auth/forgot-password/route.ts:1-61`
+- `src/app/api/auth/login/route.ts:1-48`
+- `src/app/api/auth/login/route.ts:49-72`
+- `src/app/api/auth/logout/route.ts:1-131`
+- `src/app/api/auth/manager/login/route.ts:1-128`
+- `src/app/api/auth/manager/logout/route.ts:1-73`
+- `src/app/api/auth/manager/me/route.ts:1-10`
+- `src/app/api/auth/manager/refresh/route.ts:1-64`
+- `src/app/api/auth/me/route.ts:1-12`
+- `src/app/api/auth/refresh/route.ts:1-54`
+- `src/app/api/auth/register/route.ts:1-75`
+- `src/app/api/auth/resend-verification/route.ts:1-111`
+- `src/app/api/auth/reset-password/route.ts:1-108`
+- `src/app/api/auth/select-tenant/route.ts:1-110`
+- `src/app/api/auth/verify-email/route.ts:1-128`
+- `src/app/api/billing/cancel/route.ts:1-21`
+- `src/app/api/billing/checkout/route.ts:1-277`
+- `src/app/api/billing/checkout/route.ts:278-869`
+- `src/app/api/billing/plans/route.ts:1-19`
+- `src/app/api/billing/portal/route.ts:1-70`
+- `src/app/api/billing/resume/route.ts:1-21`
+- `src/app/api/billing/status/route.ts:1-42`
+- `src/app/api/billing/usage/route.ts:1-59`
+- `src/app/api/billing/webhook/route.ts:1-496`
+- `src/app/api/health/route.ts:1-25`
+- `src/app/api/jobs/[id]/reprint/route.ts:1-104`
+- `src/app/api/jobs/[id]/route.ts:1-64`
+- `src/app/api/jobs/[id]/timeline/route.ts:1-138`
+- `src/app/api/jobs/route.ts:1-188`
+- `src/app/api/live/route.ts:1-5`
+- `src/app/api/metrics/route.ts:1-17`
+- `src/app/api/odoo/agents/route.ts:1-66`
+- `src/app/api/odoo/configuration/route.ts:1-133`
+- `src/app/api/odoo/configuration/route.ts:134-188`
+- `src/app/api/odoo/health/route.ts:1-30`
+- `src/app/api/odoo/keys/[id]/rotate/route.ts:1-97`
+- `src/app/api/odoo/keys/route.ts:1-166`
+- `src/app/api/odoo/printers/route.ts:1-118`
+- `src/app/api/onboarding/route.ts:1-76`
+- `src/app/api/platform/audit/route.ts:1-45`
+- `src/app/api/platform/auth/login/route.ts:1-79`
+- `src/app/api/platform/auth/logout/route.ts:1-76`
+- `src/app/api/platform/auth/me/route.ts:1-16`
+- `src/app/api/platform/auth/refresh/route.ts:1-54`
+- `src/app/api/platform/plans/[id]/route.ts:1-228`
+- `src/app/api/platform/plans/route.ts:1-168`
+- `src/app/api/platform/stats/route.ts:1-151`
+- `src/app/api/platform/stats/route.ts:152-169`
+- `src/app/api/platform/subscriptions/route.ts:1-62`
+- `src/app/api/platform/tenants/[id]/reactivate/route.ts:1-39`
+- `src/app/api/platform/tenants/[id]/suspend/route.ts:1-59`
+- `src/app/api/platform/tenants/route.ts:1-56`
+- `src/app/api/print/jobs/batch-status/route.ts:1-64`
+- `src/app/api/print/jobs/route.ts:1-258`
+- `src/app/api/printers/[id]/certify/route.ts:1-116`
+- `src/app/api/printers/[id]/certify/route.ts:117-448`
+- `src/app/api/printers/[id]/route.ts:1-201`
+- `src/app/api/printers/[id]/test-connection/route.ts:1-90`
+- `src/app/api/printers/[id]/test-print/route.ts:1-146`
+- `src/app/api/printers/capabilities/route.ts:1-28`
+- `src/app/api/printers/route.ts:1-153`
+- `src/app/api/settings/route.ts:1-36`
+- `src/app/api/system/health/route.ts:1-20`
+- `src/app/api/team/invitations/accept/route.ts:1-103`
+- `src/app/api/team/invitations/route.ts:1-26`
+- `src/app/api/team/invitations/route.ts:27-149`
+- `src/app/api/team/members/route.ts:1-133`
+- `src/app/api/team/ownership/route.ts:1-113`
+- `odoo_addons/print_gateway/models/__init__.py:1-13`
+- `odoo_addons/print_gateway/models/account_move.py:1-31`
+- `odoo_addons/print_gateway/models/binding.py:1-261`
+- `odoo_addons/print_gateway/models/binding.py:262-769`
+- `odoo_addons/print_gateway/models/crypto.py:1-63`
+- `odoo_addons/print_gateway/models/crypto.py:64-173`
+- `odoo_addons/print_gateway/models/gateway_config.py:1-606`
+- `odoo_addons/print_gateway/models/gateway_config.py:607-1248`
+- `odoo_addons/print_gateway/models/gateway_config.py:1249-1895`
+- `odoo_addons/print_gateway/models/gateway_config.py:1896-2132`
+- `odoo_addons/print_gateway/models/ir_actions_report.py:1-59`
+- `odoo_addons/print_gateway/models/pos_order.py:1-149`
+- `odoo_addons/print_gateway/models/pos_session.py:1-22`
+- `odoo_addons/print_gateway/models/print_intent.py:1-225`
+- `odoo_addons/print_gateway/models/print_intent.py:226-399`
+- `odoo_addons/print_gateway/models/print_job.py:1-458`
+- `odoo_addons/print_gateway/models/print_job.py:459-1116`
+- `odoo_addons/print_gateway/models/print_job.py:1117-1630`
+- `odoo_addons/print_gateway/models/print_job.py:1631-2263`
+- `odoo_addons/print_gateway/models/print_job.py:2264-2289`
+- `odoo_addons/print_gateway/models/print_policy.py:1-460`
+- `odoo_addons/print_gateway/models/print_router.py:1-167`
+- `odoo_addons/print_gateway/models/print_router.py:168-827`
+- `odoo_addons/print_gateway/models/print_router.py:828-982`
+- `odoo_addons/print_gateway/models/runtime_assignment.py:1-141`
+- `odoo_addons/print_gateway/models/stock_picking.py:1-35`
+- `odoo_addons/print_gateway/controllers/__init__.py:1-8`
+- `odoo_addons/print_gateway/controllers/pos.py:1-52`
+- `odoo_addons/print_gateway/controllers/runtime_printers.py:1-236`
+- `odoo_addons/print_gateway/static/description/index.html:1-59`
+- `odoo_addons/print_gateway/static/src/components/language_switcher.js:1-103`
+- `odoo_addons/print_gateway/static/src/components/language_switcher.xml:1-34`
+- `odoo_addons/print_gateway/static/src/components/runtime_agent_field.js:1-227`
+- `odoo_addons/print_gateway/static/src/components/runtime_printer_field.js:1-242`
+- `odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js:1-45`
+- `odoo_addons/print_gateway/static/src/js/gateway_limit_dialog.js:1-188`
+- `odoo_addons/print_gateway/static/src/js/pos_print_router.js:1-506`
+- `odoo_addons/print_gateway/static/src/js/pos_print_router.js:507-681`
+- `odoo_addons/print_gateway/static/src/js/pos_sale_details_router.js:1-102`
+- `odoo_addons/print_gateway/static/src/js/report_interceptor.js:1-143`
+- `odoo_addons/print_gateway/static/src/js/tours/binding_cascade_tour.js:1-125`
+- `odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss:1-155`
+- `odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss:156-355`
+- `odoo_addons/print_gateway/static/src/scss/print_gateway_tokens.scss:1-161`
+- `odoo_addons/print_gateway/security/ir.model.access.csv:1-13`
+- `odoo_addons/print_gateway/security/security.xml:1-44`
+- `odoo_addons/print_gateway/views/binding_views.xml:1-59`
+- `odoo_addons/print_gateway/views/binding_views.xml:60-106`
+- `odoo_addons/print_gateway/views/gateway_config_views.xml:1-132`
+- `odoo_addons/print_gateway/views/menu.xml:1-45`
+- `odoo_addons/print_gateway/views/print_intent_views.xml:1-105`
+- `odoo_addons/print_gateway/views/print_job_views.xml:1-118`
+- `odoo_addons/print_gateway/views/print_policy_views.xml:1-91`
+- `odoo_addons/print_gateway/views/runtime_assignment_views.xml:1-46`
+- `odoo_addons/print_gateway/data/cron.xml:1-53`
+- `src-tauri/src/agent.rs:1-767`
+- `src-tauri/src/agent.rs:768-1071`
+- `src-tauri/src/audit_discovery_test.rs:1-26`
+- `src-tauri/src/cleanup.rs:1-60`
+- `src-tauri/src/commands.rs:1-465`
+- `src-tauri/src/commands.rs:466-1347`
+- `src-tauri/src/commands.rs:1348-1783`
+- `src-tauri/src/logging.rs:1-206`
+- `src-tauri/src/main.rs:1-248`
+- `src-tauri/src/main.rs:249-343`
+- `src-tauri/src/paths.rs:1-563`
+- `src-tauri/src/tray.rs:1-114`
+- `src/desktop/components/AddPrinterDialog.tsx:1-187`
+- `src/desktop/components/AddPrinterDialog.tsx:188-429`
+- `src/desktop/components/AdminPrivilegeDialog.tsx:1-96`
+- `src/desktop/components/EditPrinterDialog.tsx:1-303`
+- `src/desktop/components/JobTimeline.tsx:1-140`
+- `src/desktop/components/JobTimeline.tsx:141-149`
+- `src/desktop/components/Sidebar.tsx:1-98`
+- `src/desktop/icon.svg:1-6`
+- `src/desktop/index.html:1-16`
+- `src/desktop/lib/ipc.ts:1-687`
+- `src/desktop/lib/printers.ts:1-314`
+- `src/desktop/main.tsx:1-554`
+- `src/desktop/main.tsx:555-1210`
+- `src/desktop/pages/Agents.tsx:1-55`
+- `src/desktop/pages/Agents.tsx:56-98`
+- `src/desktop/pages/Jobs.tsx:1-84`
+- `src/desktop/pages/Overview.tsx:1-149`
+- `src/desktop/pages/Printers.tsx:1-59`
+- `src/desktop/pages/Printers.tsx:60-106`
+- `src/desktop/pages/Settings.tsx:1-111`
+- `src/desktop/preview.html:1-21`
+- `src/desktop/preview/main.ts:1-6`
+- `src/desktop/preview/mock-tauri.ts:1-273`
+- `src/desktop/preview/mock-tauri.ts:274-307`
+- `src/desktop/public/theme-init.css:1-2`
+- `src/desktop/public/theme-init.js:1-23`
+- `src/desktop/theme-light.css:1-81`
+- `src/desktop/types.ts:1-103`
+- `src/desktop/ui.tsx:1-112`
+- `src/components/AppShell.tsx:1-456`
+- `src/components/AppShell.tsx:457-568`
+- `src/components/AuthShell.tsx:1-107`
+- `src/components/BillingActions.tsx:1-239`
+- `src/components/CommandPalette.tsx:1-220`
+- `src/components/JobCleanupButton.tsx:1-121`
+- `src/components/JobTimeline.tsx:1-95`
+- `src/components/JobTimeline.tsx:96-288`
+- `src/components/LanguageSwitcher.tsx:1-50`
+- `src/components/PrintCertificationWizard.tsx:1-411`
+- `src/components/ThemeToggle.tsx:1-114`
+- `src/components/TopNavbar.tsx:1-196`
+- `src/components/UpgradeLimitDialog.tsx:1-122`
+- `src/components/brand.tsx:1-79`
+- `src/components/platform/overview-charts.tsx:1-316`
+- `src/components/ui.tsx:1-138`
+- `src/components/ui.tsx:139-1241`
+- `src/components/ui.tsx:1242-2053`
+- `src/app/actions.ts:1-79`
+- `src/app/actions.ts:80-451`
+- `src/app/api-keys/page.tsx:1-339`
+- `src/app/api-keys/page.tsx:340-479`
+- `src/app/billing/page.tsx:1-422`
+- `src/app/dashboard/dashboard-client.tsx:1-226`
+- `src/app/dashboard/dashboard-client.tsx:227-1078`
+- `src/app/dashboard/dashboard-client.tsx:1079-1740`
+- `src/app/dashboard/dashboard-client.tsx:1741-2221`
+- `src/app/dashboard/page.tsx:1-177`
+- `src/app/error.tsx:1-59`
+- `src/app/forgot-password/page.tsx:1-58`
+- `src/app/forgot-password/page.tsx:59-94`
+- `src/app/globals.css:1-1079`
+- `src/app/globals.css:1080-1112`
+- `src/app/icon.svg:1-6`
+- `src/app/invite/page.tsx:1-126`
+- `src/app/layout.tsx:1-47`
+- `src/app/loading.tsx:1-44`
+- `src/app/login/page.tsx:1-217`
+- `src/app/not-found.tsx:1-35`
+- `src/app/onboarding/page.tsx:1-305`
+- `src/app/onboarding/page.tsx:306-395`
+- `src/app/page.tsx:1-709`
+- `src/app/page.tsx:710-727`
+- `src/app/platform/audit/page.tsx:1-265`
+- `src/app/platform/dashboard/page.tsx:1-495`
+- `src/app/platform/dashboard/page.tsx:496-537`
+- `src/app/platform/layout.tsx:1-116`
+- `src/app/platform/login/page.tsx:1-145`
+- `src/app/platform/page.tsx:1-8`
+- `src/app/platform/plans/page.tsx:1-440`
+- `src/app/platform/plans/page.tsx:441-533`
+- `src/app/platform/subscriptions/page.tsx:1-301`
+- `src/app/platform/tenants/page.tsx:1-295`
+- `src/app/platform/tenants/page.tsx:296-365`
+- `src/app/pricing/page.tsx:1-286`
+- `src/app/release-readiness/page.tsx:1-39`
+- `src/app/release-readiness/release-readiness-client.tsx:1-302`
+- `src/app/reset-password/page.tsx:1-117`
+- `src/app/settings/page.tsx:1-190`
+- `src/app/signup/page.tsx:1-124`
+- `src/app/system-health/page.tsx:1-39`
+- `src/app/system-health/system-health-client.tsx:1-327`
+- `src/app/team/page.tsx:1-85`
+- `src/app/team/page.tsx:86-671`
+- `src/app/verify-email/page.tsx:1-187`
+- `src/app/verify-email/page.tsx:188-195`
+- `src/i18n/config.ts:1-61`
+- `src/i18n/format.ts:1-147`
+- `src/i18n/index.ts:1-32`
+- `src/i18n/messages/ar.ts:1-473`
+- `src/i18n/messages/ar.ts:474-823`
+- `src/i18n/messages/ar.ts:824-1126`
+- `src/i18n/messages/ar.ts:1127-1461`
+- `src/i18n/messages/ar.ts:1462-1823`
+- `src/i18n/messages/ar.ts:1824-2155`
+- `src/i18n/messages/ar.ts:2156-2385`
+- `src/i18n/messages/en.ts:1-98`
+- `src/i18n/messages/en.ts:99-712`
+- `src/i18n/messages/en.ts:713-1203`
+- `src/i18n/messages/en.ts:1204-1751`
+- `src/i18n/messages/en.ts:1752-2250`
+- `src/i18n/messages/en.ts:2251-2385`
+- `src/i18n/react.tsx:1-214`
+- `src/i18n/server.ts:1-32`
+- `src/i18n/translate.ts:1-68`
+- `drizzle/0000_simple_tigra.sql:1-65`
+- `drizzle/0001_phase1_branch_foundation.sql:1-218`
+- `drizzle/0001_phase1_branch_foundation.sql:219-220`
+- `drizzle/0002_add_document_types.sql:1-25`
+- `drizzle/0003_add_idempotency_key.sql:1-30`
+- `drizzle/0004_add_job_delivery_tracking.sql:1-14`
+- `drizzle/0005_auth_rate_limits.sql:1-10`
+- `drizzle/0006_architecture_hardening.sql:1-109`
+- `drizzle/0007_auth_rate_limit_retention.sql:1-4`
+- `drizzle/0008_remove_pcl_contract.sql:1-20`
+- `drizzle/0009_runtime_invariant_guard.sql:1-21`
+- `drizzle/0010_discovery.sql:1-56`
+- `drizzle/0011_worker_schema_fk_hardening.sql:1-101`
+- `drizzle/0012_runtime_state_checks.sql:1-54`
+- `drizzle/0013_runtime_state_constraint_scope_fix.sql:1-87`
+- `drizzle/0014_discovery_state_checks.sql:1-28`
+- `drizzle/0015_metrics_and_agent_notifications.sql:1-24`
+- `drizzle/0016_print_job_rate_limits.sql:1-13`
+- `drizzle/0017_notify_requeued_jobs.sql:1-20`
+- `drizzle/0018_global_print_job_idempotency.sql:1-17`
+- `drizzle/0019_drop_legacy_print_destination_fk.sql:1-5`
+- `drizzle/0020_remove_gateway_business_ownership.sql:1-53`
+- `drizzle/0021_scope_print_jobs_to_api_key.sql:1-37`
+- `drizzle/0022_pairing_code_hash.sql:1-8`
+- `drizzle/0023_internal_print_job_idempotency.sql:1-3`
+- `drizzle/0024_claim_fencing_and_payload_contract.sql:1-45`
+- `drizzle/0025_constraint_scope_and_protocol_contract_fix.sql:1-57`
+- `drizzle/0026_printer_type_default_alignment.sql:1-23`
+- `drizzle/0027_printers_protocol_check_windows_spooler.sql:1-41`
+- `drizzle/0028_add_multi_tenancy.sql:1-479`
+- `drizzle/0029_enforce_tenant_id_not_null.sql:1-67`
+- `drizzle/0030_tenant_domains_and_manager_sessions.sql:1-34`
+- `drizzle/0031_enforce_tenant_cross_table_foreign_keys.sql:1-56`
+- `drizzle/0032_pairing_code_hash_unique.sql:1-35`
+- `drizzle/0033_manager_identity.sql:1-17`
+- `drizzle/0034_saas_control_plane.sql:1-38`
+- `drizzle/0035_tenant_membership_role_check.sql:1-9`
+- `drizzle/0036_print_job_request_id.sql:1-4`
+- `drizzle/0037_customer_identity_billing.sql:1-78`
+- `drizzle/0038_trial_state.sql:1-4`
+- `drizzle/0039_billing_event_ordering.sql:1-3`
+- `drizzle/0040_tenant_lifecycle.sql:1-12`
+- `drizzle/0041_fix_composite_fk_prerequisites.sql:1-270`
+- `drizzle/0042_dos_indexes.sql:1-7`
+- `drizzle/0043_add_platform_owner.sql:1-13`
+- `drizzle/0044_single_platform_owner_idx.sql:1-2`
+- `drizzle/0045_audit_events_platform_scope.sql:1-24`
+- `drizzle/0046_scope_internal_print_job_idempotency.sql:1-5`
+- `drizzle/0047_desired_printer_reconciliation.sql:1-17`
+- `drizzle/0048_discovery_running_agent_unique.sql:1-3`
+- `drizzle/0049_tenant_scoped_idempotency_and_owner_unique.sql:1-33`
+- `drizzle/0050_billing_single_flight_state.sql:1-49`
+- `drizzle/0051_agent_lifecycle_revision.sql:1-6`
+- `drizzle/0052_plan_catalog_management.sql:1-18`
+- `drizzle/0053_discovery_spooler_name.sql:1-3`
+- `drizzle/0054_odoo_gateway_activation_state.sql:1-11`
+- `drizzle/0055_job_events_and_spooler_job_id.sql:1-30`
+- `drizzle/0056_discovered_device_class_not_null.sql:1-25`
+- `drizzle/0057_api_key_composite_index.sql:1-14`
+- `drizzle/0058_scope_odoo_activation_to_api_key.sql:1-41`
+- `drizzle/0059_remove_api_key_restrictions.sql:1-14`
+- `drizzle/0060_preserve_stripe_subscription_states.sql:1-9`
+- `drizzle/0061_print_usage_quota.sql:1-35`
+- `drizzle/0062_subscription_period_start_default.sql:1-6`
+- `drizzle/0063_job_events_tenant_fk.sql:1-37`
+- `drizzle/0064_odoo_key_rotation_grace.sql:1-6`
+- `drizzle/0065_api_key_rotation_state_check.sql:1-27`
+- `drizzle/0066_job_events_cascade.sql:1-12`
+- `drizzle/0067_print_job_wall_clock.sql:1-18`
+- `drizzle/0068_billing_entitlement_block.sql:1-8`
+- `drizzle/0069_redact_legacy_claim_ids.sql:1-6`
+- `drizzle/0070_discovered_device_identity.sql:1-18`
+- `drizzle/0071_remove_print_job_rate_limits.sql:1-1`
+- `drizzle/0072_tenant_scoped_printer_identity.sql:1-98`
+- `drizzle/0073_refresh_tokens.sql:1-46`
+- `drizzle/0074_token_cascade_cleanup.sql:1-41`
+- `drizzle/0075_discovery_checks_cleanup.sql:1-35`
+- `drizzle/0076_discovery_candidate_status_check.sql:1-49`
+- `drizzle/0077_agent_inventory_snapshots.sql:1-11`
+- `drizzle/meta/_journal.json:1-552`
+- `scripts/audit-gate.mjs:1-132`
+- `scripts/bootstrap-platform-owner.ts:1-168`
+- `scripts/build-windows-installer.ps1:1-176`
+- `scripts/build-windows-installer.ps1:177-197`
+- `scripts/check-db-docs.py:1-91`
+- `scripts/check-i18n.ts:1-152`
+- `scripts/check-odoo-translations.py:1-312`
+- `scripts/check-ui-copy.py:1-159`
+- `scripts/check-ui-copy.py:160-429`
+- `scripts/count-ignored-results.sh:1-59`
+- `scripts/db-generate.ts:1-28`
+- `scripts/db-migrate.ts:1-103`
+- `scripts/generate-icons.mjs:1-110`
+- `scripts/pg-concurrent-claim.sh:1-8`
+- `scripts/pg-notify-failure-injection.ts:1-57`
+- `scripts/provision-plans.ts:1-48`
+- `scripts/setup-tauri-linux.sh:1-28`
+- `scripts/setup-tauri-linux.sh:29-68`
+- `scripts/smoke-test-windows.ps1:1-308`
+- `.github/dependabot.yml:1-25`
+- `.github/workflows/build-windows.yml:1-276`
+- `.github/workflows/ci.yml:1-93`
+- `.github/workflows/ci.yml:94-410`
+- `.github/workflows/docker.yml:1-229`
+- `.github/workflows/security-supply-chain.yml:1-167`
+- `.github/workflows/security-supply-chain.yml:168-213`
+- `.github/workflows/static-security.yml:1-96`
+- `docs/DATABASE.md:1-126`
+- `docs/DISTRIBUTED_TRACING.md:1-76`
+- `docs/PRINT_CERTIFICATION.md:1-64`
+- `docs/SYSTEM_HEALTH.md:1-30`
+- `docs/TERMINOLOGY.md:1-173`
+- `docs/WINDOWS_SERVICE_RECOVERY.md:1-99`
+- `archive/AUDIT_FINDINGS.md:1-224`
+- `archive/DEBUG_AUDIT.md:1-94`
+- `archive/DEBUG_AUDIT.md:95-275`
+- `archive/RELEASE_READINESS.md:1-84`
+- `archive/UI_AUDIT.md:1-155`
+- `.dockerignore:1-18`
+- `.env.example:1-60`
+- `.gitignore:1-38`
+- `.npmrc:1-1`
+- `.nvmrc:1-1`
+- `ADR.md:1-25`
+- `ADR.md:26-132`
+- `AGENT_ARCHITECTURE.md:1-139`
+- `API.md:1-172`
+- `Caddyfile:1-15`
+- `DEPLOYMENT.md:1-135`
+- `Dockerfile:1-55`
+- `INSTALLATION.md:1-123`
+- `LICENSE:1-21`
+- `MIGRATION.md:1-125`
+- `ODOO_INTEGRATION.md:1-141`
+- `OPERATIONS.md:1-33`
+- `PRINTERS.md:1-34`
+- `PRINTERS.md:35-276`
+- `README.md:1-79`
+- `SECURITY.md:1-39`
+- `SECURITY.md:40-126`
+- `SERVER_FIRST_RUN.md:1-658`
+- `TENANT_ISOLATION.md:1-119`
+- `THIRD_PARTY_NOTICES.md:1-23`
+- `TROUBLESHOOTING.md:1-141`
+- `agent/Makefile:1-36`
+- `agent/configs/config.yaml.example:1-41`
+- `agent/internal/testutil/mock_printer.go:1-215`
+- `docker-compose.yml:1-137`
+- `drizzle.config.ts:1-25`
+- `eslint.config.mjs:1-19`
+- `next.config.ts:1-33`
+- `odoo_addons/print_gateway/__init__.py:1-3`
+- `odoo_addons/print_gateway/__manifest__.py:1-57`
+- `odoo_addons/print_gateway/i18n/ar.po:1-213`
+- `odoo_addons/print_gateway/i18n/ar.po:214-692`
+- `odoo_addons/print_gateway/i18n/ar.po:693-1118`
+- `odoo_addons/print_gateway/i18n/ar.po:1119-1584`
+- `odoo_addons/print_gateway/i18n/ar.po:1585-2063`
+- `odoo_addons/print_gateway/i18n/ar.po:2064-2572`
+- `odoo_addons/print_gateway/i18n/ar.po:2573-3053`
+- `odoo_addons/print_gateway/i18n/ar.po:3054-3511`
+- `odoo_addons/print_gateway/i18n/ar.po:3512-3540`
+- `odoo_addons/print_gateway/migrations/1.1.0/__init__.py:1-7`
+- `odoo_addons/print_gateway/migrations/1.1.0/pre-migrate.py:1-121`
+- `odoo_addons/print_gateway/migrations/19.0.1.1.0/__init__.py:1-8`
+- `odoo_addons/print_gateway/migrations/19.0.1.1.0/pre-migrate.py:1-22`
+- `odoo_addons/print_gateway/migrations/19.0.2.1.0/post-migrate.py:1-58`
+- `odoo_addons/print_gateway/migrations/19.0.2.10.0/post-migrate.py:1-56`
+- `odoo_addons/print_gateway/migrations/19.0.2.3.0/post-migrate.py:1-43`
+- `odoo_addons/print_gateway/migrations/19.0.2.4.0/post-migrate.py:1-40`
+- `odoo_addons/print_gateway/migrations/19.0.2.6.0/post-migrate.py:1-23`
+- `odoo_addons/print_gateway/migrations/19.0.2.7.0/post-migrate.py:1-49`
+- `odoo_addons/print_gateway/migrations/19.0.2.8.0/post-migrate.py:1-23`
+- `odoo_addons/print_gateway/runtime_clock.py:1-10`
+- `postcss.config.mjs:1-7`
+- `proxy.ts:1-23`
+- `src-tauri/build.rs:1-32`
+- `src-tauri/capabilities/default.json:1-33`
+- `src-tauri/icons/icon-source.svg:1-12`
+- `src-tauri/installer_hooks.nsh:1-152`
+- `src-tauri/rust-toolchain.toml:1-4`
+- `src-tauri/tauri.conf.json:1-67`
+- `src/shared/job-retention.ts:1-6`
+- `src/shared/job-vocabulary.ts:1-277`
+- `tsconfig.json:1-37`
+- `vite.desktop.config.mts:1-55`
+- `vitest.config.mts:1-25`
+- `vitest.integration.config.mts:1-19`
+- `vitest.test-groups.mts:1-57`
+- `vitest.test-groups.mts:58-61`
+- `vitest.unit.config.mts:1-27`
+- `agent/internal/printer/discovery_extended_test.go:1-169`
+- `agent/internal/printer/discovery_identity_test.go:1-74`
+- `agent/internal/printer/discovery_resilience_test.go:1-77`
+- `agent/internal/printer/discovery_test.go:1-599`
+- `agent/internal/printer/discovery_test.go:600-805`
+- `agent/internal/printer/document_test.go:1-12`
+- `agent/internal/printer/document_timeout_test.go:1-69`
+- `agent/internal/printer/hardening_test.go:1-558`
+- `agent/internal/printer/hardening_test.go:559-613`
+- `agent/internal/printer/health_test.go:1-162`
+- `agent/internal/printer/hotpath_bench_test.go:1-148`
+- `agent/internal/printer/image_test.go:1-84`
+- `agent/internal/printer/ipp_test.go:1-553`
+- `agent/internal/printer/ipp_test.go:554-577`
+- `agent/internal/printer/manual_registry_contract_test.go:1-85`
+- `agent/internal/printer/network_integration_test.go:1-82`
+- `agent/internal/printer/network_test.go:1-351`
+- `agent/internal/printer/network_test_fastpath_test.go:1-69`
+- `agent/internal/printer/outcome_test.go:1-54`
+- `agent/internal/printer/pdf_test.go:1-427`
+- `agent/internal/printer/pdf_test.go:428-527`
+- `agent/internal/printer/pdf_windows_test.go:1-163`
+- `agent/internal/printer/peripherals_test.go:1-74`
+- `agent/internal/printer/production_audit_test.go:1-89`
+- `agent/internal/printer/raster_capability_test.go:1-65`
+- `agent/internal/printer/registry_missing_test.go:1-85`
+- `agent/internal/printer/results_close_race_test.go:1-69`
+- `agent/internal/printer/snmp_get_test.go:1-47`
+- `agent/internal/printer/spooler_jobid_test.go:1-52`
+- `agent/internal/printer/spooler_test.go:1-63`
+- `agent/internal/printer/spooler_windows_test.go:1-179`
+- `agent/internal/printer/spooler_windows_test.go:180-970`
+- `agent/internal/printer/spooler_windows_test.go:971-980`
+- `agent/internal/printer/stable_id_test.go:1-249`
+- `agent/internal/printer/stable_id_unicode_test.go:1-151`
+- `agent/internal/printer/usb_windows_test.go:1-300`
+- `agent/internal/printer/wsd_probe_test.go:1-55`
+- `agent/internal/queue/cleanup_test.go:1-140`
+- `agent/internal/queue/cleanup_test.go:141-172`
+- `agent/internal/queue/queue_bench_test.go:1-94`
+- `agent/internal/queue/queue_test.go:1-668`
+- `agent/internal/agent/agent_test.go:1-144`
+- `agent/internal/agent/agent_test.go:145-1080`
+- `agent/internal/agent/agent_test.go:1081-1409`
+- `agent/internal/agent/audit_admission_test.go:1-60`
+- `agent/internal/agent/audit_regressions_test.go:1-212`
+- `agent/internal/agent/desired_state_test.go:1-337`
+- `agent/internal/agent/desired_state_test.go:338-598`
+- `agent/internal/agent/device_class_test.go:1-174`
+- `agent/internal/agent/discovery_bounded_test.go:1-71`
+- `agent/internal/agent/discovery_manager_test.go:1-186`
+- `agent/internal/agent/dispatch_test.go:1-182`
+- `agent/internal/agent/dispatch_test.go:183-635`
+- `agent/internal/agent/heartbeat_pagination_test.go:1-421`
+- `agent/internal/agent/job_ack_audit_test.go:1-58`
+- `agent/internal/agent/lifecycle_fence_test.go:1-115`
+- `agent/internal/agent/pairing_test.go:1-49`
+- `agent/internal/agent/spooler_jobid_test.go:1-94`
+- `agent/internal/agent/ws_delivery_test.go:1-641`
+- `agent/internal/agent/ws_delivery_test.go:642-1064`
+- `agent/internal/payload/payload_bench_test.go:1-103`
+- `agent/internal/payload/payload_test.go:1-280`
+- `agent/internal/storage/secure_test.go:1-87`
+- `agent/internal/storage/security_windows_test.go:1-33`
+- `agent/internal/storage/security_windows_test.go:34-93`
+- `agent/cmd/agent/main_test.go:1-60`
+- `agent/cmd/cli/cleanup_test.go:1-44`
+- `agent/cmd/cli/cli_integration_test.go:1-118`
+- `agent/cmd/cli/diagnose_audit_test.go:1-30`
+- `agent/cmd/cli/diagnose_test.go:1-30`
+- `agent/cmd/cli/gateway_test.go:1-76`
+- `agent/cmd/cli/printers_add_alias_test.go:1-63`
+- `tests/__mocks__/odoo.ts:1-29`
+- `tests/admin-privilege-dialog.test.ts:1-117`
+- `tests/agent-api-bearer.integration.test.ts:1-54`
+- `tests/agent-deletion.test.ts:1-182`
+- `tests/agent-deletion.test.ts:183-324`
+- `tests/agent-health-db.test.ts:1-95`
+- `tests/agent-health.test.ts:1-63`
+- `tests/agent-heartbeat-pagination.test.ts:1-489`
+- `tests/agent-lifecycle.integration.test.ts:1-93`
+- `tests/agent-registration.test.ts:1-321`
+- `tests/api-error-contract.test.ts:1-83`
+- `tests/architectural-constraints-and-statuses.test.ts:1-178`
+- `tests/architectural-constraints-and-statuses.test.ts:179-199`
+- `tests/architecture-hardening.test.ts:1-253`
+- `tests/architecture-pg.test.ts:1-112`
+- `tests/audit-barrel-imports-offline.test.mjs:1-103`
+- `tests/audit-fixes-2026-09.test.ts:1-108`
+- `tests/audit-fixes-2026-09.test.ts:109-120`
+- `tests/audit-gateway-offline.test.mjs:1-278`
+- `tests/audit-pos-offline.test.mjs:1-155`
+- `tests/audit-pos-outcomes.test.ts:1-50`
+- `tests/audit-printer-lifecycle-offline.test.mjs:1-82`
+- `tests/audit-printer-lifecycle-offline.test.mjs:83-97`
+- `tests/audit-repair-regressions.test.ts:1-24`
+- `tests/auth-rate-limit-fail-closed.test.ts:1-40`
+- `tests/auth-rate-limit.test.ts:1-315`
+- `tests/auth-register-existing-account.test.ts:1-53`
+- `tests/batch-status.test.ts:1-61`
+- `tests/billing-entitlement-access.test.ts:1-138`
+- `tests/billing-operation-contract.test.ts:1-24`
+- `tests/billing-portal-idempotency.test.ts:1-27`
+- `tests/billing-renewal-i18n.contract.test.ts:1-16`
+- `tests/billing-webhook-concurrency.integration.test.ts:1-374`
+- `tests/billing-webhook.test.ts:1-388`
+- `tests/billing-webhook.test.ts:389-956`
+- `tests/button-link-behavior.test.ts:1-57`
+- `tests/canonicalize-order.test.ts:1-34`
+- `tests/checkout-plan-conflict.integration.test.ts:1-118`
+- `tests/checkout-plan-conflict.integration.test.ts:119-370`
+- `tests/ci-toolchain.contract.test.ts:1-105`
+- `tests/ci-tripwire.check.ts:1-70`
+- `tests/circuit-breaker.test.ts:1-51`
+- `tests/claim-token-redaction.test.ts:1-37`
+- `tests/clipboard.test.ts:1-46`
+- `tests/control-plane-concurrency.integration.test.ts:1-108`
+- `tests/control-plane-concurrency.integration.test.ts:109-185`
+- `tests/correlation-ids.test.ts:1-49`
+- `tests/csrf-origin.test.ts:1-70`
+- `tests/dashboard-date-i18n.contract.test.ts:1-15`
+- `tests/dashboard-payload-projection.test.ts:1-90`
+- `tests/dashboard-reprint-contract.test.ts:1-13`
+- `tests/database-clock.integration.test.ts:1-124`
+- `tests/database-clock.test.ts:1-263`
+- `tests/database-clock.test.ts:264-287`
+- `tests/debugging-robustness.contract.test.ts:1-103`
+- `tests/deep-review-contract.test.ts:1-286`
+- `tests/defect-remediation-exhaustive.test.ts:1-186`
+- `tests/defect-remediation-exhaustive.test.ts:187-280`
+- `tests/deployment-security-contract.test.ts:1-69`
+- `tests/desktop-agent-date-direction.contract.test.ts:1-19`
+- `tests/desktop-auth-contract.test.ts:1-64`
+- `tests/desktop-error-messages.test.ts:1-68`
+- `tests/desktop-health-ui.contract.test.ts:1-36`
+- `tests/desktop-ui-smoke.test.ts:1-217`
+- `tests/dialog-certification-ux.test.ts:1-44`
+- `tests/dialog-isolation.test.ts:1-126`
+- `tests/dialog-isolation.test.ts:127-149`
+- `tests/discovery-approval.test.ts:1-367`
+- `tests/discovery-identity.integration.test.ts:1-17`
+- `tests/discovery-security.test.ts:1-112`
+- `tests/discovery-unit.test.ts:1-59`
+- `tests/dos-hardening-contract.test.ts:1-61`
+- `tests/e2e-job-flow.test.ts:1-22`
+- `tests/e2e-job-flow.test.ts:23-128`
+- `tests/form-accessibility.test.ts:1-78`
+- `tests/gateway-agent-console.contract.test.ts:1-61`
+- `tests/gateway-runtime-architecture.test.ts:1-142`
+- `tests/gateway-server-message.test.ts:1-44`
+- `tests/health-freshness-contract.test.ts:1-36`
+- `tests/health.test.ts:1-39`
+- `tests/heartbeat-enabled.test.ts:1-190`
+- `tests/heartbeat-enabled.test.ts:191-522`
+- `tests/helpers/pg.ts:1-190`
+- `tests/helpers/test-secrets.ts:1-8`
+- `tests/i18n-own-properties.test.ts:1-17`
+- `tests/icon-assets-contract.test.ts:1-39`
+- `tests/job-cleanup-contract.test.ts:1-96`
+- `tests/job-cleanup-contract.test.ts:97-109`
+- `tests/job-diagnostic-payload.test.ts:1-62`
+- `tests/job-maintenance.test.ts:1-158`
+- `tests/job-payload-authorization.test.ts:1-33`
+- `tests/job-status-browser.test.ts:1-33`
+- `tests/job-status-postgres-concurrency.test.ts:1-220`
+- `tests/job-status.test.ts:1-95`
+- `tests/job-status.test.ts:96-237`
+- `tests/job-timeline.test.ts:1-124`
+- `tests/legacy-print-authorization.test.ts:1-80`
+- `tests/lifecycle-delivery.test.ts:1-76`
+- `tests/logout-fail-safe.test.ts:1-56`
+- `tests/manager-auth.test.ts:1-181`
+- `tests/migration-hash-audit.test.ts:1-28`
+- `tests/migration-journal.test.ts:1-56`
+- `tests/migration-upgrade.integration.test.ts:1-70`
+- `tests/migration-upgrade.integration.test.ts:71-225`
+- `tests/multi-instance-gateway.test.ts:1-100`
+- `tests/multi-tenant-selection.test.ts:1-68`
+- `tests/nav.test.ts:1-21`
+- `tests/network-address.test.ts:1-37`
+- `tests/odoo-addon-static.test.ts:1-194`
+- `tests/odoo-addon-static.test.ts:195-334`
+- `tests/odoo-auth-database-optional.test.ts:1-148`
+- `tests/odoo-billing-boundary.contract.test.ts:1-37`
+- `tests/odoo-configuration-billing-race.integration.test.ts:1-117`
+- `tests/odoo-gateway-activation-sync.test.ts:1-249`
+- `tests/odoo-gateway-activation-sync.test.ts:250-260`
+- `tests/odoo-runtime-discovery-billing.integration.test.ts:1-59`
+- `tests/odoo-simulation.test.ts:1-39`
+- `tests/odoo-view-architecture.test.ts:1-82`
+- `tests/odoo-workspace-contract.test.ts:1-37`
+- `tests/pairing-code-contract.test.ts:1-46`
+- `tests/payload.test.ts:1-187`
+- `tests/perf-cache-query-improvements.test.ts:1-95`
+- `tests/pg-concurrent-claim.mjs:1-42`
+- `tests/pg-concurrent-claim.mjs:43-93`
+- `tests/phase2-routing-fallback.test.ts:1-172`
+- `tests/physical-outcome.test.ts:1-58`
+- `tests/plan-entitlements.test.ts:1-61`
+- `tests/platform-control-plane.test.ts:1-251`
+- `tests/platform-dashboard-integrity.test.ts:1-45`
+- `tests/platform-stats.test.ts:1-83`
+- `tests/pos-receipt-font.test.ts:1-182`
+- `tests/print-certification.test.ts:1-104`
+- `tests/print-e2e-regression.test.ts:1-78`
+- `tests/print-idempotency.test.ts:1-320`
+- `tests/print-idempotency.test.ts:321-467`
+- `tests/print-payload-contract.test.ts:1-83`
+- `tests/print-quota.test.ts:1-212`
+- `tests/printer-capability-matrix.test.ts:1-141`
+- `tests/printer-desired-state.test.ts:1-171`
+- `tests/printer-desired-state.test.ts:172-269`
+- `tests/printer-destination-security.test.ts:1-116`
+- `tests/printer-eligibility.test.ts:1-75`
+- `tests/printer-language-badges.test.ts:1-185`
+- `tests/printer-model-alias.test.ts:1-20`
+- `tests/printer-virtual.test.ts:1-115`
+- `tests/production-audit-regressions.test.ts:1-43`
+- `tests/production-audit-regressions.test.ts:44-54`
+- `tests/production-fixes-contract.test.ts:1-448`
+- `tests/production-hardening-contract.test.ts:1-87`
+- `tests/production-hardening-contract.test.ts:88-393`
+- `tests/production-type-safety.contract.test.ts:1-68`
+- `tests/quota-dialog-render.test.ts:1-166`
+- `tests/request-guard-http.test.ts:1-91`
+- `tests/request-guard-http.test.ts:92-275`
+- `tests/requeue-notify-contract.test.ts:1-14`
+- `tests/resend-verification.test.ts:1-134`
+- `tests/routing-availability.test.ts:1-336`
+- `tests/routing-doctype-parity.test.ts:1-26`
+- `tests/routing-virtual-regression.test.ts:1-54`
+- `tests/runtime-agent-picker.contract.test.ts:1-29`
+- `tests/runtime-agent-picker.contract.test.ts:30-70`
+- `tests/runtime-constraints.test.ts:1-77`
+- `tests/saas-control-plane-contract.test.ts:1-43`
+- `tests/security-credential-response.contract.test.ts:1-42`
+- `tests/server-http-acceptance.test.ts:1-172`
+- `tests/session-admission-client.test.ts:1-42`
+- `tests/session-cookie-security.test.ts:1-22`
+- `tests/session-legacy-fallback.integration.test.ts:1-129`
+- `tests/session-logout.integration.test.ts:1-160`
+- `tests/session-logout.integration.test.ts:161-196`
+- `tests/session-resource-repair.test.mjs:1-206`
+- `tests/session-tokens.integration.test.ts:1-330`
+- `tests/session-tokens.integration.test.ts:331-346`
+- `tests/shared-vocabulary.contract.test.ts:1-63`
+- `tests/stale-threshold.test.ts:1-149`
+- `tests/stripe-plan-binding.test.ts:1-111`
+- `tests/system-contracts.test.ts:1-167`
+- `tests/system-health.test.ts:1-81`
+- `tests/team-role-i18n.contract.test.ts:1-31`
+- `tests/tenant-isolation.test.ts:1-165`
+- `tests/tenant-isolation.test.ts:166-261`
+- `tests/tenant-lifecycle.integration.test.ts:1-219`
+- `tests/tenant-lifecycle.unit.test.ts:1-174`
+- `tests/tenant-suspension-socket.test.ts:1-9`
+- `tests/test-suite-classification.contract.test.ts:1-32`
+- `tests/test_audit_repair_regressions.py:1-24`
+- `tests/test_complete_audit_permissions.py:1-63`
+- `tests/test_final_security_hardening.py:1-170`
+- `tests/test_final_security_hardening.py:171-587`
+- `tests/test_gateway_activation_robustness.py:1-151`
+- `tests/test_odoo19_printing_static.py:1-52`
+- `tests/test_odoo19_printing_static.py:53-616`
+- `tests/test_odoo_printer_protocol_alias.py:1-19`
+- `tests/test_odoo_reconciliation_audit.py:1-73`
+- `tests/test_odoo_reconciliation_audit.py:74-81`
+- `tests/test_pos_receipt_font_rendering.py:1-109`
+- `tests/test_production_audit_regressions.py:1-55`
+- `tests/test_receipts_repair_parity.py:1-78`
+- `tests/test_security_contracts.py:1-457`
+- `tests/test_security_contracts.py:458-533`
+- `tests/test_tauri_std_audit.py:1-29`
+- `tests/test_translation_occurrences_audit.py:1-31`
+- `tests/test_ui_overlay_regressions.py:1-38`
+- `tests/theme-consistency.test.ts:1-22`
+- `tests/top-navbar-responsive.contract.test.ts:1-19`
+- `tests/trial-conversion.integration.test.ts:1-268`
+- `tests/trusted-proxy.test.ts:1-65`
+- `tests/ui-overlay-and-job-evidence.contract.test.ts:1-71`
+- `tests/windows-service-recovery.test.ts:1-66`
+- `tests/windows-service-recovery.test.ts:67-171`
+- `tests/windows-smoke-acl.contract.test.ts:1-26`
+- `tests/ws-claim-delivery.test.ts:1-505`
+- `tests/ws-claim-delivery.test.ts:506-1089`
+- `tests/ws-claim-delivery.test.ts:1090-1109`
+- `tests/ws-listener-setup-race.test.ts:1-100`
+- `tests/ws-route-ownership.test.ts:1-21`
+- `tests/ws-session-fencing.test.ts:1-91`
+- `tests/ws-socket-cap.test.ts:1-38`
+- `agent/internal/integration/crash_test.go:1-71`
+- `agent/internal/integration/failure_test.go:1-162`
+- `agent/internal/integration/mock_e2e_test.go:1-126`
+- `agent/internal/testutil/mock_printer_test.go:1-62`
+- `odoo_addons/print_gateway/tests/__init__.py:1-8`
+- `odoo_addons/print_gateway/tests/test_architecture_contract.py:1-97`
+- `odoo_addons/print_gateway/tests/test_architecture_contract.py:98-642`
+- `odoo_addons/print_gateway/tests/test_architecture_contract.py:643-882`
+- `odoo_addons/print_gateway/tests/test_branch_runtime_binding.py:1-330`
+- `odoo_addons/print_gateway/tests/test_branch_runtime_binding.py:331-970`
+- `odoo_addons/print_gateway/tests/test_control_plane.py:1-66`
+- `odoo_addons/print_gateway/tests/test_control_plane.py:67-702`
+- `odoo_addons/print_gateway/tests/test_control_plane.py:703-1360`
+- `odoo_addons/print_gateway/tests/test_control_plane.py:1361-1943`
+- `odoo_addons/print_gateway/tests/test_control_plane.py:1944-2306`
+- `odoo_addons/print_gateway/tests/test_gateway_url_transport.py:1-82`
+- `odoo_addons/print_gateway/tests/test_intent_recovery.py:1-132`
+- `odoo_addons/print_gateway/tests/test_migration_upgrade.py:1-64`
+- `odoo_addons/print_gateway/tests/test_migration_upgrade.py:65-108`
+- `odoo_addons/print_gateway/tests/test_routing_contract.py:1-651`
+- `odoo_addons/print_gateway/tests/test_routing_contract.py:652-810`
+- `src-tauri/tests/audit_logging.rs:1-36`

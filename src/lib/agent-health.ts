@@ -14,7 +14,7 @@ import { agents, printers, printJobs } from "../db/schema";
 import { eq, and, count, sql } from "drizzle-orm";
 import { logWarn } from "./log";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
-import { agentStaleThresholdSeconds } from "./stale-threshold";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -112,11 +112,11 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   }
   const queueDepth = queueRows[0]?.cnt ?? 0;
 
-  let printerRows: Array<{ id: string; status: string }> = [];
+  let printerRows: Array<{ id: string; status: string; lifecycle: string; lastSeenAt: Date | string | null }> = [];
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      () => db.select({ id: printers.id, status: printers.status }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
       3000,
       "agentPrinters"
     );
@@ -128,7 +128,19 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   // "busy" is an executable state (queue accepted work, still claimable — see
   // isPrinterStatusExecutable). Counting only "online" reports error for an
   // all-busy (actively processing) fleet.
-  const onlinePrinterCount = printerRows.filter((p) => p.status === "online" || p.status === "busy").length;
+  // Health counts are observation evidence, not raw DB status: retired or
+  // disabled printers and stale observations must not read as available
+  // capacity, or fleet counts advertise healthy evidence execution gates
+  // would reject.
+  const printerFreshnessMs = printerStaleThresholdSeconds() * 1000;
+  const onlinePrinterCount = printerRows.filter((p) => {
+    if (p.lifecycle !== "active") return false;
+    if (p.status !== "online" && p.status !== "busy") return false;
+    const seenMs = parseDbTimeMs(p.lastSeenAt);
+    if (seenMs === null) return false;
+    const ageMs = now.getTime() - seenMs;
+    return ageMs >= 0 && ageMs <= printerFreshnessMs;
+  }).length;
 
   const checks: HealthCheckResult[] = [];
 

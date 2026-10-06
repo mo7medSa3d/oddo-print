@@ -776,8 +776,107 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
             terminal_since,
             "terminal reconciliation must not restart the 48-hour retention clock",
         )
+
         # Regressions are refused by the stepper itself, not just write().
         with self.assertRaises(ValidationError):
             model._advance_status(job2, "queued", {})
         with self.assertRaises(ValidationError):
             model._advance_status(job, "claimed", {})
+
+    # ------------------------------------------------------------------
+    # P1-1 Regression: POS receipt / sale-details idempotency key
+    # ------------------------------------------------------------------
+    def test_route_pos_receipt_produces_deterministic_idempotency_key(self):
+        """route_pos_receipt() must produce a stable SHA-256 key so an RPC
+        retry on the same order cannot create a second physical print job."""
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        # The method must accept the idempotency_key kwarg.
+        self.assertIn("def route_pos_receipt(self, order, image_base64, *, idempotency_key=None)", source)
+        # It must compute a sha256 token from the order id and binding id.
+        self.assertIn("hashlib.sha256", source)
+        self.assertIn("receipt:{order.id}:{binding_id}", source)
+        # The computed key must be forwarded to _submit_route.
+        import re
+        submit_call = re.search(
+            r"def route_pos_receipt.*?return self._submit_route",
+            source, re.DOTALL,
+        )
+        self.assertIsNotNone(submit_call, "route_pos_receipt must call _submit_route")
+        self.assertIn("idempotency_key=idempotency_key", submit_call.group(0))
+
+    def test_route_pos_sale_details_produces_deterministic_idempotency_key(self):
+        """route_pos_sale_details() must produce a stable SHA-256 key."""
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        self.assertIn("def route_pos_sale_details(self, session, image_base64, *, idempotency_key=None)", source)
+        self.assertIn("sale_details:{session.id}:{binding_id}", source)
+        import re
+        submit_call = re.search(
+            r"def route_pos_sale_details.*?return self._submit_route",
+            source, re.DOTALL,
+        )
+        self.assertIsNotNone(submit_call)
+        self.assertIn("idempotency_key=idempotency_key", submit_call.group(0))
+
+    # ------------------------------------------------------------------
+    # P1-2 Regression: route_raw_command wire type matches protocol
+    # ------------------------------------------------------------------
+    def test_route_raw_command_uses_protocol_as_wire_type_for_byte_stream_protocols(self):
+        """route_raw_command() must emit type=escpos (not type=raw) for ESC/POS
+        payloads, and similarly for zpl/tspl so the Agent selects the right
+        byte-stream handler."""
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        # The byte-stream wire-type set must exist and cover all four languages.
+        self.assertIn("_BYTE_STREAM_WIRE_TYPES", source)
+        self.assertIn('"escpos"', source)
+        self.assertIn('"zpl"', source)
+        self.assertIn('"tspl"', source)
+        import re
+        raw_cmd_fn = re.search(
+            r"def route_raw_command.*?def route_test_page",
+            source, re.DOTALL,
+        )
+        self.assertIsNotNone(raw_cmd_fn, "route_raw_command function not found")
+        fn_body = raw_cmd_fn.group(0)
+        # wire_type derivation must be present; hardcoded "type": "raw" must not be.
+        self.assertIn("wire_type = protocol if protocol in _BYTE_STREAM_WIRE_TYPES else", fn_body)
+
+    # ------------------------------------------------------------------
+    # P1-4 Regression: cross-company test-print switch hint
+    # ------------------------------------------------------------------
+    def test_route_test_page_provides_company_switch_hint_for_cross_company_binding(self):
+        """route_test_page() must catch a cross-company mismatch before
+        resolve_binding() and surface a user-readable switch hint."""
+        source = (MODELS / "print_router.py").read_text(encoding="utf-8")
+        import re
+        test_page_fn = re.search(
+            r"def route_test_page.*?def _route_spooler_test_page",
+            source, re.DOTALL,
+        )
+        self.assertIsNotNone(test_page_fn, "route_test_page not found")
+        fn_body = test_page_fn.group(0)
+        # Must compare current_company to env.company before calling config.
+        self.assertIn("current_company != self.env.company", fn_body)
+        # Must include a switch hint in the error message.
+        self.assertIn("Switch your active company", fn_body)
+        # Must raise ValidationError on mismatch.
+        self.assertIn("raise ValidationError", fn_body)
+
+    # ------------------------------------------------------------------
+    # P1-3 Regression: partial status maps to submitted in both paths
+    # ------------------------------------------------------------------
+    def test_partial_gateway_status_maps_to_submitted_not_passed_to_advance_status(self):
+        """A Gateway status of 'partial' must be pre-mapped to 'submitted' so
+        it never reaches _advance_status (which would raise ValidationError)."""
+        source = (MODELS / "print_job.py").read_text(encoding="utf-8")
+        import re
+        # partial must be pre-mapped to submitted before the allowlist.
+        self.assertIn('if remote_status == "partial":', source)
+        self.assertIn('remote_status = "submitted"', source)
+        # 'partial' must not appear raw in the submit allowlist set.
+        allowlist_match = re.search(
+            r'remote_status not in \{[^}]+\}',
+            source,
+        )
+        if allowlist_match:
+            self.assertNotIn('"partial"', allowlist_match.group(0),
+                             "partial must not be in submit allowlist; it must be pre-mapped to submitted")

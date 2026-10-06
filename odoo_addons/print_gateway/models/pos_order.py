@@ -12,12 +12,12 @@ _logger = logging.getLogger(__name__)
 class PosOrderGatewayPrinting(models.Model):
     _inherit = "pos.order"
 
-    def action_print_gateway_receipt(self, image):
+    def action_print_gateway_receipt(self, image, operation_id=None):
         self.ensure_one()
         self.check_access("read")
         if not image:
             raise ValidationError(_("The rendered POS receipt image is required."))
-        return self.env["print_gateway.print_router"].route_pos_receipt(self, image)
+        return self.env["print_gateway.print_router"].route_pos_receipt(self, image, idempotency_key=operation_id)
 
     def has_gateway_kitchen_binding(self, pos_printer_id=None):
         self.ensure_one()

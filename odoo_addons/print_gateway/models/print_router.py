@@ -397,7 +397,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_report(self, report, records, data=None, explicit_binding=None):
+    def route_report(self, report, records, data=None, explicit_binding=None, idempotency_key=None):
         report.ensure_one()
         report = _assert_report_usage_access(self.env, report)
         records = records.exists()
@@ -430,6 +430,12 @@ class PrintGatewayRouter(models.AbstractModel):
             if candidate["binding"].id != selected_binding_id:
                 raise ValidationError(_("The selected records resolve to different Print Bindings. Print them separately."))
 
+        # Caller-supplied operation identity (one per user click) makes
+        # lost-response retries safe: same key + same payload reuses the
+        # existing job, same key + different payload fails loudly instead of
+        # printing twice. Without a caller key each RPC mints randomness, so
+        # deliberate reprints (new clicks) never collide while retries must
+        # carry the original operation id.
         return self._submit_route(
             route=route,
             payload=self._render_pdf_payload(report, records, data=data),
@@ -437,6 +443,7 @@ class PrintGatewayRouter(models.AbstractModel):
             report=report,
             source_model=records[0]._name,
             source_record_id=records[0].id,
+            idempotency_key=idempotency_key,
         )
 
     @api.model
@@ -467,7 +474,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_pos_receipt(self, order, image_base64):
+    def route_pos_receipt(self, order, image_base64, *, idempotency_key=None):
         order.ensure_one()
         self._assert_current_company(order.company_id, record=order)
         self._validate_jpeg_base64(image_base64)
@@ -476,9 +483,19 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for the current branch/POS.")
             )
+        # Stable idempotency key: a double-tap on the same order cannot produce
+        # a second physical print within the Gateway deduplication window.
+        # The caller may supply an explicit key (e.g. from the JS in-flight
+        # guard); fall back to a deterministic order+binding token so an RPC
+        # retry is also safe.
+        if not idempotency_key:
+            binding_id = route.get("binding") and route["binding"].id or 0
+            raw_token = f"receipt:{order.id}:{binding_id}:{getattr(order, 'write_date', '')}"
+            idempotency_key = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=order._name, source_record_id=order.id,
+            idempotency_key=idempotency_key,
         )
 
     @api.model
@@ -514,7 +531,7 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def route_pos_sale_details(self, session, image_base64):
+    def route_pos_sale_details(self, session, image_base64, *, idempotency_key=None):
         # Odoo 19 renders Sale Details inside the POS and submits the rendered
         # element through the same receipt-printer path used for POS receipts.
         # Therefore the in-session Gateway path is a receipt job addressed to
@@ -533,9 +550,15 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details.")
             )
+        # Deterministic key so an RPC retry cannot produce a second physical print.
+        if not idempotency_key:
+            binding_id = route.get("binding") and route["binding"].id or 0
+            raw_token = f"sale_details:{session.id}:{binding_id}:{getattr(session, 'write_date', '')}"
+            idempotency_key = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=session._name, source_record_id=session.id,
+            idempotency_key=idempotency_key,
         )
 
     @api.model
@@ -669,8 +692,15 @@ class PrintGatewayRouter(models.AbstractModel):
         else:
             raw_bytes = bytes(raw_data)
 
+        # Wire type follows the shared contract
+        # (contracts/print-payload-contract.json wireTypes: raw/escpos/pdf/image):
+        # only ESC/POS has a dedicated wire type; ZPL/TSPL travel as
+        # type=raw with an explicit protocol (the Gateway zod validator
+        # rejects type=zpl/tspl, and the Odoo persisted-payload validator
+        # only admits raw/escpos). Anything unrecognized stays "raw".
+        wire_type = "escpos" if protocol == "escpos" else "raw"
         payload = {
-            "type": "raw",
+            "type": wire_type,
             "encoding": "base64",
             "data": base64.b64encode(raw_bytes).decode("ascii"),
             "protocol": protocol,
@@ -727,6 +757,18 @@ class PrintGatewayRouter(models.AbstractModel):
         """
         binding.ensure_one()
         current_company = binding.branch_id or binding.company_id
+        # P1-4: If the user's active company does not match the binding's
+        # company/branch, resolve_binding() will raise a generic ValidationError.
+        # Intercept it here and re-raise with a human-readable switch hint so the
+        # operator knows exactly what to do (switch active company in the top
+        # nav bar) rather than seeing "Print routing must use the active
+        # Odoo company/branch".
+        if current_company and current_company != self.env.company:
+            raise ValidationError(
+                _("The selected binding belongs to company/branch '%(binding_co)s', but your active company is '%(active_co)s'. "
+                  "Switch your active company to '%(binding_co)s' in the top navigation bar before sending a test print.")
+                % {"binding_co": current_company.display_name, "active_co": self.env.company.display_name}
+            )
         config = self._gateway_config(current_company)
         if not config:
             raise ValidationError(_("Print Gateway is disabled for company %s.") % current_company.display_name)

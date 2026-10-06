@@ -803,3 +803,80 @@ func TestRuntimeDiscoveryPrintersExcludesAutomaticUnknownNetworkEvidence(t *test
 		t.Fatalf("unexpected runtime discovery rows: %#v", got)
 	}
 }
+
+func TestDiscoverFromConfigPreservesDeclaredConfiguration(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Printers = []config.PrinterConfig{{
+		ID:           "cfg_usb_label",
+		Name:         "Config Label Printer",
+		Type:         "usb",
+		Endpoint:     `\\?\usb#vid_1234&pid_5678#ABC123`,
+		Protocol:     "zpl",
+		USBVID:       "1234",
+		USBPID:       "5678",
+		USBSerial:    "ABC123",
+		Capabilities: map[string]interface{}{"supported_protocols": []string{"zpl"}},
+		PaperWidthMM: 80,
+	}}
+	got := discoverFromConfig(cfg)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 config printer, got %d", len(got))
+	}
+	di := got[0]
+	if di.USBVID != "1234" || di.USBPID != "5678" || di.USBSerial != "ABC123" {
+		t.Fatalf("USB transport identity lost: vid=%q pid=%q serial=%q", di.USBVID, di.USBPID, di.USBSerial)
+	}
+	if di.Capabilities["registration_source"] != "config" {
+		t.Fatalf("registration_source lost: %v", di.Capabilities)
+	}
+	protos, ok := di.Capabilities["supported_protocols"].([]string)
+	if !ok || len(protos) != 1 || protos[0] != "zpl" {
+		t.Fatalf("declared supported_protocols lost: %v", di.Capabilities["supported_protocols"])
+	}
+	width, ok := di.Capabilities["max_paper_width"].(int)
+	if !ok || width != RasterMaxWidthFromPaperWidthMM(80) {
+		t.Fatalf("paper width lost: %v", di.Capabilities["max_paper_width"])
+	}
+}
+
+func TestPrinterConfigForTestPreservesBackendConfiguration(t *testing.T) {
+	declared := config.PrinterConfig{
+		ID:           "cfg_usb",
+		Name:         "USB Label",
+		Type:         "usb",
+		Endpoint:     `\\?\usb#vid_1234&pid_5678#ABC123`,
+		Protocol:     "zpl",
+		USBVID:       "1234",
+		USBPID:       "5678",
+		USBSerial:    "ABC123",
+		Capabilities: map[string]interface{}{"supported_protocols": []string{"zpl"}},
+		PaperWidthMM: 80,
+	}
+	cfg := &config.Config{Printers: []config.PrinterConfig{declared}}
+	fromConfig := printerConfigForTest(cfg, &DeviceInfo{ID: "cfg_usb"})
+	if fromConfig.USBSerial != "ABC123" || fromConfig.PaperWidthMM != 80 {
+		t.Fatalf("authoritative config record not used verbatim: %+v", fromConfig)
+	}
+	if protos, ok := fromConfig.Capabilities["supported_protocols"].([]string); !ok || protos[0] != "zpl" {
+		t.Fatalf("authoritative capabilities not preserved: %v", fromConfig.Capabilities)
+	}
+
+	discovered := &DeviceInfo{
+		ID:             "disc_usb",
+		Name:           "Found USB",
+		ConnectionType: "usb",
+		Protocol:       "raw",
+		Endpoint:       `\\?\usb#vid_9999&pid_0001#XYZ`,
+		USBVID:         "9999",
+		USBPID:         "0001",
+		USBSerial:      "XYZ",
+		Capabilities:   map[string]interface{}{"max_paper_width": 576},
+	}
+	fromRow := printerConfigForTest(cfg, discovered)
+	if fromRow.USBVID != "9999" || fromRow.USBPID != "0001" || fromRow.USBSerial != "XYZ" {
+		t.Fatalf("discovered USB identity lost: %+v", fromRow)
+	}
+	if width, ok := fromRow.Capabilities["max_paper_width"].(int); !ok || width != 576 {
+		t.Fatalf("discovered paper width lost: %v", fromRow.Capabilities)
+	}
+}

@@ -14,7 +14,11 @@ export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-const SESSION_COOKIE_RE = /(?:^|;\s*)(?:(?:mgr_session|cust_session|plt_session))=/;
+// Access AND refresh cookies authenticate browser requests. Refresh-only
+// requests (expired access cookie, live refresh family) must face the same
+// Origin/Referer proof: SameSite=Strict neither covers legacy browsers nor
+// mutually same-site subdomains.
+const SESSION_COOKIE_RE = /(?:^|;\s*)(?:(?:mgr_session|cust_session|plt_session|mgr_refresh|cust_refresh|plt_refresh))=/;
 let reservedAuthBytes = 0;
 let reservedUnauthBytes = 0;
 

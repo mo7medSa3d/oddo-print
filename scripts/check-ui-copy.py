@@ -49,14 +49,103 @@ def report(kind: str, where: str, message: str) -> None:
 
 PAIR = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.M)
 
+KEY_HEAD = re.compile(r'^\s*"([^"]+)"\s*:\s*', re.M)
+
+
+def read_quoted_literal(text: str, pos: int) -> tuple[str, int] | None:
+    """Parse one double-quoted TS string literal starting at pos (the quote).
+
+    Returns (unescaped value, position after the closing quote), or None.
+    Handles \\" escapes; a literal newline inside quotes ends the literal as
+    unterminated (matches TypeScript, which forbids raw newlines in "...").
+    """
+    if pos >= len(text) or text[pos] != '"':
+        return None
+    out: list[str] = []
+    i = pos + 1
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            out.append({"n": "\n", "t": "\t", "\\": "\\", '"': '"'}.get(nxt, nxt))
+            i += 2
+            continue
+        if ch == '"':
+            return "".join(out), i + 1
+        if ch == "\n":
+            return None
+        out.append(ch)
+        i += 1
+    return None
+
 
 def read_catalog(path: Path) -> dict[str, str]:
+    """Parse the TS message catalog, including values concatenated over
+    multiple lines (`"part1" + "part2"`). Duplicate keys are detected by the
+    caller via read_catalog_with_duplicates; this mapping keeps the last
+    value, matching TS object semantics.
+    """
     text = path.read_text(encoding="utf-8")
     body = text.split("export const", 1)[-1]
-    out = {key: value for key, value in PAIR.findall(body)}
+    out: dict[str, str] = {}
+    for head in KEY_HEAD.finditer(body):
+        key = head.group(1)
+        pos = head.end()
+        while pos < len(body) and body[pos] in " \t":
+            pos += 1
+        parts: list[str] = []
+        while True:
+            parsed = read_quoted_literal(body, pos)
+            if parsed is None:
+                break
+            value, pos = parsed
+            parts.append(value)
+            cont = _join_continuation(body, pos)
+            if cont is not None:
+                pos = cont
+                continue
+            break
+        if parts:
+            out[key] = "".join(parts)
     if not out:
         raise SystemExit(f"could not parse catalog {path}")
     return out
+
+
+def _join_continuation(body: str, pos: int) -> int | None:
+    """Consume a `+` value continuation, allowing the newline between the
+    operator and the next literal. Returns the new position, or None."""
+    join = re.match(r"\s*\+\s*", body[pos:])
+    if join:
+        return pos + join.end()
+    return None
+
+
+def read_catalog_entries(path: Path) -> list[tuple[str, str]]:
+    """Catalog entries in source order, preserving duplicates for detection."""
+    text = path.read_text(encoding="utf-8")
+    body = text.split("export const", 1)[-1]
+    entries: list[tuple[str, str]] = []
+    for head in KEY_HEAD.finditer(body):
+        key = head.group(1)
+        pos = head.end()
+        while pos < len(body) and body[pos] in " \t":
+            pos += 1
+        parts: list[str] = []
+        while True:
+            parsed = read_quoted_literal(body, pos)
+            if parsed is None:
+                break
+            value, pos = parsed
+            parts.append(value)
+            cont = _join_continuation(body, pos)
+            if cont is not None:
+                pos = cont
+                continue
+            break
+        if parts:
+            entries.append((key, "".join(parts)))
+    return entries
 
 
 def placeholders(message: str) -> list[str]:
@@ -66,8 +155,15 @@ def placeholders(message: str) -> list[str]:
 def check_catalogs() -> None:
     en = read_catalog(CATALOGS["en"])
     ar = read_catalog(CATALOGS["ar"])
-    if len(en) != len(set(en)):
-        report("CATALOG", "en", "duplicate keys")
+    # Duplicate detection must run on the entry list, not the mapping: dict
+    # keys are unique by construction, so len(dict) == len(set(dict)) can
+    # never fire and silently let a later duplicate overwrite an earlier key.
+    for locale, path in (("en", CATALOGS["en"]), ("ar", CATALOGS["ar"])):
+        seen: set[str] = set()
+        for key, _ in read_catalog_entries(path):
+            if key in seen:
+                report("CATALOG", locale, f'duplicate key "{key}" (later entry overwrites the earlier one)')
+            seen.add(key)
     missing = sorted(set(en) - set(ar))
     unknown = sorted(set(ar) - set(en))
     for key in missing:

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
+import { roleLabel } from "../../lib/roles";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import type { MessageKey } from "../../i18n/messages/en";
 import { useRouter } from "next/navigation";
 import {
@@ -68,10 +70,6 @@ const ROLE_TONE: Record<string, "brand" | "info" | "ok" | "neutral" | "warn"> = 
 
 const ROLE_ORDER = [...ROLE_VALUES];
 
-function roleLabel(role: string) {
-  return role.replace(/_/g, " ");
-}
-
 function expiryLabel(expiresAt: string, t: Translator) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return "—";
@@ -101,7 +99,12 @@ export default function TeamPage() {
     requestAnimationFrame(() => feedbackRef.current?.focus());
   }
 
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    // Generation guard: a slow initial load resolving after a mutation's
+    // reload must not publish an older snapshot over fresh state (C063).
+    const generation = ++loadGeneration.current;
+    const current = () => generation === loadGeneration.current;
     // NOTE: no optimistic setLoadError(null) here — this function runs
     // inside the mount effect, where synchronous setState is a lint error
     // (cascading renders). Retry buttons clear the error in their own
@@ -109,10 +112,11 @@ export default function TeamPage() {
     try {
       const session = await ensureCustomerSession();
       if (!session.authenticated) { router.replace("/login?next=%2Fteam"); return; }
-      const probe = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+      const probe = await fetchWithTimeout("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (!probe.ok) throw new Error("Session unavailable");
       const principal = await probe.json();
       if (!principal.userId || !principal.permissions?.includes("users.read")) {
+        if (!current()) return;
         setLoadError(t("errors.forbidden"));
         return;
       }
@@ -120,6 +124,7 @@ export default function TeamPage() {
         fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
         fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
       ]);
+      if (!current()) return;
       if (!membersRes.ok || !invitationsRes.ok) {
         setLoadError(
           !membersRes.ok
@@ -132,9 +137,10 @@ export default function TeamPage() {
       setInvitations((await invitationsRes.json()).invitations ?? []);
       setLoadError(null);
     } catch {
+      if (!current()) return;
       setLoadError(t("team.loadFailed"));
     } finally {
-      setLoaded(true);
+      if (current()) setLoaded(true);
     }
   }, [t, router]);
 
@@ -157,7 +163,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/invitations", {
+      const response = await fetchWithTimeout("/api/team/invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -179,7 +185,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/members", {
+      const response = await fetchWithTimeout("/api/team/members", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -200,7 +206,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
+      const response = await fetchWithTimeout(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.invitationRevocationFailed"));
       showMessage(t("success.invitationRevoked"), "ok");
@@ -217,7 +223,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
+      const response = await fetchWithTimeout(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.memberRemovalFailed"));
       showMessage(t("success.memberRemoved"), "ok");
@@ -234,7 +240,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/ownership", {
+      const response = await fetchWithTimeout("/api/team/ownership", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -402,7 +408,7 @@ export default function TeamPage() {
                                   >
                                     {ROLE_ORDER.map((value) => (
                                       <option key={value} value={value}>
-                                        {roleLabel(value)}
+                                        {roleLabel(value, t)}
                                       </option>
                                     ))}
                                   </Select>
@@ -443,7 +449,7 @@ export default function TeamPage() {
                           {member.role === "owner" ? (
                             <StatusBadge tone="brand" label={t("team.role.owner")} />
                           ) : (
-                            <StatusBadge tone={ROLE_TONE[member.role] ?? "neutral"} label={roleLabel(member.role)} />
+                            <StatusBadge tone={ROLE_TONE[member.role] ?? "neutral"} label={roleLabel(member.role, t)} />
                           )}
                         </div>
                         {member.role !== "owner" && (
@@ -457,7 +463,7 @@ export default function TeamPage() {
                             >
                               {ROLE_ORDER.map((value) => (
                                 <option key={value} value={value}>
-                                  {roleLabel(value)}
+                                  {roleLabel(value, t)}
                                 </option>
                               ))}
                             </Select>
@@ -492,6 +498,17 @@ export default function TeamPage() {
                     <span key={i} className="skeleton block h-3.5 w-56" aria-hidden />
                   ))}
                 </div>
+              ) : loadError ? (
+                <div className="px-5 py-5">
+                  <ErrorState
+                    title={t("team.unavailable")}
+                    message={loadError}
+                    retry={() => {
+                      setLoadError(null);
+                      void load();
+                    }}
+                  />
+                </div>
               ) : invitations.length === 0 ? (
                 <EmptyState
                   size="sm"
@@ -506,7 +523,7 @@ export default function TeamPage() {
                       <div className="min-w-0">
                         <div className="truncate text-sm font-[550] text-ink">{invitation.email}</div>
                         <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-3">
-                          <StatusBadge tone={ROLE_TONE[invitation.role] ?? "neutral"} label={roleLabel(invitation.role)} size="sm" />
+                          <StatusBadge tone={ROLE_TONE[invitation.role] ?? "neutral"} label={roleLabel(invitation.role, t)} size="sm" />
                           <span>{expiryLabel(invitation.expiresAt, t)}</span>
                         </div>
                       </div>
