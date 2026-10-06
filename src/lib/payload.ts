@@ -179,8 +179,10 @@ export function buildTestPrintPayloadForPrinter(
   printer: { protocol?: string | null; connectionType?: string | null; capabilities?: { supported_protocols?: string[] } | null },
   operationId?: string,
 ): PrintJobPayload {
-  const declared = (printer.protocol ?? "").toLowerCase().trim();
-  const conn = (printer.connectionType ?? "").toLowerCase().trim();
+  const rawDeclared = (printer.protocol ?? "").toLowerCase().trim();
+  const declared = rawDeclared === "windows_spooler" ? "spooler" : rawDeclared;
+  const rawConn = (printer.connectionType ?? "").toLowerCase().trim();
+  const conn = rawConn === "windows_spooler" ? "spooler" : rawConn === "tcp" ? "network" : rawConn;
   const capabilities = printer.capabilities ?? null;
   const hasExplicitCaps = capabilities !== null && Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols");
   const supported = Array.isArray(capabilities?.supported_protocols)
@@ -253,8 +255,9 @@ export function buildTestPrintPayloadForPrinter(
   }
 
   const physicalDocumentTransport =
-    conn === "spooler" || conn === "ipp" || conn === "ipps" ||
-    (conn === "network" && declared === "ipp");
+    conn === "spooler" || declared === "spooler" ||
+    conn === "ipp" || conn === "ipps" ||
+    (conn === "network" && (declared === "ipp" || declared === "ipps"));
   // Document transports keep their intrinsic document-rendering baseline.
   // supported_protocols may opt a spooler into byte passthrough, but it must
   // never make an otherwise valid spooler/IPP test page stop being printable.
