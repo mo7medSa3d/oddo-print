@@ -49,9 +49,14 @@ type ReportedPrinter = {
 };
 
 function normalizeConnectionType(raw?: unknown, legacy?: unknown): string | null {
-  const canonical = typeof raw === "string" ? raw.toLowerCase().trim() : "";
-  const old = typeof legacy === "string" ? legacy.toLowerCase().trim() : "";
-  const normalizedOld = old === "tcp" ? "network" : old === "windows_spooler" ? "spooler" : old;
+  const normalize = (value: unknown): string => {
+    const candidate = typeof value === "string" ? value.toLowerCase().trim() : "";
+    if (candidate === "tcp") return "network";
+    if (candidate === "windows_spooler") return "spooler";
+    return candidate;
+  };
+  const canonical = normalize(raw);
+  const normalizedOld = normalize(legacy);
   if (canonical && normalizedOld && canonical !== normalizedOld) return null;
   const value = canonical || normalizedOld;
   return CONNECTION_TYPES.includes(value as (typeof CONNECTION_TYPES)[number]) ? value : null;
