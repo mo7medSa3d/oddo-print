@@ -20,7 +20,8 @@ describe("production fixes contracts (2026-09)", () => {
     const normalizedMaintenance = maintenance.replace(/\r\n/g, "\n");
     const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
     expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
-    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
+    expect(normalizedMaintenance).toContain("claim_token = NULL, claimed_at = NULL");
+    expect(normalizedMaintenance).not.toContain("claim_token = NULL, claimed_at = NULL, updated_at = now()");
     expect(normalizedMaintenance).toContain("status = 'failed'");
     expect(normalizedMaintenance).toContain("error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'");
     expect(normalizedMaintenance).toContain("updated_at <= now() - interval '24 hours'");
