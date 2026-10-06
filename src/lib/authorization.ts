@@ -5,7 +5,7 @@ export type ManagerPermission =
   | "users.read" | "users.manage"
   | "agents.read" | "agents.pair" | "agents.disable" | "agents.retire"
   | "printers.read" | "printers.manage" | "printers.test"
-  | "jobs.read" | "jobs.create" | "jobs.retry" | "jobs.cancel"
+  | "jobs.read" | "jobs.payload.read" | "jobs.create" | "jobs.retry" | "jobs.cancel"
   | "bindings.read" | "bindings.manage"
   | "integrations.read" | "integrations.manage"
   | "billing.read" | "billing.manage";
@@ -15,19 +15,19 @@ const permissionsByRole: Record<ManagerRole, ReadonlySet<ManagerPermission>> = {
     "tenant.read", "tenant.update", "users.read", "users.manage",
     "agents.read", "agents.pair", "agents.disable", "agents.retire",
     "printers.read", "printers.manage", "printers.test",
-    "jobs.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read", "bindings.manage",
+    "jobs.read", "jobs.payload.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read", "bindings.manage",
     "integrations.read", "integrations.manage", "billing.read", "billing.manage",
   ]),
   admin: new Set<ManagerPermission>([
     "tenant.read", "users.read", "users.manage",
     "agents.read", "agents.pair", "agents.disable", "agents.retire",
     "printers.read", "printers.manage", "printers.test",
-    "jobs.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read", "bindings.manage",
+    "jobs.read", "jobs.payload.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read", "bindings.manage",
     "integrations.read", "integrations.manage", "billing.read", "billing.manage",
   ]),
   operator: new Set<ManagerPermission>([
     "tenant.read", "agents.read", "printers.read", "printers.test",
-    "jobs.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read",
+    "jobs.read", "jobs.payload.read", "jobs.create", "jobs.retry", "jobs.cancel", "bindings.read",
   ]),
   viewer: new Set<ManagerPermission>([
     "tenant.read", "agents.read", "printers.read", "jobs.read", "bindings.read",
