@@ -37,6 +37,14 @@ function agentRequest(f: Fixture, method: "GET" | "PATCH", body?: unknown) {
 }
 
 suite("WS claim-before-delivery", () => {
+  it("keeps Windows spooler aliases in both WS and polling claim predicates", () => {
+    const fs = require("node:fs");
+    const wsClaim = fs.readFileSync("src/lib/job-delivery.ts", "utf8");
+    const pollClaim = fs.readFileSync("src/app/api/agent/jobs/route.ts", "utf8");
+    expect(wsClaim).toContain("pr.protocol IN ('spooler','windows_spooler')");
+    expect(pollClaim).toContain("pr.protocol IN ('spooler','windows_spooler')");
+  });
+
   it("keeps the Gateway claim ceiling aligned with Agent local capacity", () => {
     expect(MAX_AGENT_IN_FLIGHT_JOBS).toBe(64);
   });
