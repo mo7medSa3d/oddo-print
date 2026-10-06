@@ -28,7 +28,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Yaseir",
     "copyright": "Copyright © 2026 Yaseir",
     "shortDescription": "Desktop print manager for Yaseir Agent",
@@ -59,14 +61,6 @@
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
-      },
-      "wix": {
-        "fragmentPaths": [
-          "./wix/service.wxs"
-        ],
-        "componentGroupRefs": [
-          "YaseirServiceLifecycle"
-        ]
       }
     }
   }
