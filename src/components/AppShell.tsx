@@ -427,7 +427,7 @@ function ConsoleShell({
 
       {/* Mobile navigation sheet */}
       {mobileOpen && (
-        <div data-dialog-root className="fixed inset-0 z-50 lg:hidden" role="presentation">
+        <div data-dialog-root className="fixed inset-0 z-[80] lg:hidden" role="presentation">
           <div
             className="pg-fade-in absolute inset-0"
             style={{ backgroundColor: "var(--overlay)" }}

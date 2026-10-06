@@ -1369,7 +1369,7 @@ export function Menu({
               maxHeight: floatingPosition?.maxHeight,
               visibility: floatingPosition ? "visible" : "hidden",
             }}
-            className={`yz-menu-in menu-surface z-50 min-w-[210px] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1.5 ${menuClassName}`}
+            className={`yz-menu-in menu-surface z-[120] min-w-[210px] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1.5 shadow-2xl ${menuClassName}`}
           >
             {items.map((item) => (
               <React.Fragment key={item.key}>
@@ -1720,7 +1720,7 @@ export function Modal({
   const node = (
     <div
       data-dialog-root
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      className="fixed inset-0 z-[100] flex items-stretch justify-center overflow-hidden p-0 sm:items-center sm:p-6"
       role="presentation"
     >
       <div
@@ -1736,7 +1736,7 @@ export function Modal({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`pg-scale-in relative my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-edge-strong bg-surface shadow-2xl outline-none sm:max-h-[calc(100dvh-3rem)] ${
+        className={`pg-scale-in relative z-[1] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden border border-edge-strong bg-surface shadow-2xl outline-none sm:my-auto sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl ${
           wide ? "sm:max-w-3xl" : "sm:max-w-[480px]"
         }`}
       >
@@ -1841,7 +1841,7 @@ export function Drawer({
   useDialog(open, onClose, panelRef);
   if (!open || typeof document === "undefined") return null;
   const node = (
-    <div data-dialog-root className="fixed inset-0 z-50 flex justify-end" role="presentation">
+    <div data-dialog-root className="fixed inset-0 z-[100] flex justify-end" role="presentation">
       <div
         className="pg-fade-in fixed inset-0"
         style={{ backgroundColor: "var(--overlay)" }}
