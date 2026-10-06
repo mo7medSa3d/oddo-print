@@ -176,7 +176,21 @@ try {
     throw "FAIL: Manager data directory owner is $ownerSid; expected BUILTIN\Administrators"
   }
   $usersSid = "S-1-5-32-545"
-  $dangerousRights = ([System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Modify -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership)
+  # Use only atomic write-capable bits here. Composite rights such as
+  # Write/Modify include ReadAndExecute/Synchronize bits, so bitwise-testing
+  # them against a read-only ACE produces false positives (for example
+  # "ReadAndExecute, Synchronize"). These atomic bits catch actual mutation
+  # authority without treating Synchronize as write access.
+  $dangerousRights = (
+    [System.Security.AccessControl.FileSystemRights]::WriteData -bor
+    [System.Security.AccessControl.FileSystemRights]::AppendData -bor
+    [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+    [System.Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+    [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+    [System.Security.AccessControl.FileSystemRights]::Delete -bor
+    [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+    [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+  )
   foreach ($rule in $managerAcl.Access) {
     try {
       $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
