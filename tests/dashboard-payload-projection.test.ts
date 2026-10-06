@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { gatewayTestSigningKey } from "./helpers/test-secrets";
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import {
@@ -27,6 +28,18 @@ vi.mock("next/cache", () => ({
 import { getDashboardState, getDashboardJobs } from "../src/app/actions";
 
 const suite = describe.skipIf(!hasTestDatabase);
+
+describe("dashboard diagnostic payload loading contract", () => {
+  it("shows loading only while the details request is actually in flight", () => {
+    const source = readFileSync("src/app/dashboard/dashboard-client.tsx", "utf8");
+    expect(source).toContain('if (payload === undefined) return t("job.noPayload")');
+    expect(source).not.toContain('if (payload === undefined) return t("loading.payload")');
+    expect(source).toContain('selectedJobPayloadLoading');
+    expect(source).toContain('? t("loading.payload")');
+    expect(source).toContain('setSelectedJobPayloadLoading(true)');
+    expect(source).toContain('setSelectedJobPayloadLoading(false)');
+  });
+});
 
 // Audit P1-02 regression: the dashboard 50-row list (page.tsx initial props
 // AND the getDashboardState poll payload) must be metadata-only. Full

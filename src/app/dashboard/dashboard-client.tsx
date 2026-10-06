@@ -178,7 +178,10 @@ type BillingUsage = {
 const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
 
 function stringifyDiagnosticPayload(payload: unknown, t: Translator): string {
-  if (payload === undefined) return t("loading.payload");
+  // Loading is an async UI state, not a payload value. If the list projection
+  // intentionally omits payload or the details response has no diagnostic
+  // payload, render an honest empty state instead of a fake perpetual loader.
+  if (payload === undefined) return t("job.noPayload");
   if (payload === null) return t("job.noPayload");
   try {
     return JSON.stringify(payload, null, 2) || t("job.noPayload");
