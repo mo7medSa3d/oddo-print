@@ -126,3 +126,39 @@ func TestCleanupTerminalPreservesEveryUnknownOutcomeMarker(t *testing.T) {
 		})
 	}
 }
+ 
+func TestCleanupTerminalOlderThanPurgesAcknowledgedHistoryAfter48Hours(t *testing.T) {
+	q := newTestQueue(t)
+
+	for _, id := range []string{"old-success", "old-unknown", "recent-success", "active-old"} {
+		if err := q.Push(id, "printer-1", []byte("payload")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.UpdateStatus("old-success", "success"); err != nil { t.Fatal(err) }
+	if err := q.UpdateStatusWithError("old-unknown", "failed", "UNKNOWN_PARTIAL_DELIVERY: historical evidence"); err != nil { t.Fatal(err) }
+	if err := q.UpdateStatus("recent-success", "success"); err != nil { t.Fatal(err) }
+
+	if _, err := q.db.Exec(`UPDATE print_jobs SET updated_at = datetime('now', '-49 hours') WHERE id IN ('old-success','old-unknown','active-old')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET updated_at = datetime('now', '-47 hours') WHERE id = 'recent-success'`); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := q.CleanupTerminalOlderThan(48)
+	if err != nil { t.Fatal(err) }
+	if deleted != 2 {
+		t.Fatalf("CleanupTerminalOlderThan deleted %d, want 2", deleted)
+	}
+	for _, id := range []string{"old-success", "old-unknown"} {
+		if _, _, found, err := q.Get(id); err != nil || found {
+			t.Fatalf("old terminal job %s was not removed: found=%v err=%v", id, found, err)
+		}
+	}
+	for _, id := range []string{"recent-success", "active-old"} {
+		if _, _, found, err := q.Get(id); err != nil || !found {
+			t.Fatalf("job %s should remain: found=%v err=%v", id, found, err)
+		}
+	}
+}
