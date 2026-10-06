@@ -3,10 +3,15 @@
 export const LEGACY_SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 export function sessionCookieSecure(): boolean {
+  // Production sessions are always transport-secure. Never allow an
+  // environment typo or stale development override to remove the Secure
+  // attribute from authentication cookies in a production deployment.
+  if (process.env.NODE_ENV === "production") return true;
+
   const override = process.env.COOKIE_SECURE;
   if (override === "1" || override === "true") return true;
   if (override === "0" || override === "false") return false;
-  return process.env.NODE_ENV === "production";
+  return false;
 }
 
 let customerSessionFlight: Promise<{ authenticated: boolean; expiresAt: number }> | null = null;
