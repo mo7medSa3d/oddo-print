@@ -33,8 +33,10 @@ describe("windows-service-recovery", () => {
     const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
     const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
 
+    expect(nsis).toContain("taskkill /F /T /IM yaseir-manager.exe");
     expect(nsis).toContain('taskkill /F /T /IM "Yaseir Print Manager.exe"');
     expect(nsis).toContain("taskkill /F /T /IM YaseirAgent.exe");
+    expect(nsis.indexOf("sc stop YaseirAgent")).toBeLessThan(nsis.indexOf("taskkill /F /T /IM YaseirAgent.exe"));
     expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 

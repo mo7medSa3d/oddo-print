@@ -70,10 +70,31 @@
 
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Stopping Yaseir processes and removing all local runtime data..."
+  DetailPrint "Stopping Yaseir services and removing all local runtime data..."
 
-  ; Uninstall is a destructive product removal, so terminate every known
-  ; Yaseir/Yasser desktop or Agent image before deleting SQLite/config/log data.
+  ; Stop SCM-owned processes FIRST. Killing a service process before requesting
+  ; Stop can trigger configured service recovery and race the uninstaller.
+  nsExec::Exec 'net stop YaseirAgent'
+  Pop $R0
+  nsExec::Exec 'sc stop YaseirAgent'
+  Pop $R0
+  nsExec::Exec 'sc stop YasserAgent'
+  Pop $R0
+  nsExec::Exec 'sc stop OdooPrintAgent'
+  Pop $R0
+
+  ; Uninstall is destructive product removal. After SCM stop, terminate any
+  ; remaining desktop/background process so SQLite/config/log/install files
+  ; cannot stay locked. Include the real Cargo/Tauri binary name plus legacy
+  ; branded names from earlier packages.
+  nsExec::Exec 'taskkill /F /T /IM yaseir-manager.exe'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM yasser-manager.exe'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM odoo-print-manager.exe'
+  Pop $R0
+  nsExec::Exec 'taskkill /F /T /IM OdooPrintManager.exe'
+  Pop $R0
   nsExec::Exec 'taskkill /F /T /IM "Yaseir Print Manager.exe"'
   Pop $R0
   nsExec::Exec 'taskkill /F /T /IM "Yasser Print Manager.exe"'
@@ -85,15 +106,7 @@
   nsExec::Exec 'taskkill /F /T /IM OdooPrintAgent.exe'
   Pop $R0
 
-  nsExec::Exec 'net stop YaseirAgent'
-  Pop $R0
-  nsExec::Exec 'sc stop YaseirAgent'
-  Pop $R0
-  nsExec::Exec 'sc stop YasserAgent'
-  Pop $R0
   nsExec::Exec 'sc delete YasserAgent'
-  Pop $R0
-  nsExec::Exec 'sc stop OdooPrintAgent'
   Pop $R0
   nsExec::Exec 'sc delete OdooPrintAgent'
   Pop $R0
