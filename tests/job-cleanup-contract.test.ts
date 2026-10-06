@@ -12,7 +12,9 @@ describe("print-job cleanup contract", () => {
     expect(src).toContain('["success", "failed", "expired"]');
     expect(src).toContain("inArray(printJobs.status");
     expect(src).toContain("PHYSICAL_OUTCOME_UNKNOWN_MARKERS.map");
-    expect(src).toContain("COALESCE(${printJobs.error}, '') NOT LIKE");
+    expect(src).toContain("isNull(printJobs.claimToken)");
+    expect(src).toContain("lt(printJobs.updatedAt, before)");
+    expect(src).toContain("orderBy(printJobs.updatedAt)");
     expect(src).not.toContain(".delete(printJobs)\n    .where(inArray(printJobs.status");
     expect(src).toContain("confirm=1");
     expect(src).toContain("MAX_CLEANUP_ROWS = 5000");

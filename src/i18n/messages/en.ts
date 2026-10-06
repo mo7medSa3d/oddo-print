@@ -1174,7 +1174,7 @@ export const en = {
   "desktop.jobs.cleanupBody1": "Only finished jobs are removed.",
   "desktop.jobs.cleanupBody2a": "Waiting, printing, and",
   "desktop.jobs.cleanupBody2b": "jobs that might have printed are kept. Check the printer first.",
-  "desktop.jobs.cleanupBody3": "Your online history is kept.",
+  "desktop.jobs.cleanupBody3": "Cloud print-job history is also removed automatically after 48 hours.",
   "desktop.jobs.cleanupNone": "No completed or failed local jobs to remove.",
   "desktop.jobs.cleanupRemoved": "Removed {count} finished job.",
   "desktop.jobs.cleanupRemoved.zero": "No finished jobs removed.",

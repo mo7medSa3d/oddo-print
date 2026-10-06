@@ -1180,7 +1180,7 @@ export const ar: Catalog = {
   "desktop.jobs.cleanupBody1": "تُزال المهام المنتهية فقط.",
   "desktop.jobs.cleanupBody2a": "المهام التي تنتظر أو تُطبع،",
   "desktop.jobs.cleanupBody2b": "والمهام التي ربما طُبعت تبقى كما هي. تحقّق من الطابعة أولًا.",
-  "desktop.jobs.cleanupBody3": "سجلّك على الإنترنت يبقى كما هو.",
+  "desktop.jobs.cleanupBody3": "يُحذف سجل مهام الطباعة السحابي تلقائيًا بعد 48 ساعة أيضًا.",
   "desktop.jobs.cleanupNone": "لا توجد مهام محلية مكتملة أو فاشلة لحذفها.",
   "desktop.jobs.cleanupRemoved": "تم حذف {count} مهمة نهائية.",
   "desktop.jobs.cleanupRemoved.zero": "لم يتم حذف أي مهمة نهائية.",
