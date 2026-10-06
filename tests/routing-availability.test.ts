@@ -130,6 +130,23 @@ suite("gateway runtime printer availability + payload capability contract", () =
     }).ok).toBe(true);
   });
 
+  it("does not treat an IPP protocol token as executable on the wrong transport", () => {
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "usb",
+      protocol: "ipp",
+    })).toBe(false);
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "network",
+      protocol: "ipp",
+    })).toBe(true);
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "ipp",
+      connectionType: "usb",
+    }).ok).toBe(false);
+  });
+
   it("treats USB printers backed by the Windows spooler as spooler document transports", () => {
     expect(validatePayloadForPrinter({ type: "pdf" }, {
       protocol: "spooler",
