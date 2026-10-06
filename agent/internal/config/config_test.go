@@ -106,10 +106,10 @@ func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
 
 func TestLegacyWindowsSpoolerTypeNormalizesToSpooler(t *testing.T) {
 	p := PrinterConfig{
-		ID: "legacy-spooler",
-		Name: "Legacy Windows Queue",
-		Type: "windows_spooler",
-		Protocol: "windows_spooler",
+		ID:          "legacy-spooler",
+		Name:        "Legacy Windows Queue",
+		Type:        "windows_spooler",
+		Protocol:    "windows_spooler",
 		SpoolerName: "Legacy Windows Queue",
 	}
 	if got := p.NormalizedType(); got != "spooler" {
