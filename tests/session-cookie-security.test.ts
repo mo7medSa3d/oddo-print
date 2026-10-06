@@ -1,28 +1,22 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionCookieSecure } from "../src/lib/session-config";
 
-const originalNodeEnv = process.env.NODE_ENV;
-const originalCookieSecure = process.env.COOKIE_SECURE;
-
 afterEach(() => {
-  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-  else process.env.NODE_ENV = originalNodeEnv;
-  if (originalCookieSecure === undefined) delete process.env.COOKIE_SECURE;
-  else process.env.COOKIE_SECURE = originalCookieSecure;
+  vi.unstubAllEnvs();
 });
 
 describe("session cookie transport security", () => {
   it("cannot be disabled by COOKIE_SECURE=0 in production", () => {
-    process.env.NODE_ENV = "production";
-    process.env.COOKIE_SECURE = "0";
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("COOKIE_SECURE", "0");
     expect(sessionCookieSecure()).toBe(true);
   });
 
   it("keeps the explicit insecure override available only outside production", () => {
-    process.env.NODE_ENV = "development";
-    process.env.COOKIE_SECURE = "0";
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("COOKIE_SECURE", "0");
     expect(sessionCookieSecure()).toBe(false);
-    process.env.COOKIE_SECURE = "1";
+    vi.stubEnv("COOKIE_SECURE", "1");
     expect(sessionCookieSecure()).toBe(true);
   });
 });
