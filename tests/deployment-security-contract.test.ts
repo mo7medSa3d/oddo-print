@@ -43,18 +43,12 @@ describe("deployment security contracts", () => {
     expect(caddy).toContain("header_up -X-Real-Ip");
   });
 
-  it("keeps MSI and NSIS on the same Agent service lifecycle and preserves legacy config selection", () => {
-    expect(tauriConfig).toContain('"./wix/service.wxs"');
-    expect(wixService).toContain('YaseirStopExistingAgent');
-    expect(wixService).toContain('net.exe stop YaseirAgent /y');
-    expect(wixService).toContain('<Custom Action="YaseirStopExistingAgent" Before="InstallFiles">');
-    expect(wixService).toContain('<Custom Action="YaseirInstallAgentService" After="YaseirDeleteLegacyOdooPrint">');
-    expect(wixService.indexOf('<Custom Action="YaseirStopExistingAgent"')).toBeLessThan(
-      wixService.indexOf('<Custom Action="YaseirInstallAgentService"'),
-    );
-    expect(wixService).toContain('YaseirInstallAgentService');
-    expect(wixService).toContain('resources\\YaseirAgent.exe&quot; -service install');
-    expect(wixService).toContain('YaseirUninstallAgentService');
+  it("keeps the NSIS Agent service lifecycle safe and preserves legacy config selection", () => {
+    // NSIS is the single CI-produced Windows installer. Keep the lifecycle
+    // contract focused on the package we actually ship instead of forcing an
+    // unused MSI build back into the slow Windows workflow.
+    expect(windowsWorkflow).toContain("Build Tauri Windows NSIS installer");
+    expect(windowsWorkflow).not.toContain("Build Tauri Windows installer (MSI + NSIS EXE)");
     expect(nsisHooks).toContain('"$1" -service install');
     expect(nsisHooks).not.toContain('-service install -config');
     expect(nsisHooks).toContain('sc delete YasserAgent');
@@ -62,9 +56,9 @@ describe("deployment security contracts", () => {
     expect(agentMain).toContain('errors.Is(err, service.ErrNotInstalled)');
     expect(agentMain).toContain('errors.Is(statusErr, service.ErrNotInstalled)');
     expect(agentMain).toContain('YaseirAgent service is already uninstalled');
-    expect(windowsWorkflow).toContain('MSI did not install the YaseirAgent Windows service');
-    expect(windowsWorkflow).toContain('MSI service did not preserve the legacy config path');
+    expect(windowsWorkflow).toContain('NSIS did not install the YaseirAgent Windows service');
     expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
+    expect(windowsWorkflow).toContain('NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed.');
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {
