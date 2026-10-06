@@ -219,15 +219,21 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 
 func (p *USBPrinter) testPayload() []byte {
 	name := sanitizeTestText(p.Name)
-	if p.SupportsESCPOS {
-		// ESC/POS control bytes are sent only when the configured capability
+	switch strings.ToLower(strings.TrimSpace(p.Protocol)) {
+	case "escpos":
+		// ESC/POS control bytes are sent only when the configured protocol
 		// explicitly declares ESC/POS. Do not cut by default: cutter support is
 		// a separate capability and cannot be inferred from USB/thermal class.
 		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
+	case "zpl":
+		return []byte("^XA\n^FO40,40^A0N,30,30^FDYASEIR USB TEST^FS\n^FO40,80^A0N,24,24^FDPrinter: " + name + "^FS\n^XZ\n")
+	case "tspl":
+		return []byte("SIZE 75 mm, 40 mm\nGAP 2 mm, 0 mm\nCLS\nTEXT 30,30,\"3\",0,1,1,\"YASEIR USB TEST\"\nTEXT 30,70,\"2\",0,1,1,\"Printer: " + name + "\"\nPRINT 1,1\n")
+	default:
+		// Generic raw USB diagnostics use printable ASCII only. A raw byte
+		// stream is not evidence that the device understands ESC/POS commands.
+		return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
 	}
-	// Generic raw USB diagnostics use printable ASCII only. A raw byte stream
-	// is not evidence that the device understands ESC/POS commands.
-	return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
 }
 
 func (p *USBPrinter) Test(ctx context.Context) error {
@@ -783,7 +789,10 @@ func parseVIDPIDSerial(instanceID string) (vid uint16, pid uint16, serial string
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
 	case KindRaw:
-		return strings.EqualFold(p.Protocol, "raw") || strings.EqualFold(p.Protocol, "escpos")
+		return strings.EqualFold(p.Protocol, "raw") ||
+			strings.EqualFold(p.Protocol, "escpos") ||
+			strings.EqualFold(p.Protocol, "zpl") ||
+			strings.EqualFold(p.Protocol, "tspl")
 	case KindESCPOS:
 		return p.SupportsESCPOS
 	default:
