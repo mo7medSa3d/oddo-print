@@ -42,14 +42,14 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      - name: Cache vulnerability scanners
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore vulnerability scanner cache
+        id: security-tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/bin/govulncheck
             ~/.cargo/bin/cargo-audit
           key: ${{ runner.os }}-security-tools-govulncheck-1.8.0-cargo-audit-0.22.2
-          save-always: true
 
       - name: npm dependency audit
         shell: bash
@@ -106,6 +106,14 @@ jobs:
             cargo install cargo-audit --version 0.22.2 --locked
           fi
           cargo audit --target-os windows --target-arch x86_64
+      - name: Save vulnerability scanner cache
+        if: steps.security-tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/bin/govulncheck
+            ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-security-tools-govulncheck-1.8.0-cargo-audit-0.22.2
 
       - name: Verify container image references are immutable
         shell: bash
