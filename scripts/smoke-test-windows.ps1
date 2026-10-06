@@ -5,8 +5,10 @@
 
 .DESCRIPTION
   Verifies that the installed desktop app and bundled agent/CLI binaries exist,
-  the desktop process starts and stays alive, the Go agent creates its writable
-  runtime directory and SQLite queue, and the process can be stopped cleanly.
+  the desktop process starts and stays alive, duplicate desktop/Agent launches
+  are fenced by the machine-wide single-instance guards, standalone Agent
+  initialization works when no Windows service owns the runtime, and processes
+  can be stopped cleanly.
 
   This script is intended for the Windows build/installation host or a Windows
   VM. It must run from an elevated or at least unrestricted shell when the
@@ -18,7 +20,7 @@
 #>
 param(
   [string]$InstallDir = "",
-  [int]$WaitSeconds = 8,
+  [int]$WaitSeconds = 5,
   [switch]$KeepRunning
 )
 
@@ -139,10 +141,33 @@ try {
 
 # 2. Desktop application process ----------------------------------------------
 $desktop = $null
+$secondDesktop = $null
 try {
   $desktop = Start-Process -FilePath $appExe -PassThru
   Assert-NotExited $desktop "Yaseir Print Manager desktop process"
+
+  # Regression guard: repeated clicks must focus/exit the duplicate launcher,
+  # never create another long-lived desktop that can race Agent control.
+  $secondDesktop = Start-Process -FilePath $appExe -PassThru
+  Start-Sleep -Seconds 2
+  if (-not $secondDesktop.HasExited) {
+    Stop-Process -Id $secondDesktop.Id -Force -ErrorAction SilentlyContinue
+    Write-Error "FAIL: a second desktop instance stayed alive (pid $($secondDesktop.Id))"
+    throw "Smoke assertion failed"
+  }
+  if ($secondDesktop.ExitCode -ne 0) {
+    Write-Error "FAIL: duplicate desktop instance exited with code $($secondDesktop.ExitCode)"
+    throw "Smoke assertion failed"
+  }
+  if ($desktop.HasExited) {
+    Write-Error "FAIL: launching a duplicate desktop terminated the original instance"
+    throw "Smoke assertion failed"
+  }
+  Write-Host "PASS: duplicate desktop launch exited cleanly; the original instance remains the single owner."
 } finally {
+  if (-not $KeepRunning -and $secondDesktop -and -not $secondDesktop.HasExited) {
+    Stop-Process -Id $secondDesktop.Id -Force -ErrorAction SilentlyContinue
+  }
   if (-not $KeepRunning -and $desktop -and -not $desktop.HasExited) {
     Stop-Process -Id $desktop.Id -Force -ErrorAction SilentlyContinue
     Write-Host "PASS: desktop process stopped cleanly (forced process termination)."
@@ -164,23 +189,44 @@ if ($cliText -notmatch "-pair" -or $cliText -notmatch "-server" -or $cliText -no
 }
 Write-Host "PASS: CLI help lists -pair, -server, -config"
 
-# 4. Go agent first-run directory/database creation ---------------------------
+# 4. Agent runtime ownership / first-run initialization -----------------------
 $agent = $null
 try {
   $configPath = Join-Path $agentDataDir "config.yaml"
-  $agent = Start-Process -FilePath $agentExe -ArgumentList @("-config", $configPath) -PassThru
-  # The agent intentionally stays alive while unpaired/configured. Verify the
-  # runtime directory, default config, logs dir, and SQLite database appear.
-  Start-Sleep -Seconds 4
-  if ($agent.HasExited) {
-    Write-Error "FAIL: agent exited early (code $($agent.ExitCode)); inspect $agentDataDir"
-    throw "Smoke assertion failed"
+  $installedService = Get-Service -Name YaseirAgent -ErrorAction SilentlyContinue
+
+  if ($installedService -and $installedService.Status -eq "Running") {
+    # Installed-package smoke runs while the real Windows service owns the
+    # machine-wide Agent singleton. A second manual launch MUST exit cleanly;
+    # expecting it to stay alive would incorrectly treat duplicate prevention
+    # as a crash and would recreate the exact multi-Agent bug this test guards.
+    $agent = Start-Process -FilePath $agentExe -ArgumentList @("-config", $configPath) -PassThru
+    Start-Sleep -Seconds 2
+    if (-not $agent.HasExited) {
+      Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
+      Write-Error "FAIL: a second Agent runtime stayed alive while the YaseirAgent service was running"
+      throw "Smoke assertion failed"
+    }
+    if ($agent.ExitCode -ne 0) {
+      Write-Error "FAIL: duplicate Agent runtime exited with code $($agent.ExitCode)"
+      throw "Smoke assertion failed"
+    }
+    Write-Host "PASS: running Windows service fenced the duplicate Agent runtime cleanly."
+  } else {
+    # Standalone smoke (no installed service): the Agent intentionally stays
+    # alive while unpaired/configured. Verify its writable runtime is created.
+    $agent = Start-Process -FilePath $agentExe -ArgumentList @("-config", $configPath) -PassThru
+    Start-Sleep -Seconds 4
+    if ($agent.HasExited) {
+      Write-Error "FAIL: standalone agent exited early (code $($agent.ExitCode)); inspect $agentDataDir"
+      throw "Smoke assertion failed"
+    }
+    Assert-Path $agentDataDir "Agent writable data directory"
+    Assert-Path $configPath "Agent default config file"
+    Assert-Path (Join-Path $agentDataDir "logs\agent.log") "Agent log file"
+    Assert-Path (Join-Path $agentDataDir "queue.db") "Agent SQLite database"
+    Write-Host "PASS: standalone Agent first-run initialization completed without manual directory creation."
   }
-  Assert-Path $agentDataDir "Agent writable data directory"
-  Assert-Path $configPath "Agent default config file"
-  Assert-Path (Join-Path $agentDataDir "logs\agent.log") "Agent log file"
-  Assert-Path (Join-Path $agentDataDir "queue.db") "Agent SQLite database"
-  Write-Host "PASS: agent first-run initialization completed without manual directory creation."
 } finally {
   if (-not $KeepRunning -and $agent -and -not $agent.HasExited) {
     Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
@@ -191,7 +237,7 @@ try {
 if ($KeepRunning) {
   Write-Host "PASS: isolated smoke processes kept running: desktop PID=$($desktop.Id), Agent PID=$($agent.Id); data=$smokeRoot"
 } else {
-  Write-Host "PASS: UI startup and direct Agent initialization checks completed. Windows service control and physical printing were not exercised."
+  Write-Host "PASS: UI startup and Agent single-instance/initialization checks completed. Physical printing was not exercised."
 }
 } finally {
   $env:YASEIR_AGENT_DATA_DIR = $oldAgentData
