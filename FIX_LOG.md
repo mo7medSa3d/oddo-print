@@ -1,4 +1,4 @@
-RESUME HERE: PHASE 3 / final production audit | completed API authz sweep and fixed connection-alias/manual-registry/Windows harness defects | continue sensitive contract/installer/Odoo negative audit; then require final-head workflows green | blockers: none
+RESUME HERE: PHASE 3 / final production audit | fixed Agent/Gateway connection aliases, manual registry validation, USB protocol parity and diagnostic injection | run final contradiction sweep and require latest-head workflows green | blockers: none
 
 # FIX LOG
 
@@ -19,6 +19,11 @@ RESUME HERE: PHASE 3 / final production audit | completed API authz sweep and fi
 - Added PostgreSQL-backed heartbeat regression coverage for both aliases.
 - Hardened `RegisterManual()` so CLI/manual printers cannot be persisted with a transport/protocol contract the Agent runtime validator rejects; added Go regressions for aliases, invalid combinations, and USB-spooler normalization.
 - Repaired the Windows Rust logger test harness after the ACL API expansion; production ACL behavior remains unchanged.
+
+
+- Cross-layer payload/runtime parity review found direct USB ZPL/TSPL was admitted by Agent config + Gateway capability logic but rejected by the Agent USB factory. Factory and both USB build-target capability surfaces now support validated ZPL/TSPL byte streams.
+- Local Windows USB diagnostic ticket generation is now protocol-aware for ESC/POS, ZPL, TSPL and generic RAW.
+- Added printer-language injection hardening for user/operator-controlled printer names embedded in local ZPL/TSPL diagnostic tickets.
 
 ## Next exact task
 
