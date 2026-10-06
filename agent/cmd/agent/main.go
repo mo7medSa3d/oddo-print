@@ -218,7 +218,18 @@ func setupLogging(configPath string) (*lumberjack.Logger, error) {
 		}
 		logDir = exeDir
 	}
-	logDir = filepath.Join(logDir, "logs")
+	runtimeRoot := logDir
+	// Establish the runtime trust root before creating any child path. If an
+	// existing ProgramData root is a junction/reparse point, creating
+	// <root>/logs first would already follow it before the child ACL check.
+	if err := os.MkdirAll(runtimeRoot, 0700); err != nil {
+		return nil, fmt.Errorf("create runtime directory %s: %w", runtimeRoot, err)
+	}
+	if err := config.EnsureSecureDirectoryACL(runtimeRoot); err != nil {
+		return nil, fmt.Errorf("secure runtime directory %s: %w", runtimeRoot, err)
+	}
+
+	logDir = filepath.Join(runtimeRoot, "logs")
 	// 0700: agent logs describe locally attached hardware and job metadata.
 	if err := os.MkdirAll(logDir, 0700); err != nil {
 		return nil, fmt.Errorf("create log directory %s: %w", logDir, err)
