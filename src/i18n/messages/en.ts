@@ -598,6 +598,7 @@ export const en = {
   "errors.copyManually": "Please copy the code manually.",
   "errors.loadJobsFailed": "Could not load jobs. Please retry.",
   "billing.resetsOn": "Resets",
+  "billing.resetsOnDate": "Resets {date}",
   "job.refreshing": "Refreshing job list…",
   "agent.expiresIn": "Expires in",
   "agent.openManagerStep": "Open the Yaseir Print Manager on the Windows host that owns the printer.",
