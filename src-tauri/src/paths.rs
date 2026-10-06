@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+#[cfg(windows)]
+use std::process::Command;
+
 static MANAGER_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static AGENT_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -28,6 +31,9 @@ pub fn ensure_manager_data_root() -> std::io::Result<PathBuf> {
     let primary = manager_data_root_candidate();
     if let Err(e) = ensure_dir(&primary) {
         return Err(admin_required_error("manager data dir", &primary, &e));
+    }
+    if let Err(e) = ensure_manager_directory_security(&primary) {
+        return Err(admin_required_error("secure manager data dir", &primary, &e));
     }
     let _ = MANAGER_DATA_ROOT.set(primary.clone());
     Ok(primary)
@@ -195,6 +201,119 @@ pub fn manager_log_path() -> PathBuf {
 
 pub fn ensure_dir(path: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(path)
+}
+
+#[cfg(windows)]
+fn windows_system32_exe(name: &str) -> PathBuf {
+    let root = std::env::var_os("WINDIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    root.join("System32").join(name)
+}
+
+#[cfg(windows)]
+fn reject_windows_reparse_point(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "refusing manager runtime path through a Windows reparse point: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn run_icacls(path: &Path, args: &[&str]) -> std::io::Result<()> {
+    let output = Command::new(windows_system32_exe("icacls.exe"))
+        .arg(path)
+        .args(args)
+        .output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        if detail.is_empty() {
+            format!("icacls failed for {}", path.display())
+        } else {
+            format!("icacls failed for {}: {detail}", path.display())
+        },
+    ))
+}
+
+#[cfg(windows)]
+fn ensure_windows_manager_acl(path: &Path, is_directory: bool) -> std::io::Result<()> {
+    reject_windows_reparse_point(path)?;
+
+    // A pre-created ProgramData directory can otherwise retain an untrusted
+    // owner who may rewrite its DACL later. Move ownership to Administrators
+    // before replacing inherited permissions. SIDs avoid localized account
+    // names on non-English Windows installations.
+    run_icacls(path, &["/setowner", "*S-1-5-32-544"])?;
+
+    if is_directory {
+        run_icacls(
+            path,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:(OI)(CI)F",
+                "/grant:r",
+                "*S-1-5-32-544:(OI)(CI)F",
+                "/grant:r",
+                "*S-1-5-32-545:(OI)(CI)RX",
+            ],
+        )
+    } else {
+        run_icacls(
+            path,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:F",
+                "/grant:r",
+                "*S-1-5-32-544:F",
+                "/grant:r",
+                "*S-1-5-32-545:R",
+            ],
+        )
+    }
+}
+
+/// Harden a Manager-owned directory. On Windows, SYSTEM and Administrators
+/// retain full control while standard Users are read/execute only.
+pub fn ensure_manager_directory_security(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        return ensure_windows_manager_acl(path, true);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// Harden an existing Manager-owned file before trusting its contents.
+pub fn ensure_manager_file_security(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        return ensure_windows_manager_acl(path, false);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(())
+    }
 }
 
 /// Fail-closed directory error: directory creation is where a missing
