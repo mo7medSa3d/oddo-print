@@ -8,7 +8,7 @@ import {
   pool,
   type Fixture,
 } from "./helpers/pg";
-import { validatePayloadForPrinter } from "../src/lib/routing";
+import { isPrinterStatusExecutable, validatePayloadForPrinter } from "../src/lib/routing";
 import { db } from "../src/db";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
@@ -110,6 +110,24 @@ suite("gateway runtime printer availability + payload capability contract", () =
       connectionType: "spooler",
       capabilities: { supported_protocols: ["raw", "escpos", "pdf"] },
     })).toEqual({ ok: true });
+  });
+
+  it("keeps Windows spooler aliases executable when health is unknown but transport is declared", () => {
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "network",
+      protocol: "windows_spooler",
+    })).toBe(true);
+
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "windows_spooler",
+      connectionType: "network",
+    }).ok).toBe(true);
+
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "ipps",
+      connectionType: "network",
+    }).ok).toBe(true);
   });
 
   it("treats USB printers backed by the Windows spooler as spooler document transports", () => {
