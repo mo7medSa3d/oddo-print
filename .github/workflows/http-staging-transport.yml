@@ -36,6 +36,9 @@ jobs:
         working-directory: agent
         run: go test -mod=readonly ./internal/config -count=1
 
+      - name: Verify automatic domain binding in PostgreSQL
+        run: bash tests/domain-staging-binding.integration.sh
+
       - name: Validate HTTPS domain staging contract
         run: |
           set -euo pipefail

@@ -70,4 +70,6 @@ Do not expose Gateway port 3000. Caddy is the only public application entry poin
 
 Do not run `deploy/http-test` and `deploy/domain-test` simultaneously because they intentionally share the same PostgreSQL volume.
 
-Manager login uses the same tenant binding as main: verify `print.yaseir.cloud` for the intended workspace, or set `MANAGER_TENANT_ID` to that existing workspace ID in `.env.domain-test`. The old username-based tenant inference is removed. Database-backed user passwords continue to work; legacy environment credentials require a real `MANAGER_PASSWORD_HASH` in main's format.
+The setup script migrates the database and registers `print.yaseir.cloud` for the existing staging workspace automatically before starting the Gateway. Reruns preserve the domain's existing owner, database, accounts, and secrets. No manual domain verification or `MANAGER_TENANT_ID` is needed when the domain is already registered or there is one active non-platform workspace. If several workspaces exist and the domain has no owner yet, set `MANAGER_TENANT_ID` once so setup cannot attach it to the wrong workspace. On an empty database, rerun setup after creating the first workspace.
+
+Authentication and HTTPS enforcement remain identical to main; fake Stripe provisioning and email capture are unchanged.

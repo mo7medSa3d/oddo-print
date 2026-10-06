@@ -108,6 +108,16 @@ upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
 ensure_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
 chmod 600 "$ENV_FILE"
 
+# Prepare the schema and persist the domain binding before starting the Gateway.
+# This never resets accounts, changes workspace ownership, or deletes volumes.
+docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" run --rm --build migrate
+MANAGER_TENANT_ID="$(get_env_value MANAGER_TENANT_ID "$ENV_FILE" || true)"
+PLATFORM_TENANT_ID="$(get_env_value PLATFORM_TENANT_ID "$ENV_FILE")"
+docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" exec -T postgres \
+  sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 "$@"' sh \
+  -v "domain=$DOMAIN" -v "manager_tenant_id=$MANAGER_TENANT_ID" \
+  -v "platform_tenant_id=$PLATFORM_TENANT_ID" < "$DEPLOY_DIR/configure-domain.sql"
+
 docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" up -d --build
 
 echo "Validating Caddy configuration..."

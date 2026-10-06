@@ -3542,3 +3542,8 @@ msgstr "فشل طلب الـ Gateway إلى %(url)s: %(error)s"
 #: code:addons/print_gateway/models/gateway_config.py:0
 msgid "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port and the network path between Odoo and the Gateway."
 msgstr "لم يستجب الـ Gateway على %(url)s خلال 10 ثوانٍ. تحقّق من المضيف/المنفذ ومسار الشبكة بين Odoo والـ Gateway."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Gateway URL must use HTTPS."
+msgstr "يجب أن يستخدم عنوان بوابة الطباعة بروتوكول HTTPS."

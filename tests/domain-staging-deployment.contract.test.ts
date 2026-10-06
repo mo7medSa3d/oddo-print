@@ -50,4 +50,18 @@ describe("domain staging deployment contracts", () => {
     expect(compose).toContain('COOKIE_SECURE: "1"');
     expect(compose).toContain('TRUST_PROXY: "1"');
   });
+  it("configures the workspace domain after migrations and before Gateway startup", () => {
+    const setup = read("deploy/domain-test/setup-domain-test.sh");
+    const sql = read("deploy/domain-test/configure-domain.sql");
+    expect(setup.indexOf("run --rm --build migrate")).toBeLessThan(setup.indexOf(' < "$DEPLOY_DIR/configure-domain.sql"'));
+    expect(setup.indexOf(' < "$DEPLOY_DIR/configure-domain.sql"')).toBeLessThan(setup.indexOf("up -d --build"));
+    expect(setup).toContain("ON_ERROR_STOP=1");
+    expect(sql).toContain("pg_advisory_xact_lock");
+    expect(sql).toContain("ON CONFLICT (domain) DO UPDATE");
+    expect(sql).toContain("refusing to reassign it");
+    expect(sql).toContain("candidate_count > 1");
+    expect(sql).toContain("lifecycle = 'active'");
+    expect(sql).not.toMatch(/DELETE FROM|DROP TABLE|UPDATE users|UPDATE tenants/);
+    expect(setup).not.toContain("curl -k");
+  });
 });
