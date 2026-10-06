@@ -518,6 +518,35 @@ func TestIsValidSpoolerPrinter(t *testing.T) {
 	}
 }
 
+func TestRuntimeDiscoveryKeepsAutomaticDirectUSBAsCandidateUntilProtocolIsExplicit(t *testing.T) {
+	auto := DeviceInfo{
+		ID:             "printer_usb_candidate",
+		Name:           "USB Printer",
+		ConnectionType: "usb",
+		Protocol:       "unknown",
+		Endpoint:       `\\?\usb#vid_1234&pid_5678#AUTO`,
+		USBVID:         "1234",
+		USBPID:         "5678",
+		Capabilities: map[string]interface{}{
+			"discovered_via":       SourceUSB,
+			"direct_usb_available": true,
+			"verification":         "candidate_only",
+		},
+	}
+	if IsRuntimeDiscoveryPrinter(auto) {
+		t.Fatal("automatic direct USB discovery must remain a candidate until its printer language is explicitly declared")
+	}
+
+	manual := auto
+	manual.Protocol = "zpl"
+	manual.Capabilities = map[string]interface{}{
+		"registration_source": "manual",
+	}
+	if !IsRuntimeDiscoveryPrinter(manual) {
+		t.Fatal("explicitly configured direct USB protocol must remain runtime-capable")
+	}
+}
+
 func TestIsValidDiscoveredPrinterFiltersGeneric(t *testing.T) {
 	cases := []struct {
 		name  string
