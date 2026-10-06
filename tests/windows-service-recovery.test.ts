@@ -30,7 +30,6 @@ describe("windows-service-recovery", () => {
 
   it("Windows uninstall removes service, product processes, and runtime data", () => {
     const nsis = fs.readFileSync("src-tauri/installer_hooks.nsh", "utf8");
-    const wix = fs.readFileSync("src-tauri/wix/service.wxs", "utf8");
     const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
     const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
 
@@ -39,16 +38,12 @@ describe("windows-service-recovery", () => {
     expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 
-    const tauriConf = fs.readFileSync("src-tauri/tauri.conf.json", "utf8");
-    expect(wix).toContain('ComponentGroup Id="YaseirServiceLifecycle"');
-    expect(wix).toContain('Component Id="YaseirServiceLifecycleAnchor"');
-    expect(tauriConf).toContain('"componentGroupRefs"');
-    expect(tauriConf).toContain('"YaseirServiceLifecycle"');
-
-    expect(wix).toContain('Id="YaseirKillManagerProcesses"');
-    expect(wix).toContain('Id="YaseirKillAgentProcesses"');
-    expect(wix).toContain("-service purge");
-    expect(wix).toContain('Before="RemoveFiles"');
+    const tauriConf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    expect(tauriConf.bundle.targets).toEqual(["nsis"]);
+    expect(tauriConf.bundle.windows.wix).toBeUndefined();
+    expect(nsis).toContain("NSIS_HOOK_PREUNINSTALL");
+    expect(nsis).toContain('sc delete YasserAgent');
+    expect(nsis).toContain('sc delete OdooPrintAgent');
 
     expect(agentMain).toContain('case "uninstall":');
     expect(agentMain).toContain('case "purge":');
