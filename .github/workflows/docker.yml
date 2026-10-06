@@ -28,7 +28,7 @@ env:
 jobs:
   docker-build-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +37,7 @@ jobs:
         run: docker compose config
 
       - name: Build Compose images
-        run: docker compose build --pull
+        run: docker compose build
 
       - name: Start stack
         shell: bash
@@ -219,12 +219,6 @@ jobs:
 
           echo "CADDY_HTTP_RESPONSE:"
           curl --silent --show-error --head --max-time 10             -H 'Host: print.example.com'             http://127.0.0.1/api/live
-
-      - name: Show service readiness logs
-        shell: bash
-        run: |
-          docker compose logs --no-color postgres migrate gateway caddy
-
 
       - name: Show logs on failure
         if: failure()
