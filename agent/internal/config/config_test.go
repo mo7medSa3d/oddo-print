@@ -104,6 +104,25 @@ func TestValidatePrinterConfigAllowsCompatibleTransportProtocols(t *testing.T) {
 	}
 }
 
+func TestLegacyWindowsSpoolerTypeNormalizesToSpooler(t *testing.T) {
+	p := PrinterConfig{
+		ID: "legacy-spooler",
+		Name: "Legacy Windows Queue",
+		Type: "windows_spooler",
+		Protocol: "windows_spooler",
+		SpoolerName: "Legacy Windows Queue",
+	}
+	if got := p.NormalizedType(); got != "spooler" {
+		t.Fatalf("legacy windows_spooler type normalized to %q, want spooler", got)
+	}
+	if got, err := p.NormalizedProtocol(); err != nil || got != "spooler" {
+		t.Fatalf("legacy windows_spooler protocol normalized to %q err=%v", got, err)
+	}
+	if err := ValidatePrinterConfig(p); err != nil {
+		t.Fatalf("legacy windows_spooler config should remain valid after upgrade: %v", err)
+	}
+}
+
 func TestUSBSpoolerConfigUsesSpoolerTransport(t *testing.T) {
 	p := PrinterConfig{ID: "usb-spooler", Name: "HP", Type: "usb", SpoolerName: "HP LaserJet"}
 	if got := p.NormalizedType(); got != "spooler" {
