@@ -27,7 +27,23 @@ pub fn init() -> Option<PathBuf> {
         );
         return None;
     }
+    if let Err(e) = paths::ensure_manager_directory_security(&dir) {
+        eprintln!(
+            "[yaseir-manager] refusing insecure log dir {}: {e}",
+            dir.display()
+        );
+        return None;
+    }
     let path = dir.join("yaseir-manager.log");
+    if path.exists() {
+        if let Err(e) = paths::ensure_manager_file_security(&path) {
+            eprintln!(
+                "[yaseir-manager] refusing insecure log file {}: {e}",
+                path.display()
+            );
+            return None;
+        }
+    }
     rotate_if_full(&path);
     let file = match OpenOptions::new().create(true).append(true).open(&path) {
         Ok(f) => f,
@@ -39,6 +55,13 @@ pub fn init() -> Option<PathBuf> {
             return None;
         }
     };
+    if let Err(e) = paths::ensure_manager_file_security(&path) {
+        eprintln!(
+            "[yaseir-manager] refusing insecure log file {}: {e}",
+            path.display()
+        );
+        return None;
+    }
     let _ = LOG_FILE.set(Mutex::new(LogWriter { file: Some(file), path: path.clone() }));
     info("application logger initialized");
     Some(path)
