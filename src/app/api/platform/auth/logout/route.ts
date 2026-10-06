@@ -14,9 +14,20 @@ import {
 } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const claims = await validatePlatformOwner(req);
-  const refreshToken = getRefreshTokenFromRequest(req, "platform");
+  let claims: Awaited<ReturnType<typeof validatePlatformOwner>> = null;
   let revokeFailed = false;
+  try {
+    claims = await validatePlatformOwner(req);
+  } catch (error) {
+    // Always reach cookie clearing even when the durable session store is
+    // unavailable; otherwise the browser keeps credentials that become live
+    // again as soon as the database recovers.
+    revokeFailed = true;
+    logError("platform_logout_validation_failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+  const refreshToken = getRefreshTokenFromRequest(req, "platform");
 
   try {
     if (claims?.familyId) {
