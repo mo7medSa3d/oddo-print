@@ -188,17 +188,21 @@ func (p *NetworkPrinter) PrintDocument(ctx context.Context, doc Document) error 
 	}
 }
 
+func localESCPOSDiagnosticPayload() []byte {
+	// Cutter support is a separate capability and cannot be inferred from
+	// ESC/POS itself. Keep the local diagnostic to initialization + printable
+	// text/feeds; Gateway jobs may add a cut only when the payload explicitly
+	// requests a supported peripheral action.
+	return []byte("\x1b\x40Hello from Yaseir Agent!\n\n\n")
+}
+
 func (p *NetworkPrinter) Test(ctx context.Context) error {
 	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
 		return CapabilityMismatchf("local test pages are only supported for ESC/POS TCP devices (device protocol %q); send a protocol-matched test page from the Gateway console", p.Protocol)
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
 	defer cancel()
-	// Cutter support is a separate capability and cannot be inferred from
-	// ESC/POS itself. Keep the local diagnostic to initialization + printable
-	// text/feeds; Gateway jobs may add a cut only when the payload explicitly
-	// requests a supported peripheral action.
-	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yaseir Agent!\n\n\n"), false, testPrintDialTimeout)
+	return p.printBytes(testCtx, localESCPOSDiagnosticPayload(), false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:
