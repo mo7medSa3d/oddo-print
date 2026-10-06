@@ -1,6 +1,9 @@
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
+import { printJobs, printJobReceipts } from "../db/schema";
 import { incrementMetric } from "./metrics";
+import { idempotencyDigest } from "./print-job-service";
+import { PRINT_JOB_RETENTION_HOURS } from "../shared/job-retention";
 import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 // Claim-lease staleness historically hardcoded at 90s. It now follows the same
@@ -12,6 +15,75 @@ export const STALE_PRINTING_SECONDS = 10 * 60;
 export const MAX_RETRIES = 5;
 export const MAX_DELIVERY_ATTEMPTS = 5;
 export const DELIVERY_EVIDENCE_PENDING = "DELIVERY_EVIDENCE_PENDING";
+
+const DEFAULT_RETENTION_BATCH = 500;
+
+/**
+ * Remove bulky terminal Gateway jobs after the shared 48-hour retention
+ * window. A payload-free receipt is kept so idempotency and duplicate-print
+ * protection survive without retaining document bytes forever.
+ *
+ * claim_token MUST already be cleared: ambiguous outcomes retain their fence
+ * for the 24-hour late-reconciliation window, so 48-hour retention cannot
+ * erase an attempt that is still reconcilable.
+ */
+export async function cleanupTerminalPrintJobs(scope: { agentId?: string } = {}): Promise<number> {
+  const parsedLimit = Number(process.env.JOB_RETENTION_SWEEP_LIMIT);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(Math.floor(parsedLimit), 5000)
+    : DEFAULT_RETENTION_BATCH;
+  const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('print_jobs:retention:v1'))`);
+    const candidates = await tx.execute(sql`
+      SELECT id
+      FROM print_jobs
+      WHERE status IN ('success','failed','expired')
+        AND claim_token IS NULL
+        AND updated_at <= now() - make_interval(hours => ${PRINT_JOB_RETENTION_HOURS})
+        ${agentFilter}
+      ORDER BY updated_at ASC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    `);
+    const ids = candidates.rows.map((row) => String((row as { id: unknown }).id));
+    if (ids.length === 0) return 0;
+
+    const rows = await tx.select().from(printJobs).where(inArray(printJobs.id, ids));
+    if (rows.length === 0) return 0;
+
+    await tx.insert(printJobReceipts).values(rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      idempotencyKey: row.idempotencyKey,
+      fingerprint: idempotencyDigest({
+        printerId: row.printerId,
+        documentType: row.documentType,
+        destination: row.destination,
+        payload: row.payload,
+      }),
+      printerId: row.printerId,
+      agentId: row.agentId,
+      apiKeyId: row.apiKeyId,
+      destination: row.destination,
+      documentType: row.documentType,
+      requestedBy: row.requestedBy,
+      status: row.status,
+      error: row.error,
+      closedClaimTokenHash: row.closedClaimTokenHash,
+      deliveredAt: row.deliveredAt,
+      ackedAt: row.ackedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }))).onConflictDoNothing();
+
+    const deleted = await tx.delete(printJobs).where(inArray(printJobs.id, ids));
+    const count = deleted.rowCount ?? 0;
+    if (count > 0) incrementMetric("print_jobs_retention_deleted_total", count);
+    return count;
+  });
+}
 
 export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<{ expired: number; requeuedClaims: number; silentDeliveries: number; stalePrinting: number; exhaustedClaims: number; exhaustedQueued: number }> {
   const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
