@@ -226,9 +226,11 @@ func (p *USBPrinter) testPayload() []byte {
 		// a separate capability and cannot be inferred from USB/thermal class.
 		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
 	case "zpl":
-		return []byte("^XA\n^FO40,40^A0N,30,30^FDYASEIR USB TEST^FS\n^FO40,80^A0N,24,24^FDPrinter: " + name + "^FS\n^XZ\n")
+		zplName := sanitizeZPLTestText(name)
+		return []byte("^XA\n^FO40,40^A0N,30,30^FDYASEIR USB TEST^FS\n^FO40,80^A0N,24,24^FDPrinter: " + zplName + "^FS\n^XZ\n")
 	case "tspl":
-		return []byte("SIZE 75 mm, 40 mm\nGAP 2 mm, 0 mm\nCLS\nTEXT 30,30,\"3\",0,1,1,\"YASEIR USB TEST\"\nTEXT 30,70,\"2\",0,1,1,\"Printer: " + name + "\"\nPRINT 1,1\n")
+		tsplName := sanitizeTSPLTestText(name)
+		return []byte("SIZE 75 mm, 40 mm\nGAP 2 mm, 0 mm\nCLS\nTEXT 30,30,\"3\",0,1,1,\"YASEIR USB TEST\"\nTEXT 30,70,\"2\",0,1,1,\"Printer: " + tsplName + "\"\nPRINT 1,1\n")
 	default:
 		// Generic raw USB diagnostics use printable ASCII only. A raw byte
 		// stream is not evidence that the device understands ESC/POS commands.
