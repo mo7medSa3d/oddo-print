@@ -1,4 +1,4 @@
-RESUME HERE: PHASE 3 / final production audit | fixed Agent/Gateway connection aliases, manual registry validation, USB protocol parity and diagnostic injection | run final contradiction sweep and require latest-head workflows green | blockers: none
+RESUME HERE: PHASE 3 / final production audit | fixed Windows installer ACL smoke false-positive and added regression | wait for final-head CI/Docker/Windows/Security/Static Security, inspect any failure immediately | blockers: none
 
 # FIX LOG
 
@@ -24,6 +24,9 @@ RESUME HERE: PHASE 3 / final production audit | fixed Agent/Gateway connection a
 - Cross-layer payload/runtime parity review found direct USB ZPL/TSPL was admitted by Agent config + Gateway capability logic but rejected by the Agent USB factory. Factory and both USB build-target capability surfaces now support validated ZPL/TSPL byte streams.
 - Local Windows USB diagnostic ticket generation is now protocol-aware for ESC/POS, ZPL, TSPL and generic RAW.
 - Added printer-language injection hardening for user/operator-controlled printer names embedded in local ZPL/TSPL diagnostic tickets.
+
+
+- Fixed the failing Windows installer workflow: its smoke test used composite FileSystemRights.Write/Modify values, which overlap ReadAndExecute/Synchronize and falsely classified the intended read-only BUILTIN\Users ACE as writable. The gate now checks only atomic mutation rights, and a Vitest contract prevents regression.
 
 ## Next exact task
 
