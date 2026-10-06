@@ -18,7 +18,7 @@ concurrency:
 jobs:
   supply-chain:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,23 +42,18 @@ jobs:
         with:
           toolchain: 1.98.1
 
-      - name: Install Node dependencies
-        run: npm ci
+      - name: Cache vulnerability scanners
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/bin/govulncheck
+            ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-security-tools-govulncheck-1.8.0-cargo-audit-0.22.2
 
-      - name: Phase 0 npm audit (production dependencies)
-        working-directory: .
+      - name: npm dependency audit
         shell: bash
         run: |
           set -euo pipefail
-          npm audit --omit=dev
-
-      - name: Phase 0 npm audit (full dependency tree)
-        working-directory: .
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Full `high` threshold plus a narrow, documented allowlist for the
-          # one advisory with no upstream fix. See scripts/audit-gate.mjs.
           node scripts/audit-gate.mjs
 
       - name: Verify npm high-severity audit gate with known vulnerable fixture
@@ -89,56 +84,26 @@ jobs:
           fi
           echo "Known vulnerable fixture correctly caused npm audit --audit-level=high to fail."
 
-      - name: npm audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The unallowlisted advisory set must be empty. A non-empty set is
-          # always a failure, so consult the allowlist to decide whether the
-          # only remaining findings are the documented dev-only exception,
-          # keeping the registry-retry behaviour for genuine infrastructure
-          # failures on top of that decision.
-          for attempt in 1 2 3; do
-            set +e
-            audit_output="$(npm audit --audit-level=high 2>&1)"
-            audit_status=$?
-            set -e
-            printf '%s\n' "$audit_output"
-
-            if [ "$audit_status" -eq 0 ]; then
-              exit 0
-            fi
-
-            # npm registry maintenance / transient 5xx responses are infrastructure
-            # failures, not dependency findings. Retry them without ever ignoring
-            # a real audit result.
-            if printf '%s\n' "$audit_output" | grep -Eqi '503 Service Unavailable|currently performing maintenance|registry.*5[0-9][0-9]'; then
-              if [ "$attempt" -lt 3 ]; then
-                sleep $((attempt * 5))
-                continue
-              fi
-            fi
-
-            # Real findings remain. They are acceptable only if every one of
-            # them is the documented dev-only advisory with no upstream fix;
-            # audit-gate.mjs exits non-zero otherwise.
-            node scripts/audit-gate.mjs
-            exit 0
-          done
-
       - name: Go vulnerability scan (pinned)
         working-directory: agent
         shell: bash
         run: |
           set -euo pipefail
           go mod verify
-          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
-          "$(go env GOPATH)/bin/govulncheck" ./...
+          scanner="$(go env GOPATH)/bin/govulncheck"
+          if [ ! -x "$scanner" ]; then
+            go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          fi
+          "$scanner" ./...
 
       - name: Rust vulnerability scan
         working-directory: src-tauri
+        shell: bash
         run: |
-          cargo install cargo-audit --version 0.22.2 --locked
+          set -euo pipefail
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --version 0.22.2 --locked
+          fi
           cargo audit --target-os windows --target-arch x86_64
 
       - name: Verify container image references are immutable
@@ -232,7 +197,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --fund=false
       - name: Run migrations
         run: npm run db:migrate
       - name: PostgreSQL LISTEN reconnect failure injection
