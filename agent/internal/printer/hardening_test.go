@@ -222,6 +222,7 @@ func TestManualRegistrationWithUSBFields(t *testing.T) {
 		Name:           "USB Label",
 		ConnectionType: "usb",
 		Protocol:       "raw",
+		Endpoint:       `\\?\usb#vid_03f0&pid_0c17#CN999`,
 		USBVID:         "03f0",
 		USBPID:         "0c17",
 		USBSerial:      "CN999",
