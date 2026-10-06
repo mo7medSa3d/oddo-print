@@ -1189,7 +1189,7 @@ export default function DashboardClient({
               </div>
               <p className="mt-0.5 text-xs text-ink-3">
                 {billingUsage?.plan?.name ? `${billingUsage.plan.name} · ` : ""}
-                {prints.periodEnd ? `${t("billing.resetsOn")} ${formatDate(prints.periodEnd)}` : t("billing.currentPeriod")}
+                {prints.periodEnd ? t("billing.resetsOnDate", { date: formatDate(prints.periodEnd) }) : t("billing.currentPeriod")}
               </p>
             </div>
             <div className="flex items-center gap-3 sm:shrink-0">
