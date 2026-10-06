@@ -20,7 +20,8 @@ describe("production fixes contracts (2026-09)", () => {
     const normalizedMaintenance = maintenance.replace(/\r\n/g, "\n");
     const terminalFailureUpdates = [...maintenance.matchAll(/UPDATE print_jobs SET status='failed',[\s\S]*?FROM candidates\s+WHERE print_jobs\.id = candidates\.id\s+RETURNING print_jobs\.id/g)];
     expect(terminalFailureUpdates.length).toBeGreaterThanOrEqual(2);
-    expect(normalizedMaintenance).toContain("claim_token=NULL,\n      claimed_at=NULL,\n      updated_at=now()");
+    expect(normalizedMaintenance).toContain("claim_token = NULL, claimed_at = NULL");
+    expect(normalizedMaintenance).not.toContain("claim_token = NULL, claimed_at = NULL, updated_at = now()");
     expect(normalizedMaintenance).toContain("status = 'failed'");
     expect(normalizedMaintenance).toContain("error LIKE 'UNKNOWN_PARTIAL_DELIVERY:%'");
     expect(normalizedMaintenance).toContain("updated_at <= now() - interval '24 hours'");
@@ -245,14 +246,20 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).not.toContain("createTestPrintJob(printer.id)");
   });
 
-  it("Gateway test-page endpoint derives tenant/agent ownership and uses a bounded idempotency key", () => {
+  it("Gateway physical test-page endpoint is manager-RBAC only and uses a bounded idempotency key", () => {
     const route = read("src/app/api/printers/[id]/test-print/route.ts");
-    expect(route).toContain("const tenantId = auth.kind === \"manager\" ? auth.claims.tenantId : auth.agent.tenantId;");
+    expect(route).toContain("const claims = await validateWorkspaceManager(req)");
+    expect(route).toContain('requireManagerPermission(claims, "printers.test")');
+    expect(route).toContain("const tenantId = claims.tenantId");
+    expect(route).not.toContain("validateConsoleAuth");
+    expect(route).not.toContain('auth.kind === "agent"');
     expect(route).toContain("eq(printers.tenantId, tenantId)");
     expect(route).toContain("eq(agents.tenantId, tenantId)");
-    expect(route).toContain('documentType: \"test_page\"');
+    expect(route).toContain('documentType: "test_page"');
     expect(route).toContain("idempotencyKey");
     expect(route).toContain("status: 201");
+    expect(route).toContain("Test print was not queued");
+    expect(route).not.toContain("test print will be queued until the agent reconnects");
   });
 
   it("printer and agent APIs expose effective availability instead of stale raw online state", () => {
@@ -263,10 +270,30 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(agent).toContain("getEffectivePrinterStatus");
   });
 
-  it("printer connection diagnostics uses the agent heartbeat as the authoritative heartbeat timestamp", () => {
+  it("printer connection diagnostics keeps Agent availability independent from printer lifecycle/config state", () => {
     const source = read("src/app/api/printers/[id]/test-connection/route.ts");
-    expect(source).toContain("const lastHeartbeatAt = agent.lastSeenAt;");
+    const agentLookup = source.indexOf("const agent = await db.query.agents.findFirst");
+    const lifecycleCheck = source.indexOf('if (printer.lifecycle !== "active")');
+    const configCheck = source.indexOf('if (printer.connectionType === "network"');
+    expect(agentLookup).toBeGreaterThanOrEqual(0);
+    expect(lifecycleCheck).toBeGreaterThan(agentLookup);
+    expect(source).toContain("lastHeartbeatAt: agent.lastSeenAt");
+    expect(source).toContain("agentOnline: availability.available");
+    expect(source.slice(lifecycleCheck, configCheck)).toContain("...agentState");
+    expect(source.slice(configCheck, source.indexOf("if (!availability.available)", configCheck))).toContain("...agentState");
     expect(source).not.toContain("const lastHeartbeatAt = printer.lastSeenAt;");
+  });
+
+  it("Odoo document Test Print validates and submits using the selected binding document type", () => {
+    const source = read("odoo_addons/print_gateway/models/print_router.py");
+    const spooler = source.slice(source.indexOf("def _route_spooler_test_page"), source.indexOf("def _route_ipp_test_page"));
+    const ipp = source.slice(source.indexOf("def _route_ipp_test_page"), source.indexOf("def _generate_test_pdf"));
+    for (const block of [spooler, ipp]) {
+      expect(block).toContain("document_type=binding.document_type");
+      expect(block).toContain("document_type=binding.document_type");
+      expect(block).not.toContain('job_document_type="test_page"');
+    }
+    expect(source).toContain('"document_type": route["document_type"]');
   });
 });
 

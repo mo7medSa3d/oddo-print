@@ -145,13 +145,16 @@ func TestUSBWriteCancelledInFlightIsUnknown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		n, err := p.writeChunkBounded(windows.Handle(0), []byte("hello"), ctx.Done())
+		n, err, transferred := p.writeChunkBounded(windows.Handle(0), []byte("hello"), ctx.Done())
 		if err == nil {
 			done <- nil
 			return
 		}
 		if n != 0 {
 			t.Errorf("abandoned write must report zero CONFIRMED bytes, got %d", n)
+		}
+		if !transferred {
+			t.Error("cancellation must transfer handle ownership to the write helper")
 		}
 		done <- err
 	}()
@@ -167,5 +170,114 @@ func TestUSBWriteCancelledInFlightIsUnknown(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("writeChunkBounded did not respect cancellation")
+	}
+}
+
+func TestUSBCancelledPrintClosesHandleOnlyAfterAbandonedWriteReturns(t *testing.T) {
+	p := &USBPrinter{ID: "u6", Name: "U6", DevicePath: "NUL"}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	closed := make(chan struct{}, 1)
+	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
+		close(started)
+		<-release
+		return uint32(len(chunk)), nil
+	}
+	p.closeHandle = func(h windows.Handle) error {
+		err := windows.CloseHandle(h)
+		closed <- struct{}{}
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- p.Print(ctx, []byte("hello")) }()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("write helper did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil || !HasUnknownOutcomeMarker(err.Error()) {
+			t.Fatalf("in-flight cancellation must return an unknown outcome, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Print did not respect cancellation")
+	}
+
+	select {
+	case <-closed:
+		t.Fatal("Print closed the device handle while the abandoned helper still owned the write")
+	default:
+	}
+
+	close(release)
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("abandoned write helper did not close its transferred handle after returning")
+	}
+}
+
+func TestUSBCompletedPrintClosesCallerOwnedHandleExactlyOnce(t *testing.T) {
+	p := &USBPrinter{ID: "u7", Name: "U7", DevicePath: "NUL"}
+	closed := &atomic.Int32{}
+	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
+		return uint32(len(chunk)), nil
+	}
+	p.closeHandle = func(h windows.Handle) error {
+		closed.Add(1)
+		return windows.CloseHandle(h)
+	}
+	if err := p.Print(context.Background(), []byte("hello")); err != nil {
+		t.Fatalf("completed print failed: %v", err)
+	}
+	if got := closed.Load(); got != 1 {
+		t.Fatalf("completed print must close its caller-owned handle exactly once, got %d", got)
+	}
+}
+
+func TestUSBProtocolSupportRequiresExplicitESCPOS(t *testing.T) {
+	raw := &USBPrinter{ID: "raw", Name: "Raw USB", Protocol: "raw"}
+	if !raw.SupportsKind(KindRaw) {
+		t.Fatal("explicit raw USB must support raw bytes")
+	}
+	if raw.SupportsKind(KindESCPOS) {
+		t.Fatal("generic raw USB must not infer ESC/POS support")
+	}
+	escpos := &USBPrinter{ID: "esc", Name: "Receipt", Protocol: "escpos", SupportsESCPOS: true}
+	if !escpos.SupportsKind(KindRaw) || !escpos.SupportsKind(KindESCPOS) {
+		t.Fatal("explicit ESC/POS USB must support its byte-stream payloads")
+	}
+}
+
+func TestUSBTestPayloadDoesNotInjectESCPOSWithoutCapability(t *testing.T) {
+	raw := &USBPrinter{ID: "raw", Name: "Office USB", Protocol: "raw", VID: 0x1234, PID: 0x5678}
+	payload := raw.testPayload()
+	if strings.Contains(string(payload), "\x1b") || strings.Contains(string(payload), "\x1d") {
+		t.Fatalf("generic raw USB test payload must be printable text only: %q", payload)
+	}
+	escpos := &USBPrinter{ID: "esc", Name: "Receipt", Protocol: "escpos", SupportsESCPOS: true}
+	payload = escpos.testPayload()
+	if !strings.HasPrefix(string(payload), "\x1b@") {
+		t.Fatalf("explicit ESC/POS test should initialize the printer, got %q", payload)
+	}
+	if strings.Contains(string(payload), "\x1dV") {
+		t.Fatal("diagnostic must not infer cutter support")
+	}
+}
+
+func TestUSBStatusDoesNotTreatInterfaceAccessAsPhysicalHealth(t *testing.T) {
+	missing := &USBPrinter{ID: "u", Name: "USB", Protocol: "raw"}
+	if got := missing.Status(); got != "unknown" {
+		t.Fatalf("pathless USB status=%q want unknown", got)
+	}
+	inaccessible := &USBPrinter{ID: "u2", Name: "USB", Protocol: "raw", DevicePath: `\\?\usb#definitely_missing_yaseir_test`}
+	if got := inaccessible.Status(); got != "unknown" {
+		t.Fatalf("inaccessible USB interface status=%q want unknown, not physical offline", got)
 	}
 }

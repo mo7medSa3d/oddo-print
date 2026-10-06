@@ -224,6 +224,7 @@ msgid "Agent Assigned Successfully"
 msgstr "تم تعيين الـ Agent بنجاح"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Agent limit reached"
 msgstr "تم بلوغ حد الـ Agents"
@@ -316,6 +317,7 @@ msgid "Backward-compatible opaque Gateway runtime-agent reference from the earli
 msgstr "مرجع معرّف وكيل البوابة للتوافق مع نموذج الإعداد السابق. لا تعتمد قواعد الفروع الجديدة على هذا الحقل لتحديد الوكيل."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Billing period ends: %s"
 msgstr "تنتهي فترة الفوترة: %s"
@@ -439,6 +441,7 @@ msgid "Claimed At"
 msgstr "وقت حجز التنفيذ"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Close"
 msgstr "إغلاق"
@@ -482,6 +485,7 @@ msgid "Completed at"
 msgstr "وقت الاكتمال"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Concurrent print limit reached"
 msgstr "تم بلوغ حد مهام الطباعة المتزامنة"
@@ -529,26 +533,25 @@ msgid "Could not build the raw payload for rule '%s'. Check that the template on
 msgstr "تعذّر بناء الحمولة الخام للقاعدة '%s'. تحقّق من أن القالب يستخدم فقط العناصر النائبة التي يوفّرها هذا المستند."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/language_switcher.js:0
 msgid "Could not change language. Make sure the language is installed."
 msgstr "تعذر تغيير اللغة. تأكد من تثبيت اللغة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "Could not load connected Print Agents. Check the printing service connection, then retry."
 msgstr "تعذّر تحميل الـ Agents المتصلة. تحقّق من اتصال خدمة الطباعة، ثم أعد المحاولة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "Could not load printers. Check the Print Agent connection, then retry."
 msgstr "تعذّر تحميل الطابعات. تحقّق من اتصال Agent الطباعة، ثم أعد المحاولة."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "Could not reach the Gateway at %(url)s. Verify the URL host and port match the Gateway deployment (scheme, host and explicit port, without an API path) and that the Gateway is running."
-msgstr "تعذّر الوصول إلى الـ Gateway على %(url)s. تحقّق من تطابق scheme والمضيف والمنفذ الصريح مع نشر الـ Gateway، ومن عدم وجود API path، وتحقّق من أن الـ Gateway يعمل."
-
-#. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Couldn't print the receipt. See Print Activity."
 msgstr "تعذّر طباعة الإيصال. راجع نشاط الطباعة."
@@ -679,6 +682,7 @@ msgid "Document Type"
 msgstr "نوع المستند"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Document sent to %s. Check Print Activity for the final status."
 msgstr "تم إرسال المستند إلى %s. تحقّق من نشاط الطباعة لمعرفة الحالة النهائية."
@@ -833,6 +837,7 @@ msgid "Gateway Job ID"
 msgstr "معرّف المهمة في الـ Gateway"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Gateway Kitchen"
 msgstr "مطبخ الـ Gateway"
@@ -843,6 +848,7 @@ msgid "Gateway Kitchen / Preparation follows Odoo 19 Preparation Printers and th
 msgstr "تتبع طباعة المطبخ / التحضير عبر البوابة طابعات التحضير وفئات المنتجات المطبوعة في Odoo 19. اختر طابعة التحضير هنا؛ وتظل طابعة البوابة هدف الطباعة الفعلي. تُحفظ قواعد متجر نقطة البيع القديمة للتوافق."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Gateway Kitchen routing is incomplete for one or more Odoo Preparation Printers. Printing was cancelled to prevent silently losing kitchen tickets."
 msgstr "توجيه مطبخ الـ Gateway غير مكتمل لطابعة تحضير واحدة أو أكثر في Odoo. تم إلغاء الطباعة لتجنّب ضياع تذاكر المطبخ بصمت."
@@ -1031,6 +1037,7 @@ msgid "Gateway late success requires the original reconcilable remote operation.
 msgstr "يتطلب تأكيد النجاح المتأخر من البوابة العملية الأصلية القابلة لمطابقة حالتها."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Gateway print failed for bound printer. Native download cancelled."
 msgstr "تعذّرت طباعة الـ Gateway للطابعة المربوطة. تم إلغاء التنزيل الأصلي."
@@ -1047,6 +1054,7 @@ msgid "Gateway printer discovery is unavailable."
 msgstr "اكتشاف الطابعات في الـ Gateway غير متاح."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for an Odoo preparation printer."
 msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط مطبخ مُعدّ لطابعة تحضير في Odoo."
@@ -1063,8 +1071,8 @@ msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، 
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
-msgid "Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured."
-msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط لتفاصيل المبيعات مُعدّ."
+msgid "Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details."
+msgstr "طباعة الـ Gateway مُفعّلة لنقطة البيع هذه، ولكن لا يوجد ربط إيصالات مُعدّ لتفاصيل المبيعات."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
@@ -1102,11 +1110,6 @@ msgid "Gateway registration is consistent: agent '%s' and printer '%s' are regis
 msgstr "تسجيل الـ Gateway متسق: الـ Agent '%s' والطابعة '%s' مُسجَّلان ونشطان. هذا فحص على مستوى الإدارة، وليس اختبارًا فعليًا للأجهزة — استخدم «إرسال صفحة اختبار» للتحقق من المسار الفعلي."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "Gateway request to %(url)s failed: %(error)s"
-msgstr "فشل طلب الـ Gateway إلى %(url)s: %(error)s"
-
-#. module: print_gateway
 #: code:addons/print_gateway/controllers/runtime_printers.py:0
 msgid "Gateway returned an invalid agent discovery response."
 msgstr "أعاد الـ Gateway استجابة غير صالحة لاكتشاف الـ Agents."
@@ -1117,6 +1120,7 @@ msgid "Gateway returned an invalid health response."
 msgstr "أعاد الـ Gateway استجابة صحة غير صالحة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Gateway returned an invalid kitchen-routing configuration."
 msgstr "أعادت البوابة إعدادًا غير صالح لتوجيه طباعة المطبخ."
@@ -1263,6 +1267,7 @@ msgid "JPEG Raster Banding"
 msgstr "طباعة JPEG على شرائح نقطية"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Kitchen / Preparation printing failed."
 msgstr "تعذّرت طباعة المطبخ / التحضير."
@@ -1278,21 +1283,25 @@ msgid "Kitchen Chime"
 msgstr "جرس المطبخ"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled."
 msgstr "نتيجة طباعة المطبخ غير معروفة. ربما تمت طباعة التذكرة بالفعل؛ إعادة المحاولة التلقائية معطلة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Kitchen print status is unclear. Automatic retry is paused to prevent duplicate tickets."
 msgstr "حالة طباعة المطبخ غير واضحة. أُوقفت إعادة المحاولة التلقائية لمنع تكرار التذاكر."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Kitchen print status is unknown. Check the printer before trying again."
 msgstr "حالة طباعة المطبخ غير معروفة. تحقّق من الطابعة قبل المحاولة مرة أخرى."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/language_switcher.js:0
 msgid "Language"
 msgstr "اللغة"
@@ -1353,11 +1362,13 @@ msgid "Legacy Runtime Agent must be a non-empty Gateway agent ID."
 msgstr "يجب أن يكون الـ Agent القديم معرّف Agent غير فارغ في الـ Gateway."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "Loading agents…"
 msgstr "جارٍ تحميل الـ Agents…"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "Loading printers…"
 msgstr "جارٍ تحميل الطابعات…"
@@ -1469,11 +1480,13 @@ msgid "No Intents Re-armed"
 msgstr "لم يُعَد تجهيز أي طلب"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "No POS order is available for printing."
 msgstr "لا يوجد طلب POS متاح للطباعة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "No Print Agent is assigned to this company/branch — assign one under Branch Devices first"
 msgstr "لا يوجد Agent طباعة مُعيَّن لهذه الشركة/هذا الفرع — عيّن واحدًا من «أجهزة الفروع» أولًا"
@@ -1489,6 +1502,7 @@ msgid "No canned diagnostic ticket exists for protocol '%s'. Declare an escpos/z
 msgstr "لا توجد تذكرة اختبار جاهزة للبروتوكول '%s'. حدّد بروتوكولًا من escpos/zpl/tspl/raw/spooler/ipp على الطابعة، أو اطبع تقريرًا حقيقيًا عبر الـ Gateway."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "No connected Print Agents found — connect one from Connection & Printing"
 msgstr "لا توجد Agents طباعة متصلة — اربط واحدة من «الاتصال والطباعة»"
@@ -1509,11 +1523,13 @@ msgid "No eligible partial or unknown outcome print jobs found for force reprint
 msgstr "لا توجد مهام طباعة مؤهلة ذات نتيجة جزئية أو غير معروفة لإعادة الطباعة الإجبارية."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "No printers found for this Print Agent — check the printer or workstation"
 msgstr "لا توجد طابعات لهذا الـ Agent — تحقّق من الطابعة أو جهاز العمل"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "No receipt element to rasterize"
 msgstr "لا يوجد عنصر إيصال لتحويله إلى صورة"
@@ -1550,6 +1566,7 @@ msgid "Not printed"
 msgstr "لم يُطبع"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Nothing was printed."
 msgstr "لم تُطبع أي صفحة."
@@ -1630,6 +1647,7 @@ msgid "Odoo Preparation Printer"
 msgstr "طابعة التحضير في Odoo"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Odoo Preparation Printer %s: %s"
 msgstr "طابعة التحضير في أودو %s: %s"
@@ -1681,6 +1699,7 @@ msgid "Opaque Gateway runtime-agent ID. Runtime ownership remains in the Gateway
 msgstr "معرّف وكيل البوابة. تحتفظ البوابة بملكية الوكيل أثناء التشغيل."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Open Print Activity"
@@ -1765,11 +1784,6 @@ msgid "POS Kitchen / Preparation bindings must not select an Odoo Report."
 msgstr "يجب ألا تختار روابط مطبخ POS / التحضير تقريرًا في Odoo."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "POS Kitchen / Preparation printing requires a thermal printer, not a document/laser printer."
-msgstr "طباعة مطبخ POS / التحضير تتطلب طابعة حرارية، لا طابعة مستندات أو ليزر."
-
-#. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_binding__destination_type__pos
 msgid "POS Receipt"
 msgstr "إيصال نقطة البيع"
@@ -1799,11 +1813,6 @@ msgstr "طلب POS لا يحتوي على إعداد POS لتوجيه الطبا
 #: code:addons/print_gateway/models/binding.py:0
 msgid "POS receipts must use a POS or report destination."
 msgstr "يجب أن تستخدم إيصالات POS وجهة من نوع POS أو تقرير."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "POS receipts require a thermal receipt printer, not a document/laser printer."
-msgstr "إيصالات POS تتطلب طابعة إيصالات حرارية، لا طابعة مستندات أو ليزر."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -1932,6 +1941,7 @@ msgid "Pin 5 (0x1B 0x70 0x01)"
 msgstr "الطرف 5 (0x1B 0x70 0x01)"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Plan limit: %s"
 msgstr "حد الخطة: %s"
@@ -1990,6 +2000,7 @@ msgid "Print Activity"
 msgstr "نشاط الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_list
@@ -2056,6 +2067,7 @@ msgid "Print Gateway is disabled for company %s."
 msgstr "طباعة الـ Gateway معطَّلة للشركة %s."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 msgid "Print Gateway returned an invalid Sale Details response."
 msgstr "أعادت بوابة الطباعة استجابة غير صالحة لتفاصيل المبيعات."
@@ -2113,29 +2125,10 @@ msgid "Print Rules"
 msgstr "قواعد الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Print allowance reached"
 msgstr "تم استنفاد رصيد الطباعة"
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' belongs to company '%s', but current operation is for '%s'."
-msgstr "ربط الطباعة '%s' يتبع الشركة '%s'، ولكن العملية الحالية للشركة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' has no Gateway Runtime Agent assigned."
-msgstr "لا يوجد Agent من الـ Gateway مُعيَّن لربط الطباعة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' has no Gateway Runtime Printer assigned."
-msgstr "لا توجد طابعة من طابعات الـ Gateway مُعيَّنة لربط الطباعة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print binding '%s' is scoped to branch '%s' and cannot be used from '%s'."
-msgstr "نطاق ربط الطباعة '%s' مقتصر على الفرع '%s' ولا يمكن استخدامه من '%s'."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -2188,6 +2181,7 @@ msgid "Print payload must be a JSON object."
 msgstr "يجب أن تكون حمولة الطباعة كائن JSON."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Print rate limit reached"
 msgstr "تم بلوغ حد معدل الطباعة"
@@ -2203,6 +2197,7 @@ msgid "Print status is unknown - the printer may have received part or all of th
 msgstr "حالة الطباعة غير معروفة؛ ربما استقبلت الطابعة جزءًا من المستند أو كله"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
@@ -2215,6 +2210,7 @@ msgid "Print submission must occur after the Odoo outbox transaction commits; us
 msgstr "يجب أن يتم إرسال الطباعة بعد تأكيد معاملة صادر Odoo؛ استخدم المُرسِل الدائم بعد التأكيد."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/models/binding.py:0
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
@@ -2268,6 +2264,7 @@ msgid "Printer is required."
 msgstr "الطابعة مطلوبة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Printer limit reached"
 msgstr "تم بلوغ حد الطابعات"
@@ -2289,6 +2286,7 @@ msgid "Printing"
 msgstr "الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Printing Service"
 msgstr "خدمة الطباعة"
@@ -2324,6 +2322,7 @@ msgid "Printing is enabled and the service is connected."
 msgstr "الطباعة مُفعّلة والخدمة متصلة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Printing service error: %s"
 msgstr "خطأ في خدمة الطباعة: %s"
@@ -2426,11 +2425,13 @@ msgid "Raw/escpos payloads must declare their protocol inside the payload."
 msgstr "يجب أن تُعلن حمولات raw/escpos بروتوكولها داخل الحمولة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Receipt printing failed."
 msgstr "تعذّرت طباعة الإيصال."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Receipt sent. Check Print Activity for the result."
 msgstr "تم إرسال الإيصال. راجع نشاط الطباعة لمعرفة النتيجة."
@@ -2524,6 +2525,7 @@ msgid "Reprints"
 msgstr "عمليات إعادة الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "Restrict agents to explicit Branch assignment"
 msgstr "قصر الـ Agents على التعيين الصريح للفرع"
@@ -2539,6 +2541,7 @@ msgid "Retried %d print job(s) with new operation ID(s): %s"
 msgstr "تمت إعادة محاولة %d مهمة/مهام طباعة بمعرفات عمليات جديدة: %s"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "Retry"
@@ -2587,11 +2590,13 @@ msgid "Runtime Printer"
 msgstr "طابعة الـ Gateway"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 msgid "Sales Details could not be printed."
 msgstr "تعذّرت طباعة تفاصيل المبيعات."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 msgid "Sales Details sent to the printing service."
 msgstr "تم إرسال تفاصيل المبيعات إلى خدمة الطباعة."
@@ -2617,26 +2622,31 @@ msgid "Search Print Activity"
 msgstr "بحث في نشاط الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Secure random number generator is unavailable; cannot generate print operation idempotency key"
 msgstr "مولد الأرقام العشوائية الآمن غير متاح؛ تعذر إنشاء مفتاح لمنع تكرار عملية الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "Select Print Agent"
 msgstr "اختر Agent طباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "Select Print Agent first"
 msgstr "اختر Agent طباعة أولًا"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "Select Printer"
 msgstr "اختر طابعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "Select a company first"
 msgstr "اختر الشركة أولًا"
@@ -2819,6 +2829,7 @@ msgid "Summary"
 msgstr "الملخص"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Sync the POS order before sending the receipt to the printing service."
 msgstr "زامن طلب نقطة البيع قبل إرسال الإيصال إلى خدمة الطباعة."
@@ -2902,11 +2913,6 @@ msgstr "ردّ الـ Gateway على العنوان %(url)s بتحويل (HTTP %
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
-msgid "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port and the network path between Odoo and the Gateway."
-msgstr "لم يستجب الـ Gateway على %(url)s خلال 10 ثوانٍ. تحقّق من المضيف/المنفذ ومسار الشبكة بين Odoo والـ Gateway."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
 msgid "The Gateway could not be reached. Check the Gateway URL and network connection."
 msgstr "تعذّر الوصول إلى الـ Gateway. تحقّق من عنوان URL للـ Gateway ومن الاتصال بالشبكة."
 
@@ -2916,6 +2922,7 @@ msgid "The Gateway did not confirm the printing-service setting. Check the Gatew
 msgstr "لم يؤكد الـ Gateway إعداد خدمة الطباعة. تحقّق من عنوان URL للـ Gateway ومن مفتاح API للتثبيت، ثم حاول مرة أخرى."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "The Gateway plan limit has been reached."
 msgstr "تم بلوغ حد خطة الـ Gateway."
@@ -2956,6 +2963,7 @@ msgid "The Gateway workspace is not available for printing."
 msgstr "مساحة عمل الـ Gateway غير متاحة للطباعة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "The POS order is not synchronized yet, so kitchen printing cannot continue."
 msgstr "لم تتم مزامنة طلب نقطة البيع بعد، لذا لا يمكن متابعة طباعة المطبخ."
@@ -3086,6 +3094,7 @@ msgid "The previous Gateway returned an invalid migration revision."
 msgstr "أعاد الـ Gateway السابق رقم مراجعة ترحيل غير صالح."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "The previously failed kitchen printer is no longer available in the current POS configuration."
 msgstr "طابعة المطبخ التي فشلت سابقًا لم تعد متاحة في إعداد POS الحالي."
@@ -3106,11 +3115,13 @@ msgid "The printing service agent is unavailable. The receipt was not sent."
 msgstr "خدمة الطباعة غير متاحة. لم يتم إرسال الإيصال."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "The printing service is disabled or unreachable for this company — check Connection & Printing"
 msgstr "خدمة الطباعة معطَّلة أو لا يمكن الوصول إليها لهذه الشركة — تحقّق من «الاتصال والطباعة»"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "The printing service is not configured or unreachable for this company — check Connection & Printing"
 msgstr "خدمة الطباعة غير مُعدّة أو لا يمكن الوصول إليها لهذه الشركة — تحقّق من «الاتصال والطباعة»"
@@ -3194,11 +3205,6 @@ msgid "The selected records resolve to different Print Bindings. Print them sepa
 msgstr "تُحَل السجلات المحدَّدة إلى روابط طباعة مختلفة. اطبعها كلًا على حدة."
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "The specified print binding '%s' is disabled."
-msgstr "ربط الطباعة المحدَّد '%s' معطَّل."
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
 msgid "This Gateway configuration cannot be deleted because its Gateway credential is unavailable."
 msgstr "لا يمكن حذف إعداد الـ Gateway هذا لأن بيانات اعتماده غير متاحة."
@@ -3239,11 +3245,13 @@ msgid "Time:"
 msgstr "الوقت:"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Too many jobs printing now. Wait a moment."
 msgstr "عدد كبير من المهام قيد الطباعة الآن. انتظر لحظة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Too many prints at once. Try again shortly."
 msgstr "عدد كبير من عمليات الطباعة في وقت واحد. حاول بعد قليل."
@@ -3259,6 +3267,7 @@ msgid "Trigger Event"
 msgstr "الحدث المشغّل"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Try again in about %s minute(s)."
 msgstr "حاول مرة أخرى بعد نحو %s دقيقة/دقائق."
@@ -3289,16 +3298,19 @@ msgid "Unsupported raw protocol '%s'. Expected zpl, tspl, escpos, or raw."
 msgstr "البروتوكول الخام '%s' غير مدعوم. المتوقع zpl أو tspl أو escpos أو raw."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Upgrade your plan or try again shortly."
 msgstr "رقِّ خطتك أو حاول بعد قليل."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Upgrade your plan to keep printing."
 msgstr "رقِّ خطتك لمتابعة الطباعة."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Used: %s"
 msgstr "المستخدم: %s"
@@ -3324,6 +3336,7 @@ msgid "Warehouse Filter"
 msgstr "مرشّح المستودع"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "We couldn't complete this print request. Native PDF download cancelled. Check Print Activity for details."
 msgstr "تعذّر إكمال طلب الطباعة هذا. تم إلغاء تنزيل PDF الأصلي. تحقّق من نشاط الطباعة للتفاصيل."
@@ -3365,16 +3378,19 @@ msgid "You are not allowed to view or use this report."
 msgstr "لا يحق لك عرض هذا التقرير أو استخدامه."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "You've reached the computer limit on your plan."
 msgstr "بلغت الحد الأقصى لعدد الـ Agents في خطتك."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "You've reached the printer limit on your plan."
 msgstr "بلغت الحد الأقصى لعدد الطابعات في خطتك."
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "You've used all prints for this period."
 msgstr "استهلكت كل عمليات الطباعة الخاصة بهذه الفترة."
@@ -3442,6 +3458,7 @@ msgid "e.g. ^XA^FO50,50^ADN,36,20^FD{name}^FS^XZ"
 msgstr "مثال: ^XA^FO50,50^ADN,36,20^FD{name}^FS^XZ"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "generic"
 msgstr "عام"
@@ -3457,16 +3474,71 @@ msgid "none"
 msgstr "لا شيء"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
 msgid "offline"
 msgstr "غير متصل"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "print failed"
 msgstr "تعذّرت الطباعة"
 
 #. module: print_gateway
+#. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "saved / currently unavailable"
 msgstr "محفوظة / غير متاحة حاليًا"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "The selected printer does not declare a printable protocol. Windows-installed printers should use the spooler connection; direct USB/network printers must declare their real printer language before a test can be sent."
+msgstr "الطابعة المحددة لا تعلن بروتوكول طباعة قابلًا للتنفيذ. يجب استخدام اتصال Windows spooler للطابعات المثبتة في Windows، أما طابعات USB/الشبكة المباشرة فيجب تحديد لغة الطابعة الحقيقية قبل إرسال اختبار."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "POS receipt/kitchen printing requires a printer transport that accepts rendered images. Windows-installed printers should use the spooler connection; supported ESC/POS network printers are also accepted."
+msgstr "تتطلب طباعة إيصالات ونماذج المطبخ في نقطة البيع مسار طابعة يقبل الصور المرسومة. يجب أن تستخدم الطابعات المثبتة في Windows اتصال spooler، كما تُقبل طابعات ESC/POS الشبكية المدعومة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "A print protocol must be selected on the binding."
+msgstr "يجب تحديد بروتوكول طباعة في ربط الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "The selected binding protocol '%s' is not compatible with runtime printer '%s' (transport protocol '%s'). Update the binding or the printer's explicit capability configuration."
+msgstr "بروتوكول الربط المحدد '%s' غير متوافق مع طابعة التشغيل '%s' (بروتوكول النقل '%s'). حدّث الربط أو إعداد الإمكانات الصريح للطابعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable. Enable ESC/POS passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept ESC/POS bytes."
+msgstr "هذه الطابعة مضبوطة للطباعة المستندية عبر Windows spooler ولم يتم التصريح بأنها تدعم ESC/POS. فعّل تمرير ESC/POS صراحةً على طابعة الـ Gateway فقط إذا كان صف الطباعة/التعريف في Windows مضبوطًا لقبول بايتات ESC/POS."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "This printer is configured for Windows document spooling and has not been declared as RAW-capable. Enable RAW passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept raw bytes."
+msgstr "هذه الطابعة مضبوطة للطباعة المستندية عبر Windows spooler ولم يتم التصريح بأنها تدعم RAW. فعّل تمرير RAW صراحةً على طابعة الـ Gateway فقط إذا كان صف الطباعة/التعريف في Windows مضبوطًا لقبول البايتات الخام."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "stale"
+msgstr "بيانات قديمة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Could not reach the Gateway at %(url)s. Verify the URL host and port match the Gateway deployment (scheme, host and explicit port, without an API path) and that the Gateway is running."
+msgstr "تعذّر الوصول إلى الـ Gateway على %(url)s. تحقّق من تطابق scheme والمضيف والمنفذ الصريح مع نشر الـ Gateway، ومن عدم وجود API path، وتحقّق من أن الـ Gateway يعمل."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Gateway request to %(url)s failed: %(error)s"
+msgstr "فشل طلب الـ Gateway إلى %(url)s: %(error)s"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port and the network path between Odoo and the Gateway."
+msgstr "لم يستجب الـ Gateway على %(url)s خلال 10 ثوانٍ. تحقّق من المضيف/المنفذ ومسار الشبكة بين Odoo والـ Gateway."

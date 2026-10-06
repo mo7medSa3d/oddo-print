@@ -437,7 +437,8 @@ func TestSupportedKindsPerBackend(t *testing.T) {
 		{"zpl tcp", &NetworkPrinter{Address: "127.0.0.1:9100", Protocol: "zpl"}, []string{KindRaw, KindZPL, KindLabel}},
 		{"tspl tcp", &NetworkPrinter{Address: "127.0.0.1:9100", Protocol: "tspl"}, []string{KindRaw, KindTSPL, KindLabel}},
 		{"mock spooler", newMockSpoolerPrinter("Test"), []string{KindRaw, KindESCPOS, KindPDF}},
-		{"usb", &USBPrinter{ID: "u", Name: "USB"}, []string{KindRaw, KindESCPOS}},
+		{"usb raw", &USBPrinter{ID: "u", Name: "USB", Protocol: "raw"}, []string{KindRaw}},
+		{"usb escpos", &USBPrinter{ID: "ue", Name: "USB Receipt", Protocol: "escpos", SupportsESCPOS: true}, []string{KindRaw, KindESCPOS}},
 	}
 	for _, c := range cases {
 		got := SupportedKinds(c.p)
@@ -481,5 +482,46 @@ func TestPrintPDFPreservesAssignedBudgetAndCancellation(t *testing.T) {
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled PDF result: %v", err)
+	}
+}
+
+func TestPrintPDFWithResultPreservesAllocatedJobIDOnFailure(t *testing.T) {
+	jobID, err := printPDFWithResult(context.Background(), "Evidence Printer", Document{
+		Kind:  KindPDF,
+		Data:  validPDF(),
+		JobID: "pdf-partial-evidence",
+	}, func(context.Context, string, string) (string, error) {
+		return "42", MarkUnknown("simulated failure after StartDocW")
+	})
+	if err == nil {
+		t.Fatal("result-bearing PDF callback must surface the print failure")
+	}
+	if jobID != "42" {
+		t.Fatalf("allocated spooler identity must survive the error result, got %q", jobID)
+	}
+	if !OutcomeUnknown(err) {
+		t.Fatalf("wrapped failure must preserve unknown-outcome classification, got %v", err)
+	}
+}
+
+func TestPrintPDFWithResultPlainFailureAfterAllocatedJobIDBecomesUnknown(t *testing.T) {
+	jobID, err := printPDFWithResult(context.Background(), "Evidence Printer", Document{
+		Kind:  KindPDF,
+		Data:  validPDF(),
+		JobID: "pdf-post-submit-cleanup",
+	}, func(context.Context, string, string) (string, error) {
+		return "77", errors.New("close embedded PDFium worker: simulated cleanup failure")
+	})
+	if err == nil {
+		t.Fatal("post-submission failure must be surfaced")
+	}
+	if jobID != "77" {
+		t.Fatalf("allocated spooler identity must survive the error result, got %q", jobID)
+	}
+	if !OutcomeUnknown(err) {
+		t.Fatalf("plain failure after spooler job allocation must become unknown, got %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "PDF print on") || !strings.Contains(err.Error(), "UNKNOWN_PARTIAL_DELIVERY") {
+		t.Fatalf("wrapped failure must carry the gateway unknown marker, got %v", err)
 	}
 }

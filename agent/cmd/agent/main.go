@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -284,6 +285,56 @@ func configureServiceRecovery(serviceName string) {
 	log.Printf("Service recovery actions configured (restart on crash)")
 }
 
+func stopServiceForRemoval(s service.Service) error {
+	deadline := time.Now().Add(30 * time.Second)
+	stopRequested := false
+	for {
+		status, err := s.Status()
+		if err != nil {
+			if errors.Is(err, service.ErrNotInstalled) {
+				return nil
+			}
+			return fmt.Errorf("read service status before removal: %w", err)
+		}
+		if status == service.StatusStopped {
+			return nil
+		}
+		if status == service.StatusRunning && !stopRequested {
+			if err := s.Stop(); err != nil {
+				if errors.Is(err, service.ErrNotInstalled) {
+					return nil
+				}
+				return fmt.Errorf("stop service before removal: %w", err)
+			}
+			stopRequested = true
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for YaseirAgent to stop before removal")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func uninstallServiceIfPresent(s service.Service) (bool, error) {
+	status, err := s.Status()
+	if err != nil {
+		if errors.Is(err, service.ErrNotInstalled) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read service status before removal: %w", err)
+	}
+	if status != service.StatusStopped {
+		return false, fmt.Errorf("YaseirAgent must be stopped before removal")
+	}
+	if err := s.Uninstall(); err != nil {
+		if _, statusErr := s.Status(); errors.Is(statusErr, service.ErrNotInstalled) {
+			return false, nil
+		}
+		return false, fmt.Errorf("uninstall service failed: %w", err)
+	}
+	return true, nil
+}
+
 func handleServiceControl(rawAction, configPath string) error {
 	svcConfig := &service.Config{
 		Name:         "YaseirAgent",
@@ -315,6 +366,9 @@ func handleServiceControl(rawAction, configPath string) error {
 		}
 		return nil
 	case "install":
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services before install: %w", err)
+		}
 		if err := s.Install(); err != nil {
 			if updateErr := updateInstalledService(svcConfig); updateErr != nil {
 				return fmt.Errorf("install service failed: %w; updating existing service failed: %v", err, updateErr)
@@ -324,17 +378,39 @@ func handleServiceControl(rawAction, configPath string) error {
 		fmt.Println("YaseirAgent service installed successfully")
 		return nil
 	case "uninstall":
-		status, err := s.Status()
+		if err := stopServiceForRemoval(s); err != nil {
+			return err
+		}
+		removed, err := uninstallServiceIfPresent(s)
 		if err != nil {
-			return fmt.Errorf("read service status before removal: %w", err)
+			return err
 		}
-		if status != service.StatusStopped {
-			return fmt.Errorf("YaseirAgent must be stopped before removal")
+		if err := purgeAgentData(); err != nil {
+			return err
 		}
-		if err := s.Uninstall(); err != nil {
-			return fmt.Errorf("uninstall service failed: %w", err)
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services during uninstall: %w", err)
 		}
-		fmt.Println("YaseirAgent service uninstalled successfully")
+		if removed {
+			fmt.Println("YaseirAgent service uninstalled and all local Agent data purged successfully")
+		} else {
+			fmt.Println("YaseirAgent service is already uninstalled; all local Agent data was purged")
+		}
+		return nil
+	case "purge":
+		if err := stopServiceForRemoval(s); err != nil {
+			return err
+		}
+		if _, err := uninstallServiceIfPresent(s); err != nil {
+			return err
+		}
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services during purge: %w", err)
+		}
+		if err := purgeInstallationData(); err != nil {
+			return err
+		}
+		fmt.Println("YaseirAgent service and all local Yaseir application data purged successfully")
 		return nil
 	case "start":
 		if err := s.Start(); err != nil {
@@ -355,13 +431,13 @@ func handleServiceControl(rawAction, configPath string) error {
 		fmt.Println("YaseirAgent service restarted successfully")
 		return nil
 	default:
-		return fmt.Errorf("unknown service action: %q (expected install, uninstall, start, stop, restart, status)", rawAction)
+		return fmt.Errorf("unknown service action: %q (expected install, uninstall, purge, start, stop, restart, status)", rawAction)
 	}
 }
 
 func main() {
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
-	svcFlag := flag.String("service", "", "Control the system service: install, uninstall, start, stop, restart, status")
+	svcFlag := flag.String("service", "", "Control the system service: install, uninstall, purge, start, stop, restart, status")
 	flag.Parse()
 
 	// 1. Service control path: dispatch immediately without reading config or initializing agent
@@ -372,7 +448,15 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 2. Normal runtime path
+	// 2. Normal runtime path. Enforce one runtime process per machine even
+	// when the executable is launched manually or two desktop starts race.
+	releaseRuntimeSingleton, err := acquireAgentRuntimeSingleton()
+	if err != nil {
+		log.Printf("Refusing duplicate Agent runtime: %v", err)
+		return
+	}
+	defer releaseRuntimeSingleton()
+
 	// Logging setup
 	logRotator, err := setupLogging(*configPath)
 	if err != nil {

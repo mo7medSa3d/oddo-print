@@ -372,7 +372,7 @@ function ConsoleShell({
               >
                 <Search className="h-4 w-4" aria-hidden />
               </button>
-              <LanguageSwitcher align="start" compact className="w-auto" />
+              <LanguageSwitcher align="start" placement="above" compact className="w-auto" />
               <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} compact />
               <button
                 type="button"
@@ -388,7 +388,7 @@ function ConsoleShell({
             <div className="space-y-2">
               <CommandHint onOpen={() => setPaletteOpen(true)} />
               <div className="flex items-center gap-2">
-                <LanguageSwitcher align="start" className="shrink-0" />
+                <LanguageSwitcher align="start" placement="above" className="shrink-0" />
                 <div className="min-w-0 flex-1">
                   <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} />
                 </div>

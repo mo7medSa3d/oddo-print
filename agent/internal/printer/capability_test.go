@@ -27,6 +27,8 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"spooler raw passthrough with explicit caps", "raw", "raw", "spooler", "spooler", []string{"raw", "pdf", "image"}, true},
 		{"spooler escpos passthrough requires explicit declaration", "escpos", "escpos", "spooler", "spooler", nil, false},
 		{"spooler escpos passthrough with explicit caps", "escpos", "escpos", "spooler", "spooler", []string{"escpos", "pdf", "image"}, true},
+		{"spooler escpos-only declaration keeps pdf baseline", "pdf", "", "spooler", "spooler", []string{"escpos"}, true},
+		{"spooler escpos-only declaration keeps image baseline", "image", "", "spooler", "spooler", []string{"escpos"}, true},
 		{"spooler does not imply zpl language", "raw", "zpl", "spooler", "spooler", nil, false},
 		{"pdf needs a document transport", "pdf", "", "raw", "network", nil, false},
 		{"pdf never carries a protocol", "pdf", "raw", "spooler", "spooler", nil, false},

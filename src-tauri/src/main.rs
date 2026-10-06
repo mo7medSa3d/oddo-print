@@ -9,7 +9,94 @@ mod tray;
 
 use tauri::Manager;
 
+#[cfg(windows)]
+struct SingleInstanceGuard(*mut std::ffi::c_void);
+
+#[cfg(windows)]
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateMutexW(
+        mutex_attributes: *mut std::ffi::c_void,
+        initial_owner: i32,
+        name: *const u16,
+    ) -> *mut std::ffi::c_void;
+    fn GetLastError() -> u32;
+    fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn FindWindowW(class_name: *const u16, window_name: *const u16) -> *mut std::ffi::c_void;
+    fn ShowWindow(window: *mut std::ffi::c_void, command: i32) -> i32;
+    fn SetForegroundWindow(window: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+fn focus_existing_manager_window() {
+    const SW_RESTORE: i32 = 9;
+    let title: Vec<u16> = "Yaseir Print Manager".encode_utf16().chain(Some(0)).collect();
+    let window = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+    if !window.is_null() {
+        unsafe {
+            ShowWindow(window, SW_RESTORE);
+            SetForegroundWindow(window);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn acquire_single_instance() -> Result<Option<SingleInstanceGuard>, String> {
+    const ERROR_ALREADY_EXISTS: u32 = 183;
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    let name: Vec<u16> = "Global\\YaseirPrintManager.SingleInstance.v1"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
+    if handle.is_null() {
+        let error = unsafe { GetLastError() };
+        // A manager running at a different integrity level/session can own the
+        // machine-wide mutex while denying MUTEX_ALL_ACCESS to this process.
+        // Treat that as "already running" rather than allowing a second
+        // manager to race Agent startup.
+        if error == ERROR_ACCESS_DENIED {
+            focus_existing_manager_window();
+            return Ok(None);
+        }
+        return Err(format!(
+            "CreateMutexW failed while enforcing single-instance startup: {error}"
+        ));
+    }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe {
+            CloseHandle(handle);
+        }
+        focus_existing_manager_window();
+        return Ok(None);
+    }
+    Ok(Some(SingleInstanceGuard(handle)))
+}
+
 fn main() {
+    #[cfg(windows)]
+    let _single_instance_guard = match acquire_single_instance() {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("[yaseir-manager] {error}");
+            std::process::exit(1);
+        }
+    };
     // Initialize file logging before the Tauri builder so startup failures are
     // visible in a writable ProgramData location rather than disappearing.
     if logging::init().is_none() {

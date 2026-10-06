@@ -1227,19 +1227,77 @@ export function Menu({
   menuClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [floatingPosition, setFloatingPosition] = useState<{
+    top: number;
+    left: number;
+    maxHeight: number;
+  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const focusPendingRef = useRef(false);
 
   const close = useCallback((restoreFocus = true) => {
+    focusPendingRef.current = false;
     setOpen(false);
+    setFloatingPosition(null);
     if (restoreFocus) triggerRef.current?.focus();
   }, []);
 
+  const updateFloatingPosition = useCallback(() => {
+    if (!open || !triggerRef.current || !menuRef.current) return;
+
+    const triggerRect = triggerRef.current.getBoundingClientRect();
+    const menuRect = menuRef.current.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = window.innerHeight;
+    const viewportPadding = 8;
+    const gap = 6;
+    const roomBelow = Math.max(0, viewportHeight - triggerRect.bottom - gap - viewportPadding);
+    const roomAbove = Math.max(0, triggerRect.top - gap - viewportPadding);
+    const naturalHeight = Math.max(menuRect.height, menuRef.current.scrollHeight);
+
+    let resolvedPlacement = placement;
+    if (placement === "below" && naturalHeight > roomBelow && roomAbove > roomBelow) {
+      resolvedPlacement = "above";
+    } else if (placement === "above" && naturalHeight > roomAbove && roomBelow > roomAbove) {
+      resolvedPlacement = "below";
+    }
+
+    const availableHeight = resolvedPlacement === "below" ? roomBelow : roomAbove;
+    const maxHeight = Math.max(0, availableHeight);
+    const renderedHeight = Math.min(naturalHeight, maxHeight);
+    const top =
+      resolvedPlacement === "below"
+        ? Math.min(triggerRect.bottom + gap, viewportHeight - viewportPadding)
+        : Math.max(viewportPadding, triggerRect.top - gap - renderedHeight);
+
+    const direction = window.getComputedStyle(triggerRef.current).direction;
+    const isRtl = direction === "rtl";
+    const menuWidth = Math.min(menuRect.width, Math.max(0, viewportWidth - viewportPadding * 2));
+    let left: number;
+
+    if (align === "end") {
+      left = isRtl ? triggerRect.left : triggerRect.right - menuWidth;
+    } else {
+      left = isRtl ? triggerRect.right - menuWidth : triggerRect.left;
+    }
+
+    left = Math.max(viewportPadding, Math.min(left, viewportWidth - menuWidth - viewportPadding));
+    setFloatingPosition({ top, left, maxHeight });
+  }, [align, open, placement]);
+
   useEffect(() => {
     if (!open) return;
+
+    let frame = window.requestAnimationFrame(updateFloatingPosition);
+    const onViewportChange = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateFloatingPosition);
+    };
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) close(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1247,18 +1305,31 @@ export function Menu({
         close();
       }
     };
+
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    const focusTimer = window.setTimeout(() => {
-      const first = menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])');
-      first?.focus();
-    }, 0);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
+
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
-      window.clearTimeout(focusTimer);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
+      window.cancelAnimationFrame(frame);
     };
-  }, [open, close]);
+  }, [open, close, updateFloatingPosition]);
+
+  useEffect(() => {
+    if (!open || !floatingPosition || !focusPendingRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!focusPendingRef.current) return;
+      focusPendingRef.current = false;
+      const first = menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])');
+      first?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, floatingPosition]);
 
   const onMenuKeyDown = (event: React.KeyboardEvent) => {
     const nodes = Array.from(
@@ -1279,9 +1350,69 @@ export function Menu({
       event.preventDefault();
       nodes[nodes.length - 1]?.focus();
     } else if (event.key === "Tab") {
-      setOpen(false);
+      close(false);
     }
   };
+
+  const menuNode =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={label}
+            onKeyDown={onMenuKeyDown}
+            style={{
+              position: "fixed",
+              top: floatingPosition?.top ?? 0,
+              left: floatingPosition?.left ?? 0,
+              maxHeight: floatingPosition?.maxHeight,
+              visibility: floatingPosition ? "visible" : "hidden",
+            }}
+            className={`yz-menu-in menu-surface z-50 min-w-[210px] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1.5 ${menuClassName}`}
+          >
+            {items.map((item) => (
+              <React.Fragment key={item.key}>
+                {item.separatorBefore && <div className="my-1 h-px bg-edge-subtle" role="separator" />}
+                {item.href ? (
+                  <Link
+                    href={item.href}
+                    role="menuitem"
+                    tabIndex={-1}
+                    aria-disabled={item.disabled || undefined}
+                    data-variant={item.tone === "danger" ? "danger" : undefined}
+                    className="menu-item"
+                    onClick={() => close(false)}
+                  >
+                    {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    disabled={item.disabled}
+                    aria-disabled={item.disabled || undefined}
+                    data-variant={item.tone === "danger" ? "danger" : undefined}
+                    className="menu-item disabled:pointer-events-none disabled:opacity-45"
+                    onClick={() => {
+                      close(false);
+                      item.onSelect?.();
+                    }}
+                  >
+                    {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
+                    <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>
+                    {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
+                  </button>
+                )}
+              </React.Fragment>
+            ))}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div ref={rootRef} className={`relative inline-flex ${className}`}>
@@ -1291,61 +1422,19 @@ export function Menu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (open) close(false);
+          else {
+            focusPendingRef.current = true;
+            setFloatingPosition(null);
+            setOpen(true);
+          }
+        }}
         className={`inline-flex w-full items-center ${focusRing}`}
       >
         {trigger}
       </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={label}
-          onKeyDown={onMenuKeyDown}
-          className={`yz-menu-in menu-surface absolute z-50 min-w-[210px] p-1.5 ${
-            placement === "above" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
-          } ${align === "end" ? "end-0" : "start-0"} ${menuClassName}`}
-        >
-          {items.map((item) => (
-            <React.Fragment key={item.key}>
-              {item.separatorBefore && <div className="my-1 h-px bg-edge-subtle" role="separator" />}
-              {item.href ? (
-                <Link
-                  href={item.href}
-                  role="menuitem"
-                  tabIndex={-1}
-                  aria-disabled={item.disabled || undefined}
-                  data-variant={item.tone === "danger" ? "danger" : undefined}
-                  className="menu-item"
-                  onClick={() => setOpen(false)}
-                >
-                  {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  disabled={item.disabled}
-                  aria-disabled={item.disabled || undefined}
-                  data-variant={item.tone === "danger" ? "danger" : undefined}
-                  className="menu-item disabled:pointer-events-none disabled:opacity-45"
-                  onClick={() => {
-                    setOpen(false);
-                    item.onSelect?.();
-                  }}
-                >
-                  {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
-                  <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>
-                  {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
-                </button>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      )}
+      {menuNode}
     </div>
   );
 }
@@ -1936,8 +2025,8 @@ export function Toast({
   const tone: Tone = toast.type === "success" ? "ok" : toast.type === "error" ? "bad" : "info";
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={toast.type === "error" ? "alert" : "status"}
+      aria-live={toast.type === "error" ? "assertive" : "polite"}
       className={`pg-toast-in fixed bottom-5 end-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-xl backdrop-blur-xl ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (

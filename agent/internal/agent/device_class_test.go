@@ -8,6 +8,10 @@ import (
 	"github.com/yaseir-agent/agent/internal/printer"
 )
 
+type statusDetailPrinter struct{ fakePrinter }
+
+func (p *statusDetailPrinter) StatusDetail() string { return "paused" }
+
 // TestHeartbeatPrinterStatusEmitsGatewayClassEnums pins the fix for the defect
 // found in the live Gateway<->Agent run: every heartbeat was rejected with
 //
@@ -137,5 +141,34 @@ func TestNormalizePrinterTypePreservesGatewayClasses(t *testing.T) {
 		if got := normalizePrinterType(in); got != want {
 			t.Errorf("normalizePrinterType(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestHeartbeatPublishesProtocolStatusDetailWithoutChangingHealth(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Agent.ID = "agt_status_detail"
+	cfg.Agent.Secret = "secret"
+	cfg.Server.URL = "http://127.0.0.1:1"
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = ag.Close() }()
+	p := &statusDetailPrinter{}
+	p.status = "error"
+	ag.printers = map[string]printer.Printer{"ipp-1": p}
+	ag.printerConfigs = map[string]config.PrinterConfig{
+		"ipp-1": {ID: "ipp-1", Name: "IPP", Type: "ipp", Protocol: "ipp", Endpoint: "http://127.0.0.1:631/ipp/print"},
+	}
+	payload := ag.printerStatusPayload()
+	if len(payload) != 1 {
+		t.Fatalf("payload len=%d want 1", len(payload))
+	}
+	if payload[0]["status"] != "error" {
+		t.Fatalf("status=%v want error", payload[0]["status"])
+	}
+	caps, _ := payload[0]["capabilities"].(map[string]interface{})
+	if caps["status_detail"] != "paused" {
+		t.Fatalf("status_detail=%v want paused", caps["status_detail"])
 	}
 }

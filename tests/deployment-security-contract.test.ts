@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const compose = readFileSync("docker-compose.yml", "utf8");
 const caddy = readFileSync("Caddyfile", "utf8");
 const windowsWorkflow = readFileSync(".github/workflows/build-windows.yml", "utf8");
+const nsisHooks = readFileSync("src-tauri/installer_hooks.nsh", "utf8");
+const agentMain = readFileSync("agent/cmd/agent/main.go", "utf8");
 const runtimeSecret = readFileSync("src/lib/runtime-secret.ts", "utf8");
 const server = readFileSync("server.ts", "utf8");
 
@@ -37,6 +39,24 @@ describe("deployment security contracts", () => {
     expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
     expect(caddy).not.toContain("header_up X-Forwarded-For");
     expect(caddy).toContain("header_up -X-Real-Ip");
+  });
+
+  it("keeps the NSIS Agent service lifecycle safe and preserves legacy config selection", () => {
+    // NSIS is the single CI-produced Windows installer. Keep the lifecycle
+    // contract focused on the package we actually ship instead of forcing an
+    // unused MSI build back into the slow Windows workflow.
+    expect(windowsWorkflow).toContain("Build Tauri Windows NSIS installer");
+    expect(windowsWorkflow).not.toContain("Build Tauri Windows installer (MSI + NSIS EXE)");
+    expect(nsisHooks).toContain('"$1" -service install');
+    expect(nsisHooks).not.toContain('-service install -config');
+    expect(nsisHooks).toContain('sc delete YasserAgent');
+    expect(nsisHooks).toContain('sc delete OdooPrintAgent');
+    expect(agentMain).toContain('errors.Is(err, service.ErrNotInstalled)');
+    expect(agentMain).toContain('errors.Is(statusErr, service.ErrNotInstalled)');
+    expect(agentMain).toContain('YaseirAgent service is already uninstalled');
+    expect(windowsWorkflow).toContain('NSIS did not install the YaseirAgent Windows service');
+    expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
+    expect(windowsWorkflow).toContain('NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed.');
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {

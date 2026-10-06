@@ -9,7 +9,7 @@ import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
-import { getEffectivePrinterStatus, isAgentAvailableForJob } from "../../../lib/agent-availability";
+import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObservationFreshness, isAgentAvailableForJob } from "../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 import { logError } from "../../../lib/log";
 
@@ -48,11 +48,15 @@ export async function GET(req: Request) {
     .offset(offset);
   return NextResponse.json(rows.map(({ printer, agent }) => ({
     ...printer,
+    reportedStatus: printer.status,
+    freshness: getPrinterObservationFreshness(printer.lastSeenAt, now),
     status: getEffectivePrinterStatus(printer, agent, now),
     agentName: agent?.name ?? null,
     // Must match the canonical presence gate (lifecycle + status + freshness),
     // not just lifecycle + status, or a stale agent renders online here while
     // every claim gate and health view reports offline.
+    agentReportedStatus: agent?.status ?? null,
+    agentFreshness: getAgentHeartbeatFreshness(agent?.lastSeenAt ?? null, now),
     agentStatus: agent && isAgentAvailableForJob(agent, now) ? "online" : "offline",
     agentLifecycle: agent?.lifecycle ?? null,
     agentLastSeenAt: agent?.lastSeenAt ?? null,
@@ -111,7 +115,7 @@ export async function POST(req: Request) {
         if (!agentLifecycle) throw new Error("agentId not found");
         if (agentLifecycle !== "active") throw new Error(`agent is ${agentLifecycle}`);
         await enforceTenantResourceEntitlement(tx, tenantId, "max_printers",
-          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND lifecycle <> 'retired'`);
+          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`);
         const inserted = await tx.insert(printers).values({
           id, tenantId: tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,

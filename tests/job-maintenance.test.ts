@@ -8,7 +8,7 @@ import {
   pool,
   type Fixture,
 } from "./helpers/pg";
-import { sweepPrintJobs, MAX_RETRIES } from "../src/lib/job-maintenance";
+import { cleanupTerminalPrintJobs, sweepPrintJobs, MAX_RETRIES } from "../src/lib/job-maintenance";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { GET as agentJobsGET } from "../src/app/api/agent/jobs/route";
 
@@ -115,6 +115,35 @@ suite("server-side print job maintenance", () => {
     const row = await pool().query(`SELECT status, error FROM print_jobs WHERE id = $1`, ["job-expired-printing"]);
     expect(row.rows[0].status).toBe("expired");
     expect(row.rows[0].error).toContain("JOB_EXPIRED_DURING_PRINT");
+  });
+
+  it("archives and removes terminal payload history after 48 hours without deleting active/recent jobs", async () => {
+    await insertJob("retention-old-success", "success", 0, 49 * 60 * 60, 3600);
+    await insertJob("retention-old-unknown", "failed", 0, 49 * 60 * 60, 3600);
+    await pool().query(
+      "UPDATE print_jobs SET error = 'UNKNOWN_PARTIAL_DELIVERY: historical evidence' WHERE id = $1",
+      ["retention-old-unknown"],
+    );
+    await insertJob("retention-recent-success", "success", 0, 47 * 60 * 60, 3600);
+    await insertJob("retention-active", "queued", 0, 49 * 60 * 60, 3600);
+
+    expect(await cleanupTerminalPrintJobs()).toBe(2);
+
+    const remaining = await pool().query("SELECT id FROM print_jobs ORDER BY id");
+    const ids = remaining.rows.map((row) => row.id);
+    expect(ids).toContain("retention-recent-success");
+    expect(ids).toContain("retention-active");
+    expect(ids).not.toContain("retention-old-success");
+    expect(ids).not.toContain("retention-old-unknown");
+
+    const receipts = await pool().query(
+      "SELECT id FROM print_job_receipts WHERE id IN ($1, $2) ORDER BY id",
+      ["retention-old-success", "retention-old-unknown"],
+    );
+    expect(receipts.rows.map((row) => row.id)).toEqual([
+      "retention-old-success",
+      "retention-old-unknown",
+    ]);
   });
 
   it("fails a stale printing lease after retry history without creating another print attempt", async () => {

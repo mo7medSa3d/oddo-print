@@ -108,10 +108,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 continue
             raw_name = agent.get('name') if isinstance(agent.get('name'), str) and agent.get('name').strip() else agent_id
             status = agent.get('status') if isinstance(agent.get('status'), str) else 'offline'
+            reported_status = agent.get('reportedStatus') if isinstance(agent.get('reportedStatus'), str) else status
+            freshness = agent.get('freshness') if agent.get('freshness') in {'fresh', 'stale', 'missing'} else 'missing'
             sanitized.append({
                 'id': agent_id,
                 'name': raw_name,
                 'status': status,
+                'reportedStatus': reported_status,
+                'freshness': freshness,
+                'lastSeenAt': agent.get('lastSeenAt') if isinstance(agent.get('lastSeenAt'), str) else False,
             })
         # Binding pickers must only expose Agents explicitly assigned to the
         # selected Odoo Company + Branch. The Pair Agent wizard deliberately
@@ -211,13 +216,28 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             returned_agent_id = agent.get('id') if isinstance(agent.get('id'), str) else ''
             if lifecycle != 'active' or returned_agent_id != selected_agent_id:
                 continue
+            capabilities = printer.get('capabilities') if isinstance(printer.get('capabilities'), dict) else {}
+            raw_supported = capabilities.get('supported_protocols')
+            supported_protocols = []
+            if isinstance(raw_supported, list):
+                allowed_protocols = {'pdf', 'image', 'raw', 'escpos', 'zpl', 'tspl', 'spooler', 'ipp', 'ipps'}
+                for value in raw_supported:
+                    if not isinstance(value, str):
+                        continue
+                    normalized = value.strip().lower()
+                    if normalized in allowed_protocols and normalized not in supported_protocols:
+                        supported_protocols.append(normalized)
             sanitized.append({
                 'id': printer_id,
                 'name': printer.get('name') if isinstance(printer.get('name'), str) else printer_id,
                 'status': printer.get('status') if isinstance(printer.get('status'), str) else 'unknown',
+                'reportedStatus': printer.get('reportedStatus') if isinstance(printer.get('reportedStatus'), str) else 'unknown',
+                'freshness': printer.get('freshness') if printer.get('freshness') in {'fresh', 'stale', 'missing'} else 'missing',
+                'lastSeenAt': printer.get('lastSeenAt') if isinstance(printer.get('lastSeenAt'), str) else False,
                 'deviceClass': printer.get('deviceClass') if isinstance(printer.get('deviceClass'), str) else 'unknown',
                 'connectionType': printer.get('connectionType') if isinstance(printer.get('connectionType'), str) else 'unknown',
                 'protocol': printer.get('protocol') if isinstance(printer.get('protocol'), str) else 'unknown',
+                'capabilities': {'supported_protocols': supported_protocols},
                 'agentId': returned_agent_id,
                 'agentName': agent.get('name') if isinstance(agent.get('name'), str) else selected_agent_id,
             })

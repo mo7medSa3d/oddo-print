@@ -233,6 +233,23 @@ suite("gateway runtime printer availability + payload capability contract", () =
     expect((await pool().query(`SELECT count(*)::int AS n FROM print_jobs`)).rows[0].n).toBe(0);
   });
 
+  it("rejects enqueue for a printer confirmed absent from the Agent inventory", async () => {
+    await pool().query(
+      `UPDATE printers SET inventory_present = false, status = 'unknown', last_seen_at = now() WHERE id = $1 AND tenant_id = $2`,
+      [f.printerId, f.tenantId],
+    );
+
+    const res = await create({
+      printerId: f.printerId,
+      destination: "POS",
+      documentType: "receipt",
+      payload: { type: "raw", protocol: "raw", encoding: "base64", data: rawBase64() },
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "PRINTER_UNAVAILABLE" });
+    expect((await pool().query(`SELECT count(*)::int AS n FROM print_jobs`)).rows[0].n).toBe(0);
+  });
+
   it("rejects an incompatible payload with 422", async () => {
     await pool().query(
       `UPDATE printers SET protocol = 'raw', connection_type = 'network', capabilities = $1::jsonb WHERE id = $2`,

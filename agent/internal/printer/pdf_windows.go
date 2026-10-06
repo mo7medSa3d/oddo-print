@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"sync"
 	"unsafe"
 
@@ -101,6 +102,7 @@ var (
 	procEndPage           = modGDI32.NewProc("EndPage")
 	procStretchDIBits     = modGDI32.NewProc("StretchDIBits")
 	procSetStretchBltMode = modGDI32.NewProc("SetStretchBltMode")
+	procSetBrushOrgEx     = modGDI32.NewProc("SetBrushOrgEx")
 )
 
 func getPDFiumPool() (pdfium.Pool, error) {
@@ -143,14 +145,14 @@ func deviceCaps(hdc uintptr, index int) int {
 	return int(int32(ret))
 }
 
-func startGDIPrint(hdc uintptr, jobID, printerName string) error {
+func startGDIPrint(hdc uintptr, jobID, printerName string) (uint32, error) {
 	title := "YaseirAgent PDF"
 	if jobID != "" {
 		title += " " + jobID
 	}
 	titlePtr, err := windows.UTF16PtrFromString(title)
 	if err != nil {
-		return fmt.Errorf("encode print document name: %w", err)
+		return 0, fmt.Errorf("encode print document name: %w", err)
 	}
 	info := winDOCINFOW{
 		CbSize:      int32(unsafe.Sizeof(winDOCINFOW{})),
@@ -158,9 +160,9 @@ func startGDIPrint(hdc uintptr, jobID, printerName string) error {
 	}
 	ret, _, callErr := procStartDocW.Call(hdc, uintptr(unsafe.Pointer(&info)))
 	if int32(ret) <= 0 {
-		return fmt.Errorf("StartDocW(%q) failed: %w", printerName, callErr)
+		return 0, fmt.Errorf("StartDocW(%q) failed: %w", printerName, callErr)
 	}
-	return nil
+	return uint32(ret), nil
 }
 
 func endGDIPrint(hdc uintptr) error {
@@ -267,7 +269,14 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, printableWid
 		return err
 	}
 
-	procSetStretchBltMode.Call(hdc, halftone)
+	previousMode, _, modeErr := procSetStretchBltMode.Call(hdc, halftone)
+	if previousMode == 0 {
+		return fmt.Errorf("SetStretchBltMode(HALFTONE) failed: %w", modeErr)
+	}
+	brushOK, _, brushErr := procSetBrushOrgEx.Call(hdc, 0, 0, 0)
+	if brushOK == 0 {
+		return fmt.Errorf("SetBrushOrgEx after HALFTONE failed: %w", brushErr)
+	}
 	ret, _, callErr := procStretchDIBits.Call(
 		hdc,
 		uintptr(x), uintptr(y), uintptr(destinationWidth), uintptr(destinationHeight),
@@ -325,14 +334,34 @@ func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request 
 // platformPrintPDF reads the generated temporary PDF file and submits it to
 // the Windows GDI print pipeline rendered via embedded PDFium.
 func platformPrintPDF(ctx context.Context, printerName, pdfPath string) error {
-	data, err := os.ReadFile(pdfPath)
-	if err != nil {
-		return fmt.Errorf("read PDF file %q: %w", pdfPath, err)
-	}
-	return renderAndPrintPDFWithPDFium(ctx, printerName, data)
+	_, err := platformPrintPDFWithJobID(ctx, printerName, pdfPath)
+	return err
 }
 
-func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data []byte) (retErr error) {
+func platformPrintPDFWithJobID(ctx context.Context, printerName, pdfPath string) (string, error) {
+	return platformPrintPDFWithJobIDObserved(ctx, printerName, pdfPath, nil)
+}
+
+// platformPrintPDFWithJobIDObserved is the production result path used by the
+// Windows spooler backend when the caller must learn StartDocW's job identity
+// before the rest of the synchronous GDI session finishes. onJobID runs in the
+// GDI worker goroutine immediately after StartDocW succeeds; it must be fast
+// and must not touch the HDC.
+func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath string, onJobID func(uint32)) (string, error) {
+	data, err := os.ReadFile(pdfPath)
+	if err != nil {
+		return "", fmt.Errorf("read PDF file %q: %w", pdfPath, err)
+	}
+	var spoolerJobID uint32
+	printErr := renderAndPrintPDFWithPDFiumResultObserved(ctx, printerName, data, &spoolerJobID, onJobID)
+	jobID := ""
+	if spoolerJobID != 0 {
+		jobID = strconv.FormatUint(uint64(spoolerJobID), 10)
+	}
+	return jobID, printErr
+}
+
+func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32, onJobID func(uint32)) (retErr error) {
 	// Ctx-aware acquisition: a job that is already cancelled (or a service
 	// stop racing a long first render) must not block on the holder past
 	// the SCM stop bound. The holder checks ctx per page, so the wait is
@@ -351,7 +380,7 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		return err
 	}
 	if err := runPreflightBounded(printerName, preflightTimeout, ctx, func() error {
-		return preFlightSpoolerCheck(printerName)
+		return dispatchPreFlightSpoolerCheck(printerName)
 	}); err != nil {
 		return fmt.Errorf("pre-flight spooler check failed: %w", err)
 	}
@@ -370,8 +399,13 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		return fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
 	defer func() {
-		if err := instance.Close(); err != nil && retErr == nil {
-			retErr = fmt.Errorf("close embedded PDFium worker: %w", err)
+		if err := instance.Close(); err != nil {
+			// The renderer worker is process-local cleanup. Once EndDoc has
+			// succeeded, the Windows spooler has already accepted/finalized
+			// the document; a cleanup failure must never downgrade that
+			// submission into a definitely-not-printed failure. If printing
+			// itself already failed, preserve that primary error unchanged.
+			log.Printf("close embedded PDFium worker after print on %q: %v", printerName, err)
 		}
 	}()
 
@@ -435,9 +469,16 @@ func renderAndPrintPDFWithPDFium(ctx context.Context, printerName string, data [
 		return fmt.Errorf("prepare PDF page 1/%d bitmap: %w", pages.PageCount, err)
 	}
 
-	if err := startGDIPrint(hdc, "embedded-pdf", printerName); err != nil {
+	gdiJobID, err := startGDIPrint(hdc, "embedded-pdf", printerName)
+	if err != nil {
 		cleanup()
 		return err
+	}
+	if spoolerJobID != nil {
+		*spoolerJobID = gdiJobID
+	}
+	if onJobID != nil {
+		onJobID(gdiJobID)
 	}
 	docStarted := true
 	docEnded := false

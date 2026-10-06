@@ -46,6 +46,7 @@ import {
   getAutostart,
   isRunningAsAdmin,
   getGatewayUrl,
+  getPrinters,
   fetchGatewayPrinters,
   updateGatewayPrinter,
   getRuntimePaths,
@@ -70,6 +71,7 @@ import {
   printerAgentView,
   errMsg,
   friendlyPrinterError,
+  jobFailurePresentation,
   humanConnection,
   humanType,
   isProductionPrinter,
@@ -84,7 +86,9 @@ import {
   labelJob,
   toneJob,
   labelPrinter,
+  printerDisplayStatus,
   printerEndpoint,
+  printerIsStale,
   printerTone,
   jobTimestamp,
 } from "./lib/printers";
@@ -137,6 +141,7 @@ export default function App() {
   const savedOriginRef = useRef(savedGatewayUrl);
   useEffect(() => { savedOriginRef.current = savedGatewayUrl; }, [savedGatewayUrl]);
   const printersGeneration = useRef(0);
+  const localPrintersGeneration = useRef(0);
   const jobsGeneration = useRef(0);
   const healthGeneration = useRef(0);
   const configurationFlight = useRef(false);
@@ -157,6 +162,7 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
+  const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
   const [printersFilter, setPrintersFilter] = useState("");
@@ -188,6 +194,21 @@ export default function App() {
       setAgentStatus({ error: friendlyAgentError(errMsg(e), locale) });
     }
   }, [locale]);
+
+  const refreshLocalPrinters = useCallback(async () => {
+    if (!isTauri) return false;
+    const generation = ++localPrintersGeneration.current;
+    try {
+      const list = await getPrinters();
+      if (generation !== localPrintersGeneration.current) return false;
+      setDiscoveredPrinters(list.filter(isProductionPrinter));
+      return true;
+    } catch {
+      // Local inventory is supplementary to the Gateway view. Do not turn a
+      // local registry read failure into a false remote printer outage.
+      return false;
+    }
+  }, []);
 
   const refreshPrinters = useCallback(async () => {
     if (!savedGatewayUrl) {
@@ -261,7 +282,10 @@ export default function App() {
   }, [locale]);
 
   const checkHealth = useCallback(async () => {
-    const raw = savedGatewayUrl.trim();
+    // Check the operator's current draft, not the last persisted origin.
+    // The candidate is persisted immediately before probing so the Tauri
+    // request uses exactly this normalized URL, with rollback on failure.
+    const raw = gatewayUrl.trim();
     if (!raw) {
       setHealth(null);
       setCheckedGatewayUrl("");
@@ -330,16 +354,21 @@ export default function App() {
     if (!isTauri) return;
     setPrintersLoading(true);
     setPrintersError(null);
+    setDiscoveryWarning(null);
     try {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
+      const warning = res.errors.length > 0 ? t("desktop.app.discoveryWarningsSummary", { count: res.errors.length }) : null;
+      setDiscoveryWarning(warning);
       const refreshed = await refreshPrinters();
       setMsg({
         text: list.length === 0
           ? t("desktop.app.noPhysicalPrinters")
-          : t("desktop.app.discoveryFound", { count: list.length }),
-        type: refreshed && list.length > 0 ? "success" : "info",
+          : warning
+            ? t("desktop.app.discoveryPartial", { count: list.length })
+            : t("desktop.app.discoveryFound", { count: list.length }),
+        type: warning || !refreshed ? "info" : list.length > 0 ? "success" : "info",
       });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e), locale));
@@ -389,8 +418,10 @@ export default function App() {
         setBusyBoth(false);
       }
     },
-    [savedGatewayUrl, refreshJobs, setBusyBoth]
-  );  const handleEditSaved = useCallback(async () => {
+    [savedGatewayUrl, refreshJobs, setBusyBoth, t, locale]
+  );
+
+  const handleEditSaved = useCallback(async () => {
     setEditingPrinter(null);
     await refreshPrinters();
     setMsg({ text: t("desktop.app.printerConfigUpdated"), type: "success" });
@@ -401,8 +432,8 @@ export default function App() {
   const startAgent = useCallback(async () => {
     try {
       setBusyBoth(true);
-      const m = await ipcStartAgent();
-      setMsg({ text: m, type: "success" });
+      await ipcStartAgent();
+      setMsg({ text: t("desktop.app.agentStarted"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
@@ -415,21 +446,21 @@ export default function App() {
     setConfirmStop(false);
     try {
       setBusyBoth(true);
-      const m = await ipcStopAgent();
-      setMsg({ text: m, type: "success" });
+      await ipcStopAgent();
+      setMsg({ text: t("desktop.app.agentStopped"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth, locale]);
+  }, [refreshStatus, setBusyBoth, t, locale]);
 
   const restartAgent = useCallback(async () => {
     try {
       setBusyBoth(true);
-      const m = await ipcRestartAgent();
-      setMsg({ text: m, type: "success" });
+      await ipcRestartAgent();
+      setMsg({ text: t("desktop.app.agentRestarted"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
@@ -449,8 +480,8 @@ export default function App() {
     }
     try {
       setBusyBoth(true);
-      const r = await pairAgent(pairCode.trim(), savedGatewayUrl);
-      setMsg({ text: r || t("desktop.app.agentPaired"), type: "success" });
+      await pairAgent(pairCode.trim(), savedGatewayUrl);
+      setMsg({ text: t("desktop.app.agentPaired"), type: "success" });
       setPairCode("");
       refreshStatus();
       await Promise.all([refreshPrinters(), refreshJobs()]);
@@ -476,7 +507,9 @@ export default function App() {
         setGw(v);
         setSavedGatewayUrl(v);
       })
-      .catch(() => {});
+      .catch(() => {
+        setMsg({ text: t("desktop.app.gatewaySettingsReadFailed"), type: "error" });
+      });
     getRuntimePaths()
       .then(setRuntimePaths)
       .catch(() => {});
@@ -484,9 +517,10 @@ export default function App() {
       .then((st) => setAutostartState(st.enabled))
       .catch(() => {});
     refreshStatus();
+    void refreshLocalPrinters();
     const id = setInterval(refreshStatus, 30000);
     return () => clearInterval(id);
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshLocalPrinters, t]);
 
   useEffect(() => {
     if (!isTauri || !savedGatewayUrl) return;
@@ -569,7 +603,7 @@ export default function App() {
       savedOriginRef.current = url;
       ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
       setPrintersLoading(false); setJobsLoading(false);
-      setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); setDiscoveredPrinters([]);
+      setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); void refreshLocalPrinters();
       setSavedGatewayUrl(url);
       setGw(url);
       setJobs([]);
@@ -593,7 +627,7 @@ export default function App() {
       unlisten?.();
       unlisten = undefined;
     };
-  }, [probeGateway, refreshStatus]);
+  }, [probeGateway, refreshStatus, refreshLocalPrinters, t]);
 
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
@@ -643,7 +677,7 @@ export default function App() {
       );
     }
     if (statusFilter !== "all") {
-      list = list.filter((p) => p.status === statusFilter);
+      list = list.filter((p) => statusFilter === "stale" ? p.freshness === "stale" : p.status === statusFilter);
     }
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [physicalPrinters, printersFilter, statusFilter]);
@@ -717,21 +751,11 @@ export default function App() {
   );
 
   const nav: NavItem[] = [
-    {
-      id: "dashboard",
-      label: t("desktop.nav.overview"),
-      icon: LayoutDashboard,
-      desc: isOnline ? t("desktop.nav.operational") : t("desktop.nav.checkStatus"),
-    },
-    { id: "printers", label: t("desktop.nav.printers"), icon: PrinterIcon, desc: t("desktop.nav.totalCount", { count: totalPrinters }) },
-    { id: "jobs", label: t("desktop.nav.printJobs"), icon: ClipboardList, desc: t("desktop.nav.pendingCount", { count: pendingJobs }) },
-    {
-      id: "agents",
-      label: t("desktop.nav.agents"),
-      icon: Cpu,
-      desc: isOnline ? t("desktop.nav.localOnline") : t("desktop.nav.localStopped"),
-    },
-    { id: "settings", label: t("desktop.nav.settings"), icon: SettingsIcon, desc: t("desktop.nav.gatewayAndAgent") },
+    { id: "dashboard", label: t("desktop.nav.overview"), icon: LayoutDashboard },
+    { id: "printers", label: t("desktop.nav.printers"), icon: PrinterIcon },
+    { id: "jobs", label: t("desktop.nav.printJobs"), icon: ClipboardList },
+    { id: "agents", label: t("desktop.nav.agents"), icon: Cpu },
+    { id: "settings", label: t("desktop.nav.settings"), icon: SettingsIcon },
   ];
 
   // Headings carry no subtitle where the panels already state their content.
@@ -781,6 +805,8 @@ export default function App() {
     setPairCode,
     pair,
     printers: physicalPrinters,
+    discoveredPrinters,
+    discoveryWarning,
     printersLoading,
     printersError,
     printersFilter,
@@ -856,7 +882,7 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:ps-[72px]" : "lg:ps-[276px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:ps-[72px]" : "lg:ps-[248px]"}`}
       >
         <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-4 py-4 backdrop-blur-xl lg:px-7">
           <div className="flex items-center gap-4">
@@ -986,10 +1012,11 @@ export default function App() {
         {selectedPrinter && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 rounded-xl border border-edge-accent bg-surface-accent px-5 py-4">
-              <StatusDot tone={printerTone(selectedPrinter.status)} />
+              <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter))} />
               <span className="text-lg font-semibold text-ink">
-                {labelPrinter(selectedPrinter.status, locale)}
+                {labelPrinter(printerDisplayStatus(selectedPrinter), locale)}
               </span>
+              {printerIsStale(selectedPrinter) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}
               <span className="ms-auto text-sm text-ink-3">
                 {humanType(selectedPrinter, locale)}
               </span>
@@ -1125,14 +1152,15 @@ export default function App() {
                   // is still unverified, but it is NOT an ambiguous failure, so
                   // it must not render the "outcome unknown" banner.
                   const unknown = jobStatus(selectedJob) !== "success" && outcome === "unknown";
+                  const classified = jobFailurePresentation(String(selectedJob.error), locale);
                   return (
                     <>
                       <div className={`flex items-center gap-2 text-md font-semibold ${unknown ? "text-warn" : "text-bad"}`}>
                         <AlertTriangle className="h-5 w-5" aria-hidden />
-                        {unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed")}
+                        {classified?.title ?? (unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed"))}
                       </div>
                       <p className="mt-2 text-base leading-relaxed text-ink-2">
-                        {friendlyPrinterError(String(selectedJob.error), locale)}
+                        {classified?.guidance ?? friendlyPrinterError(String(selectedJob.error), locale)}
                       </p>
                       {!unknown && (
                         <p className="mt-3 text-sm text-ink-3">

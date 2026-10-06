@@ -24,15 +24,20 @@ import (
 var usbChunkTimeout = 30 * time.Second
 
 type USBPrinter struct {
-	ID           string
-	Name         string
-	VID          uint16
-	PID          uint16
-	SerialNumber string
-	DevicePath   string
-	USBLocation  string
+	ID             string
+	Name           string
+	VID            uint16
+	PID            uint16
+	SerialNumber   string
+	DevicePath     string
+	USBLocation    string
+	Protocol       string
+	SupportsESCPOS bool
 	// writeChunk performs one synchronous kernel write; injected in tests.
 	writeChunk func(h windows.Handle, chunk []byte) (uint32, error)
+	// closeHandle releases the Windows device handle; injected in tests so
+	// ownership transfer on abandoned writes can be asserted without races.
+	closeHandle func(h windows.Handle) error
 	// wedged latches once a chunk write had to be abandoned mid-syscall.
 	// Only pointer receivers ever exist (see factory.go), so atomic access
 	// is race-safe.
@@ -51,52 +56,67 @@ type usbChunkResult struct {
 	err error
 }
 
+// closeDeviceHandle centralizes handle release so the normal caller-owned path
+// and the abandoned helper-owned path cannot accidentally use different close
+// semantics. Close errors are diagnostic only: the physical print outcome was
+// already determined by the write path.
+func (p *USBPrinter) closeDeviceHandle(h windows.Handle) {
+	closeFn := p.closeHandle
+	if closeFn == nil {
+		closeFn = windows.CloseHandle
+	}
+	if err := closeFn(h); err != nil {
+		log.Printf("WARNING: CloseHandle failed for USB device %s: %v", p.Identify(), err)
+	}
+}
+
 // writeChunkBounded executes one chunk write on a helper goroutine so the
 // CALLER is bounded even when the kernel/driver call never returns. This
 // does NOT cancel the kernel write (a synchronous WriteFile cannot be
-// interrupted — claiming otherwise would be dishonest, and per Microsoft's
-// cancellation documentation there is no guarantee drivers honor
-// CancelSynchronousIo, which additionally carries thread-identity hazards
-// on shared goroutine stacks).
+// interrupted by the Go context, and Microsoft documents thread-targeted
+// CancelSynchronousIo as only an attempted cancellation whose driver support
+// is not guaranteed).
 //
-// Lifetime safety of the abandoned path, verified against the Win32 contract:
-//   - HANDLE: CloseHandle only decrements the handle count; the in-flight
-//     IRP holds its own reference to the file object, so Print's deferred
-//     CloseHandle neither aborts the pending write nor invalidates the
-//     helper's blocked call. The helper never touches the handle after
-//     WriteFile returns, and CloseHandle runs exactly once (the defer in
-//     Print) — no double-close, no use-after-close.
-//   - BUFFER: the chunk slice is captured by the helper closure, so the Go
-//     collector retains the backing array until the helper exits. No
-//     lifetime hazard by construction.
+// The third return value reports HANDLE OWNERSHIP TRANSFER. This is required
+// because cancellation can win immediately after the helper goroutine is
+// created but before it has entered WriteFile. Closing the handle in Print at
+// that point would let the helper later issue I/O through an invalid or reused
+// numeric handle. Therefore:
+//   - normal completion: the helper publishes its result, receives a
+//     keep-open decision, and Print remains the sole handle owner;
+//   - timeout/cancellation: Print transfers ownership before returning; the
+//     helper closes the handle exactly once after WriteFile eventually returns.
 //
-// On timeout or cancellation the in-flight syscall is abandoned, the outcome
-// is reported as UNKNOWN (bytes may already have been transmitted), and the
-// printer is latched wedged so no later job can interleave bytes with the
-// abandoned write. The abandoned helper holds no shared state and exits
-// whenever the driver finally completes; at most one exists per wedged
-// printer because every later Print refuses immediately.
-func (p *USBPrinter) writeChunkBounded(h windows.Handle, chunk []byte, cancel <-chan struct{}) (uint32, error) {
+// The chunk slice is captured by the helper closure, so the Go collector keeps
+// its backing array alive until the write returns.
+func (p *USBPrinter) writeChunkBounded(h windows.Handle, chunk []byte, cancel <-chan struct{}) (uint32, error, bool) {
 	write := p.writeChunk
 	if write == nil {
 		write = defaultUSBWriteChunk
 	}
 	done := make(chan usbChunkResult, 1)
+	closeWhenDone := make(chan bool, 1)
 	go func() {
 		n, err := write(h, chunk)
 		done <- usbChunkResult{n, err}
+		if <-closeWhenDone {
+			p.closeDeviceHandle(h)
+		}
 	}()
 	timer := time.NewTimer(usbChunkTimeout)
 	defer timer.Stop()
 	select {
 	case r := <-done:
-		return r.n, r.err
+		closeWhenDone <- false
+		return r.n, r.err, false
 	case <-cancel:
 		p.wedged.Store(true)
-		return 0, MarkUnknown("USB write to %s abandoned on cancellation after an unknown number of transmitted bytes (kernel write not interruptible)", p.DevicePath)
+		closeWhenDone <- true
+		return 0, MarkUnknown("USB write to %s abandoned on cancellation after an unknown number of transmitted bytes (kernel write not interruptible)", p.DevicePath), true
 	case <-timer.C:
 		p.wedged.Store(true)
-		return 0, MarkUnknown("USB write to %s exceeded the %v operation boundary with an unknown number of transmitted bytes (kernel write not interruptible)", p.DevicePath, usbChunkTimeout)
+		closeWhenDone <- true
+		return 0, MarkUnknown("USB write to %s exceeded the %v operation boundary with an unknown number of transmitted bytes (kernel write not interruptible)", p.DevicePath, usbChunkTimeout), true
 	}
 }
 
@@ -141,7 +161,12 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("CreateFile(%q) failed for %s: %w (try installing as Windows spooler queue)", p.DevicePath, p.Identify(), err)
 	}
-	defer windows.CloseHandle(h)
+	callerOwnsHandle := true
+	defer func() {
+		if callerOwnsHandle {
+			p.closeDeviceHandle(h)
+		}
+	}()
 	written := 0
 	for written < len(data) {
 		select {
@@ -163,7 +188,10 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 		// is UNKNOWN unless the write provably failed with zero confirmed
 		// bytes. writeChunkBounded already classifies timeouts and
 		// in-flight cancellations as unknown; pass those through verbatim.
-		n, err := p.writeChunkBounded(h, chunk, ctx.Done())
+		n, err, handleTransferred := p.writeChunkBounded(h, chunk, ctx.Done())
+		if handleTransferred {
+			callerOwnsHandle = false
+		}
 		if err != nil {
 			if n > 0 {
 				written += int(n)
@@ -189,8 +217,21 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	return nil
 }
 
+func (p *USBPrinter) testPayload() []byte {
+	name := sanitizeTestText(p.Name)
+	if p.SupportsESCPOS {
+		// ESC/POS control bytes are sent only when the configured capability
+		// explicitly declares ESC/POS. Do not cut by default: cutter support is
+		// a separate capability and cannot be inferred from USB/thermal class.
+		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
+	}
+	// Generic raw USB diagnostics use printable ASCII only. A raw byte stream
+	// is not evidence that the device understands ESC/POS commands.
+	return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
+}
+
 func (p *USBPrinter) Test(ctx context.Context) error {
-	return p.Print(ctx, []byte("\x1b\x40USB Direct Test Print for Odoo Agent\nPrinter: "+sanitizeTestText(p.Name)+"\nVID:"+fmt.Sprintf("%04x", p.VID)+" PID:"+fmt.Sprintf("%04x", p.PID)+"\n\n\x1d\x56\x01"))
+	return p.Print(ctx, p.testPayload())
 }
 
 func (p *USBPrinter) Status() string {
@@ -203,10 +244,13 @@ func (p *USBPrinter) Status() string {
 	}
 	h, err := windows.CreateFile(pathPtr, 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
 	if err != nil {
-		return "offline"
+		// Access/sharing/service-context failures do not prove physical absence.
+		return "unknown"
 	}
 	windows.CloseHandle(h)
-	return "online"
+	// A successful interface open proves transport accessibility only; USBPRINT
+	// exposes no generic media/cover/readiness state. Keep physical health unknown.
+	return "unknown"
 }
 
 const (
@@ -332,6 +376,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		}
 
 		caps := map[string]interface{}{}
+		caps["discovered_via"] = SourceUSB
 		caps["hardware_ids"] = hwIDs
 		caps["compatible_ids"] = compatIDs
 		caps["device_instance_id"] = instanceID
@@ -350,6 +395,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			caps["requires_spooler"] = false
 		} else {
 			caps["diagnostic"] = "USB device discovered, no device path found; install as Windows spooler queue or ensure driver exposes USBPRINT interface"
+			caps["verification"] = "candidate_only"
 			caps["requires_spooler"] = true
 			caps["direct_usb_available"] = false
 		}
@@ -385,9 +431,9 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		} else if strings.Contains(lowerName, "inkjet") || strings.Contains(lowerName, "deskjet") {
 			di.PrinterType = "inkjet"
 		}
-		if devicePath != "" {
-			di.Status = "online"
-		}
+		// USBPRINT interface presence is inventory evidence, not physical readiness.
+		// Runtime status remains unknown unless a protocol-specific backend can
+		// report a real device state.
 		log.Printf("[discovery] found USB printer: %q VID:%04x PID:%04x serial:%q location:%q path:%q -> %s", friendlyName, vid, pid, serial, location, devicePath, id)
 		infos = append(infos, di)
 	}
@@ -457,6 +503,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					}
 				}
 				caps := map[string]interface{}{}
+				caps["discovered_via"] = SourceUSB
 				caps["hardware_ids"] = hwIDs
 				caps["compatible_ids"] = compatIDs
 				caps["device_instance_id"] = instanceID
@@ -474,6 +521,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				caps["requires_spooler"] = devicePath == ""
 				if devicePath == "" {
 					caps["diagnostic"] = "USB printer has no direct device path; install its Windows spooler queue"
+					caps["verification"] = "candidate_only"
 				}
 				di := DeviceInfo{
 					ID:             id,
@@ -486,7 +534,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					USBVID:         vidStr,
 					USBPID:         pidStr,
 					USBSerial:      serial,
-					Status:         "online",
+					Status:         "unknown",
 					Enabled:        true,
 					Capabilities:   caps,
 					Type:           "usb",
@@ -734,8 +782,10 @@ func parseVIDPIDSerial(instanceID string) (vid uint16, pid uint16, serial string
 // like RAW TCP — PDF documents must not be written to it.
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
-	case KindRaw, KindESCPOS:
-		return true
+	case KindRaw:
+		return strings.EqualFold(p.Protocol, "raw") || strings.EqualFold(p.Protocol, "escpos")
+	case KindESCPOS:
+		return p.SupportsESCPOS
 	default:
 		return false
 	}

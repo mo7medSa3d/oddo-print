@@ -322,6 +322,65 @@ func TestIPPStatusUsesParsedPrinterState(t *testing.T) {
 	}
 }
 
+func TestIPPStatusSeparatesAdministrativeAndPhysicalEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		state     int32
+		accepting bool
+		reason    string
+		want      string
+	}{
+		{name: "stopped without reason is error", state: 5, accepting: true, reason: "none", want: "error"},
+		{name: "rejecting jobs is administrative error", state: 3, accepting: false, reason: "none", want: "error"},
+		{name: "paused is error", state: 5, accepting: true, reason: "paused", want: "error"},
+		{name: "media empty is error", state: 5, accepting: true, reason: "media-empty", want: "error"},
+		{name: "explicit offline reason is offline", state: 5, accepting: true, reason: "offline", want: "offline"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var buf bytes.Buffer
+				buf.Write([]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01})
+				buf.WriteByte(0x04)
+				writeIPPIntAttr(&buf, 0x23, "printer-state", tc.state)
+				writeIPPAttribute(&buf, 0x44, "printer-state-reasons", tc.reason)
+				writeIPPBoolAttr(&buf, "printer-is-accepting-jobs", tc.accepting)
+				buf.WriteByte(0x03)
+				w.Header().Set("Content-Type", "application/ipp")
+				_, _ = w.Write(buf.Bytes())
+			}))
+			defer server.Close()
+			p, err := NewIPPPrinter(server.URL, "State")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.Status(); got != tc.want {
+				t.Fatalf("status=%q want %q", got, tc.want)
+			}
+			if tc.reason != "none" && p.StatusDetail() != tc.reason {
+				t.Fatalf("status detail=%q want %q", p.StatusDetail(), tc.reason)
+			}
+		})
+	}
+}
+
+func TestIPPStatusProbeFailureIsUnknownNotOffline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	url := server.URL
+	server.Close()
+	p, err := NewIPPPrinter(url, "Unavailable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Status(); got != "unknown" {
+		t.Fatalf("probe failure status=%q want unknown", got)
+	}
+	if got := p.StatusDetail(); got != "probe_failed" {
+		t.Fatalf("probe failure detail=%q want probe_failed", got)
+	}
+}
+
 func TestIPPPrintJobDoesNotEmbedHTTPBasicAuthCredentials(t *testing.T) {
 	p, err := NewIPPPrinter("ipp://printuser:printpass@192.168.1.60/ipp/print", "Front Desk")
 	if err != nil {

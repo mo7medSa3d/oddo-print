@@ -197,7 +197,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 {t("billing.manageBilling")}
               </Button>
             )}
-            <Button variant="primary" size="sm" href="/pricing" icon={<ArrowRight className="h-4 w-4" />}>
+            <Button variant="primary" size="sm" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
               {hasActivePlan ? t("billing.upgradePlan") : t("billing.viewPlans")}
             </Button>
           </>
@@ -252,7 +252,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-                    <Button variant="primary" href="/pricing" icon={<ArrowRight className="h-4 w-4" />}>
+                    <Button variant="primary" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
                       {hasActivePlan ? t("billing.upgradePlan") : t("billing.choosePlan")}
                     </Button>
                   </div>
@@ -287,7 +287,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                       href="/pricing"
                       className="inline-flex items-center gap-1.5 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
                     >
-                      {t("billing.comparePlans")} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                      {t("billing.comparePlans")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
                     </Link>
                   </div>
 

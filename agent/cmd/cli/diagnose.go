@@ -105,11 +105,14 @@ type TransportInfo struct {
 }
 
 type AgentDiagInfo struct {
-	AgentID      string `json:"agent_id"`
-	AgentName    string `json:"agent_name"`
-	Paired       bool   `json:"paired"`
-	PrinterCount int    `json:"printer_count"`
-	RegistryPath string `json:"registry_path"`
+	AgentID                string `json:"agent_id"`
+	AgentName              string `json:"agent_name"`
+	Paired                 bool   `json:"paired"`
+	PrinterCount           int    `json:"printer_count"`
+	ConfiguredPrinterCount int    `json:"configured_printer_count"`
+	RegistryPrinterCount   int    `json:"registry_printer_count"`
+	RuntimeCapableCount    int    `json:"runtime_capable_count"`
+	RegistryPath           string `json:"registry_path"`
 }
 
 type JobDiagInfo struct {
@@ -146,6 +149,17 @@ func probeSpoolerDiagnostic(ctx context.Context, name string, probe func(string)
 	}
 }
 
+func populateDiagnosticInventoryCounts(report *DiagnosticReport, cfg *config.Config, registryPath string, inventory []printer.DeviceInfo) {
+	report.Agent.ConfiguredPrinterCount = len(cfg.Printers)
+	report.Agent.PrinterCount = len(inventory)
+	report.Agent.RuntimeCapableCount = len(printer.RuntimeDiscoveryPrinters(inventory))
+	if registryPrinters, err := printer.LoadRegistryPrinters(registryPath); err != nil {
+		report.Errors = append(report.Errors, "registry inventory: "+err.Error())
+	} else {
+		report.Agent.RegistryPrinterCount = len(registryPrinters)
+	}
+}
+
 func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticReport {
 	report := DiagnosticReport{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -161,17 +175,18 @@ func buildDiagnosticReport(cfg *config.Config, registryPath string) DiagnosticRe
 		Note: "Per-queue evidence is attached to each queue entry (OpenPrinter/GetPrinter verdicts). No document is submitted by diagnose.",
 	}
 	report.Agent = AgentDiagInfo{
-		AgentID:      cfg.Agent.ID,
-		AgentName:    cfg.Agent.Name,
-		Paired:       cfg.Agent.ID != "" && cfg.Agent.Secret != "",
-		PrinterCount: len(cfg.Printers),
-		RegistryPath: registryPath,
+		AgentID:                cfg.Agent.ID,
+		AgentName:              cfg.Agent.Name,
+		Paired:                 cfg.Agent.ID != "" && cfg.Agent.Secret != "",
+		ConfiguredPrinterCount: len(cfg.Printers),
+		RegistryPath:           registryPath,
 	}
 	report.Transport = TransportInfo{
 		GatewayURL:        cfg.Server.URL,
 		HeartbeatInterval: "30s",
 	}
 	result := printer.Discover(cfg, registryPath)
+	populateDiagnosticInventoryCounts(&report, cfg, registryPath, result.Printers)
 	for _, e := range result.Errors {
 		report.Errors = append(report.Errors, e)
 	}
@@ -252,7 +267,7 @@ func printDiagnosticReport(report DiagnosticReport) {
 	fmt.Println("--- System ---")
 	fmt.Printf("  Hostname: %s\n  OS: %s\n  Arch: %s\n\n", report.System.Hostname, report.System.OS, report.System.Architecture)
 	fmt.Println("--- Agent ---")
-	fmt.Printf("  ID: %s  Name: %s  Paired: %v  Printers: %d\n\n", report.Agent.AgentID, report.Agent.AgentName, report.Agent.Paired, report.Agent.PrinterCount)
+	fmt.Printf("  ID: %s  Name: %s  Paired: %v\n  Inventory: observed=%d  configured=%d  registry=%d  runtime-capable=%d\n\n", report.Agent.AgentID, report.Agent.AgentName, report.Agent.Paired, report.Agent.PrinterCount, report.Agent.ConfiguredPrinterCount, report.Agent.RegistryPrinterCount, report.Agent.RuntimeCapableCount)
 	fmt.Println("--- Queues ---")
 	if len(report.Queues) == 0 {
 		fmt.Println("  No queues discovered")

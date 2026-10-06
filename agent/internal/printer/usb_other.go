@@ -19,13 +19,15 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 // The truthful default is a failure. File writes happen only under the
 // explicit ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1 development opt-in.
 type USBPrinter struct {
-	ID           string
-	Name         string
-	VID          uint16
-	PID          uint16
-	SerialNumber string
-	DevicePath   string
-	USBLocation  string
+	ID             string
+	Name           string
+	VID            uint16
+	PID            uint16
+	SerialNumber   string
+	DevicePath     string
+	USBLocation    string
+	Protocol       string
+	SupportsESCPOS bool
 }
 
 func (p *USBPrinter) Identify() string {
@@ -70,8 +72,10 @@ func (p *USBPrinter) Status() string {
 
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
-	case KindRaw, KindESCPOS:
-		return true
+	case KindRaw:
+		return p.Protocol == "raw" || p.Protocol == "escpos"
+	case KindESCPOS:
+		return p.SupportsESCPOS
 	default:
 		return false
 	}

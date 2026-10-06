@@ -6,7 +6,7 @@ import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
-import { sweepPrintJobs } from "./src/lib/job-maintenance";
+import { cleanupTerminalPrintJobs, sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
 import { cleanupExpiredPlatformSessions } from "./src/lib/platform-auth";
@@ -34,6 +34,7 @@ function isLoopbackBinding(host: string): boolean {
   return normalized === "127.0.0.1" || normalized === "::1" || normalized === "localhost";
 }
 const JOB_SWEEP_INTERVAL_MS = 30_000;
+const JOB_RETENTION_SWEEP_INTERVAL_MS = 10 * 60_000;
 const HOUSEKEEPING_INTERVAL_MS = 5 * 60_000;
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 
@@ -223,6 +224,15 @@ app.prepare().then(() => {
   sweep();
   const sweepTimer = setInterval(sweep, JOB_SWEEP_INTERVAL_MS);
   sweepTimer.unref();
+
+  const retentionSweep = () => {
+    cleanupTerminalPrintJobs().catch((error) => {
+      logError("[job-retention] cleanup failed", { error: error });
+    });
+  };
+  retentionSweep();
+  const retentionTimer = setInterval(retentionSweep, JOB_RETENTION_SWEEP_INTERVAL_MS);
+  retentionTimer.unref();
 
   const housekeeping = () => {
     Promise.all([

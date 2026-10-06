@@ -78,9 +78,13 @@ const BYTE_PROTOCOLS = payloadContract.rawProtocols as readonly string[];
  * changed together.
  *
  * Precedence rules:
- *  - An explicit `capabilities.supported_protocols` list is AUTHORITATIVE:
- *    a device either declares the payload's protocol/capability or it does
- *    not. There is no wildcard and no protocol inference from absence.
+ *  - Physical document transports provide an immutable baseline capability:
+ *    spooler queues support driver-rendered PDF/image and IPP supports PDF.
+ *    An explicit `supported_protocols` list may ADD safe passthrough byte
+ *    languages, but it never removes that transport baseline.
+ *  - Direct byte transports remain strict: an explicit capability list is
+ *    authoritative and cannot invent a language that the transport/protocol
+ *    does not physically implement.
  *  - Without an explicit list, the device's declared transport protocol
  *    decides (escpos/zpl/tspl/raw byte sinks; spooler/ipp/ipps document
  *    transports; escpos devices additionally raster-convert JPEGs).
@@ -128,9 +132,9 @@ export function validatePayloadForPrinter(
   const anyCap = (...names: string[]) => hasExplicitCaps
     ? names.some((name) => supported!.includes(name))
     : false;
-  const transport = (...names: string[]) => !hasExplicitCaps && names.includes(family);
-  // Explicit capabilities can refine a device's language set, but they
-  // cannot add a PDF/image renderer that the concrete backend does not have.
+  // Explicit capabilities can add byte passthrough to a document transport,
+  // but they cannot remove the baseline renderer provided by that transport
+  // or add a renderer/language the concrete backend does not implement.
   const physicalPdf = conn === "spooler" || proto === "spooler"
     || conn === "ipp" || conn === "ipps"
     || (conn === "network" && proto === "ipp");
@@ -151,8 +155,10 @@ export function validatePayloadForPrinter(
       return { ok: false, reason: "CAPABILITY_MISMATCH: pdf payloads cannot specify a printer protocol" };
     }
     if (!physicalPdf) return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
-    if (!hasExplicitCaps || anyCap("pdf", "spooler", "ipp", "ipps")) return { ok: true };
-    return { ok: false, reason: "CAPABILITY_MISMATCH: pdf requires spooler or IPP transport" };
+    // A spooler/IPP queue is a document transport by construction. Keep that
+    // baseline usable even when supported_protocols is present only to opt in
+    // to RAW/ESC-POS passthrough.
+    return { ok: true };
   }
 
   // Image: rendered by a driver-backed transport, or raster-converted by an
@@ -162,7 +168,8 @@ export function validatePayloadForPrinter(
       return { ok: false, reason: "CAPABILITY_MISMATCH: image payloads cannot specify a printer protocol" };
     }
     if (!physicalImage) return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
-    if (!hasExplicitCaps || anyCap("image", "jpeg", "spooler", "escpos")) return { ok: true };
+    if (conn === "spooler" || proto === "spooler") return { ok: true };
+    if (!hasExplicitCaps || anyCap("image", "jpeg", "escpos")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
   }
 
@@ -175,8 +182,9 @@ export function validatePayloadForPrinter(
     // A raw ESC/POS byte stream bypasses driver rendering (WritePrinter RAW)
     // and is only valid for passthrough-mode queues whose operator explicitly
     // declared escpos support. Without that declaration, route pdf/image.
-    if ((conn === "spooler" || proto === "spooler") && !hasExplicitCaps) {
-      return { ok: false, reason: "CAPABILITY_MISMATCH: spooler printers accept document payloads (pdf/image) by default; raw ESC/POS requires an explicit supported_protocols declaration" };
+    if (conn === "spooler" || proto === "spooler") {
+      if (hasExplicitCaps && anyCap("escpos")) return { ok: true };
+      return { ok: false, reason: "CAPABILITY_MISMATCH: This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable." };
     }
     if (physicalByteProtocol("escpos") && (!hasExplicitCaps || anyCap("escpos"))) return { ok: true };
     return { ok: false, reason: `CAPABILITY_MISMATCH: printer does not explicitly support ESC/POS (protocol=${proto || "unknown"})` };
@@ -192,8 +200,11 @@ export function validatePayloadForPrinter(
       return { ok: false, reason: `CAPABILITY_MISMATCH: unsupported raw protocol ${payloadProto}` };
     }
     // Same spooler passthrough rule as ESC/POS above.
-    if ((conn === "spooler" || proto === "spooler") && !hasExplicitCaps) {
-      return { ok: false, reason: "CAPABILITY_MISMATCH: spooler printers accept document payloads (pdf/image) by default; raw byte protocols require an explicit supported_protocols declaration" };
+    if (conn === "spooler" || proto === "spooler") {
+      if (payloadProto === "escpos" && hasExplicitCaps && anyCap("escpos")) return { ok: true };
+      if (payloadProto === "raw" && hasExplicitCaps && anyCap("raw")) return { ok: true };
+      const label = payloadProto === "escpos" ? "ESC/POS" : payloadProto.toUpperCase();
+      return { ok: false, reason: `CAPABILITY_MISMATCH: This printer is configured for Windows document spooling and has not been declared as ${label}-capable.` };
     }
     // raw+escpos is exactly an escpos payload; every other byte protocol is
     // accepted only by devices that declare it.

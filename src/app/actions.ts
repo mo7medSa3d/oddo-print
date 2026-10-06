@@ -447,3 +447,5 @@ async function dashboardResult<T>(operation: () => Promise<T>) {
 export async function getDashboardStateResult() { return dashboardResult(getDashboardState); }
 export async function getDashboardJobsResult(options?: Parameters<typeof getDashboardJobs>[0]) { return dashboardResult(() => getDashboardJobs(options)); }
 export async function deleteAgentResult(id: string) { return dashboardResult(() => deleteAgent(id)); }
+export async function setPrinterLifecycleResult(id: string, lifecycle: "active" | "disabled" | "retired") { return dashboardResult(() => setPrinterLifecycle(id, lifecycle)); }
+export async function setAgentLifecycleResult(id: string, lifecycle: "active" | "disabled" | "retired") { return dashboardResult(() => setAgentLifecycle(id, lifecycle)); }

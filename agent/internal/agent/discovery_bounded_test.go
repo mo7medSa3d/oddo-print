@@ -40,3 +40,32 @@ func TestRunBoundedDiscoveryReturnsBeforeUncancellableWorkerFinishes(t *testing.
 	}
 	_ = result
 }
+
+func TestDiscoverySemaphoreReleaseWaiterDoesNotBlockRuntimeWG(t *testing.T) {
+	a := &Agent{discoverySem: make(chan struct{}, 1)}
+	a.discoverySem <- struct{}{}
+	finished := make(chan struct{})
+	a.releaseDiscoverySemaphoreWhenFinished(finished)
+
+	waited := make(chan struct{})
+	go func() {
+		a.runtimeWG.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("uninterruptible discovery cleanup must not keep runtimeWG alive")
+	}
+	if len(a.discoverySem) != 1 {
+		t.Fatal("semaphore must remain owned while the OS discovery worker is still running")
+	}
+	close(finished)
+	deadline := time.Now().Add(time.Second)
+	for len(a.discoverySem) != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(a.discoverySem) != 0 {
+		t.Fatal("semaphore was not released when the underlying discovery worker finished")
+	}
+}

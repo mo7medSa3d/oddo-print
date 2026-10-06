@@ -161,16 +161,17 @@ func TestSpoolerSessionWaitHonorsContext(t *testing.T) {
 	p.endSession()
 }
 
-func TestSpoolerStatusUnknownPrinterIsOffline(t *testing.T) {
+func TestSpoolerStatusUnknownPrinterIsUnknown(t *testing.T) {
 	// No such queue exists on any Windows host, so OpenPrinterW reliably
-	// fails and the probe must report offline — never a bare-open "online".
+	// fails. That proves queue inaccessibility in this security context, not
+	// physical device reachability, so the truthful wire state is unknown.
 	p := &SpoolerPrinter{
 		Name:        "T",
 		SpoolerName: "definitely-not-a-real-printer-4f2a9c",
 		Timeout:     10 * time.Second,
 	}
-	if st := p.Status(); st != "offline" {
-		t.Fatalf("unknown spooler queue must report offline, got %q", st)
+	if st := p.Status(); st != "unknown" {
+		t.Fatalf("unknown/inaccessible spooler queue must report unknown, got %q", st)
 	}
 }
 
@@ -471,6 +472,108 @@ func TestPreFlightRejectsWorkOfflineQueue(t *testing.T) {
 	}
 }
 
+func TestHeartbeatStatusPreservesWindowsActivityBits(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		bit  uint32
+	}{
+		{"io-active", PRINTER_STATUS_IO_ACTIVE},
+		{"busy", PRINTER_STATUS_BUSY},
+		{"printing", PRINTER_STATUS_PRINTING},
+		{"processing", PRINTER_STATUS_PROCESSING},
+		{"initializing", PRINTER_STATUS_INITIALIZING},
+		{"warming-up", PRINTER_STATUS_WARMING_UP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withFakeQueue(t, tc.bit, 0)
+			p := &SpoolerPrinter{Name: "T", SpoolerName: "Activity Printer", Timeout: time.Second}
+			if got := p.Status(); got != "busy" {
+				t.Fatalf("heartbeat status=%q want busy for bit 0x%08x", got, tc.bit)
+			}
+			if err := dispatchPreFlightSpoolerCheck("Activity Printer"); err != nil {
+				t.Fatalf("activity-only status must not block dispatch: %v", err)
+			}
+		})
+	}
+}
+
+func TestPreFlightServerUnknownIsInconclusiveNotOffline(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_SERVER_UNKNOWN, 0)
+	err := preFlightSpoolerCheck("Server Unknown Printer")
+	if err == nil {
+		t.Fatal("status probe must preserve SERVER_UNKNOWN evidence")
+	}
+	if !errors.Is(err, ErrSpoolerStatusUnknown) {
+		t.Fatalf("SERVER_UNKNOWN must preserve unknown status evidence, got %v", err)
+	}
+	if errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("SERVER_UNKNOWN is not proof of offline, got %v", err)
+	}
+	if err := dispatchPreFlightSpoolerCheck("Server Unknown Printer"); err != nil {
+		t.Fatalf("SERVER_UNKNOWN alone must not block spool submission, got %v", err)
+	}
+
+	p := &SpoolerPrinter{Name: "T", SpoolerName: "Server Unknown Printer", Timeout: time.Second}
+	if st := p.Status(); st != "unknown" {
+		t.Fatalf("SERVER_UNKNOWN heartbeat status must remain unknown, got %q", st)
+	}
+}
+
+func TestPreFlightExplicitBlockingStatusOutranksServerUnknown(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_SERVER_UNKNOWN|PRINTER_STATUS_PAUSED, 0)
+	err := preFlightSpoolerCheck("Paused Unknown Printer")
+	if err == nil || !errors.Is(err, ErrPrinterNotReady) {
+		t.Fatalf("explicit paused status must fail closed, got %v", err)
+	}
+	if errors.Is(err, ErrSpoolerStatusUnknown) {
+		t.Fatalf("SERVER_UNKNOWN must not hide a concrete paused state: %v", err)
+	}
+	if errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("paused plus SERVER_UNKNOWN is not proof of physical offline: %v", err)
+	}
+	if dispatchErr := dispatchPreFlightSpoolerCheck("Paused Unknown Printer"); dispatchErr == nil || !errors.Is(dispatchErr, ErrPrinterNotReady) {
+		t.Fatalf("dispatch allowance for SERVER_UNKNOWN must not bypass PAUSED, got %v", dispatchErr)
+	}
+}
+
+func TestPreFlightRejectsPendingDeletion(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_PENDING_DELETION, 0)
+	err := preFlightSpoolerCheck("Deleting Printer")
+	if err == nil || !errors.Is(err, ErrPrinterNotReady) {
+		t.Fatalf("pending-deletion queue must be non-routable before dispatch, got %v", err)
+	}
+	if errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("pending deletion is an administrative queue state, not physical offline: %v", err)
+	}
+}
+
+func TestPreFlightRejectsDocumentedBlockingStatuses(t *testing.T) {
+	cases := []struct {
+		name   string
+		status uint32
+	}{
+		{name: "paused", status: PRINTER_STATUS_PAUSED},
+		{name: "paper problem", status: PRINTER_STATUS_PAPER_PROBLEM},
+		{name: "manual feed", status: PRINTER_STATUS_MANUAL_FEED},
+		{name: "output bin full", status: PRINTER_STATUS_OUTPUT_BIN_FULL},
+		{name: "no toner", status: PRINTER_STATUS_NO_TONER},
+		{name: "page punt", status: PRINTER_STATUS_PAGE_PUNT},
+		{name: "out of memory", status: PRINTER_STATUS_OUT_OF_MEMORY},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withFakeQueue(t, tc.status, 0)
+			err := preFlightSpoolerCheck("Blocked Printer")
+			if err == nil || !errors.Is(err, ErrPrinterNotReady) {
+				t.Fatalf("status 0x%08x must fail closed, got %v", tc.status, err)
+			}
+			if errors.Is(err, ErrPrinterOffline) {
+				t.Fatalf("status 0x%08x is a readiness/error state, not offline: %v", tc.status, err)
+			}
+		})
+	}
+}
+
 func TestPreFlightRejectsPaperOutAndIsNotOffline(t *testing.T) {
 	withFakeQueue(t, PRINTER_STATUS_PAPER_OUT, 0)
 	err := preFlightSpoolerCheck("Paper Out Printer")
@@ -545,14 +648,16 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 	restore()
 }
 
-// A completed session's StartDocPrinterW identity must be recorded for
-// Gateway evidence linkage: after a successful Print the printer reports
-// the fake job ID, and after a failed Print it reports none (a failure
-// must never publish a stale success's identity).
+// A StartDocPrinterW identity is evidence for the current attempt, not a
+// success signal. It must survive later failure/uncertainty, while an attempt
+// that never allocated a job must clear a stale prior identity.
 func TestPrintRecordsSpoolerJobIDOnSuccess(t *testing.T) {
 	withFakeQueue(t, 0, 0)
 	prev := currentExecuteSpoolerSession
-	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+		if onJobID != nil {
+			onJobID(456)
+		}
 		return spoolerTaskResult{jobID: 456, written: 16}
 	}
 	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
@@ -571,7 +676,7 @@ func TestPrintRecordsSpoolerJobIDOnSuccess(t *testing.T) {
 func TestPrintLeavesNoSpoolerJobIDOnFailure(t *testing.T) {
 	withFakeQueue(t, 0, 0)
 	prev := currentExecuteSpoolerSession
-	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}) spoolerTaskResult {
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
 		return spoolerTaskResult{err: errors.New("simulated session failure")}
 	}
 	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
@@ -581,5 +686,260 @@ func TestPrintLeavesNoSpoolerJobIDOnFailure(t *testing.T) {
 	}
 	if got := p.LastSpoolerJobID(); got != "" {
 		t.Fatalf("failed session must record no spooler job ID, got %q", got)
+	}
+}
+
+func TestPrintPreservesAllocatedSpoolerJobIDOnFailure(t *testing.T) {
+	withFakeQueue(t, 0, 0)
+	prev := currentExecuteSpoolerSession
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+		if onJobID != nil {
+			onJobID(654)
+		}
+		return spoolerTaskResult{jobID: 654, err: MarkUnknown("simulated failure after StartDocPrinterW")}
+	}
+	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
+	p := NewSpooler("EvidencePrinter", "")
+	if err := p.Print(context.Background(), []byte("evidence payload")); err == nil {
+		t.Fatal("fake session must fail")
+	}
+	if got := p.LastSpoolerJobID(); got != "654" {
+		t.Fatalf("failed attempt must preserve allocated spooler job ID 654, got %q", got)
+	}
+}
+
+func TestPDFPrintRecordsCurrentGDISpoolerJobID(t *testing.T) {
+	p := NewSpooler("EvidencePrinter", "")
+	p.lastJobID.Store(111) // stale RAW identity from an earlier completed job
+	p.PDFPrintResult = func(context.Context, string, string) (string, error) {
+		return "789", nil
+	}
+	if err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-evidence"}); err != nil {
+		t.Fatalf("PDF result callback must succeed, got %v", err)
+	}
+	if got := p.LastSpoolerJobID(); got != "789" {
+		t.Fatalf("PDF success must replace stale RAW job identity with GDI job 789, got %q", got)
+	}
+}
+
+func TestPDFPrintFailureClearsStaleSpoolerJobID(t *testing.T) {
+	p := NewSpooler("EvidencePrinter", "")
+	p.lastJobID.Store(111)
+	p.PDFPrintResult = func(context.Context, string, string) (string, error) {
+		return "", errors.New("simulated GDI failure")
+	}
+	if err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-failure"}); err == nil {
+		t.Fatal("PDF result callback must fail")
+	}
+	if got := p.LastSpoolerJobID(); got != "" {
+		t.Fatalf("failed PDF attempt must not retain stale prior job identity, got %q", got)
+	}
+}
+
+func TestPDFPrintFailurePreservesCurrentGDISpoolerJobID(t *testing.T) {
+	p := NewSpooler("EvidencePrinter", "")
+	p.lastJobID.Store(111)
+	p.PDFPrintResult = func(context.Context, string, string) (string, error) {
+		return "790", MarkUnknown("simulated GDI failure after StartDocW")
+	}
+	if err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-failure-evidence"}); err == nil {
+		t.Fatal("PDF result callback must fail")
+	}
+	if got := p.LastSpoolerJobID(); got != "790" {
+		t.Fatalf("failed PDF attempt must preserve current GDI job identity 790, got %q", got)
+	}
+}
+
+func TestPDFPrintRejectsInvalidResultJobID(t *testing.T) {
+	p := NewSpooler("EvidencePrinter", "")
+	p.PDFPrintResult = func(context.Context, string, string) (string, error) {
+		return "not-a-number", nil
+	}
+	if err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-invalid-id"}); err == nil {
+		t.Fatal("invalid platform spooler identity must fail closed")
+	}
+	if got := p.LastSpoolerJobID(); got != "" {
+		t.Fatalf("invalid platform identity must never be published, got %q", got)
+	}
+}
+
+func TestPDFPrintCancellationBoundsBlockedGDIAndPreservesEarlyJobID(t *testing.T) {
+	originalGrace := postCancelSpoolerResultGrace
+	originalPlatform := platformPrintPDFObserved
+	postCancelSpoolerResultGrace = 25 * time.Millisecond
+	defer func() {
+		postCancelSpoolerResultGrace = originalGrace
+		platformPrintPDFObserved = originalPlatform
+	}()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	platformPrintPDFObserved = func(_ context.Context, _ string, _ string, onJobID func(uint32)) (string, error) {
+		if onJobID != nil {
+			onJobID(812)
+		}
+		close(started)
+		// Simulate a synchronous GDI/driver call that ignores context
+		// cancellation and does not return until the OS call eventually does.
+		<-release
+		return "812", nil
+	}
+
+	p := NewSpooler("Blocked GDI Queue", "")
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := p.PrintDocument(ctx, Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-blocked-gdi"})
+	elapsed := time.Since(start)
+	if err == nil || !OutcomeUnknown(err) {
+		close(release)
+		t.Fatalf("blocked GDI after cancellation must return UNKNOWN, got %v", err)
+	}
+	if elapsed > time.Second {
+		close(release)
+		t.Fatalf("blocked GDI held caller for %v; expected bounded cancellation return", elapsed)
+	}
+	if got := p.LastSpoolerJobID(); got != "812" {
+		close(release)
+		t.Fatalf("StartDocW job identity was lost across bounded cancellation: got %q want 812", got)
+	}
+	select {
+	case <-started:
+	default:
+		close(release)
+		t.Fatal("fake GDI worker did not start")
+	}
+
+	// The caller returned, but the worker still owns the printer session. A
+	// second physical session must not be allowed to overlap the uncertain one.
+	if p.sessionMu.TryLock() {
+		p.sessionMu.Unlock()
+		close(release)
+		t.Fatal("PDF caller released printer session while GDI worker was still active")
+	}
+
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if p.sessionMu.TryLock() {
+			p.sessionMu.Unlock()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("PDF worker did not release printer session after the simulated GDI call returned")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestSpoolerDeviceInfoPromotesPortAndDriverIdentity(t *testing.T) {
+	info := spoolerDeviceInfo("Receipt Front", "USB001", "Generic Thermal", "online", PRINTER_ATTRIBUTE_LOCAL)
+	if info.SpoolerPort != "USB001" || info.SpoolerDriver != "Generic Thermal" {
+		t.Fatalf("spooler physical identity stayed capability-only: %#v", info)
+	}
+	if got := info.Capabilities["port_name"]; got != info.SpoolerPort {
+		t.Fatalf("legacy capability port=%v does not match top-level identity %q", got, info.SpoolerPort)
+	}
+	if got := info.Capabilities["driver_name"]; got != info.SpoolerDriver {
+		t.Fatalf("legacy capability driver=%v does not match top-level identity %q", got, info.SpoolerDriver)
+	}
+
+	renamed := spoolerDeviceInfo("Receipt Front Renamed", "USB001", "Generic Thermal", "online", PRINTER_ATTRIBUTE_LOCAL)
+	if got, want := StableIDForDevice(renamed), StableIDForDevice(info); got != want {
+		t.Fatalf("queue rename changed physical spooler identity: got %s want %s", got, want)
+	}
+}
+
+func TestInteractiveUserSpoolerConnectionIsDiscoveryOnly(t *testing.T) {
+	infos := []DeviceInfo{spoolerDeviceInfo(
+		`\\print-server\receipt`,
+		`\\print-server\receipt`,
+		"Vendor Driver",
+		"online",
+		PRINTER_ATTRIBUTE_NETWORK,
+	)}
+	infos[0].Capabilities["spooler_scope"] = "user_connection"
+	if marked := markInteractiveUserConnectionsCandidateOnly(infos, 3); marked != 1 {
+		t.Fatalf("interactive per-user connection marked=%d want 1", marked)
+	}
+	if IsRuntimeDiscoveryPrinter(infos[0]) {
+		t.Fatalf("interactive user's PRINTER_ENUM_CONNECTIONS queue entered service runtime inventory: %#v", infos[0])
+	}
+	if got := infos[0].Capabilities["candidate_reason"]; got != "per_user_spooler_connection" {
+		t.Fatalf("candidate reason=%v, want per_user_spooler_connection", got)
+	}
+}
+
+func TestSessionZeroSpoolerConnectionRemainsRuntimeEligible(t *testing.T) {
+	infos := []DeviceInfo{spoolerDeviceInfo(
+		`\\print-server\receipt`,
+		`\\print-server\receipt`,
+		"Vendor Driver",
+		"online",
+		PRINTER_ATTRIBUTE_NETWORK,
+	)}
+	infos[0].Capabilities["spooler_scope"] = "user_connection"
+	if marked := markInteractiveUserConnectionsCandidateOnly(infos, 0); marked != 0 {
+		t.Fatalf("Session-0 service connection marked candidate-only: %d", marked)
+	}
+	if !IsRuntimeDiscoveryPrinter(infos[0]) {
+		t.Fatalf("service account's own Session-0 printer connection was rejected: %#v", infos[0])
+	}
+}
+
+func TestInteractiveMachineLocalNetworkQueueRemainsRuntimeEligible(t *testing.T) {
+	info := spoolerDeviceInfo(
+		"Office TCP Queue",
+		"IP_192.0.2.20",
+		"Vendor Driver",
+		"online",
+		PRINTER_ATTRIBUTE_LOCAL|PRINTER_ATTRIBUTE_NETWORK,
+	)
+	info.Capabilities["spooler_scope"] = "machine_local"
+	infos := []DeviceInfo{info}
+	if marked := markInteractiveUserConnectionsCandidateOnly(infos, 3); marked != 0 {
+		t.Fatalf("machine-local queue was mistaken for a per-user connection: %d", marked)
+	}
+	if !IsRuntimeDiscoveryPrinter(infos[0]) {
+		t.Fatalf("machine-installed network queue became discovery-only: %#v", infos[0])
+	}
+}
+
+func TestOpenPrinterFailureIsQueueAccessibilityUnknownNotPhysicalOffline(t *testing.T) {
+	restore := setPrinterHooks(
+		func(printerNamePtr *uint16) (syscall.Handle, error) {
+			return 0, syscall.Errno(5) // ERROR_ACCESS_DENIED
+		},
+		fakePrinterInfo2(0, 0),
+	)
+	defer restore()
+
+	err := preFlightSpoolerCheck("User-only Queue")
+	if err == nil || !errors.Is(err, ErrPrinterNotReady) || !errors.Is(err, ErrSpoolerQueueInaccessible) {
+		t.Fatalf("OpenPrinter failure must be typed inaccessible/not-ready, got %v", err)
+	}
+	if errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("OpenPrinter access failure is not physical offline evidence: %v", err)
+	}
+
+	p := &SpoolerPrinter{Name: "T", SpoolerName: "User-only Queue", Timeout: time.Second}
+	if st := p.Status(); st != "unknown" {
+		t.Fatalf("inaccessible service-context queue status=%q want unknown", st)
+	}
+}
+
+func TestServerOfflineBitBlocksDispatchAndReportsOffline(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_SERVER_OFFLINE, 0)
+	err := preFlightSpoolerCheck("Remote Server Offline")
+	if err == nil || !errors.Is(err, ErrPrinterOffline) {
+		t.Fatalf("SERVER_OFFLINE must be a concrete offline condition, got %v", err)
+	}
+	if dispatchErr := dispatchPreFlightSpoolerCheck("Remote Server Offline"); dispatchErr == nil || !errors.Is(dispatchErr, ErrPrinterOffline) {
+		t.Fatalf("SERVER_OFFLINE must block spool submission, got %v", dispatchErr)
+	}
+	p := &SpoolerPrinter{Name: "T", SpoolerName: "Remote Server Offline", Timeout: time.Second}
+	if st := p.Status(); st != "offline" {
+		t.Fatalf("SERVER_OFFLINE heartbeat status=%q want offline", st)
 	}
 }

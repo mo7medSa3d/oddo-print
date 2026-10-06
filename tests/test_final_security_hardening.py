@@ -135,9 +135,9 @@ def test_odoo_dynamic_table_identifiers_are_composed_safely():
         assert "psycopg2 import sql" in source
         assert "sql.Identifier(" in source
 
-def test_ci_carries_failing_supply_chain_gates():
-    workflow = read(".github/workflows/ci.yml")
-    assert "- name: npm supply-chain audit" in workflow
+def test_dedicated_supply_chain_workflow_carries_failing_gates():
+    workflow = read(".github/workflows/security-supply-chain.yml")
+    assert "- name: npm dependency audit" in workflow
     # The audit step runs scripts/audit-gate.mjs, which keeps the full `high`
     # threshold and fails on any advisory that is not on its explicit allowlist.
     assert "          node scripts/audit-gate.mjs" in workflow
@@ -149,12 +149,13 @@ def test_ci_carries_failing_supply_chain_gates():
     assert "lock.packages[node]?.dev !== true" in gate
     assert "Allowlisted package is not provably dev-only" in gate
     assert "go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" in workflow
-    assert '"$(go env GOPATH)/bin/govulncheck" ./...' in workflow
-    assert "- name: Rust supply-chain audit" in workflow
+    assert '"$scanner" ./...' in workflow
+    assert "- name: Rust vulnerability scan" in workflow
     assert "cargo install cargo-audit --version 0.22.2 --locked" in workflow
-    assert "          cargo audit" in workflow
-    assert "|| true" not in workflow[workflow.index("- name: npm supply-chain audit"):workflow.index("- name: Typecheck")]
-    assert "|| true" not in workflow[workflow.index("- name: Rust supply-chain audit"):workflow.index("- name: Typecheck")]
+    assert "cargo audit --target-os windows --target-arch x86_64" in workflow
+    # Security gates must fail closed. They may use conditional installation,
+    # but never suppress scanner failures.
+    assert "|| true" not in workflow
 
 def test_tauri_renderer_cannot_supply_authorization_headers():
     rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
@@ -557,8 +558,11 @@ def test_agent_terminal_physical_result_is_fenced_when_sqlite_terminalization_fa
     agent = read("agent/internal/agent/agent.go")
     tests = read("agent/internal/agent/dispatch_test.go")
     assert "terminalExecution map[string]terminalExecutionResult" in agent
-    assert "rememberTerminalExecution(jobID, \"failed\", failureMsg, claimToken)" in agent
-    assert "rememberTerminalExecution(jobID, \"success\", \"\", claimToken)" in agent
+    # A failed attempt can still have crossed the Windows StartDoc* side-effect boundary;
+    # preserve that spooler identity so reconnect/reconciliation never loses the evidence.
+    assert "rememberTerminalExecution(jobID, \"failed\", failureMsg, claimToken, spoolerJobID)" in agent
+    assert "rememberTerminalExecution(jobID, \"success\", \"\", claimToken, spoolerJobID)" in agent
+    assert "spoolerJobID string" in agent
     assert "already has a process-local terminal physical result; refusing duplicate dispatch" in agent
     assert "TestPhysicalSuccessWithTerminalLedgerWriteFailureCannotReprint" in tests
 

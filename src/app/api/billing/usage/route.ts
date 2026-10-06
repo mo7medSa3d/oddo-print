@@ -31,7 +31,7 @@ export async function GET(req: Request) {
     const counts = await db.execute(sql`
       SELECT
         (SELECT COUNT(*)::int FROM agents WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired') AS "agents",
-        (SELECT COUNT(*)::int FROM printers WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired') AS "printers"
+        (SELECT COUNT(*)::int FROM printers WHERE tenant_id = ${manager.tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)) AS "printers"
     `);
     const row = counts.rows[0] as { agents?: number | string; printers?: number | string } | undefined;
 

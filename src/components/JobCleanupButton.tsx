@@ -6,8 +6,7 @@ import { Trash2 } from "lucide-react";
 import { Button, Modal, Toast } from "./ui";
 import { useI18n } from "../i18n/react";
 import { codeMessageKey } from "../lib/api-error-keys";
-
-const RETENTION_DAYS = 30;
+import { PRINT_JOB_RETENTION_HOURS, PRINT_JOB_RETENTION_MS } from "../shared/job-retention";
 
 export function JobCleanupButton() {
   const router = useRouter();
@@ -23,7 +22,7 @@ export function JobCleanupButton() {
     setError(null);
     setSuccessMessage(null);
     try {
-      const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - PRINT_JOB_RETENTION_MS).toISOString();
       const response = await fetch(
         `/api/jobs?before=${encodeURIComponent(cutoff)}&limit=5000&confirm=1`,
         { method: "DELETE", credentials: "include" },
@@ -38,7 +37,7 @@ export function JobCleanupButton() {
       const count = Number(data.deleted ?? 0);
       setSuccessMessage(
         count === 0
-          ? t("jobs.cleanup.noneEligible", { days: RETENTION_DAYS })
+          ? t("jobs.cleanup.noneEligible")
           : tc("jobs.cleanup.removed", count, { count: formatNumber(count) })
       );
       router.refresh();
@@ -89,7 +88,7 @@ export function JobCleanupButton() {
           if (!busy) setOpen(false);
         }}
         title={t("jobs.cleanup.title")}
-        description={t("jobs.cleanup.description", { days: RETENTION_DAYS })}
+        description={t("jobs.cleanup.description", { hours: PRINT_JOB_RETENTION_HOURS })}
         footer={
           <>
             <Button variant="secondary" onClick={() => setOpen(false)} disabled={busy}>
@@ -107,7 +106,7 @@ export function JobCleanupButton() {
         }
       >
         <div className="space-y-3 text-sm text-ink-2">
-          <p>{t("jobs.cleanup.bodyScope", { days: RETENTION_DAYS })}</p>
+          <p>{t("jobs.cleanup.bodyScope", { hours: PRINT_JOB_RETENTION_HOURS })}</p>
           <p>{t("jobs.cleanup.bodyActive")}</p>
           <p className="font-medium text-warn">{t("jobs.cleanup.bodyIrreversible")}</p>
         </div>

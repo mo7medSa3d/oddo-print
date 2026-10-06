@@ -29,26 +29,25 @@ printer produces pages of garbage, so it is refused with `CAPABILITY_MISMATCH`.
 | Backend | Implementation | `raw` | `escpos` | `pdf` | Physical verification |
 |---|---|---|---|---|---|
 | Network RAW TCP (:9100) | `network.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` (a 9100 byte stream has no renderer) | **NOT VERIFIED** (tested against a local mock listener — VERIFIED at socket level) |
-| Windows spooler | `spooler_windows.go` | ✅ RAW datatype (`StartDocPrinterW`) | ✅ RAW datatype | ✅ PDF pipeline (§4) | **COMPILE VERIFIED** only |
+| Windows spooler | `spooler_windows.go` | ⚠️ only when RAW passthrough is explicitly declared | ⚠️ only when ESC/POS passthrough is explicitly declared | ✅ PDF pipeline (§4) | **COMPILE VERIFIED** only |
 | Windows spooler (non-Windows build) | `spooler_stub.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | `ERR_UNSUPPORTED_TRANSPORT` (same opt-in rule) | **SIMULATED** |
 | IPP / IPPS | `ipp.go` | ❌ `CAPABILITY_MISMATCH` (IPP is a document transport here) | ❌ `CAPABILITY_MISMATCH` | ✅ `application/pdf` | **NOT VERIFIED** against a real IPP printer (`httptest` coverage only) |
-| USB raw (`CreateFile` + `WriteFile`) | `usb_windows.go` | ✅ | ✅ | ❌ `CAPABILITY_MISMATCH` — install the device as a Windows printer and route to the spooler queue | **COMPILE VERIFIED** only |
+| USB raw (`CreateFile` + `WriteFile`) | `usb_windows.go` | ✅ only for an explicitly declared `raw` device | ✅ only for an explicitly declared `escpos` device | ❌ `CAPABILITY_MISMATCH` — install the device as a Windows printer and route to the spooler queue | **COMPILE VERIFIED** only |
 | USB raw (non-Windows build) | `usb_other.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | ❌ | **SIMULATED** |
 
-Each backend declares what it accepts through `SupportsKind`, and
-`printer.SupportedKinds()` is reported to the gateway in the heartbeat as
-`capabilities.supported_protocols`, so routing can refuse an incompatible job **before** it
-is queued. An explicitly configured `supported_protocols` list is never overwritten.
+Each backend declares what it accepts through `SupportsKind`, and the Agent reports
+`capabilities.supported_protocols` in heartbeat inventory so routing can refuse an incompatible job **before** it
+is queued. A Windows spooler queue has an immutable document baseline (`pdf`, `image`) even when an old
+record has no `supported_protocols`; RAW/ESC/POS are additive opt-ins and are never inferred from a queue name,
+printer class, USB identity, or the fact that Windows can expose a RAW datatype.
 
 ## 3. Capability enforcement (two layers)
 
 **Gateway** (`validatePayloadForPrinter` in `src/lib/routing.ts`):
 
-* if the printer declares `capabilities.supported_protocols`, that list is authoritative;
-  `raw`/`escpos` may additionally travel over any byte-stream transport (spooler), but
-  **`pdf` is never inferred from `raw` support**;
-* without a declared list the transport decides: `pdf` requires a spooler or IPP/IPPS
-  printer and is refused for raw-TCP/USB devices; `raw`/`escpos` are accepted by byte-stream transports (RAW TCP, ESC/POS, and spooler RAW mode), not by IPP/IPPS.
+* for document transports, the physical transport baseline is authoritative: Windows spooler supports driver-rendered `pdf`/`image`, and IPP/IPPS supports `pdf`, even for legacy rows that predate `supported_protocols`;
+* `raw`, `escpos`, `zpl`, and `tspl` require explicit byte-language evidence. A spooler queue gets RAW/ESC/POS only from explicit passthrough capability; direct USB/TCP gets only the declared protocol. Missing capability metadata never upgrades a device to a byte protocol;
+* an automatic discovery candidate with an unknown byte language remains non-executable. Discovery-only LPR/WSD/SNMP/TCP/USB observations cannot become runnable inventory merely because an old registry row exists.
 
 A mismatch is `CAPABILITY_MISMATCH` → HTTP **422** at job creation, and it is
 terminal: neither the Gateway nor the Odoo submit path retries the next
@@ -120,12 +119,12 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 
 | Aspect | Detail |
 |---|---|
-| Protocol | Win32 spooler API: `OpenPrinterW` → `StartDocPrinterW` (DOC_INFO_1, datatype `RAW`) → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`. PDF jobs take the PDF pipeline instead (§4) |
-| Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ✅ (through the PDF pipeline, never the RAW datatype) |
-| Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A USB printer installed as a Windows printer is configured this way |
-| Capability reporting | `supported_protocols: [raw, escpos, pdf, image]` |
-| Error handling | Every Win32 call is checked and the last error is wrapped into the job error (`OpenPrinterW`, `StartDocPrinterW`, `StartPagePrinter`, `WritePrinter`, 0-byte writes). `EndDocPrinter`/`EndPagePrinter` run through `defer` even after a failure. Context cancellation is honoured between chunks |
-| Status probe | `OpenPrinterW` → `online`, failure → `offline` |
+| Protocol | Document jobs use the Windows driver/GDI path (`StartDocW`/page rendering). Explicit byte-passthrough jobs use Winspool RAW (`OpenPrinterW` → `StartDocPrinterW` with datatype `RAW` → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`) |
+| Document kinds | `pdf` ✅ · `image` ✅ by default; `raw`/`escpos` ✅ only when explicitly declared as spooler passthrough |
+| Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A local USB printer installed as a Windows printer is configured this way and does **not** require IP/port metadata |
+| Capability reporting | Legacy/missing capability rows derive `[pdf, image]`; explicit passthrough may add `raw` and/or `escpos` without removing document support |
+| Error handling | Short writes are completed in a loop. Pre-dispatch failures remain definite. After Windows allocates a spooler job ID, a later document failure is an **unknown physical outcome** and retains that job ID; cleanup after successful `EndDoc` cannot turn the completed submission into a safe-to-retry failure |
+| Status probe | `PRINTER_INFO_2.Status` is reduced with the discovery reducer. Explicit queue/device fault bits map to `offline`/`error`/`busy`; `SERVER_UNKNOWN`, timeout, and `OpenPrinterW` access/security-context failure are `unknown`, not physical Offline |
 | Platform limits | Windows only. The `!windows` build is a simulation (§5.3) |
 | Discovery | `EnumPrintersW` level 2 with correct `PRINTER_INFO_2W` parsing; non-printer PnP entries are filtered out (`isValidSpoolerPrinter`), status/attributes mapped by `classify.go` |
 | Physical verification | **COMPILE VERIFIED** only (`GOOS=windows go build/vet`). No paper has been produced in CI |
@@ -149,7 +148,7 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 | Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL`; `ipp://` and `ipps://` default to port 631 when omitted |
 | Capability reporting | `supported_protocols: [pdf]` |
 | Error handling | Non-2xx HTTP and IPP client/server error classes (`0x04xx`/`0x05xx`) become job errors with decoded status text; the complete `0x00xx` success class is accepted. Responses shorter than the IPP header are rejected. The client timeout is 15 s, shortened to the job deadline when smaller |
-| Status probe | `Get-Printer-Attributes` (5 s): `printer-state` 3/4/5 → `online`/`busy`/`offline`; `printer-state-reasons` containing `offline`/`shutdown` → `offline`, `media-needed`/`toner-empty` → `error`; unreachable → `offline` |
+| Status probe | `Get-Printer-Attributes` (5 s): idle/processing → `online`/`busy`; explicit `offline`/`shutdown` reasons → `offline`; stopped/paused/admission/media/cover/toner/jam faults → `error`; probe/auth/protocol/transport failure → `unknown`. `printer-state-reasons` is retained as diagnostic detail |
 | Platform limits | None |
 | Discovery | TCP 631 scan (`ipp_discovery.go`); the mDNS helper is a stub that returns nothing |
 | Physical verification | **NOT VERIFIED** against a real IPP printer. Request construction and status parsing are **VERIFIED** with `httptest` (`ipp_test.go`) |
@@ -159,20 +158,21 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 | Aspect | Detail |
 |---|---|
 | Protocol | `CreateFile` on the discovered `\\?\usb#…` device interface path + `WriteFile` loop |
-| Document kinds | `raw` ✅ · `escpos` ✅ · `pdf` ❌ → `CAPABILITY_MISMATCH` (there is no renderer; install the device as a Windows printer and route to the spooler queue) |
-| Configuration | `type: usb` with `usb_vid`/`usb_pid`/`usb_serial`, and `endpoint` as the device path. When `spooler_name` (or a non-network `endpoint`) is present the factory builds a **spooler** backend instead — that is the recommended setup |
-| Capability reporting | `supported_protocols: [raw, escpos]` |
-| Error handling | Without a device path the job fails with an explicit diagnostic telling the administrator to install the printer as a Windows printer and use `type: spooler`; `CreateFile`/`WriteFile` errors are wrapped with the device identity |
+| Document kinds | `raw` ✅ only when protocol=`raw`; `escpos` ✅ only when protocol=`escpos`; `pdf` ❌ → `CAPABILITY_MISMATCH` (there is no driver renderer; install the device as a Windows printer and route to the spooler queue) |
+| Configuration | `type: usb` with a real USBPRINT device path and an **explicit** `raw` or `escpos` protocol. `usb_vid`/`usb_pid`/`usb_serial` identify the device but do not prove its printer language. When `spooler_name` is present the factory builds a **spooler** backend instead — that is the recommended document-printing setup |
+| Capability reporting | Derives only the explicitly declared byte language (`[raw]` or `[escpos]`); it never assumes that a USB/thermal printer is ESC/POS |
+| Error handling | Without a device path or explicit byte protocol the backend fails closed with a diagnostic. `CreateFile`/`WriteFile` errors are wrapped with the device identity |
+| Status probe | USBPRINT interface presence/openability does not prove paper/device readiness; both successful open and access/sharing failures remain physical `unknown` unless stronger device evidence exists |
 | Identity | `Identify()` prefers serial → USB location → `VID:PID` |
 | Platform limits | Windows only. On other platforms the backend fails with `ERR_UNSUPPORTED_TRANSPORT` (`Status()` is `unknown`) unless the operator explicitly sets `ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1` for development diagnostics; simulated writes are then reported as failures prefixed `SIMULATED_TRANSPORT`, never as success |
-| Discovery | `SetupDiGetClassDevsW` (`DIGCF_PRESENT|ALLCLASSES`) with VID/PID/serial parsing and a device-interface path map; not available on non-Windows |
+| Discovery | Primary enumeration uses the USBPRINT device-interface GUID with `DIGCF_PRESENT|DIGCF_DEVICEINTERFACE`; bounded fallback metadata enumeration may use all present classes. Candidate-only USB observations are not executable until a valid path/protocol is proved |
 | Physical verification | **COMPILE VERIFIED** only |
 
 ### 5.7 ESC/POS
 
-ESC/POS is **not a backend** — it is a payload dialect (`ESC @` initialise … `GS V` cut) carried
-by whichever byte-stream transport the printer uses: RAW TCP, the Windows spooler in RAW mode,
-direct USB. IPP/IPPS is a document transport and accepts PDF as `application/pdf`; the agent never generates or rewrites ESC/POS
+ESC/POS is **not a backend** — it is a payload dialect (`ESC @` initialise … optional cut) carried
+only by a byte-stream transport that is explicitly declared ESC/POS-capable: an ESC/POS TCP endpoint, an explicit spooler passthrough,
+or an explicit direct-USB ESC/POS device. A thermal-looking device is never assumed to be ESC/POS. IPP/IPPS is a document transport and accepts PDF as `application/pdf`; the agent never generates or rewrites ESC/POS
 for a job; the only ESC/POS the gateway produces itself is the test-print payload
 (`buildTestPrintPayload` in `src/lib/payload.ts`).
 
@@ -195,16 +195,13 @@ agent, so one agent can never overwrite another agent's printer row.
 |---|---|
 | `discoverFromConfig` — printers listed in `config.yaml` | implemented (legacy, still supported) |
 | `discoverSpoolerPrinters` — `EnumPrintersW` level 2, correct `PRINTER_INFO_2W` parsing, non-printer PnP entries filtered out | implemented (Windows); **COMPILE VERIFIED** |
-| `loadRegistryPrinters` — `printers.json` next to `config.yaml` | implemented, atomic writes |
+| `loadRegistryPrinters` — durable `printers.json` next to `config.yaml` | implemented, atomic writes; used for startup/backward-compatible local state, **not** as live-presence evidence during authoritative reconciliation |
 | `discoverNetworkPrinters` — active TCP 9100 scan of private IPv4 subnets, `/16`+ clamped to `/24`, 32 workers, 500 ms per host, 8 s global budget | implemented |
 | `discoverUSBPrinters` — `SetupDiGetClassDevsW`, VID/PID/serial parsing, device-interface path map | implemented (Windows); **COMPILE VERIFIED** |
 | `discoverIPPPrinters` — TCP 631 scan (+ best-effort name lookup) | implemented |
 | mDNS (`_ipp._tcp`, `_ipps._tcp`, `_printer._tcp`), SNMP (`1.3.6.1.2.1.43`), WSD | implemented; bounded, best-effort discovery with result de-duplication; WSD emits the normative probe plus a legacy compatibility variant |
 
-`DiscoverQuick` (config + spooler + registry) runs synchronously at startup so the agent is
-usable immediately; the full scan (network + USB + IPP) runs asynchronously ~2 s later.
-Every source is isolated with `recover()`, so one failing source can never crash the agent,
-and results are de-duplicated by stable id, `address:port` and `VID:PID:serial`.
+`DiscoverQuick` replays config + local spooler + durable registry at startup so previously configured printers remain available immediately. Full **live** discovery then excludes registry replay as presence evidence: only an authoritative successful Windows spooler enumeration may remove an automatically discovered spooler row that disappeared. Partial/source-error scans never prune healthy durable rows, and silent USB/network non-response is not treated as deletion. Every source is isolated with `recover()`, and results are de-duplicated by stable identity/transport facts.
 
 ## 8. Manual registration
 
@@ -246,7 +243,7 @@ directly, so failed registry persistence cannot substitute stale inventory.
   acknowledge paper.
 * Spooler success = `WritePrinter`/`EndDocPrinter` returned success, i.e. the job was
   accepted by the Windows spooler.
-* PDF success = the PDF handler exited 0 after being handed the document for that printer.
+* PDF/spooler document success = Windows accepted/finalized the driver-rendered document. If a later error occurs after a spooler job ID was allocated, the outcome remains `unknown` rather than `not_printed`.
 * IPP success = the printer answered IPP status `0x0000`.
 
 None of these prove that a physical page came out. Bidirectional paper-level status is not
@@ -258,11 +255,7 @@ implemented.
 * One `sync.Mutex` per printer: jobs for the same printer are serialised, different
   printers run concurrently (max 8 executing, 64 accepted — `agent.go`).
 * Physical print timeout: a size-scaled budget (2 min base + 30 s per MiB) bounds one physical print; the document layer never clamps it down to a constant, and finer per-write stall detection applies inside the transports. A permanently stuck device still fails, but a legitimate multi-hundred-KB raster on a slow thermal is never cut mid-payload. PDF submission has its own 120 s bound.
-* Crash window: a job that was printing when the agent stopped has an unknown physical
-  outcome. The agent now reports it explicitly (`AGENT_RESTART_DURING_PRINT`) and
-  `agent.reprint_after_crash` decides whether it may be printed again. This is
-  **at-least-once** delivery made visible — not exactly-once printing. See
-  the Gateway queue/job state transitions described in the relevant API responses.
+* Crash/ambiguous-submission window: a job that may have crossed the physical submission boundary remains an `unknown` physical outcome and preserves spooler evidence when available. Automatic retry is not allowed. A manual reprint is a **new explicit physical attempt** and can create a duplicate page if the first attempt actually printed; inspect the device/spooler before choosing it.
 ## Production Engineering Semantics
 
 - **Idempotency:** one persisted Odoo `print_gateway.print_job` is one logical print operation. Its `idempotency_key` is generated once, persisted before the Gateway HTTP call, and reused for transport/worker retries. A new manual print creates a new operation and therefore a new key. Physical delivery remains potentially at-least-once.

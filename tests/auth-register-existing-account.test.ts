@@ -35,7 +35,7 @@ describe("Register API existing-account handling", () => {
     reserveAuthAttempt.mockResolvedValue({ allowed: true });
   });
 
-  it("tells an already registered email to sign in", async () => {
+  it("returns the same generic accepted response for an existing email", async () => {
     userFindFirst.mockResolvedValue({ id: "usr_existing", emailVerifiedAt: new Date() });
 
     const response = await POST(new Request("http://localhost/api/auth/register", {
@@ -44,10 +44,10 @@ describe("Register API existing-account handling", () => {
       body: JSON.stringify({ email: "existing@example.com", password: "correct-horse-battery-staple" }),
     }));
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      error: "An account with this email already exists. You can sign in instead.",
-      code: "ACCOUNT_EXISTS",
+      ok: true,
+      message: "If the account can be created, a verification email will be sent.",
     });
   });
 });

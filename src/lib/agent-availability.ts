@@ -17,6 +17,35 @@ export {
   printerStaleThresholdSeconds,
 };
 
+
+export type ObservationFreshness = "fresh" | "stale" | "missing";
+
+function observationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  thresholdSeconds: number,
+  now = gatewayNow(),
+): ObservationFreshness {
+  if (!lastSeenAt) return "missing";
+  const lastSeen = parseDbTimeMs(lastSeenAt);
+  if (lastSeen === null) return "missing";
+  const ageSeconds = (now.getTime() - lastSeen) / 1000;
+  return ageSeconds >= 0 && ageSeconds <= thresholdSeconds ? "fresh" : "stale";
+}
+
+export function getPrinterObservationFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  now = gatewayNow(),
+): ObservationFreshness {
+  return observationFreshness(lastSeenAt, printerStaleThresholdSeconds(), now);
+}
+
+export function getAgentHeartbeatFreshness(
+  lastSeenAt: Date | string | null | undefined,
+  now = gatewayNow(),
+): ObservationFreshness {
+  return observationFreshness(lastSeenAt, agentStaleThresholdSeconds(), now);
+}
+
 export function isPrinterObservationFresh(
   lastSeenAt: Date | string | null | undefined,
   now = gatewayNow(),
@@ -62,29 +91,22 @@ export function isAgentAvailableForJob(
 
 export function getEffectivePrinterStatus(
   printer: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null },
-  agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
+  _agent?: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null } | null,
   now = gatewayNow(),
-): "online" | "offline" | "disabled" | "retired" | "unknown" {
+): "online" | "offline" | "busy" | "error" | "disabled" | "retired" | "unknown" {
   if (printer.lifecycle === "disabled") return "disabled";
   if (printer.lifecycle === "retired") return "retired";
-  if (printer.lifecycle !== "active") return "offline";
+  if (printer.lifecycle !== "active") return "unknown";
 
-  // If the parent agent is missing or unavailable (stale heartbeat, offline, disabled),
-  // the printer cannot be reached physically. It is effectively offline.
-  if (!agent || !isAgentAvailableForJob(agent, now)) {
-    return "offline";
-  }
-  if (!isPrinterObservationFresh(printer.lastSeenAt, now)) {
-    return "offline";
-  }
+  // Printer evidence and Agent/cloud reachability are different facts. The
+  // APIs expose Agent presence separately and routing has its own Agent gate;
+  // never manufacture a physical-printer offline state because the Agent is
+  // stale or disconnected. A stale printer observation becomes unknown.
+  if (!isPrinterObservationFresh(printer.lastSeenAt, now)) return "unknown";
 
   const rawStatus = (printer.status ?? "").toLowerCase().trim();
-  if (rawStatus === "online") return "online";
-  if (rawStatus === "offline") return "offline";
-  // "busy" means the queue accepted work and remains claimable (see
-  // isPrinterStatusExecutable in routing.ts and the SQL claim gates). It must
-  // not render as offline, or operators see offline while delivery continues.
-  if (rawStatus === "busy") return "online";
-  if (rawStatus === "error") return "offline";
+  if (["online", "offline", "busy", "error", "unknown"].includes(rawStatus)) {
+    return rawStatus as "online" | "offline" | "busy" | "error" | "unknown";
+  }
   return "unknown";
 }

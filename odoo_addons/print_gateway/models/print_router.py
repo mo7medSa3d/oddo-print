@@ -364,6 +364,9 @@ class PrintGatewayRouter(models.AbstractModel):
             "gateway_config": route["config"],
             "printer_id": route["binding"].printer_id,
             "destination": route["destination"].display_name,
+            # Persist the semantic document type that was actually validated
+            # against the selected binding. Diagnostic provenance lives in
+            # source_model/source_record_id rather than a synthetic document type.
             "document_type": route["document_type"],
             "payload": payload,
             "source_model": source_model,
@@ -512,21 +515,23 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.model
     @api.private
     def route_pos_sale_details(self, session, image_base64):
-        # NOTE — dual Sale Details paths: this POS-session path resolves
-        # explicit_destination=session.config_id, while the HTTP
-        # /pos/sale_details_report controller path resolves the destination
-        # from the report action. Bind each path in use.
+        # Odoo 19 renders Sale Details inside the POS and submits the rendered
+        # element through the same receipt-printer path used for POS receipts.
+        # Therefore the in-session Gateway path is a receipt job addressed to
+        # the current POS config, not a report-action destination.  The direct
+        # /pos/sale_details_report HTTP endpoint remains a separate PDF/report
+        # path and intentionally resolves an ir.actions.report binding.
         session.ensure_one()
         self._assert_current_company(session.company_id, record=session)
         self._validate_jpeg_base64(image_base64)
         route = self.resolve_binding(
             company=self.env.company,
-            document_type="report:point_of_sale.sale_details_report",
+            document_type="receipt",
             explicit_destination=session.config_id,
         )
         if route.get("native"):
             raise ValidationError(
-                _("Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured.")
+                _("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details.")
             )
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
@@ -618,69 +623,35 @@ class PrintGatewayRouter(models.AbstractModel):
         if not config:
             return {"gateway_enabled": False, "native": True}
 
-        if not binding:
+        if binding:
+            # A caller-selected binding remains the routing authority. Validate
+            # that exact record against the real job context; never resolve a
+            # second generic binding and compare identities afterwards.
+            route = self.resolve_binding(
+                record=record,
+                company=current_company,
+                document_type=document_type,
+                # Use the caller/record destination when one exists. If this is
+                # a binding-owned diagnostic with no document/destination,
+                # resolve_binding() derives destination_ref from explicit_binding.
+                explicit_destination=destination,
+                explicit_binding=binding,
+                protocol=protocol,
+                payload_type="raw_cmd",
+            )
+        else:
             route = self.resolve_binding(
                 record=record,
                 company=current_company,
                 document_type=document_type,
                 explicit_destination=destination,
+                protocol=protocol,
+                payload_type="raw_cmd",
             )
-            if route.get("native"):
-                return route
-            target_binding = route["binding"]
-            target_destination = route["destination"]
-        else:
-            # Direct Binding Authorization: a caller-supplied binding must
-            # satisfy the EXACT same company/branch/effective-scope model as
-            # binding.find_for() resolution (which searches (company, branch)
-            # first and falls back to (company, branch=False) for branch
-            # operations). Concretely, with operation_root being the root
-            # company of the operation:
-            #   - the binding's company must equal operation_root
-            #     (cross-company bindings are rejected even when enabled);
-            #   - a branch binding is usable only from its own branch;
-            #   - a root binding is usable from the root and, as the
-            #     documented fallback, from its branches;
-            #   - operating from the root can never use a branch binding.
-            # find_for() would never select anything else, so accepting it
-            # here would open a scope bypass around resolution.
-            if not binding.enabled:
-                raise ValidationError(_("The specified print binding '%s' is disabled.") % binding.display_name)
-            operation_root = current_company.parent_id or current_company
-            if not binding.company_id or binding.company_id != operation_root:
-                raise ValidationError(
-                    _("Print binding '%s' belongs to company '%s', but current operation is for '%s'.")
-                    % (binding.display_name, (binding.company_id.display_name if binding.company_id else False), current_company.display_name)
-                )
-            if binding.branch_id:
-                if binding.branch_id != current_company:
-                    raise ValidationError(
-                        _("Print binding '%s' is scoped to branch '%s' and cannot be used from '%s'.")
-                        % (binding.display_name, binding.branch_id.display_name, current_company.display_name)
-                    )
-            elif current_company.parent_id:
-                # Root binding used from one of its branches: allowed as the
-                # documented find_for fallback. The centralized runtime
-                # authorization permits an Agent assigned to this Company or
-                # to any of its direct child Branches for a company-wide rule.
-                pass
-            if not binding.printer_id:
-                raise ValidationError(_("Print binding '%s' has no Gateway Runtime Printer assigned.") % binding.display_name)
-            if binding.branch_id and not binding.runtime_agent_id:
-                raise ValidationError(_("Print binding '%s' has no Gateway Runtime Agent assigned.") % binding.display_name)
-            if binding.runtime_agent_id:
-                # Authorization follows the Binding's declared scope: a Branch
-                # A Branch Binding must use an Agent assigned to that exact
-                # Branch. A root/company-wide Binding may use any assignment
-                # owned by the selected Company, including a child-Branch
-                # assignment.
-                binding_scope = binding.branch_id or False
-                self._assert_branch_agent_assignment(
-                    binding.company_id, binding_scope, binding.runtime_agent_id,
-                )
-
-            target_binding = binding
-            target_destination = binding.destination_ref or destination
+        if route.get("native"):
+            return route
+        target_binding = route["binding"]
+        target_destination = route["destination"]
 
         # Binding Protocol Authorization: EXACT match. A 'raw' binding is a
         # generic byte sink; it does not thereby accept zpl/tspl/escpos. An
@@ -731,8 +702,8 @@ class PrintGatewayRouter(models.AbstractModel):
             "protocol": protocol,
             "raw_payload": (raw_data.replace("\x00", "\\x00") if isinstance(raw_data, str) else raw_bytes.decode("latin1", errors="replace").replace("\x00", "\\x00")),
             "fallback_binding": target_binding.fallback_binding_id,
-            "source_model": record._name if record else False,
-            "source_record_id": record.id if record else False,
+            "source_model": record._name if record else ("print_gateway.binding" if binding else False),
+            "source_record_id": record.id if record else (binding.id if binding else False),
             "idempotency_key": idempotency_key,
         })
         status = self._submit_durable_job(job_id)
@@ -864,7 +835,7 @@ class PrintGatewayRouter(models.AbstractModel):
             protocol=proto,
             binding=binding,
             company=current_company,
-            document_type="test_page",
+            document_type=binding.document_type,
         )
 
     @api.model
@@ -872,9 +843,9 @@ class PrintGatewayRouter(models.AbstractModel):
     def _route_spooler_test_page(self, *, binding, company, company_name, branch_name, printer_name, now_str):
         """PDF test page through the Windows Spooler driver path.
 
-        Exercises OpenPrinter → StartDocPrinter → WritePrinter → EndDocPrinter
-        and proves the queue can accept a job. Physical output stays unknown
-        until observed; success here means SPOOLER_JOB_ACCEPTED.
+        Exercises the Agent's driver-rendered document path (StartDocW/GDI),
+        not RAW WritePrinter. Physical output remains unknown until observed;
+        spool acceptance only proves that Windows accepted the document job.
         """
         pdf_content = self._generate_test_pdf(
             company_name=company_name, branch_name=branch_name,
@@ -882,7 +853,7 @@ class PrintGatewayRouter(models.AbstractModel):
         )
         payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         route = self.resolve_binding(
-            record=False, company=company, document_type="test_page",
+            record=False, company=company, document_type=binding.document_type,
             explicit_binding=binding, payload_type="pdf",
         )
         if route.get("native"):
@@ -904,7 +875,7 @@ class PrintGatewayRouter(models.AbstractModel):
         )
         payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         route = self.resolve_binding(
-            record=False, company=company, document_type="test_page",
+            record=False, company=company, document_type=binding.document_type,
             explicit_binding=binding, payload_type="pdf",
         )
         if route.get("native"):

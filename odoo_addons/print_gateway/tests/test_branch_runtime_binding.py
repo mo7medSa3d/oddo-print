@@ -51,8 +51,8 @@ class TestBranchRuntimeBinding(TransactionCase):
             {"id": "agent-old", "name": "Retired", "status": "offline", "lifecycle": "retired"},
         ]
         self.printers = [
-            {"id": "printer-a", "name": "Printer A", "status": "online", "lifecycle": "active", "agent": {"id": "agent-a", "name": "Agent A"}},
-            {"id": "printer-b", "name": "Printer B", "status": "online", "lifecycle": "active", "agent": {"id": "agent-b", "name": "Agent B"}},
+            {"id": "printer-a", "name": "Printer A", "status": "online", "lifecycle": "active", "protocol": "escpos", "connectionType": "usb", "agent": {"id": "agent-a", "name": "Agent A"}},
+            {"id": "printer-b", "name": "Printer B", "status": "online", "lifecycle": "active", "protocol": "escpos", "connectionType": "usb", "agent": {"id": "agent-b", "name": "Agent B"}},
         ]
         with patch("odoo.addons.print_gateway.models.gateway_config.PrintGatewayConfig._validate_gateway_host", return_value=None):
             config_model = self.env["print_gateway.gateway_config"]
@@ -191,6 +191,67 @@ class TestBranchRuntimeBinding(TransactionCase):
         # Database persistence does not block on synchronous network requests
         binding = self.env["print_gateway.binding"].create(self._values(priority=99))
         self.assertTrue(binding.id)
+
+
+    def test_runtime_protocol_uses_explicit_document_transport_without_guessing_bytes(self):
+        model = self.env["print_gateway.binding"]
+        self.assertEqual(model._canonical_runtime_printer_protocol({"protocol": "unknown", "connectionType": "spooler"}), "spooler")
+        self.assertEqual(model._canonical_runtime_printer_protocol({"protocol": "unknown", "connectionType": "ipps"}), "ipps")
+        self.assertEqual(model._canonical_runtime_printer_protocol({"protocol": "escpos", "connectionType": "usb"}), "escpos")
+        self.assertEqual(model._canonical_runtime_printer_protocol({"protocol": "unknown", "connectionType": "usb"}), "unknown")
+
+    def test_pos_image_compatibility_uses_transport_not_device_class(self):
+        model = self.env["print_gateway.binding"]
+        self.assertTrue(model._runtime_printer_accepts_image({
+            "protocol": "unknown", "connectionType": "spooler", "deviceClass": "laser",
+        }))
+        self.assertTrue(model._runtime_printer_accepts_image({
+            "protocol": "escpos", "connectionType": "network", "deviceClass": "thermal",
+        }))
+        self.assertFalse(model._runtime_printer_accepts_image({
+            "protocol": "unknown", "connectionType": "network", "deviceClass": "thermal",
+        }))
+        self.assertFalse(model._runtime_printer_accepts_image({
+            "protocol": "ipp", "connectionType": "ipp", "deviceClass": "laser",
+        }))
+
+    def test_test_print_accepts_explicit_spooler_passthrough_without_rewriting_binding(self):
+        binding = self.env["print_gateway.binding"].create(self._values(priority=97, printer_protocol="escpos"))
+        BindingClass = type(binding)
+        router = self.env["print_gateway.print_router"]
+        RouterClass = type(router)
+        runtime = {
+            "id": binding.printer_id,
+            "protocol": "unknown",
+            "connectionType": "spooler",
+            "capabilities": {"supported_protocols": ["spooler", "escpos"]},
+            "deviceClass": "laser",
+            "lifecycle": "active",
+            "agent": {"id": binding.runtime_agent_id},
+        }
+        with patch.object(BindingClass, "_validate_runtime_target", return_value=runtime) as validate, \
+             patch.object(RouterClass, "route_test_page", return_value={"message": "accepted"}) as route:
+            result = binding.action_send_test_print()
+        validate.assert_called_once_with(enforce_destination_compatibility=False)
+        route.assert_called_once()
+        self.assertEqual(binding.printer_protocol, "escpos")
+        self.assertEqual(result.get("params", {}).get("type"), "success")
+
+    def test_test_print_refuses_unknown_direct_byte_language_instead_of_guessing(self):
+        binding = self.env["print_gateway.binding"].create(self._values(priority=96, printer_protocol="escpos"))
+        BindingClass = type(binding)
+        runtime = {
+            "id": binding.printer_id,
+            "protocol": "unknown",
+            "connectionType": "usb",
+            "lifecycle": "active",
+            "agent": {"id": binding.runtime_agent_id},
+        }
+        with patch.object(BindingClass, "_validate_runtime_target", return_value=runtime):
+            with self.assertRaisesRegex(ValidationError, "does not declare a printable protocol"):
+                binding.action_send_test_print()
+        # A failed diagnostic must not rewrite a binding to an invented byte language.
+        self.assertEqual(binding.printer_protocol, "escpos")
 
     def test_action_verify_remote_hardware_success(self):
         binding = self.env["print_gateway.binding"].create(self._values(priority=98))

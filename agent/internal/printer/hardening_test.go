@@ -76,20 +76,44 @@ func TestClassifySpoolerPrinter(t *testing.T) {
 }
 
 func TestMapWindowsStatus(t *testing.T) {
-	if got := mapWindowsStatus(0, 0); got != "online" {
-		t.Fatalf("status 0 should be online, got %q", got)
+	cases := []struct {
+		name       string
+		status     uint32
+		attributes uint32
+		want       string
+	}{
+		{name: "zero is online", status: 0, want: "online"},
+		{name: "offline", status: 0x00000080, want: "offline"},
+		{name: "work offline", attributes: 0x00000400, want: "offline"},
+		{name: "server unknown stays unknown", status: 0x00800000, want: "unknown"},
+		{name: "server offline is offline", status: 0x02000000, want: "offline"},
+		{name: "server unknown plus explicit offline is offline", status: 0x00800000 | 0x00000080, want: "offline"},
+		{name: "server unknown plus server offline is offline", status: 0x00800000 | 0x02000000, want: "offline"},
+		{name: "pending deletion is non-routable error", status: 0x00000004, want: "error"},
+		{name: "paused is non-routable error", status: 0x00000001, want: "error"},
+		{name: "generic error", status: 0x00000002, want: "error"},
+		{name: "paper problem", status: 0x00000040, want: "error"},
+		{name: "output bin full", status: 0x00000800, want: "error"},
+		{name: "no toner", status: 0x00040000, want: "error"},
+		{name: "manual feed", status: 0x00000020, want: "error"},
+		{name: "page punt", status: 0x00080000, want: "error"},
+		{name: "out of memory", status: 0x00200000, want: "error"},
+		{name: "busy", status: 0x00000200, want: "busy"},
+		{name: "io active", status: 0x00000100, want: "busy"},
+		{name: "printing", status: 0x00000400, want: "busy"},
+		{name: "processing", status: 0x00004000, want: "busy"},
+		{name: "initializing", status: 0x00008000, want: "busy"},
+		{name: "warming up", status: 0x00010000, want: "busy"},
+		{name: "waiting remains online", status: 0x00002000, want: "online"},
+		{name: "toner low remains online", status: 0x00020000, want: "online"},
+		{name: "power save remains online", status: 0x01000000, want: "online"},
 	}
-	if got := mapWindowsStatus(0x80, 0); got != "offline" {
-		t.Fatalf("offline bit should be offline, got %q", got)
-	}
-	if got := mapWindowsStatus(0x02, 0); got != "error" {
-		t.Fatalf("error bit should be error, got %q", got)
-	}
-	if got := mapWindowsStatus(0x200, 0); got != "busy" {
-		t.Fatalf("busy bit should be busy, got %q", got)
-	}
-	if got := mapWindowsStatus(0, 0x400); got != "offline" {
-		t.Fatalf("WORK_OFFLINE attribute should be offline, got %q", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mapWindowsStatus(tc.status, tc.attributes); got != tc.want {
+				t.Fatalf("mapWindowsStatus(0x%08x, 0x%08x) = %q, want %q", tc.status, tc.attributes, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -338,6 +362,37 @@ func TestFactoryUSBWithoutSpoolerUsesDirectDevicePath(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatalf("expected printer")
+	}
+}
+
+func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
+	pc := config.PrinterConfig{ID: "usb-raw", Name: "USB Raw", Type: "usb", Protocol: "raw", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
+	p, err := New(pc)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if SupportsKind(p, KindESCPOS) {
+		t.Fatal("raw USB must not gain ESC/POS support without explicit evidence")
+	}
+	pc.Capabilities = map[string]interface{}{"supported_protocols": []string{"raw", "escpos"}}
+	p, err = New(pc)
+	if err != nil {
+		t.Fatalf("New with explicit capabilities: %v", err)
+	}
+	if !SupportsKind(p, KindESCPOS) {
+		t.Fatal("explicit supported_protocols=escpos must enable ESC/POS")
+	}
+}
+
+func TestFactoryUSBRequiresExplicitByteProtocol(t *testing.T) {
+	pc := config.PrinterConfig{ID: "usb-unknown", Name: "USB Unknown", Type: "usb", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
+	if _, err := New(pc); err == nil {
+		t.Fatal("missing USB byte protocol must fail closed")
+	} else {
+		message := strings.ToLower(err.Error())
+		if !strings.Contains(message, "protocol") || !strings.Contains(message, "explicit") {
+			t.Fatalf("expected explicit protocol diagnostic, got %v", err)
+		}
 	}
 }
 

@@ -94,8 +94,10 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 				conn.Close()
 				port := 631
 				fmt.Sscanf(portStr, "%d", &port)
-				// Try to verify it's really IPP by doing Get-Printer-Attributes
-				// If it fails, still treat as potential IPP printer but mark status
+				// Try to verify it is really IPP by doing Get-Printer-Attributes.
+				// A bare TCP/631 listener is only a discovery candidate: it must
+				// never become executable inventory until the IPP protocol probe
+				// succeeds. mDNS IPP advertisements are handled separately.
 				ippURL := fmt.Sprintf("ipp://%s/ipp/print", target)
 				ippProbe, constructorErr := NewIPPPrinter(ippURL, host)
 				status := "unknown"
@@ -123,20 +125,36 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 				}
 				rDnsCancel()
 
+				verification := "candidate_only"
+				protocol := "unknown"
+				connectionType := "network"
+				typeName := "network"
+				if verified {
+					verification = "verified"
+					protocol = "ipp"
+					connectionType = "ipp"
+					typeName = "ipp"
+				}
 				di := DeviceInfo{
 					ID:             id,
 					Name:           name,
 					DisplayName:    name,
 					PrinterType:    "unknown",
-					ConnectionType: "ipp",
-					Protocol:       "ipp",
+					ConnectionType: connectionType,
+					Protocol:       protocol,
 					Endpoint:       ippURL,
 					NetworkAddress: host,
 					Port:           port,
 					Status:         status,
 					Enabled:        true,
-					Type:           "ipp",
-					Capabilities:   map[string]interface{}{"discovered_via": "ipp_tcp_scan", "ipp_url": ippURL, "ipp_verified": verified},
+					Type:           typeName,
+					Capabilities: map[string]interface{}{
+						"discovered_via":     "ipp_tcp_scan",
+						"candidate_protocol": "ipp",
+						"verification":       verification,
+						"ipp_url":            ippURL,
+						"ipp_verified":       verified,
+					},
 				}
 				select {
 				case results <- di:

@@ -5,7 +5,7 @@ import { printJobs, printJobReceipts } from "../../../db/schema";
 import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { clampListLimit } from "../../../lib/request-limits";
 import {
   isJobFilterStatus,
@@ -162,15 +162,14 @@ export async function DELETE(req: Request) {
       and(
         eq(printJobs.tenantId, claims.tenantId),
         inArray(printJobs.status, [...TERMINAL_JOB_STATUSES]),
-        lt(printJobs.createdAt, before),
-        // Never erase terminal rows whose error carries explicit physical
-        // ambiguity evidence. Those rows remain the authoritative Gateway
-        // reconciliation/reprint record until an operator handles them.
-        ...PHYSICAL_OUTCOME_UNKNOWN_MARKERS.map((marker) =>
-          sql`COALESCE(${printJobs.error}, '') NOT LIKE ${marker + "%"}`,
-        ),
+        // Match the automatic retention boundary: only a terminal row whose
+        // execution fence has been fully released can be removed. Ambiguous
+        // outcomes keep claim_token until their bounded reconciliation window
+        // closes, then the payload-free receipt preserves their final evidence.
+        isNull(printJobs.claimToken),
+        lt(printJobs.updatedAt, before),
       ),
-    ).orderBy(printJobs.createdAt).limit(requestedLimit).for("update");
+    ).orderBy(printJobs.updatedAt).limit(requestedLimit).for("update");
     if (candidates.length === 0) return 0;
     for (const row of candidates) {
       await tx.insert(printJobReceipts).values({

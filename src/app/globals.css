@@ -136,18 +136,18 @@
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
   /* ---------- Type scale ---------- */
-  --fs-2xs: 11px;
-  --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-body: 14px;
-  --fs-md: 15px;
-  --fs-lg: 16px;
-  --fs-title: 17px;
-  --fs-xl: 18px;
-  --fs-2xl: 22px;
-  --fs-3xl: 26px;
-  --fs-display: 30px;
-  --fs-display-lg: 38px;
+  --fs-2xs: 12px;
+  --fs-xs: 13px;
+  --fs-sm: 14px;
+  --fs-body: 15px;
+  --fs-md: 16px;
+  --fs-lg: 17px;
+  --fs-title: 18px;
+  --fs-xl: 19px;
+  --fs-2xl: 23px;
+  --fs-3xl: 28px;
+  --fs-display: 32px;
+  --fs-display-lg: 40px;
 
   --lh-tight: 1.15;
   --lh-snug: 1.3;
@@ -157,7 +157,7 @@
   --tracking-tight: -0.012em;
   --tracking-tighter: -0.022em;
   --tracking-display: -0.028em;
-  --tracking-label: 0.06em;
+  --tracking-label: 0.045em;
 
   /* ---------- Motion ---------- */
   --dur-instant: 90ms;
@@ -926,7 +926,7 @@
   /* ---------- Sidebar navigation ---------- */
   .sidebar {
     background: var(--surface);
-    border-right: 1px solid var(--border);
+    border-inline-end: 1px solid var(--border);
   }
 
   .sidebar-item {
@@ -1071,6 +1071,16 @@
   [dir="rtl"] .tabular {
     direction: ltr;
     unicode-bidi: isolate;
+  }
+
+  /* Arabic labels should read as Arabic, not as a simulated Latin eyebrow.
+     Uppercasing has no semantic value in Arabic and letter-spacing separates
+     connected glyphs visually, so keep the same hierarchy with weight/size. */
+  [dir="rtl"] .label-caps,
+  [dir="rtl"] .text-eyebrow {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 650;
   }
 
   /* Form fields whose content is inherently Latin: an email, a URL or a phone

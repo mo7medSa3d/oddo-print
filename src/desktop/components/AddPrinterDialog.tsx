@@ -6,6 +6,7 @@ import {
   Field,
   Input,
   Select,
+  Checkbox,
   ErrorState,
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
@@ -32,6 +33,8 @@ export function AddPrinterDialog({
   const [name, setName] = useState("");
   const [conn, setConn] = useState<Conn>("spooler");
   const [spoolerName, setSpoolerName] = useState("");
+  const [spoolerRaw, setSpoolerRaw] = useState(false);
+  const [spoolerEscpos, setSpoolerEscpos] = useState(false);
   const [host, setHost] = useState("");
   const [port, setPort] = useState("9100");
   const [protocol, setProtocol] = useState("raw");
@@ -142,6 +145,8 @@ export function AddPrinterDialog({
     setHost("");
     setPort("9100");
     setSpoolerName("");
+    setSpoolerRaw(false);
+    setSpoolerEscpos(false);
     setIppUrl("");
     setUsbSel("");
   };
@@ -160,6 +165,10 @@ export function AddPrinterDialog({
         req.spoolerName = spoolerName.trim();
         req.endpoint = spoolerName.trim();
         req.protocol = "spooler";
+        req.spoolerPassthroughProtocols = [
+          ...(spoolerRaw ? ["raw" as const] : []),
+          ...(spoolerEscpos ? ["escpos" as const] : []),
+        ];
       }
       if (conn === "network") {
         req.endpoint = `${host.trim()}:${port.trim()}`;
@@ -316,6 +325,24 @@ export function AddPrinterDialog({
               />
             )}
           </Field>
+        )}
+        {conn === "spooler" && (
+          <div className="space-y-3 rounded-md border border-control p-3">
+            <p className="text-sm font-[500] text-ink">{t("desktop.spoolerPassthrough.title")}</p>
+            <p className="text-sm text-ink-3">{t("desktop.spoolerPassthrough.description")}</p>
+            <Checkbox
+              checked={spoolerEscpos}
+              onChange={(e) => setSpoolerEscpos(e.target.checked)}
+              label={t("desktop.spoolerPassthrough.escpos")}
+              description={t("desktop.spoolerPassthrough.escposHint")}
+            />
+            <Checkbox
+              checked={spoolerRaw}
+              onChange={(e) => setSpoolerRaw(e.target.checked)}
+              label={t("desktop.spoolerPassthrough.raw")}
+              description={t("desktop.spoolerPassthrough.rawHint")}
+            />
+          </div>
         )}
         {conn === "network" && (
           <div className="grid grid-cols-[1.6fr_1fr] gap-4">

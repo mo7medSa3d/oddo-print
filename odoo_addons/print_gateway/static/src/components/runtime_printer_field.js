@@ -27,7 +27,7 @@ export class RuntimePrinterField extends Component {
                         <t t-esc="props.record.data[props.name]"/> (<t t-esc="labels.savedUnavailable"/>)
                     </option>
                     <option t-foreach="filteredPrinters" t-as="printer" t-key="printer.id" t-att-value="printer.id" t-att-selected="printer.id === props.record.data[props.name]">
-                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || labels.genericClass"/>] — <t t-esc="printer.status"/>
+                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || labels.genericClass"/>] — <t t-esc="printer.freshness === 'stale' ? (printer.reportedStatus || printer.status) : printer.status"/><t t-if="printer.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
@@ -56,6 +56,7 @@ export class RuntimePrinterField extends Component {
             retry: _t("Retry"),
             savedUnavailable: _t("saved / currently unavailable"),
             genericClass: _t("generic"),
+            stale: _t("stale"),
         };
 
         // Print Agent is not the field this widget renders: a prop-based reload
@@ -102,11 +103,16 @@ export class RuntimePrinterField extends Component {
             return this.state.printers;
         }
         if (dest === "pos" || dest === "pos_printer") {
-            // No fallback to the full list: laser/inkjet rows would be
-            // selectable here but rejected by the server binding scope
-            // (binding.py), so an empty filter must stay empty and show
-            // the empty message instead.
-            return this.state.printers.filter(p => !["laser", "inkjet"].includes((p.deviceClass || "").toLowerCase()));
+            // POS sends a rendered JPEG. Match the Gateway's physical image
+            // capability instead of guessing from deviceClass: any installed
+            // Windows spooler queue can render it through its driver, while a
+            // direct byte transport needs an explicit supported ESC/POS path.
+            return this.state.printers.filter((p) => {
+                const connectionType = String(p.connectionType || "").trim().toLowerCase();
+                const protocol = String(p.protocol || "").trim().toLowerCase();
+                return connectionType === "spooler" || protocol === "spooler"
+                    || (connectionType === "network" && protocol === "escpos");
+            });
         }
         if (dest === "picking_type" && !this.reportId && !["delivery", "invoice", "order", "purchase_order"].includes(this.documentType)) {
             return this.state.printers.filter(p => ["label", "thermal", "unknown", "other"].includes((p.deviceClass || "").toLowerCase()));
@@ -191,8 +197,18 @@ export class RuntimePrinterField extends Component {
         const updateData = { [this.props.name]: selectedId };
         if (selectedId) {
             const found = this.state.printers.find((p) => p.id === selectedId);
-            if (found && found.protocol && found.protocol !== "unknown" && this.props.record?.fields?.printer_protocol) {
-                updateData.printer_protocol = found.protocol;
+            if (found && this.props.record?.fields?.printer_protocol) {
+                const protocol = String(found.protocol || "").trim().toLowerCase();
+                const connectionType = String(found.connectionType || "").trim().toLowerCase();
+                const declared = ["spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"].includes(protocol)
+                    ? protocol
+                    : ["spooler", "ipp", "ipps"].includes(connectionType)
+                        ? connectionType
+                        : "unknown";
+                // Always write the selected printer's canonical transport,
+                // including unknown, so a previous printer's byte protocol
+                // cannot survive a new selection.
+                updateData.printer_protocol = declared;
             }
         }
         this.props.record.update(updateData);

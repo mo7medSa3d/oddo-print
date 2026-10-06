@@ -129,7 +129,10 @@ suite("print idempotency (Odoo → Gateway)", () => {
     const created = await create(jobBody(key));
     expect(created.status).toBe(201);
     const { jobId } = await created.json();
-    await pool().query("UPDATE print_jobs SET status = 'success', created_at = clock_timestamp() - interval '40 days', updated_at = clock_timestamp() WHERE id = $1", [jobId]);
+    // The 48-hour retention clock is the terminal row's last stable update,
+    // not the original enqueue time. Model a terminal job older than the
+    // retention window so manual cleanup matches the automatic sweeper.
+    await pool().query("UPDATE print_jobs SET status = 'success', created_at = clock_timestamp() - interval '49 hours', updated_at = clock_timestamp() - interval '49 hours' WHERE id = $1", [jobId]);
     const manager = await createManagerSession(f.tenantId);
     const cleaned = await cleanupJobs(new Request(`http://gateway.test/api/jobs?before=${encodeURIComponent(new Date(Date.now() - 86400000).toISOString())}&confirm=1`, { method: "DELETE", headers: { Authorization: `Bearer ${manager.token}` } }));
     expect(cleaned.status).toBe(200);

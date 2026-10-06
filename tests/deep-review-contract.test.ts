@@ -124,14 +124,14 @@ describe("deep production review contracts", () => {
         { lifecycle: "active", status: "online", lastSeenAt: fresh },
         now,
       ),
-    ).toBe("offline");
+    ).toBe("unknown");
     expect(
       availability.getEffectivePrinterStatus(
         { lifecycle: "active", status: "online" },
         { lifecycle: "active", status: "online", lastSeenAt: fresh },
         now,
       ),
-    ).toBe("offline");
+    ).toBe("unknown");
 
     const wsClaim = read("src/lib/job-delivery.ts");
     const pollClaim = read("src/app/api/agent/jobs/route.ts");

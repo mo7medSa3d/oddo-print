@@ -37,17 +37,30 @@ class Job(Base):
 def job(status="unknown", error="UNKNOWN_SUBMISSION_OUTCOME: lost response", remote="job_original", physical="unknown"):
     result = Job()
     result.status, result.last_error, result.gateway_job_id, result.physical_outcome = status, error, remote, physical
-    ns = {"ValidationError": ValidationError, "_": lambda text: text, "PrintGatewayJob": Job}
+    # Model a real terminal row: late reconciliation must preserve the first
+    # terminal timestamp instead of restarting the 48-hour retention clock.
+    result.completed_at = datetime.datetime(2026, 1, 1, 0, 0, 0)
+    result.write_date = result.completed_at
+    result.env = SimpleNamespace(cr=None)
+    ns = {
+        "ValidationError": ValidationError,
+        "_": lambda text: text,
+        "PrintGatewayJob": Job,
+        "db_now_utc": lambda _cr: datetime.datetime(2026, 1, 2, 0, 0, 0),
+    }
     Job._needs_gateway_status_reconciliation = load_method("print_job.py", "_needs_gateway_status_reconciliation", ns)
+    Job._stable_terminal_values = load_method("print_job.py", "_stable_terminal_values", ns)
     Job._apply_gateway_late_success = load_method("print_job.py", "_apply_gateway_late_success", ns)
     return result
 
 @pytest.mark.parametrize("marker", ["UNKNOWN_SUBMISSION_OUTCOME", "AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT", "JOB_EXPIRED_DURING_PRINT"])
 def test_authoritative_original_success_resolves_reconcilable_unknown(marker):
     original = job(error=marker + ": interrupted")
+    terminal_since = original.completed_at
     original._apply_gateway_late_success(original, {"last_error": False})
     assert original.status == "success"
     assert original.gateway_job_id == "job_original"
+    assert original.completed_at == terminal_since
 
 @pytest.mark.parametrize("original", [job(remote=False), job(error="GATEWAY_JOB_NOT_FOUND"), job(status="failed", physical="not_printed")])
 def test_unknown_without_proven_identity_or_deterministic_failure_cannot_be_resurrected(original):

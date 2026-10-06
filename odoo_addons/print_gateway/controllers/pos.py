@@ -11,11 +11,10 @@ from odoo.addons.point_of_sale.controllers.main import PosController
 class PrintGatewayPosController(PosController):
     """Intercept the verified direct Sale Details report route.
 
-    NOTE — dual Sale Details paths: this HTTP path resolves the destination
-    from the report action, while action_print_gateway_sale_details resolves
-    explicit_destination=session.config_id (print_router). The same logical
-    report therefore needs a binding for EACH path; a binding covering only
-    one path leaves the other on native behavior.
+    This HTTP report/export path resolves an ``ir.actions.report`` binding.
+    Odoo 19's in-session Sale Details button is different: it renders a receipt
+    element in the POS and uses the POS receipt printer, so the Gateway POS
+    patch routes that path through the POS config's ``receipt`` binding.
     """
 
     @http.route('/pos/sale_details_report', type='http', auth='user')

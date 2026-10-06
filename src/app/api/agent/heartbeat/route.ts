@@ -137,7 +137,7 @@ export async function POST(req: Request) {
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
   if (hasBodyOverLimit(req, MAX_HEARTBEAT_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
+  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventoryComplete?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
     const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
@@ -167,6 +167,18 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
     const isFinalHeartbeatPage = heartbeatPage === heartbeatPageCount;
+    const rawSnapshotId = body?.inventorySnapshotId;
+    const inventorySnapshotId = typeof rawSnapshotId === "string" ? rawSnapshotId.trim() : "";
+    if (rawSnapshotId !== undefined && (!inventorySnapshotId || inventorySnapshotId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(inventorySnapshotId))) {
+      return NextResponse.json({ error: "inventorySnapshotId must be a non-empty safe token up to 128 characters" }, { status: 400 });
+    }
+    if (body?.inventoryComplete !== undefined && typeof body.inventoryComplete !== "boolean") {
+      return NextResponse.json({ error: "inventoryComplete must be boolean" }, { status: 400 });
+    }
+    const inventoryComplete = body?.inventoryComplete === true;
+    if (inventoryComplete && !inventorySnapshotId) {
+      return NextResponse.json({ error: "inventoryComplete requires inventorySnapshotId" }, { status: 400 });
+    }
 
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     // 500 is a transport page ceiling, not a fleet-size ceiling. Agents with
@@ -206,18 +218,40 @@ export async function POST(req: Request) {
     const tokened = pairs.filter((p): p is { jobId: string; claimToken: string } => p.claimToken !== null);
 
     const result = await db.transaction(async (tx) => {
+      // Printer admission and inventory snapshots share the same tenant lock as
+      // explicit printer registration. Lock it BEFORE the Agent row to keep the
+      // lock order consistent and prevent count/insert races or deadlocks.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${agent.tenantId}))`);
+
       // Lifecycle transitions lock the same agent row. Holding this lock for the
       // complete heartbeat makes status, lease refresh, desired-state ACKs and
       // printer observations linearize before OR after a disable/retire.
       const lockedAgent = await tx.execute(sql`
-        SELECT id, lifecycle
+        SELECT id, lifecycle, inventory_snapshot_id, inventory_snapshot_page_count,
+               inventory_snapshot_next_page, inventory_snapshot_complete, inventory_snapshot_had_errors
         FROM agents
         WHERE id = ${agent.id} AND tenant_id = ${agent.tenantId}
         FOR UPDATE
       `);
-      const currentAgent = lockedAgent.rows[0] as { id?: string; lifecycle?: unknown } | undefined;
+      const currentAgent = lockedAgent.rows[0] as {
+        id?: string; lifecycle?: unknown; inventory_snapshot_id?: unknown;
+        inventory_snapshot_page_count?: unknown; inventory_snapshot_next_page?: unknown;
+        inventory_snapshot_complete?: unknown; inventory_snapshot_had_errors?: unknown;
+      } | undefined;
       if (!currentAgent?.id) return { kind: "missing" as const };
       if (currentAgent.lifecycle !== "active") return { kind: "inactive" as const, lifecycle: String(currentAgent.lifecycle) };
+
+      const snapshotEnabled = inventorySnapshotId.length > 0;
+      const priorSnapshotHadErrors = heartbeatPage === 1 ? false : currentAgent.inventory_snapshot_had_errors === true;
+      if (snapshotEnabled && heartbeatPage > 1) {
+        const activeSnapshotId = typeof currentAgent.inventory_snapshot_id === "string" ? currentAgent.inventory_snapshot_id : "";
+        const activePageCount = Number(currentAgent.inventory_snapshot_page_count ?? 0);
+        const expectedPage = Number(currentAgent.inventory_snapshot_next_page ?? 0);
+        const activeComplete = currentAgent.inventory_snapshot_complete === true;
+        if (activeSnapshotId !== inventorySnapshotId || activePageCount !== heartbeatPageCount || expectedPage !== heartbeatPage || activeComplete !== inventoryComplete) {
+          return { kind: "inventory_conflict" as const, expectedPage, activeSnapshotId };
+        }
+      }
 
       await requireActiveTenantInTransaction(tx, agent.tenantId);
 
@@ -268,129 +302,187 @@ export async function POST(req: Request) {
         sanitizedPrinters.push(res.printer);
       }
 
-      // Agent heartbeats can auto-register agent-owned printers. Keep the same
-      // server-side max_printers entitlement used by explicit printer
-      // registration, while counting only genuinely new IDs in THIS page.
-      // getTenantEntitlementLimit locks the subscription row, so concurrent
-      // heartbeat pages/other registrations for the same tenant cannot both
-      // pass the capacity check against the same stale count.
+      // Existing active observations must remain fresh even when the tenant is
+      // at its printer limit. Capacity is consumed, however, whenever Agent
+      // inventory transitions from absent -> present, not only when a brand-new
+      // database ID is inserted. Otherwise a tombstoned stable ID can reappear
+      // after a replacement consumes its slot and silently exceed max_printers.
       const inventoryIds = [...new Set(sanitizedPrinters.map(p => p.id))];
       const inventoryRows = inventoryIds.length ? await tx.query.printers.findMany({
         where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, inventoryIds)),
       }) : [];
       const inventoryById = new Map(inventoryRows.map(p => [p.id, p]));
-      const candidateIds = [...new Set(
+      let pageHadErrors = skipped.length > 0;
+
+      const capacityCandidateIds = [...new Set(
         sanitizedPrinters
-          .map((p) => p.id)
-          .filter((id) => !gatewayOwnedPrinterIds.has(id)),
-      )];
-      if (candidateIds.length > 0) {
-        const existingIds = new Set(inventoryById.keys());
-        const newPrinterCount = candidateIds.filter((id) => !existingIds.has(id)).length;
-        if (newPrinterCount > 0) {
-          const printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
-          if (printerLimit !== null) {
-            const countResult = await tx.execute(sql`
-              SELECT COUNT(*)::int AS count
-              FROM printers
-              WHERE tenant_id = ${agent.tenantId}
-                AND lifecycle <> 'retired'
-            `);
-            const currentPrinterCount = Number(countResult.rows[0]?.count ?? 0);
-            if (currentPrinterCount + newPrinterCount > printerLimit) {
-              throw new TenantEntitlementError("max_printers", printerLimit, currentPrinterCount + newPrinterCount);
-            }
-          }
+          .map((p) => {
+            const existing = inventoryById.get(p.id);
+            if (!existing) return gatewayOwnedPrinterIds.has(p.id) ? null : p.id;
+            if (existing.agentId !== agent.id) return null;
+            if (existing.managementSource !== "agent") return null;
+            if (existing.lifecycle === "retired" || existing.inventoryPresent !== false) return null;
+            return p.id;
+          })
+          .filter((id): id is string => id !== null),
+      )].sort();
+      const overLimitIds = new Set<string>();
+      if (capacityCandidateIds.length > 0) {
+        const printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
+        if (printerLimit !== null) {
+          const countResult = await tx.execute(sql`
+            SELECT COUNT(*)::int AS count
+            FROM printers
+            WHERE tenant_id = ${agent.tenantId}
+              AND lifecycle <> 'retired'
+              AND (management_source <> 'agent' OR inventory_present = true)
+          `);
+          const currentPrinterCount = Number(countResult.rows[0]?.count ?? 0);
+          const available = Math.max(0, printerLimit - currentPrinterCount);
+          for (const id of capacityCandidateIds.slice(available)) overLimitIds.add(id);
         }
       }
 
       for (const p of sanitizedPrinters) {
+        const existing = inventoryById.get(p.id);
+        if (!existing) continue;
+        if (existing.agentId !== agent.id) {
+          skipped.push({ id: p.id, reason: `owned_by_another_agent (${existing.agentId})` });
+          pageHadErrors = true;
+          continue;
+        }
+
+        const reactivationBlocked = existing.managementSource === "agent"
+          && existing.lifecycle !== "retired"
+          && existing.inventoryPresent === false
+          && overLimitIds.has(p.id);
+        if (reactivationBlocked) {
+          skipped.push({ id: p.id, reason: "max_printers_exceeded" });
+        }
+
         const observedUpdateSet = {
-          status: p.status,
+          status: reactivationBlocked ? "unknown" : p.status,
           observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
           capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
-          // Durable presence must be written on the same clock that gates it:
-          // claim/dispatch queries compare this column against PostgreSQL
-          // now(). A host-clock write drifts from those gates (a host clock
-          // behind the database makes a live Agent look stale and blocks its
-          // claims; ahead of it, a dead Agent never expires).
           lastSeenAt: sql`now()`,
+          inventoryPresent: reactivationBlocked ? false : true,
+          ...(snapshotEnabled ? { inventorySnapshotId } : {}),
         };
-
-        const existing = inventoryById.get(p.id);
-
-        if (existing) {
-          if (existing.agentId !== agent.id) {
-            skipped.push({ id: p.id, reason: `owned_by_another_agent (${existing.agentId})` });
-            continue;
-          }
-          // Heartbeats are observations. Manager-owned identity/configuration
-          // remains authoritative. Agent-owned printers, however, are themselves
-          // defined by the agent inventory, so their stable metadata/config must
-          // converge on every heartbeat (rename, transport change, endpoint change,
-          // disappearance/reappearance) without altering lifecycle or ownership.
-          const updateSet = existing.managementSource === "agent"
-            ? {
-                ...observedUpdateSet,
-                name: p.name,
-                printerType: p.printerType as typeof printers.$inferInsert.printerType,
-                deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
-                connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
-                protocol: p.protocol as typeof printers.$inferInsert.protocol,
-                config: p.config as typeof printers.$inferInsert.config,
-              }
-            : observedUpdateSet;
-          await tx.update(printers)
-            .set(updateSet)
-            .where(and(
-              eq(printers.id, p.id),
-              eq(printers.tenantId, agent.tenantId),
-              eq(printers.agentId, agent.id),
-              eq(printers.managementSource, existing.managementSource),
-            ));
-        } else {
-          // The Agent carries an ownership fence for Gateway-managed IDs. This
-          // closes the deletion race where a stale local registry entry is
-          // reported in the heartbeat before the empty desired-state snapshot
-          // has reached the Agent.
-          if (gatewayOwnedPrinterIds.has(p.id)) {
-            skipped.push({ id: p.id, reason: "gateway_owned_deletion_pending" });
-            continue;
-          }
-
-          const inserted = await tx.insert(printers).values({
-            id: p.id,
-            tenantId: agent.tenantId,
-            agentId: agent.id,
-            name: p.name,
-            printerType: p.printerType as typeof printers.$inferInsert.printerType,
-            deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
-            connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
-            protocol: p.protocol as typeof printers.$inferInsert.protocol,
-            status: p.status,
-            lifecycle: "active",
-            managementSource: "agent",
-            desiredRevision: 0,
-            appliedDesiredRevision: 0,
-            observedDesiredRevision: 0,
-            observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
-            config: p.config as typeof printers.$inferInsert.config,
-            capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
-            lastSeenAt: sql`now()`,
-          }).onConflictDoNothing({ target: [printers.tenantId, printers.id] }).returning({ id: printers.id });
-
-          if (inserted.length === 0) {
-            const raced = await tx.query.printers.findFirst({
-              where: and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)),
-            });
-            if (raced && raced.agentId === agent.id) {
-              await tx.update(printers)
-                .set(observedUpdateSet)
-                .where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)));
-            } else {
-              skipped.push({ id: p.id, reason: "insert_conflict_owned_by_another_agent" });
+        const updateSet = existing.managementSource === "agent"
+          ? {
+              ...observedUpdateSet,
+              name: p.name,
+              printerType: p.printerType as typeof printers.$inferInsert.printerType,
+              deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
+              connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
+              protocol: p.protocol as typeof printers.$inferInsert.protocol,
+              config: p.config as typeof printers.$inferInsert.config,
             }
+          : observedUpdateSet;
+        await tx.update(printers)
+          .set(updateSet)
+          .where(and(
+            eq(printers.id, p.id),
+            eq(printers.tenantId, agent.tenantId),
+            eq(printers.agentId, agent.id),
+            eq(printers.managementSource, existing.managementSource),
+          ));
+      }
+
+      // Only a final page from a complete, ordered and error-free snapshot may
+      // declare absence. Partial discovery, malformed rows, ownership conflicts
+      // or a failed earlier page leave prior presence untouched. Lifecycle is
+      // deliberately not changed: absence is observational and rediscovery of
+      // the same stable ID must reactivate presence automatically.
+      const mayReconcileAbsence = snapshotEnabled && isFinalHeartbeatPage && inventoryComplete && !priorSnapshotHadErrors && !pageHadErrors;
+      if (mayReconcileAbsence) {
+        await tx.execute(sql`
+          UPDATE printers
+          SET inventory_present = false, status = 'unknown', updated_at = now()
+          WHERE tenant_id = ${agent.tenantId}
+            AND agent_id = ${agent.id}
+            AND management_source = 'agent'
+            AND lifecycle <> 'retired'
+            AND inventory_present = true
+            AND inventory_snapshot_id IS DISTINCT FROM ${inventorySnapshotId}
+        `);
+      }
+
+      for (const p of sanitizedPrinters) {
+        if (inventoryById.has(p.id)) continue;
+        if (gatewayOwnedPrinterIds.has(p.id)) {
+          skipped.push({ id: p.id, reason: "gateway_owned_deletion_pending" });
+          pageHadErrors = true;
+          continue;
+        }
+        if (overLimitIds.has(p.id)) {
+          skipped.push({ id: p.id, reason: "max_printers_exceeded" });
+          continue;
+        }
+
+        const inserted = await tx.insert(printers).values({
+          id: p.id,
+          tenantId: agent.tenantId,
+          agentId: agent.id,
+          name: p.name,
+          printerType: p.printerType as typeof printers.$inferInsert.printerType,
+          deviceClass: p.deviceClass as typeof printers.$inferInsert.deviceClass,
+          connectionType: p.connectionType as typeof printers.$inferInsert.connectionType,
+          protocol: p.protocol as typeof printers.$inferInsert.protocol,
+          status: p.status,
+          lifecycle: "active",
+          managementSource: "agent",
+          desiredRevision: 0,
+          appliedDesiredRevision: 0,
+          observedDesiredRevision: 0,
+          observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
+          config: p.config as typeof printers.$inferInsert.config,
+          capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
+          inventoryPresent: true,
+          inventorySnapshotId: snapshotEnabled ? inventorySnapshotId : null,
+          lastSeenAt: sql`now()`,
+        }).onConflictDoNothing({ target: [printers.tenantId, printers.id] }).returning({ id: printers.id });
+
+        if (inserted.length === 0) {
+          const raced = await tx.query.printers.findFirst({
+            where: and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId)),
+          });
+          if (raced && raced.agentId === agent.id) {
+            await tx.update(printers)
+              .set({
+                status: p.status,
+                observedDeviceClass: p.deviceClass as typeof printers.$inferInsert.observedDeviceClass,
+                capabilities: p.capabilities as typeof printers.$inferInsert.capabilities,
+                inventoryPresent: true,
+                ...(snapshotEnabled ? { inventorySnapshotId } : {}),
+                lastSeenAt: sql`now()`,
+              })
+              .where(and(eq(printers.id, p.id), eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id)));
+          } else {
+            skipped.push({ id: p.id, reason: "insert_conflict_owned_by_another_agent" });
+            pageHadErrors = true;
           }
+        }
+      }
+
+      if (snapshotEnabled) {
+        const snapshotHadErrors = priorSnapshotHadErrors || pageHadErrors;
+        if (isFinalHeartbeatPage) {
+          await tx.update(agents).set({
+            inventorySnapshotId: null,
+            inventorySnapshotPageCount: 0,
+            inventorySnapshotNextPage: 1,
+            inventorySnapshotComplete: false,
+            inventorySnapshotHadErrors: false,
+          }).where(and(eq(agents.id, agent.id), eq(agents.tenantId, agent.tenantId)));
+        } else {
+          await tx.update(agents).set({
+            inventorySnapshotId,
+            inventorySnapshotPageCount: heartbeatPageCount,
+            inventorySnapshotNextPage: heartbeatPage + 1,
+            inventorySnapshotComplete: inventoryComplete,
+            inventorySnapshotHadErrors: snapshotHadErrors,
+          }).where(and(eq(agents.id, agent.id), eq(agents.tenantId, agent.tenantId)));
         }
       }
 
@@ -423,6 +515,11 @@ export async function POST(req: Request) {
 
     if (result.kind === "missing") return NextResponse.json({ error: "Agent not found" }, { status: 401 });
     if (result.kind === "inactive") return NextResponse.json({ error: `Agent is ${result.lifecycle}` }, { status: 409 });
+    if (result.kind === "inventory_conflict") return NextResponse.json({
+      error: "Inventory snapshot page is out of order or no longer current",
+      code: "INVENTORY_SNAPSHOT_CONFLICT",
+      expectedPage: result.expectedPage,
+    }, { status: 409, headers: { "Cache-Control": "no-store" } });
 
     const response: Record<string, unknown> = {
       success: true,

@@ -62,6 +62,27 @@ suite("WS claim-before-delivery", () => {
     return ws;
   }
 
+  it("refuses both WS and polling claims for a printer confirmed absent from Agent inventory", async () => {
+    await pool().query(
+      `UPDATE printers
+       SET inventory_present = false, status = 'unknown', last_seen_at = now()
+       WHERE id = $1 AND tenant_id = $2`,
+      [f.printerId, f.tenantId],
+    );
+    await insertQueuedJob(f, "job_absent_inventory_claim");
+
+    expect(await claimJobForDelivery("job_absent_inventory_claim", f.agentId)).toBeNull();
+
+    const response = await agentJobsGET(agentRequest(f, "GET"));
+    expect(response.status).toBe(200);
+    const jobs = await response.json();
+    expect(jobs.find((job: { id: string }) => job.id === "job_absent_inventory_claim")).toBeUndefined();
+
+    const row = await jobRow("job_absent_inventory_claim");
+    expect(row.status).toBe("queued");
+    expect(row.delivery_attempts).toBe(0);
+  });
+
   it("refuses both WS claim and polling claim for a stale agent heartbeat", async () => {
     await pool().query(
       `UPDATE agents

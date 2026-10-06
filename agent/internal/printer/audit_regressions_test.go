@@ -99,3 +99,153 @@ func TestAuditBlockedNetworkWriteHonorsCancellation(t *testing.T) {
 		t.Fatal("blocked write ignored cancellation")
 	}
 }
+
+func auditAutoSpoolerDevice(id, name string) DeviceInfo {
+	return DeviceInfo{
+		ID:             id,
+		Name:           name,
+		ConnectionType: "spooler",
+		Protocol:       "spooler",
+		Endpoint:       name,
+		SpoolerName:    name,
+		SpoolerPort:    "USB001",
+		SpoolerDriver:  "Audit Driver",
+		Status:         "unknown",
+		Enabled:        true,
+		Capabilities: map[string]interface{}{
+			"discovered_via":     SourceSpooler,
+			"spooler_scope":      "machine_local",
+			"spooler_attributes": float64(0),
+		},
+	}
+}
+
+func TestAuditCompleteSpoolerInventoryRemovesAbsentAutoQueue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	stale := auditAutoSpoolerDevice("spooler-stale", "Removed Queue")
+	if _, err := UpsertRegistry(path, []DeviceInfo{stale}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{SourceSpooler: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("complete spooler inventory retained absent auto queue: %#v", rows)
+	}
+}
+
+func TestAuditPartialSpoolerInventoryPreservesAbsentAutoQueue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	stale := auditAutoSpoolerDevice("spooler-stale", "Temporarily Unreadable Queue")
+	if _, err := UpsertRegistry(path, []DeviceInfo{stale}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{SourceSpooler: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != stale.ID {
+		t.Fatalf("partial spooler inventory deleted durable queue: %#v", rows)
+	}
+}
+
+func TestAuditCompleteSpoolerInventoryPreservesManualAndConfigRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	manual := auditAutoSpoolerDevice("manual-spooler", "Manual Queue")
+	manual.Capabilities["registration_source"] = "manual"
+	configRow := auditAutoSpoolerDevice("config-spooler", "Configured Queue")
+	// Distinct physical queue: registry identity intentionally deduplicates
+	// rows that share the same spooler port + driver tuple.
+	configRow.SpoolerPort = "USB002"
+	configRow.Capabilities["registration_source"] = "config"
+	if _, err := UpsertRegistry(path, []DeviceInfo{manual, configRow}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{SourceSpooler: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("authoritative discovery deleted explicit operator inventory: %#v", rows)
+	}
+}
+
+func TestAuditCompleteDiscoveryDoesNotDeleteSilentNetworkOrUSBInventory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	network := DeviceInfo{
+		ID: "network-offline", Name: "Network Printer", ConnectionType: "network", Protocol: "raw",
+		Endpoint: "10.0.0.20:9100", NetworkAddress: "10.0.0.20", Port: 9100, Status: "unknown",
+		Capabilities: map[string]interface{}{"discovered_via": "tcp_port_scan", "registration_source": "discovery"},
+	}
+	usb := DeviceInfo{
+		ID: "usb-unplugged", Name: "USB Printer", ConnectionType: "usb", Protocol: "raw",
+		Endpoint: `\\?\usb#printer`, USBVID: "04b8", USBPID: "0202", Status: "unknown",
+		Capabilities: map[string]interface{}{"discovered_via": SourceUSB, "registration_source": "discovery"},
+	}
+	if _, err := UpsertRegistry(path, []DeviceInfo{network, usb}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{
+		SourceSpooler: true,
+		SourceRAW:     true,
+		SourceUSB:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("probe non-response was mistaken for inventory deletion: %#v", rows)
+	}
+}
+
+func TestAuditAutoSpoolerQueueCanReappearAfterConfirmedRemoval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	queue := auditAutoSpoolerDevice("spooler-reappear", "Receipt Queue")
+	if _, err := UpsertRegistry(path, []DeviceInfo{queue}); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{SourceSpooler: true}); err != nil || len(rows) != 0 {
+		t.Fatalf("failed to remove absent queue: rows=%#v err=%v", rows, err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, []DeviceInfo{queue}, map[string]bool{SourceSpooler: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != queue.ID {
+		t.Fatalf("reappearing queue was not restored: %#v", rows)
+	}
+}
+
+func TestAuditLegacyAutoSpoolerMetadataCanBeReconciled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "printers.json")
+	legacy := auditAutoSpoolerDevice("legacy-spooler", "Legacy Queue")
+	delete(legacy.Capabilities, "discovered_via")
+	legacy.Capabilities["registration_source"] = "registry"
+	if err := SaveRegistry(path, []DeviceInfo{legacy}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := ReconcileDiscoveryRegistry(path, nil, map[string]bool{SourceSpooler: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("legacy auto spooler row could never age out: %#v", rows)
+	}
+}
+
+func TestAuditDiscoveryDiagnosticsDoNotInvalidateAuthoritativeQueueEnumeration(t *testing.T) {
+	diagnosticOnly := fmt.Errorf("wrapped: %w", discoveryDiagnosticf("LocalSystem cannot see an interactive user's connections"))
+	if discoveryErrorIncomplete(diagnosticOnly) {
+		t.Fatal("diagnostic-only warning incorrectly made source inventory partial")
+	}
+	if !discoveryErrorIncomplete(fmt.Errorf("hard enumeration failure")) {
+		t.Fatal("hard source failure was treated as authoritative")
+	}
+}

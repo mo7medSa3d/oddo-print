@@ -18,7 +18,7 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
-var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/(?:test-connection|test-print)$")
+var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")
 
 // Deliberately wider than the desktop console proxy (which allows exact
 // GET /api/agents only): the operator CLI needs single-agent fetch for
@@ -169,9 +169,8 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 			gatewayAgentPathRe.MatchString(path)
 	case "POST":
 		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path)
-	// Printer desired-state mutation is manager-only at the HTTP
-	// boundary. Agent credentials may observe/register/test, but never
-	// modify manager-owned printer configuration or lifecycle.
+	// Agent-console POST is limited to non-printing connectivity checks.
+	// Physical test-print is manager-RBAC only and must use the manager transport.
 	default:
 		return false
 	}

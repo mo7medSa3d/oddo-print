@@ -27,17 +27,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
-  if (printer.lifecycle !== "active") {
-    return NextResponse.json({
-      reachable: false,
-      latencyMs: null,
-      live: false,
-      lastHeartbeatAt: null,
-      agentOnline: false,
-      error: "printer disabled",
-    });
-  }
-
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({
     reachable: false,
@@ -45,43 +34,55 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     live: false,
     lastHeartbeatAt: null,
     agentOnline: false,
+    agentAvailabilityReason: "agent_not_found",
     error: "agent not found",
   }, { status: 404 });
 
-  const lastHeartbeatAt = agent.lastSeenAt;
+  const availability = getAgentAvailability(agent);
+  const agentState = {
+    lastHeartbeatAt: agent.lastSeenAt,
+    agentOnline: availability.available,
+    agentAvailabilityReason: availability.reason,
+  };
+
+  if (printer.lifecycle !== "active") {
+    return NextResponse.json({
+      reachable: false,
+      latencyMs: null,
+      live: false,
+      ...agentState,
+      error: "printer disabled",
+    });
+  }
+
   const cfg = (printer.config ?? {}) as Record<string, unknown>;
   if (printer.connectionType === "network" && (!cfg.ip || !cfg.port)) {
     return NextResponse.json({
       reachable: false,
       latencyMs: null,
       live: false,
-      lastHeartbeatAt,
-      agentOnline: false,
+      ...agentState,
       error: "missing ip/port in config",
     });
   }
 
-  const availability = getAgentAvailability(agent);
-  const agentOnline = availability.available;
-  if (!agentOnline) {
+  if (!availability.available) {
     return NextResponse.json({
       reachable: false,
       latencyMs: null,
       live: false,
-      lastHeartbeatAt,
-      agentOnline: false,
-      error: "agent offline — printer reachability unknown until agent reconnects",
+      ...agentState,
+      error: `agent unavailable (${availability.reason}) — printer reachability unknown until agent availability is restored`,
     });
   }
 
   const printerFresh = isPrinterObservationFresh(printer.lastSeenAt);
-  const reachable = (printer.status === "online" || printer.status === "busy") && agentOnline && printerFresh;
+  const reachable = (printer.status === "online" || printer.status === "busy") && availability.available && printerFresh;
   return NextResponse.json({
     reachable,
     latencyMs: null,
     live: false,
-    lastHeartbeatAt,
-    agentOnline: true,
+    ...agentState,
     printerLastSeenAt: printer.lastSeenAt,
     printerObservationFresh: printerFresh,
     error: reachable ? null : !printerFresh ? "printer observation is stale or missing" : `last heartbeat printer.status=${printer.status}`,

@@ -15,6 +15,60 @@ import (
 	"github.com/yaseir-agent/agent/internal/config"
 )
 
+// IsRuntimeDiscoveryPrinter reports whether a discovery observation can be
+// promoted into the production inventory. Some discovery sources deliberately
+// return candidates that prove only that a service answered; those candidates
+// remain useful to manager discovery but must not be persisted/count as local
+// runnable printers until an execution backend exists.
+func IsRuntimeDiscoveryPrinter(d DeviceInfo) bool {
+	protocol := strings.ToLower(strings.TrimSpace(d.Protocol))
+	if protocol == "lpr" {
+		return false
+	}
+	if d.Capabilities != nil {
+		if verification, ok := d.Capabilities["verification"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(verification)) {
+			case "candidate_only", "device_detected_only":
+				return false
+			}
+		}
+	}
+
+	connection := strings.ToLower(strings.TrimSpace(d.ConnectionType))
+	if (connection == "network" || connection == "tcp") && (protocol == "" || protocol == "unknown") {
+		// Automatic WSD/SNMP/TCP observations can prove that a printer-like
+		// host or print socket exists without proving its byte/document
+		// language. Keep those observations as discovery candidates; do not
+		// count/persist them as runnable printers because printer.New rejects
+		// an undeclared network protocol. Explicit manual/config registrations
+		// remain visible so operator intent is not silently destroyed.
+		if d.Capabilities != nil {
+			if source, ok := d.Capabilities["registration_source"].(string); ok {
+				switch strings.ToLower(strings.TrimSpace(source)) {
+				case "manual", "config":
+					return true
+				}
+			}
+			if _, discovered := d.Capabilities["discovered_via"]; discovered {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// RuntimeDiscoveryPrinters returns only observations for which this Agent has
+// a production execution path. It never mutates the input slice.
+func RuntimeDiscoveryPrinters(printers []DeviceInfo) []DeviceInfo {
+	filtered := make([]DeviceInfo, 0, len(printers))
+	for _, di := range printers {
+		if IsRuntimeDiscoveryPrinter(di) {
+			filtered = append(filtered, di)
+		}
+	}
+	return filtered
+}
+
 func isValidDiscoveredPrinter(d DeviceInfo) bool {
 	// Virtual printers are always valid where they are expected
 	if d.IsVirtual {
@@ -163,6 +217,67 @@ func sameUSBDevice(a, b DeviceInfo) bool {
 type DiscoveryResult struct {
 	Printers []DeviceInfo `json:"printers"`
 	Errors   []string     `json:"errors,omitempty"`
+	// CompleteSources records which live discovery sources completed an
+	// authoritative inventory pass. It is intentionally transport-local and
+	// excluded from JSON: callers use it only to decide whether absence from a
+	// source is safe to reconcile into the durable local registry. A warning or
+	// failure in one source must never authorize deletion of printers owned by
+	// another source.
+	CompleteSources map[string]bool `json:"-"`
+}
+
+// discoveryDiagnosticError is a non-fatal discovery warning. The source may
+// still have produced an authoritative inventory even though enrichment or
+// execution-scope diagnostics need to be surfaced to the operator.
+//
+// Example: EnumPrintersW can enumerate the complete queue list while one
+// GetPrinterW status-enrichment call fails. That is a warning, not evidence
+// that the queue list itself was partial.
+type discoveryDiagnosticError struct {
+	message string
+}
+
+func (e discoveryDiagnosticError) Error() string { return e.message }
+
+func discoveryDiagnosticf(format string, args ...interface{}) error {
+	return discoveryDiagnosticError{message: fmt.Sprintf(format, args...)}
+}
+
+// discoveryErrorIncomplete reports whether err contains at least one hard
+// source failure. errors.Join is traversed recursively so diagnostic-only
+// warnings do not make an otherwise authoritative source look incomplete.
+func discoveryErrorIncomplete(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := err.(discoveryDiagnosticError); ok {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if discoveryErrorIncomplete(child) {
+				return true
+			}
+		}
+		return false
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return discoveryErrorIncomplete(wrapped.Unwrap())
+	}
+	return true
+}
+
+func markAutomaticDiscoveryRegistration(d DeviceInfo) DeviceInfo {
+	if d.Capabilities == nil {
+		return d
+	}
+	if _, exists := d.Capabilities["registration_source"]; exists {
+		return d
+	}
+	if _, observed := d.Capabilities["discovered_via"]; observed {
+		return withRegistrationSource(d, "discovery")
+	}
+	return d
 }
 
 // DiscoverQuick enumerates only fast local sources (config, spooler, registry)
@@ -180,6 +295,7 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, d := range infos {
+			d = markAutomaticDiscoveryRegistration(d)
 			if d.ID == "" {
 				d.ID = StableIDForDevice(d)
 			}
@@ -293,18 +409,36 @@ func Discover(cfg *config.Config, registryPath string) DiscoveryResult {
 }
 
 func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath string) DiscoveryResult {
+	return discoverWithContext(ctx, cfg, registryPath, true)
+}
+
+// DiscoverLiveWithContext enumerates live/configured sources without replaying
+// printers.json as discovery evidence. This is the only safe input for durable
+// absence reconciliation: a historical registry row must not prove its own
+// continued presence.
+func DiscoverLiveWithContext(ctx context.Context, cfg *config.Config, registryPath string) DiscoveryResult {
+	return discoverWithContext(ctx, cfg, registryPath, false)
+}
+
+func DiscoverLive(cfg *config.Config, registryPath string) DiscoveryResult {
+	return DiscoverLiveWithContext(context.Background(), cfg, registryPath)
+}
+
+func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath string, includeRegistry bool) DiscoveryResult {
 	var (
-		mu     sync.Mutex
-		all    []DeviceInfo
-		errors []string
-		wg     sync.WaitGroup
-		seen   = make(map[string]int)
+		mu              sync.Mutex
+		all             []DeviceInfo
+		errors          []string
+		wg              sync.WaitGroup
+		seen            = make(map[string]int)
+		completeSources = make(map[string]bool)
 	)
 
 	add := func(infos []DeviceInfo) {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, d := range infos {
+			d = markAutomaticDiscoveryRegistration(d)
 			if d.ID == "" {
 				d.ID = StableIDForDevice(d)
 			}
@@ -367,21 +501,29 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		log.Printf("[discovery] %s", msg)
 		mu.Unlock()
 	}
+	setComplete := func(source string, complete bool) {
+		mu.Lock()
+		completeSources[source] = complete
+		mu.Unlock()
+	}
 
 	// 1. Config-file printers (legacy YAML) — always available
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceConfig, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("config discovery panic: %v", r))
+				setComplete(SourceConfig, false)
 			}
 		}()
 		infos := discoverFromConfig(cfg)
 		add(infos)
+		setComplete(SourceConfig, true)
 	}()
 
 	// 2. Spooler printers (Windows or stub)
@@ -389,11 +531,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceSpooler, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("spooler discovery panic: %v", r))
+				setComplete(SourceSpooler, false)
 			}
 		}()
 		infos, err := discoverSpoolerPrinters()
@@ -401,40 +545,49 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			addErr(fmt.Sprintf("spooler discovery: %v", err))
 		}
 		add(infos)
+		setComplete(SourceSpooler, !discoveryErrorIncomplete(err))
 	}()
 
 	// 3. Registry file printers (previously discovered / manually registered)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if ctx.Err() != nil {
-			return
-		}
-		defer func() {
-			if r := recover(); r != nil {
-				addErr(fmt.Sprintf("registry discovery panic: %v", r))
+	if includeRegistry {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ctx.Err() != nil {
+				setComplete(SourceRegistry, false)
+				return
 			}
+			defer func() {
+				if r := recover(); r != nil {
+					addErr(fmt.Sprintf("registry discovery panic: %v", r))
+					setComplete(SourceRegistry, false)
+				}
+			}()
+			infos, err := loadRegistryPrinters(registryPath)
+			if err != nil {
+				if !strings.Contains(err.Error(), "no such file") {
+					addErr(fmt.Sprintf("registry load: %v", err))
+				}
+				setComplete(SourceRegistry, false)
+				return
+			}
+			add(infos)
+			setComplete(SourceRegistry, true)
 		}()
-		infos, err := loadRegistryPrinters(registryPath)
-		if err != nil {
-			if !strings.Contains(err.Error(), "no such file") {
-				addErr(fmt.Sprintf("registry load: %v", err))
-			}
-			return
-		}
-		add(infos)
-	}()
+	}
 
 	// 4. Network printers (active TCP 9100 scan) — additive, bounded, not replacing spooler
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceRAW, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("network discovery panic: %v", r))
+				setComplete(SourceRAW, false)
 			}
 		}()
 		log.Printf("[discovery] starting network discovery (TCP 9100 scan)")
@@ -448,6 +601,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			log.Printf("[discovery] network discovery found %d TCP printers", len(infos))
 		}
 		add(infos)
+		setComplete(SourceRAW, err == nil)
 	}()
 
 	// 5. USB printers (SetupDi enumeration) — additive, Windows only
@@ -455,11 +609,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceUSB, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("usb discovery panic: %v", r))
+				setComplete(SourceUSB, false)
 			}
 		}()
 		log.Printf("[discovery] starting USB discovery")
@@ -473,6 +629,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			log.Printf("[discovery] USB discovery: no devices found (or not on Windows)")
 		}
 		add(infos)
+		setComplete(SourceUSB, err == nil)
 	}()
 
 	// 6. IPP printers (mDNS + TCP 631 scan) — additive
@@ -480,11 +637,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceIPP, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("ipp discovery panic: %v", r))
+				setComplete(SourceIPP, false)
 			}
 		}()
 		log.Printf("[discovery] starting IPP discovery")
@@ -500,6 +659,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			log.Printf("[discovery] IPP discovery: no printers found")
 		}
 		add(infos)
+		setComplete(SourceIPP, err == nil)
 	}()
 
 	// 7. LPR/LPD (515) — bounded, safe probe
@@ -507,11 +667,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceLPR, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("lpr discovery panic: %v", r))
+				setComplete(SourceLPR, false)
 			}
 		}()
 		log.Printf("[discovery] starting LPR discovery")
@@ -528,8 +690,9 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			// production printer inventory because Gateway/Agent routing
 			// intentionally supports only the implemented protocol vocabulary.
 			add(infos)
-			addErr(fmt.Sprintf("lpr discovery: found %d LPR/LPD endpoint(s); candidates are visible but execution is unsupported", len(infos)))
+			log.Printf("[discovery] lpr discovery: found %d LPR/LPD endpoint(s); candidates are visible but execution is unsupported", len(infos))
 		}
+		setComplete(SourceLPR, len(diagnostics) == 0)
 	}()
 
 	// 8. SNMP (161) — read-only, public community
@@ -537,11 +700,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceSNMP, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("snmp discovery panic: %v", r))
+				setComplete(SourceSNMP, false)
 			}
 		}()
 		log.Printf("[discovery] starting SNMP discovery")
@@ -556,6 +721,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			log.Printf("[discovery] SNMP found %d printers", len(infos))
 		}
 		add(infos)
+		setComplete(SourceSNMP, len(diagnostics) == 0)
 	}()
 
 	// 9. WSD (WS-Discovery multicast) — platform independent probe
@@ -563,11 +729,13 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	go func() {
 		defer wg.Done()
 		if ctx.Err() != nil {
+			setComplete(SourceWSD, false)
 			return
 		}
 		defer func() {
 			if r := recover(); r != nil {
 				addErr(fmt.Sprintf("wsd discovery panic: %v", r))
+				setComplete(SourceWSD, false)
 			}
 		}()
 		log.Printf("[discovery] starting WSD discovery")
@@ -578,6 +746,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			addErr(fmt.Sprintf("wsd discovery: %v", err))
 		}
 		add(infos)
+		setComplete(SourceWSD, err == nil)
 	}()
 
 	wg.Wait()
@@ -605,7 +774,7 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		}
 	}
 
-	return DiscoveryResult{Printers: all, Errors: errors}
+	return DiscoveryResult{Printers: all, Errors: errors, CompleteSources: completeSources}
 }
 
 func discoverFromConfig(cfg *config.Config) []DeviceInfo {
@@ -670,10 +839,18 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 func discoverSpoolerPrinters() ([]DeviceInfo, error) {
 	infos, err := enumSpoolerImpl()
 	for i := range infos {
-		if infos[i].ID == "" && infos[i].SpoolerName != "" {
-			infos[i].ID = StableIDFromSpooler(infos[i].SpoolerName)
+		if infos[i].Capabilities == nil {
+			infos[i].Capabilities = map[string]interface{}{}
 		}
+		if _, ok := infos[i].Capabilities["discovered_via"]; !ok {
+			infos[i].Capabilities["discovered_via"] = SourceSpooler
+		}
+		infos[i] = markAutomaticDiscoveryRegistration(infos[i])
 		if infos[i].ID == "" {
+			// Prefer the strongest physical queue identity (port + driver, with
+			// server/share when available) before falling back to the queue name.
+			// StableIDForDevice retains the legacy name fallback when stronger
+			// identity is unavailable.
 			infos[i].ID = StableIDForDevice(infos[i])
 		}
 		// Enumeration already provides a bounded status snapshot. Reopening

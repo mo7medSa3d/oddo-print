@@ -18,7 +18,7 @@ func TestIPPAuthenticatedStatusAndAdmission(t *testing.T) {
 		state     int32
 		want      string
 	}{
-		{true, 3, "online"}, {true, 4, "busy"}, {false, 3, "offline"}, {false, 4, "offline"},
+		{true, 3, "online"}, {true, 4, "busy"}, {false, 3, "error"}, {false, 4, "error"},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, pass, ok := r.BasicAuth()

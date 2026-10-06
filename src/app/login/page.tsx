@@ -189,7 +189,7 @@ export default function LoginPage() {
                   className="flex min-h-10 items-center justify-between gap-3 rounded-sm border border-edge bg-surface px-3.5 text-start text-sm font-[550] text-ink transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 disabled:opacity-50"
                 >
                   <span className="truncate font-mono text-[13px]" title={id}>{t("auth.signIn.workspaceSuffix", { suffix: id.slice(-6) })}</span>
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+                  <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100 shrink-0 text-ink-4" aria-hidden />
                 </button>
               ))}
             </div>
@@ -202,7 +202,7 @@ export default function LoginPage() {
           loading={loading}
           className="w-full"
           size="lg"
-          icon={loading ? undefined : <ArrowRight className="h-4 w-4" />}
+          icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
         >
           {loading ? t("auth.signIn.submitting") : t("auth.signIn.title")}
         </Button>

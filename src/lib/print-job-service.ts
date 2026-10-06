@@ -274,6 +274,7 @@ async function insertQueuedJobAtomically({
         p.device_class AS printer_device_class,
         p.lifecycle AS printer_lifecycle,
         p.status AS printer_status,
+        p.inventory_present AS printer_inventory_present,
         p.connection_type AS printer_connection_type,
         p.protocol AS printer_protocol,
         p.agent_id AS printer_agent_id,
@@ -303,6 +304,7 @@ async function insertQueuedJobAtomically({
       printer_device_class?: string;
       printer_lifecycle?: string;
       printer_status?: string;
+      printer_inventory_present?: boolean;
       printer_connection_type?: string;
       printer_protocol?: string;
       printer_agent_id?: string;
@@ -327,6 +329,9 @@ async function insertQueuedJobAtomically({
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
+    }
+    if (owner.printer_inventory_present === false) {
+      throw new PrintJobInputError("Printer is no longer present in the Agent inventory", "PRINTER_UNAVAILABLE", 409);
     }
     if (!isPrinterStatusExecutable({
       status: owner.printer_status ?? null,

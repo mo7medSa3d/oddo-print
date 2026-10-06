@@ -4,6 +4,7 @@ import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
+import { buildJobDiagnosticPayload } from "../../../../lib/job-diagnostic-payload";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       expiresAt: printJobs.expiresAt,
       createdAt: printJobs.createdAt,
       updatedAt: printJobs.updatedAt,
+      payload: printJobs.payload,
     })
     .from(printJobs)
     .where(and(eq(printJobs.id, id), eq(printJobs.tenantId, claims.tenantId)))
@@ -39,8 +41,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const { fingerprint: _fingerprint, closedClaimTokenHash: _claimHash, apiKeyId: _apiKey, ...metadata } = receipt;
     return NextResponse.json({ ...metadata, archived: true });
   }
-  // Payload is intentionally excluded: it may contain sensitive print data
-  // (invoices, labels with PII). The diagnostic payload is available via the
-  // timeline endpoint which redacts appropriately.
-  return NextResponse.json(row[0]);
+  // Never expose the original print bytes: invoices, receipts and labels can
+  // contain PII. Operators still need useful transport evidence, so return a
+  // deterministic redacted summary (shape, byte count and digest) alongside
+  // the normal job metadata.
+  const { payload, ...metadata } = row[0];
+  return NextResponse.json({ ...metadata, diagnosticPayload: buildJobDiagnosticPayload(payload) });
 }

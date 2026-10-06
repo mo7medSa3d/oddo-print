@@ -18,12 +18,19 @@ describe("desktop Agent Gateway response contract", () => {
     expect(ipc).not.toContain("return { status: 200, body: responseBody }");
   });
 
-  it("routes desktop printer tests through the Gateway console path", () => {
+  it("routes physical Test Print through the manager-authenticated Gateway transport", () => {
     const main = read("src/desktop/main.tsx");
     const ipc = read("src/desktop/lib/ipc.ts");
+    const rust = read("src-tauri/src/commands.rs");
+    const cli = read("agent/cmd/cli/gateway.go");
     expect(main).toContain("testGatewayPrinter(savedGatewayUrl, id)");
     expect(main).not.toContain("testPrinter(id)");
     expect(ipc).toContain('"/api/printers/" + encodeURIComponent(printerId) + "/test-print"');
+    const testPrintBlock = ipc.slice(ipc.indexOf("export async function testGatewayPrinter"), ipc.indexOf("export function cleanupLocalJobs"));
+    expect(testPrintBlock).toContain("await gatewayRequest(");
+    expect(testPrintBlock).not.toContain("gatewayConsoleRequest(");
+    expect(rust).not.toContain('gateway_printer_action_path(path, "test-print")');
+    expect(cli).toContain('gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")');
   });
 
   it("normalizes Gateway printer config metadata for the desktop model", () => {

@@ -722,10 +722,17 @@ func TestStaleTransportFailureHaltsBeforeHardware(t *testing.T) {
 	// Simulate a delivery accepted long ago: dispatch acceptance stamped
 	// the receipt time, then the gateway went dark.
 	ag.inFlightMu.Lock()
-	ag.inFlight[jobID] = struct{}{}
-	ag.inFlightTokens[jobID] = "tok-old-1"
+	// processJob is called directly in this unit test, so inject only the
+	// receipt timestamp that dispatchJob would normally record. Do not invent
+	// an accepted-handler entry: that would make Agent.Close correctly keep
+	// SQLite open and causes TempDir cleanup to fail on Windows.
 	ag.inFlightReceived[jobID] = time.Now().Add(-time.Hour)
 	ag.inFlightMu.Unlock()
+	defer func() {
+		ag.inFlightMu.Lock()
+		delete(ag.inFlightReceived, jobID)
+		ag.inFlightMu.Unlock()
+	}()
 	ag.processJob(context.Background(), map[string]interface{}{
 		"id":         jobID,
 		"agentId":    "agt_test",
@@ -1325,4 +1332,43 @@ func TestUpdateJobStatusRedactsClaimTokenOverride(t *testing.T) {
 		t.Fatalf("log leaked live claim token: %q", output)
 	}
 	// A successful request needs no token diagnostic; absence from logs is valid.
+}
+
+func TestReconcileRegistryDropsStaleBackendWhenCurrentRowCannotInstantiate(t *testing.T) {
+	ag := newDesiredStateTestAgent(t)
+	const id = "registry-stale-backend"
+	ag.printers[id] = &fakePrinter{}
+	ag.printerConfigs[id] = config.PrinterConfig{
+		ID:       id,
+		Name:     "Old raw endpoint",
+		Type:     "network",
+		Endpoint: "192.0.2.10:9100",
+		Protocol: "raw",
+	}
+	ag.registryOwned[id] = struct{}{}
+
+	// The authoritative registry row changed to a non-routable transport.
+	// Reconciliation must not leave the previously valid backend alive merely
+	// because the same ID is still present in printers.json.
+	invalid := printer.DeviceInfo{
+		ID:             id,
+		Name:           "Now unconfigured",
+		ConnectionType: "network",
+		Protocol:       "unknown",
+		Endpoint:       "192.0.2.10:9100",
+		Status:         "unknown",
+		Enabled:        true,
+	}
+	ag.reconcileRegistryPrinters([]printer.DeviceInfo{invalid})
+
+	if _, ok := ag.getPrinter(id); ok {
+		t.Fatal("failed current registry row retained a stale executable backend")
+	}
+	ag.printersMu.RLock()
+	_, configStillPresent := ag.printerConfigs[id]
+	_, ownedStillPresent := ag.registryOwned[id]
+	ag.printersMu.RUnlock()
+	if configStillPresent || ownedStillPresent {
+		t.Fatalf("failed registry row remained runtime-owned: config=%v owned=%v", configStillPresent, ownedStillPresent)
+	}
 }

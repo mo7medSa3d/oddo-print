@@ -72,13 +72,11 @@ describe("CI/runtime alignment", () => {
     const ci = all.find((workflow) => workflow.includes("name: CI"));
     const security = all.find((workflow) => workflow.includes("name: Security and Resilience Gates"));
     const windows = all.find((workflow) => workflow.includes("name: Build Windows Installer"));
-    expect(ci).toContain("cargo audit");
-    // CI validates the host-toolchain dependency graph on Linux.
-    expect(ci).not.toContain("cargo audit --target-os windows --target-arch x86_64");
-    // Production is a Windows desktop target, so the security and installer
-    // gates explicitly audit the Windows x86_64 target.
+    // Supply-chain scanning has one authoritative owner. Re-running cargo-audit
+    // in CI and Windows packaging adds minutes without checking a different graph.
+    expect(ci).not.toContain("cargo audit");
     expect(security).toContain("cargo audit --target-os windows --target-arch x86_64");
-    expect(windows).toContain("cargo audit --target-os windows --target-arch x86_64");
+    expect(windows).not.toContain("cargo audit");
   });
 
   it("keeps Caddy's forwarded-header security contract warning-free", () => {

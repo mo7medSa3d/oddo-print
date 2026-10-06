@@ -39,6 +39,17 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         }
         self.assertEqual({path.name for path in MODELS.glob("*.py")}, allowed)
 
+    def test_terminal_print_job_retention_is_48_hours_and_scheduled(self):
+        source = (MODELS / "print_job.py").read_text(encoding="utf-8")
+        cron = (ADDON / "data/cron.xml").read_text(encoding="utf-8")
+        self.assertIn("_TERMINAL_RETENTION_HOURS = 48", source)
+        self.assertIn("def cron_cleanup_terminal_jobs", source)
+        self.assertIn("COALESCE(completed_at, write_date, create_date)", source)
+        self.assertIn("def _stable_terminal_values", source)
+        self.assertIn("FOR UPDATE SKIP LOCKED", source)
+        self.assertIn("cron_cleanup_terminal_gateway_print_jobs", cron)
+        self.assertIn("model.cron_cleanup_terminal_jobs()", cron)
+
     def test_legacy_user_owned_architecture_files_are_gone(self):
         forbidden = {
             "branch.py", "branch_contract.py", "branch_multicompany.py", "branch_security.py",
@@ -310,6 +321,26 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('getattr(order.config_id, "preparation_printer_ids", None)', source)
         self.assertIn("order.config_id.printer_ids", source)
 
+
+    def test_runtime_agent_picker_preserves_stale_heartbeat_separately(self):
+        controller = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        widget = (ADDON / "static/src/components/runtime_agent_field.js").read_text(encoding="utf-8")
+        gateway = (ADDON.parents[1] / "src/app/api/odoo/agents/route.ts").read_text(encoding="utf-8")
+        self.assertIn("getAgentHeartbeatFreshness", gateway)
+        self.assertIn("reportedStatus: agent.status", gateway)
+        self.assertIn("'reportedStatus': reported_status", controller)
+        self.assertIn("'freshness': freshness", controller)
+        self.assertIn("agent.freshness === 'stale'", widget)
+        self.assertIn("agent.reportedStatus || agent.status", widget)
+
+    def test_runtime_printer_picker_preserves_stale_evidence_separately(self):
+        controller = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
+        widget = (ADDON / "static/src/components/runtime_printer_field.js").read_text(encoding="utf-8")
+        self.assertIn("'reportedStatus':", controller)
+        self.assertIn("'freshness':", controller)
+        self.assertIn("printer.freshness === 'stale'", widget)
+        self.assertIn("printer.reportedStatus || printer.status", widget)
+
     def test_kitchen_gateway_supports_both_odoo_19_printer_relations(self):
         source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")
         self.assertIn('getattr(self.config_id, "preparation_printer_ids", None)', source)
@@ -392,7 +423,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         source = (MODELS / "print_router.py").read_text(encoding="utf-8")
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured", source)
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured", source)
-        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Sale Details binding is configured", source)
+        self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details", source)
 
     def test_sale_details_http_route_never_returns_fake_gateway_success(self):
         source = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")
@@ -632,7 +663,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
                         protocol="escpos",
                         binding=binding,
                         company=branch,
-                        document_type="receipt",
+                        document_type=binding.document_type,
                         idempotency_key="test_branch_submit_key_01",
                     )
                 self.assertTrue(res.get("gateway_enabled"))
@@ -730,6 +761,17 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         })
         model._advance_status(job2, "unknown", {"last_error": "UNKNOWN_SUBMISSION_OUTCOME: x"})
         self.assertEqual(job2.status, "unknown")
+        terminal_since = job2.completed_at
+        self.assertTrue(terminal_since)
+        model._advance_status(job2, "unknown", {
+            "last_error": "UNKNOWN_SUBMISSION_OUTCOME: refreshed",
+            "completed_at": "2000-01-01 00:00:00",
+        })
+        self.assertEqual(
+            job2.completed_at,
+            terminal_since,
+            "terminal reconciliation must not restart the 48-hour retention clock",
+        )
         # Regressions are refused by the stepper itself, not just write().
         with self.assertRaises(ValidationError):
             model._advance_status(job2, "queued", {})

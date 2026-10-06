@@ -104,7 +104,8 @@ func New(dbPath string) (*Queue, error) {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			claimed_at DATETIME,
-			claim_token TEXT
+			claim_token TEXT,
+			spooler_job_id TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_queue_status ON print_jobs(status);
 		CREATE INDEX IF NOT EXISTS idx_queue_printer ON print_jobs(printer_id);
@@ -140,6 +141,7 @@ func New(dbPath string) (*Queue, error) {
 	for _, column := range []struct{ name, declaration string }{
 		{"last_error", "last_error TEXT"}, {"updated_at", "updated_at DATETIME"},
 		{"claimed_at", "claimed_at DATETIME"}, {"claim_token", "claim_token TEXT"},
+		{"spooler_job_id", "spooler_job_id TEXT"},
 	} {
 		if !columns[column.name] {
 			if _, err := tx.Exec("ALTER TABLE print_jobs ADD COLUMN " + column.declaration); err != nil {
@@ -209,6 +211,21 @@ func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	return err
 }
 
+// UpdateTerminalWithEvidence atomically records the terminal physical outcome
+// and any platform spooler identity in the local outbox. The claim token is
+// deliberately retained until the Gateway acknowledges this exact report.
+func (q *Queue) UpdateTerminalWithEvidence(id, status, lastErr, spoolerJobID string) error {
+	if status != "success" && status != "failed" {
+		return fmt.Errorf("terminal evidence requires success/failed status, got %q", status)
+	}
+	var spoolerID interface{}
+	if strings.TrimSpace(spoolerJobID) != "" {
+		spoolerID = strings.TrimSpace(spoolerJobID)
+	}
+	_, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ?, spooler_job_id = ?, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, lastErr, spoolerID, id)
+	return err
+}
+
 // AbortPrint rolls a 'printing' ledger row back to 'queued' when the attempt
 // is cancelled BEFORE any byte reached hardware (currently: the gateway
 // rejected our claim at the fence, so another attempt owns the job).
@@ -221,7 +238,7 @@ func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 // that concurrently reached a terminal state.
 func (q *Queue) AbortPrint(id, reason string) error {
 	_, err := q.db.Exec(
-		`UPDATE print_jobs SET status = 'queued', last_error = ?, claim_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'printing'`,
+		`UPDATE print_jobs SET status = 'queued', last_error = ?, claim_token = NULL, spooler_job_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'printing'`,
 		reason, id,
 	)
 	return err
@@ -330,7 +347,7 @@ func (q *Queue) BeginPrint(id, printerID string, payload []byte, claimToken stri
 		updateToken = claimToken
 	}
 	updated, err := tx.Exec(
-		`UPDATE print_jobs SET status = 'printing', claim_token = COALESCE(?, claim_token), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
+		`UPDATE print_jobs SET status = 'printing', claim_token = COALESCE(?, claim_token), spooler_job_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','failed')`,
 		updateToken, id,
 	)
 	if err != nil {
@@ -361,15 +378,16 @@ func (q *Queue) ClaimTokenFor(id string) string {
 // remote 2xx response, so a process crash between local terminalization and
 // remote acknowledgement leaves a durable retryable report in SQLite.
 func (q *Queue) ClearClaimToken(id, claimToken string) error {
-	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed') AND claim_token = ?`, id, claimToken)
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL WHERE id = ? AND status IN ('success', 'failed') AND claim_token = ?`, id, claimToken)
 	return err
 }
 
 type TerminalReport struct {
-	ID         string
-	Status     string
-	LastError  string
-	ClaimToken string
+	ID           string
+	Status       string
+	LastError    string
+	ClaimToken   string
+	SpoolerJobID string
 }
 
 // PendingTerminalReports returns durable terminal outcomes whose Gateway
@@ -381,7 +399,7 @@ func (q *Queue) PendingTerminalReports(limit int) ([]TerminalReport, error) {
 		limit = 32
 	}
 	rows, err := q.db.Query(`
-		SELECT id, status, COALESCE(last_error, ''), claim_token
+		SELECT id, status, COALESCE(last_error, ''), claim_token, COALESCE(spooler_job_id, '')
 		FROM print_jobs
 		WHERE status IN ('success', 'failed')
 		  AND claim_token IS NOT NULL
@@ -396,7 +414,7 @@ func (q *Queue) PendingTerminalReports(limit int) ([]TerminalReport, error) {
 	result := make([]TerminalReport, 0)
 	for rows.Next() {
 		var report TerminalReport
-		if err := rows.Scan(&report.ID, &report.Status, &report.LastError, &report.ClaimToken); err != nil {
+		if err := rows.Scan(&report.ID, &report.Status, &report.LastError, &report.ClaimToken, &report.SpoolerJobID); err != nil {
 			return nil, err
 		}
 		result = append(result, report)

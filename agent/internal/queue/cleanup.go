@@ -46,6 +46,29 @@ func (q *Queue) CleanupTerminal(retainDays int) (int, error) {
 	return int(count), nil
 }
 
+// CleanupTerminalOlderThan is the automatic storage-retention path. Unlike
+// the operator-triggered CleanupTerminal, it may remove unknown-outcome rows
+// after the retention window because claim_token IS NULL proves the Gateway
+// already acknowledged the terminal report and 48 hours is beyond the remote
+// late-reconciliation window. Active and pending-outbox rows are retained.
+func (q *Queue) CleanupTerminalOlderThan(retainHours int) (int, error) {
+	if retainHours <= 0 {
+		return 0, nil
+	}
+	result, err := q.db.Exec(`DELETE FROM print_jobs
+		WHERE claim_token IS NULL
+		  AND status IN ('success', 'failed')
+		  AND updated_at <= datetime('now', '-` + strconv.Itoa(retainHours) + ` hours')`)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
 // CountOutcomeUnknown returns how many locally-kept rows carry an unknown
 // physical outcome (for operator reconciliation).
 func (q *Queue) CountOutcomeUnknown() (int, error) {

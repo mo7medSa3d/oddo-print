@@ -569,3 +569,30 @@ func TestDesiredULAValidationMatchesGatewayPrivateNetworkPolicy(t *testing.T) {
 		t.Fatal("metadata endpoint accepted via alternate spelling")
 	}
 }
+
+func TestDesiredSpoolerPassthroughIsExplicitAndAdditive(t *testing.T) {
+	row := desiredPrinterRecord{Desired: desiredPrinterWire{
+		ID: "spool-pass", Name: "Thermal queue", PrinterType: "physical", DeviceClass: "thermal",
+		ConnectionType: "spooler", Protocol: "spooler", Lifecycle: "active",
+		Config: map[string]interface{}{"spooler_name": "Thermal queue", "passthrough_protocols": []interface{}{"escpos"}},
+	}}
+	row.ObservedSupportedProtocolsKnown = true
+	row.ObservedSupportedProtocols = []string{"raw"} // stale observed data must not override desired config.
+	cfg := desiredPrinterConfig(row)
+	got, ok := cfg.Capabilities["supported_protocols"].([]string)
+	if !ok {
+		t.Fatalf("supported_protocols type = %T, want []string", cfg.Capabilities["supported_protocols"])
+	}
+	seen := map[string]bool{}
+	for _, value := range got {
+		seen[value] = true
+	}
+	for _, want := range []string{"pdf", "image", "escpos"} {
+		if !seen[want] {
+			t.Fatalf("missing %s in %v", want, got)
+		}
+	}
+	if seen["raw"] {
+		t.Fatalf("stale RAW capability leaked into desired config: %v", got)
+	}
+}

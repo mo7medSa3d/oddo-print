@@ -29,6 +29,7 @@ describe("runtime printer routing regressions", () => {
     expect(isPrinterAvailableForJob(printer({ status: "unknown", connectionType: "spooler" }))).toBe(true);
     expect(isPrinterAvailableForJob(printer({ status: "offline" }))).toBe(false);
     expect(isPrinterAvailableForJob(printer({ lifecycle: "disabled" }))).toBe(false);
+    expect(isPrinterAvailableForJob(printer({ inventoryPresent: false }))).toBe(false);
   });
 
   it("does not silently accept a payload capability the printer does not advertise", () => {

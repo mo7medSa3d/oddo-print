@@ -130,10 +130,26 @@ test("activation RPC failure returns false without hardware dispatch", async () 
 test("sales report failed status does not toast success", async () => {
   const { hooks } = await loadHooks("pos_sale_details_router.js");
   const notifications = [];
+  const calls = [];
   const button = {
-    pos: { session: { id: 5 }, models: {}, data: { call: async (_model, method) => method === "is_gateway_printing_enabled" ? true : method === "action_print_gateway_sale_details" ? { gateway_enabled: true, status: "failed" } : {} }, ticketPrinter: { getGenerator: () => ({ generateSaleDetailsData: () => ({ extra_data: {} }) }) } },
+    pos: {
+      session: { id: 5 },
+      env: { utils: { formatCurrency: () => "$1.00" } },
+      data: { call: async (model, method) => {
+        calls.push([model, method]);
+        if (method === "is_gateway_printing_enabled") return true;
+        if (method === "get_sale_details") return { payments: [], taxes: [] };
+        if (method === "action_print_gateway_sale_details") return { gateway_enabled: true, status: "failed" };
+        return {};
+      } },
+    },
     env: { services: { notification: { add: (...args) => notifications.push(args) } } },
   };
   assert.equal(await hooks.onClick.call(button), false);
+  assert.deepEqual(calls.map(([, method]) => method), [
+    "is_gateway_printing_enabled",
+    "get_sale_details",
+    "action_print_gateway_sale_details",
+  ]);
   assert.equal(notifications[0][1].type, "danger");
 });
