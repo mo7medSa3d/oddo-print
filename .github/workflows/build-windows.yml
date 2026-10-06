@@ -106,14 +106,14 @@ jobs:
         shell: pwsh
         run: |
           $bundleRoot = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle"
-          foreach ($dir in @("msi", "nsis")) {
+          foreach ($dir in @("nsis")) {
             $path = Join-Path $bundleRoot $dir
             if (Test-Path $path) {
               Remove-Item -Recurse -Force $path
             }
             New-Item -ItemType Directory -Force -Path $path | Out-Null
           }
-          Write-Host "Removed stale MSI/NSIS bundle outputs before packaging."
+          Write-Host "Removed stale NSIS bundle output before packaging."
 
       - name: Build Tauri Windows NSIS installer
         shell: pwsh
@@ -160,7 +160,7 @@ jobs:
 
           # NSIS requires /D=... as the final argument. Keep the destination
           # inside the ephemeral runner temp directory so this test cannot
-          # collide with the MSI installation or leave Program Files state.
+          # collide with a previous installation or leave Program Files state.
           $proc = Start-Process -FilePath $nsis.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
           if ($proc.ExitCode -ne 0) {
             throw "NSIS install failed with code $($proc.ExitCode)"
