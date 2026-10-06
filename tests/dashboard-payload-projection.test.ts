@@ -38,6 +38,9 @@ describe("dashboard diagnostic payload loading contract", () => {
     expect(source).toContain('? t("loading.payload")');
     expect(source).toContain('setSelectedJobPayloadLoading(true)');
     expect(source).toContain('setSelectedJobPayloadLoading(false)');
+    expect(source).toContain('retrySelectedJobPayload');
+    expect(source).toContain('setSelectedJobPayloadReloadKey((key) => key + 1)');
+    expect(source).toContain('{t("common.retry")}');
   });
 });
 
