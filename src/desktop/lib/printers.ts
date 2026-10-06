@@ -238,6 +238,16 @@ export function friendlyPrinterError(raw: string, locale: Locale = DEFAULT_LOCAL
   }
   const lower = raw.toLowerCase();
 
+  if (
+    lower.includes("401") ||
+    lower.includes("403") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    lower.includes("authentication_required")
+  ) {
+    return tr(locale, "desktop.gateway.unauthorized");
+  }
+
   // Agent configuration failures can surface through printer discovery/refresh
   // because the Tauri Gateway transport reads the local Agent config first.
   // Never expose the config path or Windows error text to operators.

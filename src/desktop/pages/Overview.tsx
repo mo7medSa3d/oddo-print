@@ -26,6 +26,10 @@ export function OverviewPage({ s }: { s: DesktopState }) {
     if (!s.isOnline) {
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.agentOfflineTitle")} action={<Button variant="primary" onClick={s.startAgent} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.startAgent")}</Button>}>{t("desktop.overview.agentNotRunning")}</StatusNotice>;
     }
+    if (s.printersError || s.jobsError) {
+      const detail = s.printersError || s.jobsError || t("desktop.overview.gatewayNoAnswerPlain");
+      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => { void s.refreshPrinters(); void s.refreshJobs(); }} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>}>{detail}</StatusNotice>;
+    }
     if (offline > 0 || unknownPrinters > 0 || s.failedJobs > 0) {
       const parts: string[] = [];
       if (offline > 0) parts.push(tc("desktop.overview.printersNeedAttention", offline));

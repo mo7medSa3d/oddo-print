@@ -49,7 +49,7 @@ describe("job diagnostic payload", () => {
     expect(dashboard).toContain("new AbortController()");
     expect(dashboard).toContain("8_000");
     expect(dashboard).toContain('t("job.payloadLoadFailed")');
-    expect(dashboard).toContain("row?.diagnosticPayload ?? null");
+    expect(dashboard).toContain("value: row.diagnosticPayload ?? null");
   });
 
   it("returns null for non-object legacy payloads", () => {

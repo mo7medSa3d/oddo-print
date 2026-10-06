@@ -65,10 +65,12 @@ describe("AdminPrivilegeDialog", () => {
     expect(text).toContain("Continue in Read-Only Mode");
     expect(text).toContain("Run as administrator");
 
-    // Modal is rendered in a fixed z-50 overlay container above the whole UI
+    // Modal must render above the full desktop chrome. The shared Modal now
+    // uses the elevated overlay tier so privilege prompts cannot disappear
+    // behind menus, sidebars, or status surfaces.
     const modalRoot = document.querySelector("[data-dialog-root]");
     expect(modalRoot).not.toBeNull();
-    expect(modalRoot?.className).toContain("z-50");
+    expect(modalRoot?.className).toContain("z-[100]");
   });
 
   it("does not render when open is false", () => {

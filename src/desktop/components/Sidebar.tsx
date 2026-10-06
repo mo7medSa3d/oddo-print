@@ -33,7 +33,7 @@ export function Sidebar({
 }) {
   const { t, formatTime } = useI18n();
   return (
-    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[248px]"} ${sidebarOpen ? "translate-x-0" : "ltr:-translate-x-full rtl:translate-x-full lg:translate-x-0"}`}>
+    <aside className={`fixed inset-y-0 start-0 z-40 flex flex-col border-e border-edge bg-surface shadow-sm transition-all duration-180 ease-out ${collapsed ? "w-[72px]" : "w-[248px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
       <div className={`flex h-[68px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (

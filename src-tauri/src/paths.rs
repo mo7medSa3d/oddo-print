@@ -129,12 +129,29 @@ fn agent_data_root_candidate() -> PathBuf {
     if let Ok(pd) = std::env::var("PROGRAMDATA") {
         if !pd.trim().is_empty() {
             let canonical = PathBuf::from(&pd).join("YaseirAgent");
+            let legacy = PathBuf::from(&pd).join("YasserAgent");
+            let very_legacy = PathBuf::from(&pd).join("OdooPrintAgent");
+
+            if canonical.join("config.yaml").is_file() {
+                return canonical;
+            }
+            if legacy.join("config.yaml").is_file() {
+                return legacy;
+            }
+            if very_legacy.join("config.yaml").is_file() {
+                return very_legacy;
+            }
+
+            // No paired config exists yet. Preserve any existing writable data
+            // root before creating a new canonical one.
             if canonical.exists() {
                 return canonical;
             }
-            let legacy = PathBuf::from(&pd).join("YasserAgent");
             if legacy.exists() {
                 return legacy;
+            }
+            if very_legacy.exists() {
+                return very_legacy;
             }
             return canonical;
         }

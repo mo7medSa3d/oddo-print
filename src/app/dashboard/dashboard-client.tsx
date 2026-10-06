@@ -134,11 +134,17 @@ export type Job = {
   payload?: unknown;
   retries?: number;
   deliveryAttempts?: number;
-  claimedAt?: Date | null;
-  deliveredAt?: Date | null;
-  ackedAt?: Date | null;
-  createdAt: Date;
-  updatedAt?: Date | null;
+  claimedAt?: Date | string | null;
+  deliveredAt?: Date | string | null;
+  ackedAt?: Date | string | null;
+  expiresAt?: Date | string | null;
+  createdAt: Date | string;
+  updatedAt?: Date | string | null;
+};
+
+type JobDetailsResponse = Omit<Job, "payload"> & {
+  archived?: boolean;
+  diagnosticPayload?: unknown;
 };
 
 class DashboardApiError extends Error {
@@ -172,7 +178,10 @@ type BillingUsage = {
 const MAX_DIAGNOSTIC_PREVIEW_CHARS = 64 * 1024;
 
 function stringifyDiagnosticPayload(payload: unknown, t: Translator): string {
-  if (payload === undefined) return t("loading.payload");
+  // Loading is an async UI state, not a payload value. If the list projection
+  // intentionally omits payload or the details response has no diagnostic
+  // payload, render an honest empty state instead of a fake perpetual loader.
+  if (payload === undefined) return t("job.noPayload");
   if (payload === null) return t("job.noPayload");
   try {
     return JSON.stringify(payload, null, 2) || t("job.noPayload");
@@ -440,26 +449,29 @@ export default function DashboardClient({
   const [debouncedJobSearch, setDebouncedJobSearch] = useState("");
   const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [selectedJobDetails, setSelectedJobDetails] = useState<JobDetailsResponse | null>(null);
   const [selectedJobPayload, setSelectedJobPayload] = useState<{ jobId: string; value: unknown } | null>(null);
   const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
   const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
 
   const openJobDetails = React.useCallback((job: Job) => {
     setSelectedJob(job);
-    setSelectedJobPayload(job.payload !== undefined ? { jobId: job.id, value: job.payload } : null);
-    setSelectedJobPayloadLoading(job.payload === undefined);
+    setSelectedJobDetails(null);
+    setSelectedJobPayload(null);
+    setSelectedJobPayloadLoading(true);
     setSelectedJobPayloadError(false);
   }, []);
 
   const closeJobDetails = React.useCallback(() => {
     setSelectedJob(null);
+    setSelectedJobDetails(null);
     setSelectedJobPayload(null);
     setSelectedJobPayloadLoading(false);
     setSelectedJobPayloadError(false);
   }, []);
 
   useEffect(() => {
-    if (!selectedJob || selectedJob.payload !== undefined) return;
+    if (!selectedJob) return;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
@@ -472,11 +484,15 @@ export default function DashboardClient({
     })
       .then(async (res) => {
         if (!res.ok) throw new Error(`job details request failed with ${res.status}`);
-        const row = (await res.json()) as { diagnosticPayload?: unknown };
-        if (!cancelled) setSelectedJobPayload({ jobId: selectedJob.id, value: row?.diagnosticPayload ?? null });
+        const row = (await res.json()) as JobDetailsResponse;
+        if (!cancelled) {
+          setSelectedJobDetails(row);
+          setSelectedJobPayload({ jobId: selectedJob.id, value: row.diagnosticPayload ?? null });
+        }
       })
       .catch(() => {
         if (!cancelled) {
+          setSelectedJobDetails(null);
           setSelectedJobPayload({ jobId: selectedJob.id, value: null });
           setSelectedJobPayloadError(true);
         }
@@ -491,6 +507,11 @@ export default function DashboardClient({
       controller.abort();
     };
   }, [selectedJob]);
+
+  const selectedJobView =
+    selectedJob && selectedJobDetails?.id === selectedJob.id
+      ? ({ ...selectedJob, ...selectedJobDetails } as Job)
+      : selectedJob;
 
   const dashboardRequest = React.useCallback(async <T,>(operation: () => Promise<{ ok: true; data: T } | { ok: false; error: string | null; status: number; code: string }>): Promise<T> => {
     const session = await ensureCustomerSession();
@@ -1676,7 +1697,7 @@ export default function DashboardClient({
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden overflow-x-auto md:block">
+            <div className="hidden overflow-x-auto xl:block">
               <table className="data-table min-w-[860px]">
                 <caption className="sr-only">{t("job.tableCaption")}</caption>
                 <thead>
@@ -1750,7 +1771,7 @@ export default function DashboardClient({
             </div>
 
             {/* Mobile list */}
-            <ul className="divide-y divide-edge-subtle md:hidden">
+            <ul className="divide-y divide-edge-subtle xl:hidden">
               {filteredJobs.map((job) => {
                 const outcome = deriveOutcome(job.status, job.error);
                 const printer = printerById.get(job.printerId);
@@ -1909,26 +1930,26 @@ export default function DashboardClient({
       <Modal
         open={selectedJob !== null}
         onClose={() => closeJobDetails()}
-        title={selectedJob ? t("job.detailTitle", { id: selectedJob.id.slice(0, 12) }) : t("job.job")}
-        description={selectedJob ? `${jobDisplayLabel(selectedJob.status, selectedJob.error, locale)} · ${formatDateTime(selectedJob.createdAt)}` : undefined}
+        title={selectedJobView ? t("job.detailTitle", { id: selectedJobView.id.slice(0, 12) }) : t("job.job")}
+        description={selectedJobView ? `${jobDisplayLabel(selectedJobView.status, selectedJobView.error, locale)} · ${formatDateTime(selectedJobView.createdAt)}` : undefined}
         wide
         footer={
           <>
             <Button variant="secondary" onClick={() => closeJobDetails()}>
               {t("common.close")}
             </Button>
-            {selectedJob && selectedJob.status.toLowerCase() !== "success" && !isJobInFlight(selectedJob.status) && (
+            {selectedJobView && selectedJobView.status.toLowerCase() !== "success" && !isJobInFlight(selectedJobView.status) && (
               <Button
                 variant="primary"
                 disabled={busy}
                 onClick={() => {
-                  const job = selectedJob;
+                  const job = selectedJobView;
                   closeJobDetails();
                   setReprintCandidate(job);
                 }}
                 icon={<RotateCcw className="h-4 w-4" />}
               >
-                {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown"
+                {deriveOutcome(selectedJobView.status, selectedJobView.error) === "unknown"
                   ? t("job.reprintVerify")
                   : t("job.reprintQueue")}
               </Button>
@@ -1936,53 +1957,53 @@ export default function DashboardClient({
           </>
         }
       >
-        {selectedJob && (
+        {selectedJobView && (
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
-                tone={sharedJobTone(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error))}
-                label={jobDisplayLabel(selectedJob.status, selectedJob.error, locale)}
+                tone={sharedJobTone(selectedJobView.status, deriveOutcome(selectedJobView.status, selectedJobView.error))}
+                label={jobDisplayLabel(selectedJobView.status, selectedJobView.error, locale)}
               />
-              <span className="font-mono text-2xs text-ink-4">{selectedJob.id}</span>
-              <CopyButton value={selectedJob.id} label={t("job.copyJobId")} />
+              <span className="font-mono text-2xs text-ink-4">{selectedJobView.id}</span>
+              <CopyButton value={selectedJobView.id} label={t("job.copyJobId")} />
             </div>
 
             <p className="text-sm leading-relaxed text-ink-2">
-              {jobGuidance(selectedJob.status, deriveOutcome(selectedJob.status, selectedJob.error), locale)}
+              {jobGuidance(selectedJobView.status, deriveOutcome(selectedJobView.status, selectedJobView.error), locale)}
             </p>
 
-            {deriveOutcome(selectedJob.status, selectedJob.error) === "unknown" && (
+            {deriveOutcome(selectedJobView.status, selectedJobView.error) === "unknown" && (
               <Callout tone="warn" title={t("job.reprintWarning")}>
                 {t("job.reprintDuplicates")}
               </Callout>
             )}
 
-            {selectedJob.error && (() => {
-              const classified = jobFailurePresentation(selectedJob.error, locale);
+            {selectedJobView.error && (() => {
+              const classified = jobFailurePresentation(selectedJobView.error, locale);
               return (
                 <Callout tone="bad" title={classified?.title ?? t("job.reportedError")}>
-                  <span className="break-words text-sm">{classified?.guidance ?? selectedJob.error}</span>
+                  <span className="break-words text-sm">{classified?.guidance ?? selectedJobView.error}</span>
                 </Callout>
               );
             })()}
 
             <KeyValueList
               rows={[
-                { label: t("job.printer"), value: printerById.get(selectedJob.printerId)?.name ?? selectedJob.printerId },
-                { label: t("printer.agent"), value: agentById.get(selectedJob.agentId)?.name ?? selectedJob.agentId },
-                { label: t("job.document"), value: selectedJob.documentType?.replace(/_/g, " ") ?? "—" },
-                { label: t("job.destination"), value: selectedJob.destination ?? "—" },
-                { label: t("job.deliveryAttempts"), value: String(selectedJob.deliveryAttempts ?? 0) },
-                { label: t("job.retries"), value: String(selectedJob.retries ?? 0) },
-                { label: t("job.claimedAt"), value: formatDateTime(selectedJob.claimedAt) },
-                { label: t("job.success"), value: formatDateTime(selectedJob.deliveredAt) },
-                { label: t("job.acknowledged"), value: formatDateTime(selectedJob.ackedAt) },
+                { label: t("job.printer"), value: printerById.get(selectedJobView.printerId)?.name ?? selectedJobView.printerId },
+                { label: t("printer.agent"), value: agentById.get(selectedJobView.agentId)?.name ?? selectedJobView.agentId },
+                { label: t("job.document"), value: selectedJobView.documentType?.replace(/_/g, " ") ?? "—" },
+                { label: t("job.destination"), value: selectedJobView.destination ?? "—" },
+                { label: t("job.deliveryAttempts"), value: String(selectedJobView.deliveryAttempts ?? 0) },
+                { label: t("job.retries"), value: String(selectedJobView.retries ?? 0) },
+                { label: t("job.claimedAt"), value: formatDateTime(selectedJobView.claimedAt) },
+                { label: t("job.success"), value: formatDateTime(selectedJobView.deliveredAt) },
+                { label: t("job.acknowledged"), value: formatDateTime(selectedJobView.ackedAt) },
               ]}
             />
 
             <div>
               <h3 className="mb-3 text-sm font-[600] text-ink">{t("job.timeline")}</h3>
-              <JobTimeline jobId={selectedJob.id} />
+              <JobTimeline jobId={selectedJobView.id} />
             </div>
 
             <details className="group rounded-sg border border-edge-subtle bg-surface-2">
@@ -1998,7 +2019,7 @@ export default function DashboardClient({
                   <div className="mb-2 flex justify-end">
                     <CopyButton
                       value={stringifyDiagnosticPayload(
-                        selectedJobPayload?.jobId === selectedJob.id ? selectedJobPayload.value : selectedJob.payload,
+                        selectedJobPayload?.jobId === selectedJobView.id ? selectedJobPayload.value : selectedJobView.payload,
                         t,
                       )}
                       label={t("job.copyPayload")}
@@ -2012,7 +2033,7 @@ export default function DashboardClient({
                       ? t("job.payloadLoadFailed")
                       : diagnosticPayloadPreview(
                           stringifyDiagnosticPayload(
-                            selectedJobPayload?.jobId === selectedJob.id ? selectedJobPayload.value : selectedJob.payload,
+                            selectedJobPayload?.jobId === selectedJobView.id ? selectedJobPayload.value : selectedJobView.payload,
                             t,
                           ),
                           t,

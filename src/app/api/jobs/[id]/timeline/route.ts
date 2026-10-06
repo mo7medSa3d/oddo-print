@@ -4,7 +4,7 @@ import { jobEvents, printJobs, printJobReceipts } from "../../../../../db/schema
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
-import { getJobTimeline, buildTimelineFromJobRow } from "../../../../../lib/job-timeline";
+import { getJobTimeline } from "../../../../../lib/job-timeline";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
 import { requestIdFrom, logWarn, redactClaimToken } from "../../../../../lib/log";
 
@@ -49,10 +49,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (rows.length === 0) {
       const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.id, id)) });
       if (receipt) return NextResponse.json({ jobId: id, tenantId, status: receipt.status, archived: true,
-        timeline: [
-          { id: `${id}:created`, stage: "created", status: "ok", at: receipt.createdAt, messageKey: "job.timeline.created" },
-          { id: `${id}:${receipt.status}`, stage: receipt.status, status: receipt.status === "success" ? "ok" : "error", at: receipt.updatedAt, messageKey: receipt.status === "success" ? "job.timeline.successUnverified" : receipt.status === "expired" ? "job.timeline.expired" : "job.timeline.failed" },
-        ], correlation: { requestId, jobId: id, tenantId, agentId: receipt.agentId, printerId: receipt.printerId },
+        timeline: [],
+        evidence: {
+          source: "archived_receipt",
+          recordedEventCount: 0,
+          job: {
+            status: receipt.status,
+            createdAt: receipt.createdAt,
+            updatedAt: receipt.updatedAt,
+            agentId: receipt.agentId,
+            printerId: receipt.printerId,
+          },
+        },
+        correlation: { requestId, jobId: id, tenantId, agentId: receipt.agentId, printerId: receipt.printerId },
       }, { headers: { "x-request-id": requestId } });
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });
     }
@@ -68,49 +77,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       events = [];
     }
 
-    let timeline: TimelineEntry[];
-    if (events.length > 0) {
-      timeline = events.map((e: JobEventRow) => ({
-        id: e.id,
-        stage: e.stage,
-        status: e.status,
-        at: e.createdAt,
-        message: e.message,
-        errorCode: e.errorCode,
-        attemptId: e.attemptId,
-        // Redact claimId — never expose raw claim_token
-        claimId: redactClaimToken(e.claimId),
-        spoolerJobId: e.spoolerJobId,
-        agentId: e.agentId,
-        printerId: e.printerId,
-        requestId: e.requestId,
-        metadata: e.metadata,
-      }));
-    } else {
-      timeline = [];
-    }
-    const persisted = timeline;
-    const missing = buildTimelineFromJobRow(job).filter(entry => !persisted.some(event =>
-      event.stage === entry.stage && (!["success", "failed", "expired"].includes(entry.stage) || (event.at && job.updatedAt && event.at.getTime() >= job.updatedAt.getTime()))
-    ));
-    timeline = [...persisted, ...missing.map((t, idx) => ({
-        id: `derived_${idx}`,
-        stage: t.stage,
-        status: t.status,
-        at: t.at,
-        message: t.message,
-        messageKey: t.messageKey,
-        messageVars: t.messageVars,
-        attemptId: job.attemptId,
-        // Redact claimToken — never raw
-        claimId: redactClaimToken(job.claimToken),
-        spoolerJobId: job.spoolerJobId,
-        agentId: job.agentId,
-        printerId: job.printerId,
-        requestId: job.requestId,
-        metadata: {},
-      }))];
-    timeline.sort((a, b) => a.at && b.at ? a.at.getTime() - b.at.getTime() : 0);
+    const timeline: TimelineEntry[] = events.map((e: JobEventRow) => ({
+      id: e.id,
+      stage: e.stage,
+      status: e.status,
+      at: e.createdAt,
+      message: e.message,
+      errorCode: e.errorCode,
+      attemptId: e.attemptId,
+      claimId: redactClaimToken(e.claimId),
+      spoolerJobId: e.spoolerJobId,
+      agentId: e.agentId,
+      printerId: e.printerId,
+      requestId: e.requestId,
+      metadata: e.metadata,
+    }));
 
     const res = NextResponse.json(
       {
@@ -120,6 +101,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         spoolerJobId: job.spoolerJobId,
         attemptId: job.attemptId,
         timeline,
+        evidence: {
+          source: timeline.length > 0 ? "persisted_events" : "job_record_only",
+          recordedEventCount: timeline.length,
+          job: {
+            status: job.status,
+            createdAt: job.createdAt,
+            updatedAt: job.updatedAt,
+            claimedAt: job.claimedAt,
+            deliveredAt: job.deliveredAt,
+            ackedAt: job.ackedAt,
+            expiresAt: job.expiresAt,
+            error: job.error,
+            deliveryAttempts: job.deliveryAttempts,
+            retries: job.retries,
+            attemptId: job.attemptId,
+            spoolerJobId: job.spoolerJobId,
+          },
+        },
         correlation: {
           requestId,
           jobId: id,

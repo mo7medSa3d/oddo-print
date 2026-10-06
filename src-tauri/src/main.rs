@@ -151,14 +151,17 @@ fn main() {
 
             tray::setup_tray(app.handle())?;
 
-            // Hide on close: window close => hide, not exit. Tray Exit does real exit.
+            // Closing the main window must terminate the desktop manager.
+            // The Agent is an independent Windows service (or a separately
+            // owned background fallback), so exiting the UI must not leave a
+            // hidden manager process in the tray or create duplicate manager
+            // instances after repeated open/close cycles.
             if let Some(win) = app.get_webview_window("main") {
-                let handle = win.clone();
-
+                let app_handle = app.handle().clone();
                 win.on_window_event(move |e| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                        api.prevent_close();
-                        let _ = handle.hide();
+                    if let tauri::WindowEvent::CloseRequested { .. } = e {
+                        logging::info("main window close requested; exiting desktop manager");
+                        app_handle.exit(0);
                     }
                 });
             }

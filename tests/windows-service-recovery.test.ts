@@ -28,6 +28,17 @@ describe("windows-service-recovery", () => {
     expect(main).toContain("Ok(None) => return");
   });
 
+  it("desktop close button exits the manager instead of hiding it in the tray", () => {
+    const main = fs.readFileSync("src-tauri/src/main.rs", "utf8");
+    const tray = fs.readFileSync("src-tauri/src/tray.rs", "utf8");
+
+    expect(main).toContain("WindowEvent::CloseRequested");
+    expect(main).toContain("app_handle.exit(0)");
+    expect(main).not.toContain("api.prevent_close()");
+    expect(main).not.toContain("handle.hide()");
+    expect(tray).toContain('"quit" => app.exit(0)');
+  });
+
   it("Windows uninstall removes service, product processes, and runtime data", () => {
     const nsis = fs.readFileSync("src-tauri/installer_hooks.nsh", "utf8");
     const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");

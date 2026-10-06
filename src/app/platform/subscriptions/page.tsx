@@ -160,6 +160,7 @@ export default function PlatformSubscriptionsPage() {
               value={filter}
               onChange={setFilter}
               size="sm"
+              className="max-w-full"
               options={[
                 { value: "all", label: t("platform.subs.filter.all", { count: formatNumber(counts.all) }) },
                 { value: "active", label: t("platform.subs.filter.active", { count: formatNumber(counts.active) }) },
@@ -197,8 +198,54 @@ export default function PlatformSubscriptionsPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="data-table min-w-[860px]">
+          <>
+            <div className="divide-y divide-edge-subtle sm:hidden">
+              {filtered.map((subscription) => {
+                const meta = statusMeta(subscription.status);
+                return (
+                  <article key={subscription.tenantId} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-base font-[650] text-ink">{subscription.tenantName}</div>
+                        <div className="mt-1 break-all font-mono text-xs text-ink-4">{subscription.tenantId}</div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                        <StatusBadge tone={meta.tone} label={meta.key ? t(meta.key) : meta.raw} size="sm" />
+                        {subscription.cancelAtPeriodEnd && (
+                          <StatusBadge tone="warn" label={t("platform.subs.cancelsAtPeriodEnd")} size="sm" />
+                        )}
+                      </div>
+                    </div>
+
+                    <dl className="grid grid-cols-2 gap-3 rounded-md border border-edge-subtle bg-surface-2 p-3">
+                      <div>
+                        <dt className="text-xs text-ink-4">{t("platform.subs.plan")}</dt>
+                        <dd className="mt-0.5 text-sm font-[600] text-ink">{subscription.planName}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-ink-4">{t("platform.subs.periodEnd")}</dt>
+                        <dd className="mt-0.5 text-sm text-ink-2">
+                          {subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : t("common.notAvailable")}
+                        </dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-xs text-ink-4">{t("platform.subs.stripeCustomer")}</dt>
+                        <dd className="mt-0.5 break-all font-mono text-xs text-ink-2">
+                          {subscription.stripeCustomerId || t("platform.subs.unlinkedTrial")}
+                        </dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-xs text-ink-4">{t("platform.subs.created")}</dt>
+                        <dd className="mt-0.5 text-sm text-ink-2">{formatDate(subscription.createdAt)}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="data-table min-w-[860px]">
               <caption className="sr-only">{t("platform.subs.tableCaption")}</caption>
               <thead>
                 <tr>
@@ -237,8 +284,9 @@ export default function PlatformSubscriptionsPage() {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </>
         )}
       </Card>
       <div className="flex items-center justify-between gap-3">

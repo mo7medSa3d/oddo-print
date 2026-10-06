@@ -208,7 +208,91 @@ export default function PlatformPlansPage() {
             }
           />
         ) : (
-          <TableScroll>
+          <>
+            <div className="divide-y divide-edge-subtle lg:hidden">
+              {filtered.map((plan) => (
+                <article key={plan.id} className="space-y-4 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-base font-[650] text-ink">{plan.name}</div>
+                      <Mono className="mt-1 block break-all text-xs">{plan.id}</Mono>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      {plan.isActive ? (
+                        <StatusBadge size="sm" tone="ok" label={t("platform.plans.active")} />
+                      ) : (
+                        <StatusBadge size="sm" tone="neutral" label={t("platform.plans.archived")} icon={<Archive className="h-3 w-3" aria-hidden />} />
+                      )}
+                      <StatusBadge
+                        size="sm"
+                        tone={plan.isPublic ? "brand" : "neutral"}
+                        label={plan.isPublic ? t("platform.plans.public") : t("platform.plans.private")}
+                        icon={plan.isPublic ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
+                      />
+                    </div>
+                  </div>
+
+                  {plan.description && (
+                    <p className="text-sm leading-relaxed text-ink-3">{plan.description}</p>
+                  )}
+
+                  <dl className="grid grid-cols-2 gap-2">
+                    {(Object.entries(plan.entitlements) as Array<[EntitlementKey, number | "unlimited"]>).map(([k, v]) => (
+                      <div key={k} className="rounded-md border border-edge-subtle bg-surface-2 px-3 py-2">
+                        <dt className="text-xs text-ink-4">{t(ENTITLEMENT_LABEL_KEYS[k])}</dt>
+                        <dd className="mt-0.5 text-sm font-[650] tabular-nums text-ink">
+                          {v === "unlimited" ? t("platform.plans.unlimited") : formatNumber(v)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  <div className="grid gap-3 border-t border-edge-subtle pt-3 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-[550] text-ink-4">{t("platform.plans.colSubscribers")}</div>
+                      <div className="mt-1 text-sm font-[600] text-ink">
+                        {t("platform.plans.subscribersActive", { count: formatNumber(plan.activeSubscriberCount) })}
+                      </div>
+                      <div className="mt-0.5 text-xs text-ink-4">
+                        {t("platform.plans.subscribersTotal", { count: formatNumber(plan.subscriberCount) })}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-[550] text-ink-4">{t("platform.plans.colStripePrice")}</div>
+                      <Mono className="mt-1 block break-all text-xs">{plan.stripePriceId || t("platform.plans.notLinked")}</Mono>
+                      <div className="mt-0.5 text-xs text-ink-4">
+                        {(plan.currency ?? "usd").toUpperCase()}
+                        {plan.interval ? ` ${t("platform.plans.perInterval", { interval: plan.interval })}` : ""}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => openEdit(plan)}
+                      icon={<Pencil className="h-3.5 w-3.5" aria-hidden />}
+                    >
+                      {t("platform.plans.edit")}
+                    </Button>
+                    {plan.isActive && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => { setArchiving(plan); setError(null); }}
+                        icon={<Archive className="h-3.5 w-3.5" aria-hidden />}
+                      >
+                        {t("platform.plans.archive")}
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="hidden lg:block">
+              <TableScroll className="[&_table]:min-w-[1040px]">
             <thead>
               <tr>
                 <th scope="col">{t("platform.plans.colPlan")}</th>
@@ -290,7 +374,9 @@ export default function PlatformPlansPage() {
                 </tr>
               ))}
             </tbody>
-          </TableScroll>
+              </TableScroll>
+            </div>
+          </>
         )}
       </Card>
 

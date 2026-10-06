@@ -993,7 +993,8 @@ export function Mono({
 }) {
   return (
     <code
-      className={`font-mono text-xs tracking-[-0.01em] text-ink-3 ${className}`}
+      dir="ltr"
+      className={`inline-block font-mono text-sm tracking-[-0.01em] text-ink-2 [unicode-bidi:isolate] ${className}`}
       title={typeof children === "string" ? children : undefined}
     >
       {children}
@@ -1369,7 +1370,7 @@ export function Menu({
               maxHeight: floatingPosition?.maxHeight,
               visibility: floatingPosition ? "visible" : "hidden",
             }}
-            className={`yz-menu-in menu-surface z-50 min-w-[210px] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1.5 ${menuClassName}`}
+            className={`yz-menu-in menu-surface z-[120] min-w-[210px] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain p-1.5 shadow-2xl ${menuClassName}`}
           >
             {items.map((item) => (
               <React.Fragment key={item.key}>
@@ -1543,7 +1544,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`inline-flex items-center gap-0.5 rounded-md border border-edge bg-surface-2 ${pad} ${className}`}
+      className={`inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-edge bg-surface-2 ${pad} ${className}`}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -1553,14 +1554,16 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
+            className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs"
                 : "text-ink-3 hover:text-ink"
             }`}
           >
             {option.icon}
-            {option.label && <span className="hidden sm:inline">{option.label}</span>}
+            {option.label && (
+              <span className={option.icon ? "hidden sm:inline" : "inline"}>{option.label}</span>
+            )}
           </button>
         );
       })}
@@ -1720,7 +1723,7 @@ export function Modal({
   const node = (
     <div
       data-dialog-root
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      className="fixed inset-0 z-[100] flex items-stretch justify-center overflow-hidden p-0 sm:items-center sm:p-6"
       role="presentation"
     >
       <div
@@ -1736,7 +1739,7 @@ export function Modal({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`pg-scale-in relative my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-edge-strong bg-surface shadow-2xl outline-none sm:max-h-[calc(100dvh-3rem)] ${
+        className={`pg-scale-in relative z-[1] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden border border-edge-strong bg-surface shadow-2xl outline-none sm:my-auto sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl ${
           wide ? "sm:max-w-3xl" : "sm:max-w-[480px]"
         }`}
       >
@@ -1841,7 +1844,7 @@ export function Drawer({
   useDialog(open, onClose, panelRef);
   if (!open || typeof document === "undefined") return null;
   const node = (
-    <div data-dialog-root className="fixed inset-0 z-50 flex justify-end" role="presentation">
+    <div data-dialog-root className="fixed inset-0 z-[100] flex justify-end" role="presentation">
       <div
         className="pg-fade-in fixed inset-0"
         style={{ backgroundColor: "var(--overlay)" }}

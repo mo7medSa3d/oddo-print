@@ -48,14 +48,15 @@ jobs:
           cargo metadata --locked --no-deps --format-version 1 | Out-Null
           Pop-Location
           Write-Host "Cargo.lock is present and Cargo accepts the manifest in --locked mode."
-      - name: Cache Tauri CLI
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Tauri CLI cache
+        id: tauri-cli-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
           key: ${{ runner.os }}-tauri-cli-2.11.4
-          save-always: true
-      - name: Cache Rust build and Tauri tooling
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Rust build and Tauri tooling cache
+        id: rust-tauri-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +66,6 @@ jobs:
           key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-
-          save-always: true
       - name: Install Tauri CLI
         shell: pwsh
         run: |
@@ -77,6 +77,12 @@ jobs:
             Write-Host "Tauri CLI not found in cache; installing 2.11.4..."
             cargo install tauri-cli --version "=2.11.4" --locked
           }
+      - name: Save Tauri CLI cache
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: ${{ runner.os }}-tauri-cli-2.11.4
       - name: Build Go Agent resources for Tauri
         working-directory: agent
         shell: pwsh
@@ -251,6 +257,16 @@ jobs:
             if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }
           }
           Write-Host "NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed."
+      - name: Save Rust build and Tauri tooling cache
+        if: steps.rust-tauri-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+            ~/AppData/Local/tauri
+          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Upload Windows NSIS installer
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
