@@ -34,7 +34,7 @@ export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "st
   // OpenPrinterW + GetPrinterW (level 2) is the pre-dispatch probe.
   if (conn === "spooler" || proto === "spooler" || proto === "windows_spooler") return true;
   // IPP/IPPS document transport: the endpoint URL IS the declaration.
-  if (conn === "ipp" || conn === "ipps" || proto === "ipp" || proto === "ipps") return true;
+  if (conn === "ipp" || conn === "ipps" || (conn === "network" && (proto === "ipp" || proto === "ipps"))) return true;
   // Direct byte-stream transports: require an explicitly declared language.
   // "unknown" protocol on a byte pipe is dark until declared (mirrors the
   // capability model: unknown+network/usb resolves to a name nothing matches).
