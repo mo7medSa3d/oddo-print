@@ -114,6 +114,27 @@ interface GatewayResponse {
   body: string;
 }
 
+function gatewayErrorMessage(body: string, fallback: string): string {
+  const raw = body.trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const key of ["error", "message", "reason"]) {
+      const value = parsed?.[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  } catch {
+    // Plain-text Gateway errors remain useful when they are already concise.
+  }
+  return raw.length <= 512 ? raw : fallback;
+}
+
+function gatewayHttpError(status: number, body: string, fallback: string): Error & { status?: number } {
+  const err: Error & { status?: number } = new Error(gatewayErrorMessage(body, fallback));
+  err.status = status;
+  return err;
+}
+
 async function gatewayRequest(
   gatewayUrl: string,
   path: string,
@@ -395,11 +416,8 @@ export async function fetchGatewayAgents(
   // automatically (credentials: "include"), and the Tauri shell injects the
   // manager bearer token in the Rust gateway proxy.
   const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
-  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(body || "agents fetch failed (" + status + ")");
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, "agents fetch failed (" + status + ")");
   }
   return JSON.parse(body) as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>;
 }
@@ -407,11 +425,8 @@ export async function fetchGatewayAgents(
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", {});
-  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(body || "printers fetch failed (" + status + ")");
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, "printers fetch failed (" + status + ")");
   }
   const rows = JSON.parse(body) as Array<Record<string, unknown>>;
   return rows.map((row) => {
@@ -523,11 +538,8 @@ export async function registerGatewayPrinter(
     config,
   };
   const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
-  if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(body || "printer registration failed (" + status + ")");
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, "printer registration failed (" + status + ")");
   }
   return JSON.parse(body) as PrinterInfo;
 }
@@ -550,9 +562,7 @@ export async function updateGatewayPrinter(
   );
   if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(body || "printer update failed (" + status + ")");
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, "printer update failed (" + status + ")");
   }
   return JSON.parse(body) as PrinterInfo;
 }
@@ -583,9 +593,7 @@ export async function testGatewayPrinter(
   );
   if (status === 401) await clearManagerSession();
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(body || "Gateway test print failed (" + status + ")");
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, "Gateway test print failed (" + status + ")");
   }
   return JSON.parse(body) as Record<string, unknown>;
 }
@@ -639,15 +647,8 @@ export async function fetchGatewayJobs(
   const endpoint = `/api/jobs?${params.toString()}`;
   const headers: Record<string, string> = {};
   const { status, body } = await gatewayConsoleRequest(base, endpoint, "GET", headers);
-  if (status === 401) {
-    await clearManagerSession();
-  }
   if (status < 200 || status >= 300) {
-    const err: Error & { status?: number } = new Error(
-      body || `jobs fetch failed ${status}`
-    );
-    err.status = status;
-    throw err;
+    throw gatewayHttpError(status, body, `jobs fetch failed ${status}`);
   }
   return JSON.parse(body) as Record<string, unknown>[];
 }

@@ -407,7 +407,7 @@ def test_operator_reprint_excludes_gateway_success_jobs():
     # Keyed copy (i18n contract): the operator refusal resolves through the
     # catalog, never as inline English.
     assert 't("errors.jobNotEligibleForReprint")' in actions
-    assert 'selectedJob.status.toLowerCase() !== "success"' in dashboard
+    assert 'selectedJobView.status.toLowerCase() !== "success"' in dashboard
 
 
 def test_claimed_handback_requires_live_attempt_before_execution():
