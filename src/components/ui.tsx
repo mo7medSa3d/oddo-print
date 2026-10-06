@@ -1543,7 +1543,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`inline-flex items-center gap-0.5 rounded-md border border-edge bg-surface-2 ${pad} ${className}`}
+      className={`inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-edge bg-surface-2 ${pad} ${className}`}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -1553,14 +1553,16 @@ export function SegmentedControl<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`inline-flex items-center gap-1.5 rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
+            className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs"
                 : "text-ink-3 hover:text-ink"
             }`}
           >
             {option.icon}
-            {option.label && <span className="hidden sm:inline">{option.label}</span>}
+            {option.label && (
+              <span className={option.icon ? "hidden sm:inline" : "inline"}>{option.label}</span>
+            )}
           </button>
         );
       })}

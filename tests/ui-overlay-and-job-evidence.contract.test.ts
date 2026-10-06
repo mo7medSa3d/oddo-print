@@ -26,6 +26,19 @@ describe("overlay and job evidence contracts", () => {
     expect(dashboard).toContain('className="divide-y divide-edge-subtle xl:hidden"');
   });
 
+  it("keeps platform plan and subscription controls readable on phones", () => {
+    const ui = read("src/components/ui.tsx");
+    const plans = read("src/app/platform/plans/page.tsx");
+    const subscriptions = read("src/app/platform/subscriptions/page.tsx");
+
+    expect(ui).toContain('className={option.icon ? "hidden sm:inline" : "inline"}');
+    expect(ui).toContain("inline-flex max-w-full items-center");
+    expect(plans).toContain('className="divide-y divide-edge-subtle lg:hidden"');
+    expect(plans).toContain('className="hidden lg:block"');
+    expect(subscriptions).toContain('className="divide-y divide-edge-subtle sm:hidden"');
+    expect(subscriptions).toContain('className="hidden overflow-x-auto sm:block"');
+  });
+
   it("loads an authoritative job snapshot before rendering job evidence", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
     expect(dashboard).toContain("setSelectedJobDetails(row)");
