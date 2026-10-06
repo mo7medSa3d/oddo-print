@@ -170,13 +170,12 @@ def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
     assert 'name="action_clear_api_key"' not in source[form_start:form_end]
 
 
-def test_http_test_branch_accepts_http_and_https_gateway_origins_without_legacy_flag():
+def test_gateway_http_is_production_https_only():
     source = read("models/gateway_config.py")
-    assert 'scheme not in ("http", "https")' in source
-    assert "test/http-server-ready intentionally accepts both HTTP and HTTPS" in source
-    assert "ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP" not in source
+    assert 'if scheme == "http":' in source
     assert "YASSER_GATEWAY_ALLOW_INSECURE_HTTP" not in source
-    assert "Plain HTTP is allowed only for explicitly opted-in isolated development." not in source
+    assert "ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP" not in source
+    assert 'Gateway URL must use HTTPS.' in source
 
 
 def test_gateway_config_unlink_fails_closed_when_remote_shutdown_is_unconfirmed():

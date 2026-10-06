@@ -35,11 +35,10 @@ describe("domain staging deployment contracts", () => {
     expect(caddy).toContain("X-Gateway-Proxy-Token");
   });
 
-  it("keeps the existing HTTP CI harness separate", () => {
+  it("checks HTTPS policy in staging CI", () => {
     const workflow = read(".github/workflows/http-staging-transport.yml");
-    const httpCaddy = read("deploy/http-test/Caddyfile");
-    expect(workflow).toContain("HTTP Gateway + Agent transport E2E");
-    expect(httpCaddy).toContain("http://");
+    expect(workflow).toContain("HTTPS Gateway + Agent security contracts");
+    expect(workflow).not.toContain("bash deploy/http-test/setup-http-test.sh");
   });
 
   it("enables secure cookies and trusted proxy handling for the domain deployment", () => {

@@ -6,18 +6,23 @@ import (
 	"github.com/yaseir-agent/agent/internal/config"
 )
 
-func TestValidateServerURLAcceptsHTTPS(t *testing.T) {
+func TestValidateServerURLAcceptsHTTPSByDefault(t *testing.T) {
 	if err := config.ValidateServerURL("https://gateway.example.com"); err != nil {
-		t.Fatalf("expected HTTPS URL to be accepted, got %v", err)
+		t.Fatalf("expected HTTPS URL to be accepted by default, got %v", err)
 	}
 }
 
-func TestValidateServerURLAcceptsHTTPDirectlyOnStaging(t *testing.T) {
-	// Isolated staging branch: the shared validator accepts HTTP without a
-	// process env flag (the Windows service cannot inherit shell env).
+func TestValidateServerURLRequiresExplicitHTTPOptIn(t *testing.T) {
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
+	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
+		if err := config.ValidateServerURL(raw); err == nil {
+			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
+		}
+	}
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
 	for _, raw := range []string{"http://127.0.0.1:3000", "http://192.0.2.10:3000", "http://gateway.example.com"} {
 		if err := config.ValidateServerURL(raw); err != nil {
-			t.Fatalf("expected HTTP URL %q to be accepted on staging, got %v", raw, err)
+			t.Fatalf("expected explicit opt-in to permit HTTP URL %q, got %v", raw, err)
 		}
 	}
 }
@@ -27,6 +32,7 @@ func TestValidateServerURLRejectsNonHTTPSchemes(t *testing.T) {
 		t.Fatal("expected non-HTTP(S) scheme to be rejected")
 	}
 }
+
 func TestValidateServerURLRejectsCredentialsAndQuery(t *testing.T) {
 	if err := config.ValidateServerURL("http://user:pass@gateway.example.com/"); err == nil {
 		t.Fatal("expected embedded credentials to be rejected")

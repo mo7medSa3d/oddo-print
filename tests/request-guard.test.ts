@@ -8,7 +8,7 @@ function req(headers: Record<string, string>, method = "POST") {
 }
 
 describe("request guard cookie CSRF origin", () => {
-  it("accepts the original public host from an authenticated reverse proxy", () => {
+  it("rejects a forged forwarded host that differs from the request host", () => {
     const old = process.env.TRUST_PROXY;
     process.env.TRUST_PROXY = "1";
     try {
@@ -18,7 +18,7 @@ describe("request guard cookie CSRF origin", () => {
         origin: "http://127.0.0.1:18080",
         cookie: "cust_session=token",
         "sec-fetch-site": "same-origin",
-      }))).toBe(true);
+      }))).toBe(false);
     } finally {
       if (old === undefined) delete process.env.TRUST_PROXY; else process.env.TRUST_PROXY = old;
     }

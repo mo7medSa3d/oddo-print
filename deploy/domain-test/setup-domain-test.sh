@@ -30,7 +30,8 @@ if [[ -f "$LEGACY_ENV" ]]; then
   docker compose --env-file "$LEGACY_ENV" -f "$ROOT_DIR/deploy/http-test/docker-compose.yml" down --remove-orphans >/dev/null 2>&1 || true
 fi
 
-if command -v ss >/dev/null 2>&1; then
+DOMAIN_CADDY_ID="$(docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" ps -q caddy 2>/dev/null || true)"
+if [[ -z "$DOMAIN_CADDY_ID" ]] && command -v ss >/dev/null 2>&1; then
   for port in 80 443; do
     if ss -ltn 2>/dev/null | grep -qE "[:.]$port[[:space:]]*$"; then
       echo "ERROR: TCP port $port is already in use."
@@ -85,21 +86,26 @@ if [[ -z "$HTTP_TEST_VOLUME_NAME" ]] || ! docker volume inspect "$HTTP_TEST_VOLU
 fi
 
 
-upsert_env POSTGRES_DB yasser_http_test
-upsert_env POSTGRES_USER yasser_test
+ensure_env() {
+  local key="$1" value="$2"
+  if [[ -z "$(get_env_value "$key" "$ENV_FILE" || true)" ]]; then upsert_env "$key" "$value"; fi
+}
+
+ensure_env POSTGRES_DB yasser_http_test
+ensure_env POSTGRES_USER yasser_test
 upsert_env POSTGRES_PASSWORD "$POSTGRES_PASSWORD"
 upsert_env GATEWAY_JWT_SECRET "$GATEWAY_JWT_SECRET"
 upsert_env TRUST_PROXY_SECRET "$TRUST_PROXY_SECRET"
-upsert_env PLATFORM_TENANT_ID http-test-platform
-upsert_env MANAGER_USERNAME http-test-admin
-upsert_env MANAGER_PASSWORD_HASH unused-in-http-test-mode
+ensure_env PLATFORM_TENANT_ID http-test-platform
+ensure_env MANAGER_USERNAME http-test-admin
+ensure_env MANAGER_PASSWORD_HASH unused-in-http-test-mode
 upsert_env GATEWAY_DOMAIN "$DOMAIN"
 upsert_env APP_BASE_URL "https://$DOMAIN"
 upsert_env COOKIE_SECURE 1
 upsert_env TRUST_PROXY 1
 upsert_env YASEIR_HTTP_TEST_MODE 1
 upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
-upsert_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
+ensure_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
 chmod 600 "$ENV_FILE"
 
 docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" up -d --build
@@ -109,19 +115,19 @@ docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" exec -
 
 echo "Waiting for HTTPS Gateway..."
 for _ in $(seq 1 90); do
-  if curl -kfsS --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/live" >/dev/null 2>&1 && curl -kfsS --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/health" >/dev/null 2>&1; then
+  if curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/live" >/dev/null 2>&1 && curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/health" >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
 
-if ! curl -kfsS --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/live" >/dev/null; then
+if ! curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/live" >/dev/null; then
   echo "ERROR: HTTPS /api/live is not reachable through Caddy."
   docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" ps || true
   docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" logs --no-color --tail=200 caddy gateway || true
   exit 1
 fi
-if ! curl -kfsS --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/health" >/dev/null; then
+if ! curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/health" >/dev/null; then
   echo "ERROR: HTTPS /api/health is not ready."
   docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" logs --no-color --tail=200 caddy gateway || true
   exit 1

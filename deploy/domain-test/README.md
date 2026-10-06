@@ -10,7 +10,9 @@ Architecture:
 Cloudflare → Caddy :443 → Gateway :3000 (private) → PostgreSQL
 ```
 
-The existing `deploy/http-test` path remains an HTTP-only CI transport harness. This directory is the domain/TLS migration path and reuses the same PostgreSQL volume so the current staging data is not reset.
+This directory reuses the existing PostgreSQL volume so staging data is not reset. Fake Stripe plans and email capture remain enabled. `YASEIR_HTTP_TEST_MODE` controls these test features only; it cannot disable HTTPS, Secure cookies, proxy authentication, or tenant isolation.
+
+The legacy `deploy/http-test` files are retained for migration history; they are no longer a supported deployment or CI entry point. Use this HTTPS deployment.
 
 ## Cloudflare
 
@@ -34,7 +36,7 @@ From the repository root:
 bash deploy/domain-test/setup-domain-test.sh
 ```
 
-The script stops the old HTTP-only stack without deleting its PostgreSQL volume, reuses its secrets when available, starts Caddy + Gateway over HTTPS, validates the local HTTPS path, and provisions the existing test plan catalog.
+The script stops the old HTTP-only stack without deleting its PostgreSQL volume, reuses its secrets when available, starts Caddy + Gateway over HTTPS, validates the local HTTPS certificate and path, and provisions the existing test plan catalog.
 
 ## Verify
 
@@ -67,3 +69,5 @@ Agent WebSocket:   wss://print.yaseir.cloud/api/agent/ws
 Do not expose Gateway port 3000. Caddy is the only public application entry point.
 
 Do not run `deploy/http-test` and `deploy/domain-test` simultaneously because they intentionally share the same PostgreSQL volume.
+
+Manager login uses the same tenant binding as main: verify `print.yaseir.cloud` for the intended workspace, or set `MANAGER_TENANT_ID` to that existing workspace ID in `.env.domain-test`. The old username-based tenant inference is removed. Database-backed user passwords continue to work; legacy environment credentials require a real `MANAGER_PASSWORD_HASH` in main's format.

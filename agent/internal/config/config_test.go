@@ -151,22 +151,36 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestConfigValidateAcceptsHTTPAndHTTPSOnStaging(t *testing.T) {
-	// The isolated staging branch accepts both transports directly, including
-	// when the Agent runs as a Windows service without inherited shell env.
+func TestConfigValidateRequiresHTTPSByDefault(t *testing.T) {
+	// Production/default behavior is fail-closed: HTTP is rejected unless
+	// explicitly opted into for isolated development/test environments.
 	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
 	for _, raw := range []string{
 		"http://127.0.0.1:3000",
 		"http://192.168.1.50:3000",
 		"http://10.0.0.5:3000",
-		"http://gateway.example.com:3000",
-		"https://gateway.example.com",
-		"https://192.168.1.50:3443",
+		"http://gateway.example.com",
+	} {
+		c := &Config{}
+		c.Server.URL = raw
+		if err := c.Validate(); err == nil {
+			t.Fatalf("expected HTTP URL %q to be rejected without explicit opt-in", raw)
+		}
+	}
+}
+
+func TestConfigValidateAcceptsHTTPWithExplicitDevelopmentOptIn(t *testing.T) {
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
+	for _, raw := range []string{
+		"http://127.0.0.1:3000",
+		"http://192.168.1.50:3000",
+		"http://10.0.0.5:3000",
+		"http://gateway.example.com",
 	} {
 		c := &Config{}
 		c.Server.URL = raw
 		if err := c.Validate(); err != nil {
-			t.Fatalf("expected staging transport URL %q to validate without an opt-in flag, got %v", raw, err)
+			t.Fatalf("expected explicit development opt-in to permit %q, got %v", raw, err)
 		}
 	}
 }
@@ -249,37 +263,48 @@ func TestConfigLoadMigratesLegacyPlaintextSecret(t *testing.T) {
 	}
 }
 
-func TestConfigValidateAcceptsHTTPDirectlyOnStaging(t *testing.T) {
-	// Isolated staging branch: stored configs accept HTTP without an
-	// explicit opt-in flag, because the Windows service does not inherit
-	// shell environment. Production/main retains the HTTPS-only contract.
-	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "")
-	t.Setenv("ODOO_PRINT_AGENT_ALLOW_INSECURE_HTTP", "")
-
-	cfg := defaultConfig()
-	cfg.Server.URL = "http://192.0.2.10:8080"
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("expected HTTP staging URL to validate without an opt-in flag, got %v", err)
+func TestMalformedIPPEndpointsReturnValidationErrors(t *testing.T) {
+	for _, endpoint := range []string{"ipp://[192.168.1.10/ipp/print", "ipp://192.168.1.10/%zz", "ipp://192.168.1.10:bad/ipp/print"} {
+		t.Run(endpoint, func(t *testing.T) {
+			if err := ValidatePrinterConfig(PrinterConfig{ID: "malformed-ipp", Name: "Printer", Type: "ipp", Protocol: "ipp", Endpoint: endpoint}); err == nil {
+				t.Fatal("malformed URL accepted")
+			}
+		})
 	}
 }
 
-func TestConfigSaveLoadPreservesHTTPOptIn(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.Server.URL = "http://192.0.2.10:8080"
-	cfg.Server.AllowInsecureHTTP = true
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("save config: %v", err)
+func TestPrivateULAPrintersRemainAllowedWithoutMetadataAccess(t *testing.T) {
+	for _, endpoint := range []string{"[fd12:3456::10]:9100", "[fc00::10]:9100"} {
+		if err := ValidatePrinterConfig(PrinterConfig{ID: "private-v6", Name: "IPv6 Printer", Type: "network", Protocol: "raw", Endpoint: endpoint}); err != nil {
+			t.Fatalf("ULA printer rejected: %v", err)
+		}
 	}
+	if err := ValidatePrinterConfig(PrinterConfig{ID: "metadata-v6", Name: "Unsafe", Type: "network", Protocol: "raw", Endpoint: "[fd00:0ec2:0000:0000:0000:0000:0000:0254]:9100"}); err == nil {
+		t.Fatal("expanded metadata endpoint accepted")
+	}
+}
 
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
+func TestBareConfigFilenameKeepsSecretsAndInventoryInWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cfg := defaultConfig()
+	cfg.Agent.ID = "agent-cwd"
+	cfg.Agent.Secret = "secret-cwd"
+	if err := cfg.Save("agent.yaml"); err != nil {
+		t.Fatal(err)
 	}
-	if loaded.Server.URL != cfg.Server.URL {
-		t.Fatalf("server URL mismatch after round-trip: got %q want %q", loaded.Server.URL, cfg.Server.URL)
+	loaded, err := Load("agent.yaml")
+	if err != nil || loaded.Agent.ID != cfg.Agent.ID || loaded.Agent.Secret != cfg.Agent.Secret {
+		t.Fatalf("relative config/secret round trip failed: %+v %v", loaded, err)
 	}
-	if !loaded.Server.AllowInsecureHTTP {
-		t.Fatal("HTTP opt-in must survive config round-trip for service restarts")
+	if got := RegistryPath("agent.yaml"); got != filepath.Join(dir, "printers.json") {
+		t.Fatalf("registry split from config: %s", got)
+	}
+	if got := QueueDBPath("agent.yaml"); got != filepath.Join(dir, "queue.db") {
+		t.Fatalf("queue split from config: %s", got)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(dir, "agent.yaml"))
+	if err != nil || bytes.Contains(onDisk, []byte(cfg.Agent.Secret)) {
+		t.Fatal("secret was not sealed beside relative config")
 	}
 }

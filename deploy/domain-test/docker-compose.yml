@@ -55,6 +55,7 @@ services:
       TZ: UTC
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      # Test data/email capture only; HTTPS and authentication follow main.
       YASEIR_HTTP_TEST_MODE: "1"
       APP_BASE_URL: ${APP_BASE_URL}
       COOKIE_SECURE: "1"
@@ -67,6 +68,7 @@ services:
       PGPASSWORD_FILE: /run/secrets/postgres_password
       GATEWAY_JWT_SECRET_FILE: /run/secrets/gateway_jwt_secret
       MANAGER_USERNAME: ${MANAGER_USERNAME}
+      MANAGER_TENANT_ID: ${MANAGER_TENANT_ID:-}
       MANAGER_PASSWORD_HASH_FILE: /run/secrets/manager_password_hash
       ALLOW_PLAINTEXT_MANAGER_PASSWORD:
       TRUST_PROXY_SECRET_FILE: /run/secrets/trust_proxy_secret

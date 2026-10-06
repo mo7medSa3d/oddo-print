@@ -6,13 +6,13 @@ import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
+import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { cleanupTerminalPrintJobs, sweepPrintJobs } from "./src/lib/job-maintenance";
 import { cleanupAuthRateLimits } from "./src/lib/auth-rate-limit";
 import { cleanupExpiredManagerSessions } from "./src/lib/manager-auth";
 import { cleanupExpiredPlatformSessions } from "./src/lib/platform-auth";
 import { cleanupExpiredRefreshTokens } from "./src/lib/session-tokens";
 import { applyApiCors, handleApiCorsPreflight } from "./src/server/cors";
-import { applyApiCacheControlDefault } from "./src/server/api-defaults";
 import { isTrustedProxyRequest, trustProxyEnabled } from "./src/server/trusted-proxy";
 import { runtimeSecret } from "./src/lib/runtime-secret";
 import { pool } from "./src/db";
@@ -65,18 +65,8 @@ if (!plaintextManagerPasswordAllowedEnvironment && process.env.ALLOW_PLAINTEXT_M
   throw new Error("Refusing startup with ALLOW_PLAINTEXT_MANAGER_PASSWORD=1 outside development/test; configure MANAGER_PASSWORD_HASH instead.");
 }
 
-// test/http-server-ready is deliberately transport-agnostic for staging.
-const httpTestMode = process.env.YASEIR_HTTP_TEST_MODE === "1";
-// Staging-only insecure-cookie signal (also read by sessionCookieSecure):
-// COOKIE_SECURE=0 is refused in production unless the explicit test flag is set.
-const cookieSecureDisabled = ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase());
-
-if (process.env.NODE_ENV === "production" && !httpTestMode && cookieSecureDisabled) {
+if (process.env.NODE_ENV === "production" && ["0", "false", "no", "off"].includes((process.env.COOKIE_SECURE ?? "").trim().toLowerCase())) {
   throw new Error("Refusing production startup with COOKIE_SECURE disabled; manager/customer session cookies must be Secure in production.");
-}
-
-if (process.env.NODE_ENV === "production" && httpTestMode && cookieSecureDisabled) {
-  console.warn("[security] YASEIR_HTTP_TEST_MODE=1: COOKIE_SECURE is intentionally disabled for the isolated HTTP test deployment.");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -86,34 +76,30 @@ if (process.env.NODE_ENV === "production") {
   }
   assertRealSecret("GATEWAY_JWT_SECRET", runtimeSecret("GATEWAY_JWT_SECRET"), 32);
   if (!trustProxyEnabled() && !isLoopbackBinding(hostname)) {
-    if (!httpTestMode) {
-      throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
-    }
+    throw new Error("Refusing production startup: TRUST_PROXY=1 is required when the Gateway binds a non-loopback interface. Do not expose the Gateway application port directly.");
   }
   if (trustProxyEnabled()) {
     assertRealSecret("TRUST_PROXY_SECRET", runtimeSecret("TRUST_PROXY_SECRET"), 32);
   }
-  if (!httpTestMode) {
-    const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
-    if (!appBaseUrl) {
-      throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
-    }
-    let parsedAppBaseUrl: URL;
-    try {
-      parsedAppBaseUrl = new URL(appBaseUrl);
-    } catch {
-      throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
-    }
-    if (
-      parsedAppBaseUrl.protocol !== "https:" ||
-      parsedAppBaseUrl.username ||
-      parsedAppBaseUrl.password ||
-      parsedAppBaseUrl.pathname !== "/" ||
-      parsedAppBaseUrl.search ||
-      parsedAppBaseUrl.hash
-    ) {
-      throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
-    }
+  const appBaseUrl = runtimeSecret("APP_BASE_URL")?.trim();
+  if (!appBaseUrl) {
+    throw new Error("Refusing production startup: APP_BASE_URL must be configured.");
+  }
+  let parsedAppBaseUrl: URL;
+  try {
+    parsedAppBaseUrl = new URL(appBaseUrl);
+  } catch {
+    throw new Error("Refusing production startup: APP_BASE_URL must be an absolute URL.");
+  }
+  if (
+    parsedAppBaseUrl.protocol !== "https:" ||
+    parsedAppBaseUrl.username ||
+    parsedAppBaseUrl.password ||
+    parsedAppBaseUrl.pathname !== "/" ||
+    parsedAppBaseUrl.search ||
+    parsedAppBaseUrl.hash
+  ) {
+    throw new Error("Refusing production startup: APP_BASE_URL must be a clean HTTPS origin.");
   }
 }
 

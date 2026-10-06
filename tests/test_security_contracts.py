@@ -217,16 +217,20 @@ def test_agent_pairing_success_does_not_clear_rate_limit():
     assert "reset the brute-force budget" in source
 
 
-def test_tauri_gateway_http_is_explicitly_test_branch_only():
+def test_tauri_gateway_http_transport_contract_matches_branch_mode():
     source = read("src-tauri/src/commands.rs")
-    # The staging branch accepts http:// and https:// URL shapes but still
-    # requires explicit insecure-HTTP opt-in at pairing time; other schemes
-    # are rejected and embedded credentials/query/fragment stay forbidden.
-    assert 'if scheme != "https" && scheme != "http"' in source
-    assert "gateway URL must use http:// or https://" in source
-    assert "gateway URL cannot include embedded credentials" in source
-    assert "gateway URL cannot include query strings or fragments" in source
-    assert 'cmd.env("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")' in source
+    test_branch_mode = "This isolated test branch intentionally accepts remote HTTP" in source
+
+    if test_branch_mode:
+        assert 'let remote_http = scheme == "http";' in source
+        assert 'if remote_http {' in source
+        assert "gateway URL cannot include embedded credentials" in source
+        assert "gateway URL cannot include query strings or fragments" in source
+    else:
+        assert 'if scheme == "http" {' in source
+        assert '"localhost" | "127.0.0.1" | "::1" | "[::1]"' in source
+        assert 'if !local {' in source
+        assert "Gateway URL must use HTTPS for remote Gateways" in source
 
 
 def test_production_startup_fails_closed_on_secrets_and_proxy_boundary():

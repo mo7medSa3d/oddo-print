@@ -1,4 +1,4 @@
-name: HTTP Staging Transport
+name: HTTPS Staging Security
 
 on:
   push:
@@ -11,12 +11,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: http-staging-${{ github.ref }}
+  group: https-staging-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  http-e2e:
-    name: HTTP Gateway + Agent transport E2E
+  https-contracts:
+    name: HTTPS Gateway + Agent security contracts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -32,41 +32,16 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Verify Go Agent accepts HTTP and HTTPS
+      - name: Verify Go Agent secure transport policy
         working-directory: agent
-        run: go test -mod=readonly ./internal/config -run 'TestConfigValidateAcceptsHTTPAndHTTPSOnStaging|TestConfigValidateAcceptsHTTPSByDefault' -count=1
+        run: go test -mod=readonly ./internal/config -count=1
 
       - name: Validate HTTPS domain staging contract
         run: |
           set -euo pipefail
           bash -n deploy/domain-test/setup-domain-test.sh
           bash -n deploy/domain-test/smoke-domain-test.sh
-          npm exec vitest run --config vitest.unit.config.mts tests/domain-staging-deployment.contract.test.ts
+          npm exec vitest run --config vitest.unit.config.mts tests/domain-staging-deployment.contract.test.ts tests/http-test-deployment-contract.test.ts tests/http-test-email-capture.test.ts tests/stripe-plan-binding.test.ts tests/request-guard.test.ts tests/request-guard-http.test.ts tests/desktop-auth-contract.test.ts
           cp deploy/domain-test/.env.domain-test.example /tmp/yaseir-domain-test.env
           docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config -q
 
-      - name: Start isolated HTTP Gateway
-        env:
-          SERVER_PUBLIC_IP: 127.0.0.1
-          HTTP_TEST_PORT: 18080
-        run: bash deploy/http-test/setup-http-test.sh
-
-      - name: Run HTTP transport smoke
-        env:
-          SMOKE_BASE_URL: http://127.0.0.1:18080
-        run: bash deploy/http-test/smoke-http-test.sh
-
-      - name: Collect HTTP stack diagnostics
-        if: failure()
-        run: |
-          if [ -f deploy/http-test/.env.http-test ]; then
-            docker compose --env-file deploy/http-test/.env.http-test -f deploy/http-test/docker-compose.yml ps || true
-            docker compose --env-file deploy/http-test/.env.http-test -f deploy/http-test/docker-compose.yml logs --no-color --tail=200 gateway caddy migrate || true
-          fi
-
-      - name: Tear down isolated HTTP stack
-        if: always()
-        run: |
-          if [ -f deploy/http-test/.env.http-test ]; then
-            docker compose --env-file deploy/http-test/.env.http-test -f deploy/http-test/docker-compose.yml down --remove-orphans -v || true
-          fi

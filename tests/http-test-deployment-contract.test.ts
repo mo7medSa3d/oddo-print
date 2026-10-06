@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("HTTP test deployment contracts", () => {
+describe("staging fixtures and HTTPS security contracts", () => {
   const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
   it("provisions every canonical plan entitlement in the isolated test catalog", () => {
@@ -43,13 +43,11 @@ describe("HTTP test deployment contracts", () => {
     expect(helper).toContain("[System.Net.Sockets.AddressFamily]::InterNetwork");
     expect(helper).toContain('ServerUrl must use the staging server IPv4 address, not a hostname.');
     expect(helper).toContain("http://IP[:port]");
-    // The Agent config contract accepts HTTP directly on this isolated
-    // staging branch because the Windows service does not inherit the Manager
-    // shell environment.
+    // The legacy fixture stays available; application transport follows main.
     const agentConfig = read("agent/internal/config/config.go");
-    expect(agentConfig).toContain('case "https", "http":');
-    expect(agentConfig).toContain("AllowInsecureHTTP");
-    expect(agentConfig).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
+    expect(agentConfig).toContain('case "https":');
+    expect(agentConfig).toContain("YASEIR_AGENT_ALLOW_INSECURE_HTTP");
+    expect(agentConfig).not.toContain("AllowInsecureHTTP");
     expect(helper).not.toContain("YASSER_AGENT_ALLOW_INSECURE_HTTP");
     expect(helper).toContain("gateway-request");
   });
@@ -82,14 +80,12 @@ describe("HTTP test deployment contracts", () => {
     expect(smoke).toContain("Upgrade: websocket");
     expect(smoke).toContain("$BASE/api/agent/ws");
   });
-  it("has a blocking end-to-end HTTP transport workflow for this staging branch", () => {
+  it("checks secure Agent transport and domain deployment in staging CI", () => {
     const workflow = read(".github/workflows/http-staging-transport.yml");
     expect(workflow).toContain("test/http-server-ready");
-    expect(workflow).toContain("HTTP Gateway + Agent transport E2E");
-    expect(workflow).toContain("SERVER_PUBLIC_IP: 127.0.0.1");
-    expect(workflow).toContain("HTTP_TEST_PORT: 18080");
-    expect(workflow).toContain("bash deploy/http-test/smoke-http-test.sh");
+    expect(workflow).toContain("HTTPS Gateway + Agent security contracts");
     expect(workflow).toContain("go test -mod=readonly ./internal/config");
+    expect(workflow).not.toContain("bash deploy/http-test/setup-http-test.sh");
   });
 
   it("uses workspace authentication for post-verification onboarding", () => {
@@ -98,15 +94,16 @@ describe("HTTP test deployment contracts", () => {
     expect(route).not.toContain("validateManager(req)");
   });
 
-  it("requires explicit staging mode for the production HTTP exception", () => {
+  it("cannot bypass production HTTPS with the fake-data flag", () => {
     const server = read("server.ts");
-    expect(server).toContain('const httpTestMode = process.env.YASEIR_HTTP_TEST_MODE === "1";');
-    expect(server).not.toContain('process.env.YASEIR_HTTP_TEST_MODE !== "0"');
+    expect(server).not.toContain("YASEIR_HTTP_TEST_MODE");
+    expect(server).toContain('APP_BASE_URL must be a clean HTTPS origin');
+    expect(server).toContain('Refusing production startup with COOKIE_SECURE disabled');
   });
 
-  it("passes the HTTP test login username into tenant resolution", () => {
-    const route = read("src/app/api/auth/manager/login/route.ts");
-    expect(route).toContain("resolveManagerTenantId(req,");
-    expect(route).toContain('process.env.YASEIR_HTTP_TEST_MODE === "1" ? username : undefined');
+  it("pins manager tenant resolution to the main authentication policy", () => {
+    const auth = read("src/lib/manager-auth.ts");
+    expect(auth).not.toContain("YASEIR_HTTP_TEST_MODE");
+    expect(auth).toContain('runtimeSecret("MANAGER_TENANT_ID")');
   });
 });

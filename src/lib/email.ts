@@ -55,8 +55,7 @@ export function appBaseUrl(req: Request): string {
     } catch {
       throw new Error("APP_BASE_URL must be an absolute URL");
     }
-    const httpTestMode = process.env.NODE_ENV === "production" && process.env.YASEIR_HTTP_TEST_MODE === "1";
-    if (parsed.protocol !== "https:" && process.env.NODE_ENV === "production" && !httpTestMode) {
+    if (parsed.protocol !== "https:" && process.env.NODE_ENV === "production") {
       throw new Error("APP_BASE_URL must use HTTPS in production");
     }
     if (parsed.username || parsed.password || parsed.search || parsed.hash) {

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { appBaseUrl, sendTransactionalEmail } from "../src/lib/email";
 
 describe("HTTP test email capture", () => {
-  it("allows an HTTP APP_BASE_URL only in explicit HTTP test mode", () => {
+  it("rejects HTTP in production even when staging test features are enabled", () => {
     const previousMode = process.env.YASEIR_HTTP_TEST_MODE;
     const previousNodeEnv = process.env.NODE_ENV;
     const previousBaseUrl = process.env.APP_BASE_URL;
@@ -13,7 +13,10 @@ describe("HTTP test email capture", () => {
       Reflect.set(process.env, "NODE_ENV", "production");
       process.env.YASEIR_HTTP_TEST_MODE = "1";
       process.env.APP_BASE_URL = "http://127.0.0.1:8080";
-      expect(appBaseUrl(new Request("http://127.0.0.1:8080/api/auth/register"))).toBe("http://127.0.0.1:8080");
+      expect(() => appBaseUrl(new Request("http://127.0.0.1:8080/api/auth/register"))).toThrow("APP_BASE_URL must use HTTPS in production");
+      process.env.APP_BASE_URL = "https://print.yaseir.cloud";
+      expect(appBaseUrl(new Request("https://print.yaseir.cloud/api/auth/register"))).toBe("https://print.yaseir.cloud");
+      process.env.APP_BASE_URL = "http://127.0.0.1:8080";
 
       process.env.YASEIR_HTTP_TEST_MODE = "0";
       expect(() => appBaseUrl(new Request("http://127.0.0.1:8080/api/auth/register"))).toThrow("APP_BASE_URL must use HTTPS in production");
