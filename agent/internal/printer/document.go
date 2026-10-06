@@ -54,7 +54,7 @@ func sanitizeZPLTestText(s string) string {
 }
 
 func sanitizeTSPLTestText(s string) string {
-	return strings.NewReplacer(""", "'", "\\", "/").Replace(sanitizeTestText(s))
+	return strings.NewReplacer("\"", "'", "\\", "/").Replace(sanitizeTestText(s))
 }
 
 var ErrCapabilityMismatch = errors.New("CAPABILITY_MISMATCH")
