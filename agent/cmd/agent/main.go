@@ -388,7 +388,7 @@ func handleServiceControl(rawAction, configPath string) error {
 		if removed {
 			fmt.Println("YaseirAgent service uninstalled and all local Agent data purged successfully")
 		} else {
-			fmt.Println("YaseirAgent service was already absent; all local Agent data was purged")
+			fmt.Println("YaseirAgent service is already uninstalled; all local Agent data was purged")
 		}
 		return nil
 	case "purge":

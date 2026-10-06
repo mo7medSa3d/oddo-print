@@ -349,7 +349,69 @@ jobs:
               throw "NSIS uninstall left files behind in $installDir"
             }
           }
-          Write-Host "NSIS install, smoke test, and silent uninstall passed."
+
+          $deadline = (Get-Date).AddSeconds(30)
+          do {
+            $remainingService = Get-Service -Name YaseirAgent -ErrorAction SilentlyContinue
+            if (-not $remainingService) { break }
+            Start-Sleep -Seconds 1
+          } while ((Get-Date) -lt $deadline)
+          if ($remainingService) {
+            throw "NSIS uninstall left the YaseirAgent Windows service behind"
+          }
+
+          $sharedDataRoots = @(
+            (Join-Path $env:PROGRAMDATA "YaseirAgent"),
+            (Join-Path $env:PROGRAMDATA "YasserAgent"),
+            (Join-Path $env:PROGRAMDATA "OdooPrintAgent"),
+            (Join-Path $env:PROGRAMDATA "YaseirManager"),
+            (Join-Path $env:PROGRAMDATA "YasserManager"),
+            (Join-Path $env:PROGRAMDATA "OdooPrintManager")
+          )
+          foreach ($path in $sharedDataRoots) {
+            if (Test-Path $path) { throw "NSIS uninstall left shared runtime data behind: $path" }
+          }
+
+          $userDataRoots = @(
+            (Join-Path $env:LOCALAPPDATA "YaseirManager"),
+            (Join-Path $env:LOCALAPPDATA "YasserManager"),
+            (Join-Path $env:LOCALAPPDATA "Yaseir Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "Yasser Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "com.yasser.manager")
+          )
+          foreach ($path in $userDataRoots) {
+            if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }
+          }
+          Write-Host "NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed."
+
+          # The MSI installed earlier is still registered. Remove it now as a
+          # second, idempotent full-uninstall path. This proves both bundle
+          # formats tolerate an already-absent service/data tree and leave the
+          # machine clean instead of crashing on double removal.
+          $msi = Get-ChildItem "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\Yaseir Print Manager_*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "Yaseir Print Manager MSI bundle missing before uninstall verification" }
+          $msiRemoveLog = Join-Path $env:RUNNER_TEMP "yaseir-msi-uninstall.log"
+          $msiRemove = Start-Process msiexec -ArgumentList @(
+            "/x", "`"$($msi.FullName)`"", "/qn", "/norestart", "/l*v", "`"$msiRemoveLog`""
+          ) -Wait -PassThru
+          if ($msiRemove.ExitCode -ne 0) {
+            Get-Content $msiRemoveLog -Tail 200
+            throw "MSI uninstall failed with code $($msiRemove.ExitCode)"
+          }
+
+          $deadline = (Get-Date).AddSeconds(30)
+          do {
+            $remainingService = Get-Service -Name YaseirAgent -ErrorAction SilentlyContinue
+            if (-not $remainingService) { break }
+            Start-Sleep -Seconds 1
+          } while ((Get-Date) -lt $deadline)
+          if ($remainingService) {
+            throw "MSI uninstall left the YaseirAgent Windows service behind"
+          }
+          foreach ($path in $sharedDataRoots) {
+            if (Test-Path $path) { throw "MSI uninstall left shared runtime data behind: $path" }
+          }
+          Write-Host "MSI uninstall verified after NSIS removal: service/data cleanup is idempotent."
 
       - name: Upload Windows MSI and NSIS EXE
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
