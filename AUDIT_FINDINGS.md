@@ -24,6 +24,13 @@ The desktop/CLI legitimately emits `connectionType=tcp` and legacy installations
 ### P2 — Windows Rust logger harness drifted behind ACL helper contract
 The production logger gained Manager ACL helper calls, but `src-tauri/tests/audit_logging.rs` mocked only the old data-root function. Windows CI therefore failed before installer construction. The harness now exposes the same security-helper surface without weakening production ACL enforcement.
 
+
+### P1 — Direct USB ZPL/TSPL validated but rejected by the runtime backend
+The Agent configuration validator and Gateway capability matrix allowed direct USB byte transports declared as ZPL or TSPL, but the Agent factory and USB `SupportsKind` implementation accepted only RAW/ESC-POS. A printer could therefore configure and synchronize successfully and fail only at physical dispatch. Direct USB now executes all four explicitly declared byte languages (raw/escpos/zpl/tspl); Windows local diagnostic tickets are protocol-aware.
+
+### P1 — Local ZPL/TSPL diagnostic names could inject printer-language commands
+The generic diagnostic text sanitizer removed C0 controls but not ZPL command delimiters or TSPL quoted-field delimiters. A crafted Windows queue/display name could alter the local Agent test ticket. Protocol-specific sanitizers now strip ZPL command delimiters and neutralize TSPL quotes/backslashes, with injection regressions.
+
 ## Reviewed with no confirmed defect in this batch
 
 - Agent pairing: one-time code, collision fence, rate limit, tenant/billing lock, hashed Gateway secret.
