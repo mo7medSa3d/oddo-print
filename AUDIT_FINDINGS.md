@@ -31,6 +31,10 @@ The Agent configuration validator and Gateway capability matrix allowed direct U
 ### P1 — Local ZPL/TSPL diagnostic names could inject printer-language commands
 The generic diagnostic text sanitizer removed C0 controls but not ZPL command delimiters or TSPL quoted-field delimiters. A crafted Windows queue/display name could alter the local Agent test ticket. Protocol-specific sanitizers now strip ZPL command delimiters and neutralize TSPL quotes/backslashes, with injection regressions.
 
+
+### P2 — Windows installer smoke test misclassified read-only ACLs as writable
+The Manager data ACL correctly granted BUILTIN\Users only ReadAndExecute/Synchronize, but the smoke-test bitmask used composite Write/Modify rights. Those composite values overlap read/synchronize bits, so a read-only ACE triggered a false write-access failure and blocked the Windows installer workflow. The smoke test now checks only atomic mutation rights (write data/append/write attributes/delete/change-permissions/take-ownership), with a regression contract locking the semantics.
+
 ## Reviewed with no confirmed defect in this batch
 
 - Agent pairing: one-time code, collision fence, rate limit, tenant/billing lock, hashed Gateway secret.
