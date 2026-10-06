@@ -13,6 +13,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "jobs.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id } = await params;
+  const includePayload = new URL(req.url).searchParams.get("includePayload") === "1";
   const row = await db
     .select({
       id: printJobs.id,
@@ -39,12 +40,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.id, id), eq(printJobReceipts.tenantId, claims.tenantId)) });
     if (!receipt) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const { fingerprint: _fingerprint, closedClaimTokenHash: _claimHash, apiKeyId: _apiKey, ...metadata } = receipt;
-    return NextResponse.json({ ...metadata, archived: true });
+    return NextResponse.json(
+      { ...metadata, archived: true, diagnosticPayload: null },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
-  // Never expose the original print bytes: invoices, receipts and labels can
-  // contain PII. Operators still need useful transport evidence, so return a
-  // deterministic redacted summary (shape, byte count and digest) alongside
-  // the normal job metadata.
   const { payload, ...metadata } = row[0];
-  return NextResponse.json({ ...metadata, diagnosticPayload: buildJobDiagnosticPayload(payload) });
+
+  // Normal callers receive a redacted transport summary. The interactive job
+  // inspector opts in explicitly to the original payload so an authorized
+  // workspace manager can inspect/copy exactly what was admitted for this job.
+  // The tenant predicate above prevents cross-workspace access, and no-store
+  // keeps customer document content out of intermediary caches.
+  const diagnosticPayload = includePayload
+    ? payload ?? null
+    : buildJobDiagnosticPayload(payload);
+
+  return NextResponse.json(
+    { ...metadata, diagnosticPayload },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
 }
