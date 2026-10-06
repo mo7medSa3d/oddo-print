@@ -91,6 +91,8 @@ const shutdownGrace = 25 * time.Second
 // cleared by the next fully successful heartbeat, so re-enable (or a key
 // fix) recovers without operator action on the box and without restart.
 const lifecycleFenceBackoff = 5 * time.Minute
+const localTerminalJobRetentionHours = 48
+const localQueueCleanupInterval = time.Hour
 const lifecycleProbeBackoff = 60 * time.Second
 
 // While the WebSocket is connected the poll loop still runs every
@@ -871,6 +873,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Crash recovery must run before any new delivery is accepted.
 	a.recoverInterruptedJobs(ctx)
 	a.reportPendingTerminalStatuses(ctx)
+	a.cleanupRetainedLocalJobs()
 
 	a.launchTracked(func() { a.connectWebSocket(ctx) })
 	a.launchTracked(func() { a.runRejectWorker(ctx) })
@@ -886,7 +889,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// sessions now start within 10s max instead of 30s, matching user expectation
 	// of <10s for discovery. Full scan itself is bounded 30s.
 	discoveryTicker := time.NewTicker(10 * time.Second)
-	cleanupTicker := time.NewTicker(24 * time.Hour)
+	cleanupTicker := time.NewTicker(localQueueCleanupInterval)
 	defer heartbeatTicker.Stop()
 	defer pollTicker.Stop()
 	defer discoveryTicker.Stop()
@@ -958,15 +961,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-discoveryTicker.C:
 			a.launchTracked(func() { a.pollDiscovery(ctx) })
 		case <-cleanupTicker.C:
-			a.launchTracked(func() {
-				deleted, err := a.queue.CleanupTerminal(7)
-				if err != nil {
-					log.Printf("Background queue cleanup failed: %v", err)
-				} else if deleted > 0 {
-					log.Printf("Background queue cleanup deleted %d old terminal jobs", deleted)
-				}
-			})
+			a.launchTracked(func() { a.cleanupRetainedLocalJobs() })
 		}
+	}
+}
+
+func (a *Agent) cleanupRetainedLocalJobs() {
+	deleted, err := a.queue.CleanupTerminalOlderThan(localTerminalJobRetentionHours)
+	if err != nil {
+		log.Printf("Background queue retention cleanup failed: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.Printf("Background queue retention cleanup deleted %d terminal jobs older than %d hours", deleted, localTerminalJobRetentionHours)
 	}
 }
 
