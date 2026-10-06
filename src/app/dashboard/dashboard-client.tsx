@@ -453,6 +453,7 @@ export default function DashboardClient({
   const [selectedJobPayload, setSelectedJobPayload] = useState<{ jobId: string; value: unknown } | null>(null);
   const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
   const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
+  const [selectedJobPayloadReloadKey, setSelectedJobPayloadReloadKey] = useState(0);
 
   const openJobDetails = React.useCallback((job: Job) => {
     setSelectedJob(job);
@@ -460,6 +461,7 @@ export default function DashboardClient({
     setSelectedJobPayload(null);
     setSelectedJobPayloadLoading(true);
     setSelectedJobPayloadError(false);
+    setSelectedJobPayloadReloadKey(0);
   }, []);
 
   const closeJobDetails = React.useCallback(() => {
@@ -468,7 +470,15 @@ export default function DashboardClient({
     setSelectedJobPayload(null);
     setSelectedJobPayloadLoading(false);
     setSelectedJobPayloadError(false);
+    setSelectedJobPayloadReloadKey(0);
   }, []);
+
+  const retrySelectedJobPayload = React.useCallback(() => {
+    if (!selectedJob) return;
+    setSelectedJobPayloadLoading(true);
+    setSelectedJobPayloadError(false);
+    setSelectedJobPayloadReloadKey((key) => key + 1);
+  }, [selectedJob]);
 
   useEffect(() => {
     if (!selectedJob) return;
@@ -506,7 +516,7 @@ export default function DashboardClient({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [selectedJob]);
+  }, [selectedJob, selectedJobPayloadReloadKey]);
 
   const selectedJobView =
     selectedJob && selectedJobDetails?.id === selectedJob.id
@@ -2026,11 +2036,17 @@ export default function DashboardClient({
                     />
                   </div>
                 )}
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
-                  {selectedJobPayloadLoading
-                    ? t("loading.payload")
-                    : selectedJobPayloadError
-                      ? t("job.payloadLoadFailed")
+                {selectedJobPayloadError ? (
+                  <div className="flex flex-col items-start gap-2 rounded-sm border border-bad-edge bg-bad-bg p-3 text-sm text-bad">
+                    <span>{t("job.payloadLoadFailed")}</span>
+                    <Button variant="secondary" size="sm" onClick={retrySelectedJobPayload}>
+                      {t("common.retry")}
+                    </Button>
+                  </div>
+                ) : (
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
+                    {selectedJobPayloadLoading
+                      ? t("loading.payload")
                       : diagnosticPayloadPreview(
                           stringifyDiagnosticPayload(
                             selectedJobPayload?.jobId === selectedJobView.id ? selectedJobPayload.value : selectedJobView.payload,
@@ -2038,7 +2054,8 @@ export default function DashboardClient({
                           ),
                           t,
                         )}
-                </pre>
+                  </pre>
+                )}
               </div>
             </details>
           </div>
