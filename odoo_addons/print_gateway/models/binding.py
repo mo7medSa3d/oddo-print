@@ -326,6 +326,8 @@ class PrintGatewayBinding(models.Model):
         if not isinstance(printer, dict):
             return "unknown"
         protocol = str(printer.get("protocol") or "").strip().lower()
+        if protocol == "windows_spooler":
+            protocol = "spooler"
         supported = {"spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"}
         if protocol in supported:
             return protocol
