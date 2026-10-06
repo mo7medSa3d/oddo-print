@@ -69,8 +69,8 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if !strings.HasPrefix(cfg.Endpoint, `\\?\`) && !strings.HasPrefix(cfg.Endpoint, `\\.\`) {
 			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path (\\?\\... or \\.\\...); configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
-		if proto != "raw" && proto != "escpos" {
-			return nil, fmt.Errorf("printer %s: direct USB transport requires an explicit raw or escpos protocol; refusing to infer a byte language", cfg.ID)
+		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" {
+			return nil, fmt.Errorf("printer %s: direct USB transport requires an explicit raw, escpos, zpl, or tspl protocol; refusing to infer a byte language", cfg.ID)
 		}
 		vid := parseHex16(cfg.USBVID)
 		pid := parseHex16(cfg.USBPID)
