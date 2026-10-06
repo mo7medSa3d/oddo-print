@@ -194,7 +194,11 @@ func (p *NetworkPrinter) Test(ctx context.Context) error {
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
 	defer cancel()
-	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yaseir Agent!\n\n\x1d\x56\x01"), false, testPrintDialTimeout)
+	// Cutter support is a separate capability and cannot be inferred from
+	// ESC/POS itself. Keep the local diagnostic to initialization + printable
+	// text/feeds; Gateway jobs may add a cut only when the payload explicitly
+	// requests a supported peripheral action.
+	return p.printBytes(testCtx, []byte("\x1b\x40Hello from Yaseir Agent!\n\n\n"), false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:
