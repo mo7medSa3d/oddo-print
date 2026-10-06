@@ -36,7 +36,7 @@ export interface CapabilityMatrixRow {
 }
 
 function documentTypeCandidates(protocol: ProtocolType, transport: TransportType): DocumentType[] {
-  if (transport === "spooler" || protocol === "spooler" || protocol === "windows_spooler") {
+  if (transport === "spooler" || protocol === "spooler") {
     // Document transports by default. Raw byte passthrough requires an
     // explicit supported_protocols declaration (enforced in routing.ts);
     // it is never inferred, so office printers are never sent raw bytes.
@@ -103,9 +103,10 @@ export function validatePayloadForPrinter(
   if (!payloadInput) return { ok: false, reason: "CAPABILITY_MISMATCH: payload is required" };
   const pt = (payloadInput.type ?? "").toLowerCase();
   const payloadProto = payloadInput.protocol ? payloadInput.protocol.toLowerCase() : null;
+  const rawConn = (printer.connectionType ?? "").toLowerCase();
+  const conn = rawConn === "windows_spooler" ? "spooler" : rawConn;
   const rawProto = (printer.protocol ?? "").toLowerCase();
-  const proto = rawProto === "windows_spooler" ? "spooler" : rawProto;
-  const conn = (printer.connectionType ?? "").toLowerCase();
+  const proto = rawProto === "windows_spooler" && conn === "spooler" ? "spooler" : rawProto;
   // Defensive validation: the capabilities blob comes from agent-reported
   // JSON. A malformed non-array supported_protocols must fail closed as a
   // capability mismatch rather than throwing a TypeError or becoming an
@@ -217,14 +218,15 @@ export function validatePayloadForPrinter(
 }
 
 export function getSupportedDocumentTypes(protocol: ProtocolType, transport: TransportType, capabilities?: { supported_protocols?: string[] } | null): DocumentType[] {
-  const normalized = protocol === "windows_spooler" ? "spooler" : protocol;
-  const candidates = [...new Set<DocumentType>([...documentTypeCandidates(protocol, transport), "raw", "escpos", "zpl", "tspl", "pdf", "image"])];
+  const normalizedTransport = transport === ("windows_spooler" as TransportType) ? "spooler" : transport;
+  const normalized = protocol === "windows_spooler" && normalizedTransport === "spooler" ? "spooler" : protocol;
+  const candidates = [...new Set<DocumentType>([...documentTypeCandidates(normalized as ProtocolType, normalizedTransport), "raw", "escpos", "zpl", "tspl", "pdf", "image"])];
   return candidates.filter(type => {
     const payload: PayloadSpec = type === "zpl" || type === "tspl"
       ? { type: "raw", protocol: type }
       : type === "raw" ? { type: "raw", protocol: BYTE_PROTOCOLS.includes(normalized) ? normalized : capabilities?.supported_protocols?.includes("escpos") ? "escpos" : "raw" }
       : type === "escpos" ? { type, protocol: "escpos" } : { type };
-    return validatePayloadForPrinter(payload, { protocol: normalized, connectionType: transport, capabilities }).ok;
+    return validatePayloadForPrinter(payload, { protocol: normalized, connectionType: normalizedTransport, capabilities }).ok;
   });
 }
 
@@ -233,7 +235,8 @@ export function isIppTransport(transport: string, protocol: string): boolean {
 }
 
 export function isSpoolerTransport(transport: string, protocol: string): boolean {
-  return transport === "spooler" || protocol === "spooler" || protocol === "windows_spooler";
+  const conn = transport === "windows_spooler" ? "spooler" : transport;
+  return conn === "spooler" || (protocol === "spooler" && conn === "spooler") || (protocol === "windows_spooler" && conn === "spooler");
 }
 
 export function isRawTransport(protocol: string): boolean {
