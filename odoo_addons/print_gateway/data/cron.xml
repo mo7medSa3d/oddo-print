@@ -10,6 +10,16 @@
         <field name="active">True</field>
     </record>
 
+    <record id="cron_cleanup_terminal_gateway_print_jobs" model="ir.cron">
+        <field name="name">Print Gateway: Clean Terminal Print Jobs</field>
+        <field name="model_id" ref="model_print_gateway_print_job"/>
+        <field name="state">code</field>
+        <field name="code">model.cron_cleanup_terminal_jobs()</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
     <record id="cron_sync_gateway_print_jobs" model="ir.cron">
         <field name="name">Print Gateway: Reconcile Print Jobs</field>
         <field name="model_id" ref="model_print_gateway_print_job"/>
