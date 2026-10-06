@@ -103,6 +103,7 @@ class PrintGatewayJob(models.Model):
     # ambiguous physical outcome that must be resolved by an operator, not by
     # automated transitions.
     _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
+    _TERMINAL_RETENTION_HOURS = 48
     
     # Valid status transitions for the print job state machine.
     # Canonical happy path: queued -> submitted -> claimed -> printing
@@ -2120,6 +2121,33 @@ class PrintGatewayJob(models.Model):
             remaining_time = cron._commit_progress(1)
         return processed
 
+
+    @api.model
+    @api.private
+    def cron_cleanup_terminal_jobs(self):
+        """Delete terminal print payload/history after the shared 48-hour TTL.
+
+        Active jobs are never selected. SKIP LOCKED avoids racing submit/status
+        workers, and bounded batches keep the scheduled action predictable.
+        """
+        self._require_cron_runner()
+        cutoff = db_now_utc(self.env.cr) - datetime.timedelta(hours=self._TERMINAL_RETENTION_HOURS)
+        self.env.cr.execute("""
+            SELECT id
+              FROM print_gateway_print_job
+             WHERE status IN ('success', 'failed', 'partial', 'unknown')
+               AND write_date <= %s
+             ORDER BY write_date ASC, id ASC
+             LIMIT 500
+             FOR UPDATE SKIP LOCKED
+        """, (cutoff,))
+        job_ids = [row[0] for row in self.env.cr.fetchall()]
+        if not job_ids:
+            return 0
+        jobs = self.sudo().browse(job_ids).exists()
+        deleted = len(jobs)
+        jobs.unlink()
+        return deleted
 
     @api.model
     @api.private
