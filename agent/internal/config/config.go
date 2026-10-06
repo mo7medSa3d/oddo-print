@@ -109,6 +109,27 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
 	path = absolutePath
+
+	// Trust the filesystem boundary before reading configuration. Service
+	// startup normally calls Ensure first, but pairing/recovery/library callers
+	// must not be able to bypass the same owner/DACL/reparse checks by invoking
+	// Load directly.
+	dir := filepath.Dir(path)
+	if _, statErr := os.Stat(dir); statErr == nil {
+		if err := EnsureSecureDirectoryACL(dir); err != nil {
+			return nil, fmt.Errorf("secure config dir before read %s: %w", dir, err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("stat config dir %s: %w", dir, statErr)
+	}
+	if _, statErr := os.Lstat(path); statErr == nil {
+		if err := EnsureSecureFileACL(path); err != nil {
+			return nil, fmt.Errorf("secure config file before read %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("lstat config %s: %w", path, statErr)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
