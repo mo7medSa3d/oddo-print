@@ -14,9 +14,20 @@ import {
 } from "../../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const claims = await validateManager(req);
-  const refreshToken = getRefreshTokenFromRequest(req, "manager");
+  let claims: Awaited<ReturnType<typeof validateManager>> = null;
   let revokeFailed = false;
+  try {
+    claims = await validateManager(req);
+  } catch (error) {
+    // Logout must still clear the browser credentials when the session store
+    // is temporarily unavailable. Returning before Set-Cookie would leave a
+    // recoverable client session once PostgreSQL comes back.
+    revokeFailed = true;
+    logError("auth.manager_logout.validation_failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+  const refreshToken = getRefreshTokenFromRequest(req, "manager");
 
   try {
     if (claims?.familyId) {
