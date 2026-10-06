@@ -487,7 +487,7 @@ export default function DashboardClient({
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
 
-    void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}`, {
+    void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}?includePayload=1`, {
       credentials: "include",
       cache: "no-store",
       signal: controller.signal,
@@ -1766,6 +1766,7 @@ export default function DashboardClient({
                           <Menu
                             label={t("job.actionsForJob", { id: shortId(job.id) })}
                             items={jobActions(job)}
+                            placement="above"
                             trigger={
                               <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                 <MoreHorizontal className="h-4 w-4" aria-hidden />
@@ -1814,6 +1815,7 @@ export default function DashboardClient({
                       <Menu
                         label={t("job.actionsForJob", { id: shortId(job.id) })}
                         items={jobActions(job)}
+                        placement="above"
                         trigger={
                           <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
                             {t("job.more")}
