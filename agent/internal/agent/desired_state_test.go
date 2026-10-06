@@ -296,7 +296,7 @@ func TestDesiredStateRestartRecovery(t *testing.T) {
 
 func TestNonYAMLLocalPrinterRemainsFencedBeforeDesiredStateSync(t *testing.T) {
 	a := newDesiredStateTestAgent(t)
-	device := productionNetworkDevice("printer-pre-sync", "127.0.0.1:9100")
+	device := productionNetworkDevice("printer-pre-sync", "192.168.2.50:9100")
 	if _, err := printer.RegisterManual(a.registryPath, device); err != nil {
 		t.Fatalf("RegisterManual: %v", err)
 	}
