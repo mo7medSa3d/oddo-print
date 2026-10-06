@@ -32,6 +32,8 @@ describe("Odoo simulation — POST /api/print/jobs payload contract", () => {
     expect(p.type).toBe("escpos");
     expect(p.protocol).toBe("escpos");
     expect(decoded).toContain("Yaseir Agent");
-    expect(decoded).toContain("\x1d\x56\x01"); // cut
+    expect(decoded).toContain("\x1b\x40"); // initialize
+    expect(decoded).toContain("Connection OK");
+    expect(decoded).not.toContain("\x1d\x56"); // cutter support must be explicit
   });
 });
