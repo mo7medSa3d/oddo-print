@@ -112,17 +112,26 @@ suite("gateway runtime printer availability + payload capability contract", () =
     })).toEqual({ ok: true });
   });
 
-  it("keeps Windows spooler aliases executable when health is unknown but transport is declared", () => {
+  it("keeps the legacy Windows spooler protocol executable only on a spooler transport", () => {
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "spooler",
+      protocol: "windows_spooler",
+    })).toBe(true);
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "windows_spooler",
+      connectionType: "spooler",
+    }).ok).toBe(true);
+
     expect(isPrinterStatusExecutable({
       status: "unknown",
       connectionType: "network",
       protocol: "windows_spooler",
-    })).toBe(true);
-
+    })).toBe(false);
     expect(validatePayloadForPrinter({ type: "pdf" }, {
       protocol: "windows_spooler",
       connectionType: "network",
-    }).ok).toBe(true);
+    }).ok).toBe(false);
 
     expect(validatePayloadForPrinter({ type: "pdf" }, {
       protocol: "ipps",
