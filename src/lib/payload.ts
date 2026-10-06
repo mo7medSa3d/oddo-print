@@ -85,7 +85,6 @@ export function buildTestPrintPayload(printerName: string, agentName: string): P
     "------------------------\n",
     "Connection OK\n",
     "------------------------\n\n\n",
-    "\x1d\x56\x01",
   ].join("");
 
   return { type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from(lines, "binary").toString("base64") };
