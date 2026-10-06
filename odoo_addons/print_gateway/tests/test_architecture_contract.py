@@ -39,6 +39,15 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         }
         self.assertEqual({path.name for path in MODELS.glob("*.py")}, allowed)
 
+    def test_terminal_print_job_retention_is_48_hours_and_scheduled(self):
+        source = (MODELS / "print_job.py").read_text(encoding="utf-8")
+        cron = (ADDON / "data/cron.xml").read_text(encoding="utf-8")
+        self.assertIn("_TERMINAL_RETENTION_HOURS = 48", source)
+        self.assertIn("def cron_cleanup_terminal_jobs", source)
+        self.assertIn("FOR UPDATE SKIP LOCKED", source)
+        self.assertIn("cron_cleanup_terminal_gateway_print_jobs", cron)
+        self.assertIn("model.cron_cleanup_terminal_jobs()", cron)
+
     def test_legacy_user_owned_architecture_files_are_gone(self):
         forbidden = {
             "branch.py", "branch_contract.py", "branch_multicompany.py", "branch_security.py",
