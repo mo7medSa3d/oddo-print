@@ -62,6 +62,8 @@ describe("windows-service-recovery", () => {
       "OdooPrintAgent",
       "YaseirManager",
       "YasserManager",
+      "OdooPrintManager",
+      "Odoo Print Manager",
       "com.yasser.manager",
     ]) {
       expect(windowsInstall).toContain(`"${dir}"`);
@@ -69,8 +71,21 @@ describe("windows-service-recovery", () => {
     expect(windowsInstall).toContain('filepath.Join(systemDrive+string(os.PathSeparator), "Users")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Local")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Roaming")');
+    expect(windowsInstall).toContain('"OdooPrintManager"');
+    expect(windowsInstall).toContain('"Odoo Print Manager"');
     expect(windowsInstall).toContain("purgeAutostartRegistry");
     expect(windowsInstall).toContain("registry.USERS");
+  });
+
+  it("desktop Agent start never spawns a fallback while the Windows service exists", () => {
+    const source = fs.readFileSync("src-tauri/src/agent.rs", "utf8");
+    const start = source.slice(source.indexOf("fn start_inner"), source.indexOf("pub fn stop("));
+    expect(start).toContain("match sc_query()?");
+    expect(start).toContain("Some(4) => Ok(())");
+    expect(start).toContain("Some(1) => { if (is_process_running(app) { stop_inner(app)?; } run_net(\"start\")?");
+    expect(start).toContain("None =>");
+    expect(start).toContain("spawn_background(app)");
+    expect(start.indexOf("spawn_background(app)")).toBeGreaterThan(start.indexOf("None =>"));
   });
 
   it("service status API returns BLOCKED explicit with required fields", () => {

@@ -377,7 +377,16 @@ jobs:
             (Join-Path $env:LOCALAPPDATA "YasserManager"),
             (Join-Path $env:LOCALAPPDATA "Yaseir Print Manager"),
             (Join-Path $env:LOCALAPPDATA "Yasser Print Manager"),
-            (Join-Path $env:LOCALAPPDATA "com.yasser.manager")
+            (Join-Path $env:LOCALAPPDATA "OdooPrintManager"),
+            (Join-Path $env:LOCALAPPDATA "Odoo Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "com.yasser.manager"),
+            (Join-Path $env:APPDATA "YaseirManager"),
+            (Join-Path $env:APPDATA "YasserManager"),
+            (Join-Path $env:APPDATA "Yaseir Print Manager"),
+            (Join-Path $env:APPDATA "Yasser Print Manager"),
+            (Join-Path $env:APPDATA "OdooPrintManager"),
+            (Join-Path $env:APPDATA "Odoo Print Manager"),
+            (Join-Path $env:APPDATA "com.yasser.manager")
           )
           foreach ($path in $userDataRoots) {
             if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }

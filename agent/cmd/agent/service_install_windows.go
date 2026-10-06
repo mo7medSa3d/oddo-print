@@ -73,6 +73,8 @@ func purgeRunValues(root registry.Key, path string) {
 		"Yasser Print Manager",
 		"YaseirManager",
 		"YasserManager",
+		"OdooPrintManager",
+		"Odoo Print Manager",
 		"com.yasser.manager",
 	} {
 		_ = key.DeleteValue(value)
@@ -143,6 +145,8 @@ func managerDataRoots() []string {
 		"YasserManager",
 		"Yaseir Print Manager",
 		"Yasser Print Manager",
+		"OdooPrintManager",
+		"Odoo Print Manager",
 		"com.yasser.manager",
 	}
 	for _, envName := range []string{"LOCALAPPDATA", "APPDATA"} {
