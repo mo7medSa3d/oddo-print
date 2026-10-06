@@ -1265,7 +1265,7 @@ export default function DashboardClient({
       )}
 
       {/* ── Fleet ─────────────────────────────────────────────────── */}
-      <div className="grid gap-5 xl:grid-cols-12">
+      <div className="grid items-start gap-5 xl:grid-cols-12">
         <Card className="xl:col-span-4">
           {/* Heading literals ("Agents" / "Printers" / "Recent Print Jobs") are part of the
               operator vocabulary contracts asserted by the integration suite. */}
