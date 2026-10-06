@@ -93,7 +93,14 @@ export function OverviewPage({ s }: { s: DesktopState }) {
           <CardHeader title={t("desktop.overview.activity")} subtitle={t("desktop.overview.activitySubtitle")} icon={<Clock className="h-4 w-4 text-brand" />} />
           <div className="px-5 pb-5">
             <DetailList rows={[
-              { label: t("desktop.overview.lastCheck"), value: <Mono>{s.lastStatusCheck ? formatTime(s.lastStatusCheck) : "—"}</Mono> },
+              {
+                label: t("desktop.overview.lastCheck"),
+                value: (
+                  <span dir="auto" className="inline-block text-sm text-ink-2 [unicode-bidi:isolate]">
+                    {s.lastStatusCheck ? formatTime(s.lastStatusCheck) : "—"}
+                  </span>
+                ),
+              },
               { label: t("desktop.overview.statGateway"), value: <span className="block truncate text-xs">{s.gatewayUrl || "—"}</span> },
               { label: t("desktop.overview.statAgent"), value: s.isOnline ? t("desktop.status.running") : t("desktop.status.stopped") },
             ]} />
