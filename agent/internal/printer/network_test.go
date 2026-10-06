@@ -8,7 +8,10 @@ import (
 	"net"
 	"strings"
 	"testing"
-	"func TestLocalESCPOSDiagnosticDoesNotInferCutterSupport(t *testing.T) {
+	"time"
+)
+
+func TestLocalESCPOSDiagnosticDoesNotInferCutterSupport(t *testing.T) {
 	payload := localESCPOSDiagnosticPayload()
 	if !bytes.HasPrefix(payload, []byte("\x1b\x40")) {
 		t.Fatalf("diagnostic should initialize ESC/POS, got %q", payload)
@@ -17,9 +20,6 @@ import (
 		t.Fatal("local ESC/POS diagnostic must not send a cut command without an explicit cutter capability")
 	}
 }
-
-time"
-)
 
 func TestNetworkPrinterPrintSuccessAndOffline(t *testing.T) {
 	// Static TEST port (not net.Listen(":0")): after we close the listener the
