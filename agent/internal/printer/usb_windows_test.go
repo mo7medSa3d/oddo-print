@@ -272,16 +272,16 @@ func TestUSBTestPayloadDoesNotInjectESCPOSWithoutCapability(t *testing.T) {
 }
 
 func TestUSBLabelProtocolTestPayloadsUseTheirDeclaredLanguage(t *testing.T) {
-	zpl := &USBPrinter{ID: "zpl", Name: "Label ) ^XZ", Protocol: "zpl"}
+	zpl := &USBPrinter{ID: "zpl", Name: "Label ^XZ ~JA", Protocol: "zpl"}
 	zplPayload := string(zpl.testPayload())
-	if !strings.HasPrefix(zplPayload, "^XA") || !strings.Contains(zplPayload, "^XZ") {
-		t.Fatalf("ZPL test payload must be framed as ZPL, got %q", zplPayload)
+	if !strings.HasPrefix(zplPayload, "^XA") || strings.Count(zplPayload, "^XZ") != 1 || strings.Contains(zplPayload, "~JA") {
+		t.Fatalf("ZPL test payload must be framed once and sanitize command delimiters, got %q", zplPayload)
 	}
 
-	tspl := &USBPrinter{ID: "tspl", Name: "Label \" PRINT", Protocol: "tspl"}
+	tspl := &USBPrinter{ID: "tspl", Name: "Label \"\nPRINT 9,9", Protocol: "tspl"}
 	tsplPayload := string(tspl.testPayload())
-	if !strings.Contains(tsplPayload, "CLS\n") || !strings.Contains(tsplPayload, "PRINT 1,1") {
-		t.Fatalf("TSPL test payload must use TSPL framing, got %q", tsplPayload)
+	if !strings.Contains(tsplPayload, "CLS\n") || strings.Count(tsplPayload, "PRINT 1,1") != 1 || strings.Contains(tsplPayload, "PRINT 9,9") {
+		t.Fatalf("TSPL test payload must use one fixed print command and sanitize field injection, got %q", tsplPayload)
 	}
 }
 
