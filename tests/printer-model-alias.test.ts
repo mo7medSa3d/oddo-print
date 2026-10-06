@@ -4,8 +4,9 @@ import { parsePrinterInput } from "../src/lib/printer-model";
 describe("printer input protocol aliases", () => {
   it("canonicalizes windows_spooler to spooler before transport validation", () => {
     const parsed = parsePrinterInput({
+      agentId: "agt_alias_test",
       name: "Office queue",
-      printerType: "laser",
+      printerType: "physical",
       deviceClass: "laser",
       connectionType: "spooler",
       protocol: "windows_spooler",
