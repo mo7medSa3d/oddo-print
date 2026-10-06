@@ -14,6 +14,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try { requireManagerPermission(claims, "jobs.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id } = await params;
   const includePayload = new URL(req.url).searchParams.get("includePayload") === "1";
+  if (includePayload) {
+    try { requireManagerPermission(claims, "jobs.payload.read"); }
+    catch { return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: { "Cache-Control": "no-store" } }); }
+  }
   const row = await db
     .select({
       id: printJobs.id,
