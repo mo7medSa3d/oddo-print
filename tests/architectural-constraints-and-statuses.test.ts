@@ -151,7 +151,8 @@ describe("Part 6 desktop hardening", () => {
 
   it("closes the mobile sidebar toward the correct physical side in RTL", () => {
     const source = read("src/desktop/components/Sidebar.tsx");
-    expect(source).toContain("ltr:-translate-x-full rtl:translate-x-full lg:translate-x-0");
+    expect(source).toContain("max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full");
+    expect(source).toContain("lg:translate-x-0");
   });
 
   it("keeps raw agent operational diagnostics out of localized desktop status copy", () => {
@@ -192,7 +193,7 @@ describe("Part 6 status evidence hardening", () => {
     expect(shared).toContain('value.includes("UNSUPPORTED PROTOCOL")');
     expect(shared).toContain('job.unsupportedProtocol');
     expect(desktop).toContain("jobFailurePresentation");
-    expect(web).toContain("jobFailurePresentation(selectedJob.error, locale)");
+    expect(web).toContain("jobFailurePresentation(selectedJobView.error, locale)");
   });
 
 });
