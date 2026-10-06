@@ -59,8 +59,9 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"USB-backed spooler escpos requires explicit declaration", "escpos", "escpos", "spooler", "usb", nil, false},
 		{"ipps transport prints pdf like ipp", "pdf", "", "ipps", "ipps", nil, true},
 		{"network IPPS alias prints pdf like IPP", "pdf", "", "ipps", "network", nil, true},
-		{"windows_spooler alias prints pdf", "pdf", "", "windows_spooler", "network", nil, true},
-		{"windows_spooler alias prints image", "image", "", "windows_spooler", "network", nil, true},
+		{"windows_spooler alias prints pdf on spooler transport", "pdf", "", "windows_spooler", "spooler", nil, true},
+		{"windows_spooler alias prints image on spooler transport", "image", "", "windows_spooler", "spooler", nil, true},
+		{"windows_spooler token does not turn network into spooler", "pdf", "", "windows_spooler", "network", nil, false},
 		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipps caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipp caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipp"}, false},
@@ -109,9 +110,12 @@ func TestSupportedProtocolsForUnknownDevices(t *testing.T) {
 }
 
 func TestSupportedProtocolsForWindowsSpoolerAlias(t *testing.T) {
-	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "windows_spooler", Connection: "network"})
+	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "windows_spooler", Connection: "spooler"})
 	if len(got) != 2 || got[0] != "pdf" || got[1] != "image" {
-		t.Fatalf("windows_spooler alias must derive [pdf image], got %v", got)
+		t.Fatalf("windows_spooler alias on spooler transport must derive [pdf image], got %v", got)
+	}
+	if got := SupportedProtocolsForDevice(TransportFacts{Protocol: "windows_spooler", Connection: "network"}); len(got) != 0 {
+		t.Fatalf("windows_spooler token must not turn a network transport into a spooler, got %v", got)
 	}
 }
 
