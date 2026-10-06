@@ -103,7 +103,8 @@ export function validatePayloadForPrinter(
   if (!payloadInput) return { ok: false, reason: "CAPABILITY_MISMATCH: payload is required" };
   const pt = (payloadInput.type ?? "").toLowerCase();
   const payloadProto = payloadInput.protocol ? payloadInput.protocol.toLowerCase() : null;
-  const proto = (printer.protocol ?? "").toLowerCase();
+  const rawProto = (printer.protocol ?? "").toLowerCase();
+  const proto = rawProto === "windows_spooler" ? "spooler" : rawProto;
   const conn = (printer.connectionType ?? "").toLowerCase();
   // Defensive validation: the capabilities blob comes from agent-reported
   // JSON. A malformed non-array supported_protocols must fail closed as a
@@ -137,7 +138,7 @@ export function validatePayloadForPrinter(
   // or add a renderer/language the concrete backend does not implement.
   const physicalPdf = conn === "spooler" || proto === "spooler"
     || conn === "ipp" || conn === "ipps"
-    || (conn === "network" && proto === "ipp");
+    || (conn === "network" && (proto === "ipp" || proto === "ipps"));
   const physicalImage = conn === "spooler" || proto === "spooler"
     || (conn === "network" && proto === "escpos");
   const physicalByteProtocol = (protocol: string) => {
