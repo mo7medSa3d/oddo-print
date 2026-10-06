@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +61,53 @@ func updateInstalledService(wanted *service.Config) error {
 	current.ServiceStartName = ""
 	current.Password = ""
 	return existing.UpdateConfig(current)
+}
+
+func purgeLegacyAgentServices() error {
+	manager, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect to Windows Service Control Manager: %w", err)
+	}
+	defer manager.Disconnect()
+
+	for _, name := range []string{"YasserAgent", "OdooPrintAgent"} {
+		existing, err := manager.OpenService(name)
+		if err != nil {
+			if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+				continue
+			}
+			return fmt.Errorf("open legacy service %s: %w", name, err)
+		}
+
+		status, queryErr := existing.Query()
+		if queryErr == nil && status.State != svc.Stopped {
+			if _, stopErr := existing.Control(svc.Stop); stopErr != nil &&
+				!errors.Is(stopErr, windows.ERROR_SERVICE_NOT_ACTIVE) {
+				existing.Close()
+				return fmt.Errorf("stop legacy service %s: %w", name, stopErr)
+			}
+			deadline := time.Now().Add(30 * time.Second)
+			for {
+				status, queryErr = existing.Query()
+				if queryErr != nil || status.State == svc.Stopped {
+					break
+				}
+				if time.Now().After(deadline) {
+					existing.Close()
+					return fmt.Errorf("timed out waiting for legacy service %s to stop", name)
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+		}
+		deleteErr := existing.Delete()
+		_ = existing.Close()
+		if deleteErr != nil &&
+			!errors.Is(deleteErr, windows.ERROR_SERVICE_DOES_NOT_EXIST) &&
+			!errors.Is(deleteErr, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+			return fmt.Errorf("delete legacy service %s: %w", name, deleteErr)
+		}
+	}
+	return nil
 }
 
 func purgeRunValues(root registry.Key, path string) {

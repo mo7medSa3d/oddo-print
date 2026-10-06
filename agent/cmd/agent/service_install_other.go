@@ -12,6 +12,10 @@ func updateInstalledService(_ *service.Config) error {
 	return fmt.Errorf("existing service upgrades are only supported on Windows")
 }
 
+func purgeLegacyAgentServices() error {
+	return nil
+}
+
 func purgeAgentData() error {
 	return fmt.Errorf("Agent data purge is only supported on Windows")
 }

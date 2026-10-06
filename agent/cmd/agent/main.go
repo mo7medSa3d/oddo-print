@@ -366,6 +366,9 @@ func handleServiceControl(rawAction, configPath string) error {
 		}
 		return nil
 	case "install":
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services before install: %w", err)
+		}
 		if err := s.Install(); err != nil {
 			if updateErr := updateInstalledService(svcConfig); updateErr != nil {
 				return fmt.Errorf("install service failed: %w; updating existing service failed: %v", err, updateErr)
@@ -385,6 +388,9 @@ func handleServiceControl(rawAction, configPath string) error {
 		if err := purgeAgentData(); err != nil {
 			return err
 		}
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services during uninstall: %w", err)
+		}
 		if removed {
 			fmt.Println("YaseirAgent service uninstalled and all local Agent data purged successfully")
 		} else {
@@ -397,6 +403,9 @@ func handleServiceControl(rawAction, configPath string) error {
 		}
 		if _, err := uninstallServiceIfPresent(s); err != nil {
 			return err
+		}
+		if err := purgeLegacyAgentServices(); err != nil {
+			return fmt.Errorf("remove legacy Agent services during purge: %w", err)
 		}
 		if err := purgeInstallationData(); err != nil {
 			return err

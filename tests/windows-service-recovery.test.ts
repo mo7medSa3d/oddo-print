@@ -81,6 +81,13 @@ describe("windows-service-recovery", () => {
     expect(windowsInstall).toContain('"Odoo Print Manager"');
     expect(windowsInstall).toContain("purgeAutostartRegistry");
     expect(windowsInstall).toContain("registry.USERS");
+    expect(windowsInstall).toContain("func purgeLegacyAgentServices()");
+    expect(windowsInstall).toContain('"YasserAgent"');
+    expect(windowsInstall).toContain('"OdooPrintAgent"');
+    expect(windowsInstall).toContain("manager.OpenService(name)");
+    expect(windowsInstall).toContain("existing.Delete()");
+    expect(agentMain).toContain("purgeLegacyAgentServices()");
+    expect(agentMain.match(/purgeLegacyAgentServices\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
   it("desktop Agent start never spawns a fallback while the Windows service exists", () => {
