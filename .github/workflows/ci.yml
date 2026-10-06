@@ -73,14 +73,12 @@ jobs:
         with:
           path: ~/go/bin/staticcheck
           key: ${{ runner.os }}-staticcheck-v0.7.0
-      - name: Agent Phase 0 - Go build
+          save-always: true
+      - name: Agent Phase 0 - Go vet
         working-directory: agent
         run: |
           go mod verify
-          go build -mod=readonly ./...
-      - name: Agent Phase 0 - Go vet
-        working-directory: agent
-        run: go vet -mod=readonly ./...
+          go vet -mod=readonly ./...
       - name: Agent Phase 0 - Go race tests
         working-directory: agent
         run: go test -mod=readonly ./... -race
@@ -143,7 +141,7 @@ jobs:
       - name: Build Next.js
         run: npm run build
       - name: Run unit tests (no DB)
-        run: npm run test:unit:unit
+        run: npm run test:unit
       - name: Wait for PostgreSQL
         run: |
           for i in $(seq 1 30); do

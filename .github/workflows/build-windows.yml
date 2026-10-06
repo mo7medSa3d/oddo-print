@@ -53,6 +53,7 @@ jobs:
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
           key: ${{ runner.os }}-tauri-cli-2.11.4
+          save-always: true
       - name: Cache Rust build and Tauri tooling
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -64,6 +65,7 @@ jobs:
           key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-
+          save-always: true
       - name: Install Tauri CLI
         shell: pwsh
         run: |
@@ -103,6 +105,11 @@ jobs:
       - name: Rust unit tests (desktop)
         shell: pwsh
         run: |
+          # generate_context! validates frontendDist at compile time. Unit tests
+          # do not consume frontend assets, while the later Tauri build runs the
+          # real beforeBuildCommand. Create only the directory here to avoid a
+          # duplicate Vite build.
+          New-Item -ItemType Directory -Force -Path dist-desktop | Out-Null
           Push-Location src-tauri
           cargo test --locked --release --target x86_64-pc-windows-msvc
           Pop-Location

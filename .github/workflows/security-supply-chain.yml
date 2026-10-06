@@ -49,6 +49,7 @@ jobs:
             ~/go/bin/govulncheck
             ~/.cargo/bin/cargo-audit
           key: ${{ runner.os }}-security-tools-govulncheck-1.8.0-cargo-audit-0.22.2
+          save-always: true
 
       - name: npm dependency audit
         shell: bash
