@@ -33,8 +33,26 @@ describe("print-job cleanup contract", () => {
     expect(page).toContain("<JobCleanupButton />");
     expect(button).toContain('t("jobs.cleanup.action")');
     expect(button).toContain('method: "DELETE"');
-    expect(button).toContain("RETENTION_DAYS = 30");
+    expect(button).toContain("PRINT_JOB_RETENTION_HOURS");
+    expect(button).toContain("PRINT_JOB_RETENTION_MS");
+    expect(button).not.toContain("RETENTION_DAYS = 30");
     expect(button).toContain("limit=5000&confirm=1");
+  });
+
+  it("automatically expires full Gateway and Odoo job history after 48 hours", () => {
+    const maintenance = read("src/lib/job-maintenance.ts");
+    const shared = read("src/shared/job-retention.ts");
+    const server = read("server.ts");
+    const odoo = read("odoo_addons/print_gateway/models/print_job.py");
+    const cron = read("odoo_addons/print_gateway/data/cron.xml");
+    expect(shared).toContain("PRINT_JOB_RETENTION_HOURS = 48");
+    expect(maintenance).toContain("cleanupTerminalPrintJobs");
+    expect(maintenance).toContain("printJobReceipts");
+    expect(maintenance).toContain("claim_token IS NULL");
+    expect(server).toContain("JOB_RETENTION_SWEEP_INTERVAL_MS");
+    expect(odoo).toContain("_TERMINAL_RETENTION_HOURS = 48");
+    expect(odoo).toContain("def cron_cleanup_terminal_jobs");
+    expect(cron).toContain("model.cron_cleanup_terminal_jobs()");
   });
 
   it("exposes local cleanup through the typed Desktop IPC boundary", () => {
@@ -49,6 +67,10 @@ describe("print-job cleanup contract", () => {
 
   it("only deletes PROVABLY terminal records from the Agent local queue", () => {
     const queue = read("agent/internal/queue/cleanup.go");
+    const agent = read("agent/internal/agent/agent.go");
+    expect(agent).toContain("localTerminalJobRetentionHours = 48");
+    expect(agent).toContain("CleanupTerminalOlderThan(localTerminalJobRetentionHours)");
+    expect(queue).toContain("CleanupTerminalOlderThan");
     // Unknown-outcome evidence survives cleanup: deleting a row whose last
     // error carries ANY unknown-outcome marker would erase the local
     // duplicate-print protection and the operator's reconciliation record.
