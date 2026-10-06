@@ -39,42 +39,110 @@ pub fn ensure_manager_data_root() -> std::io::Result<PathBuf> {
     Ok(primary)
 }
 
+fn development_data_override(names: &[&str]) -> Option<PathBuf> {
+    // A packaged/elevated Windows process must not take privileged filesystem
+    // roots from the invoking user's inherited environment. Keep overrides for
+    // tests/debug builds and non-Windows development only.
+    #[cfg(windows)]
+    if !cfg!(debug_assertions) && !cfg!(test) {
+        return None;
+    }
+    for name in names {
+        if let Ok(value) = std::env::var(name) {
+            if !value.trim().is_empty() {
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn windows_program_data_root() -> PathBuf {
+    use std::ffi::{c_void, OsString};
+    use std::os::windows::ffi::OsStringExt;
+
+    #[repr(C)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+    // FOLDERID_ProgramData = {62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}
+    const FOLDERID_PROGRAM_DATA: Guid = Guid {
+        data1: 0x62ab5d82,
+        data2: 0xfdc1,
+        data3: 0x4dc3,
+        data4: [0xa9, 0xdd, 0x07, 0x0d, 0x1d, 0x49, 0x5d, 0x97],
+    };
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHGetKnownFolderPath(
+            rfid: *const Guid,
+            flags: u32,
+            token: *mut c_void,
+            path: *mut *mut u16,
+        ) -> i32;
+    }
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoTaskMemFree(memory: *mut c_void);
+    }
+
+    let mut raw: *mut u16 = std::ptr::null_mut();
+    let hr = unsafe {
+        SHGetKnownFolderPath(
+            &FOLDERID_PROGRAM_DATA,
+            0,
+            std::ptr::null_mut(),
+            &mut raw,
+        )
+    };
+    if hr >= 0 && !raw.is_null() {
+        let mut len = 0usize;
+        while len < 32_768 && unsafe { *raw.add(len) } != 0 {
+            len += 1;
+        }
+        let value = if len < 32_768 {
+            Some(PathBuf::from(OsString::from_wide(unsafe {
+                std::slice::from_raw_parts(raw, len)
+            })))
+        } else {
+            None
+        };
+        unsafe { CoTaskMemFree(raw.cast()) };
+        if let Some(path) = value.filter(|path| !path.as_os_str().is_empty()) {
+            return path;
+        }
+    } else if !raw.is_null() {
+        unsafe { CoTaskMemFree(raw.cast()) };
+    }
+    // Fail closed to the standard machine location rather than consulting an
+    // inherited PROGRAMDATA variable when Known Folder resolution fails.
+    PathBuf::from(r"C:\ProgramData")
+}
+
 fn manager_data_root_candidate() -> PathBuf {
-    if let Ok(override_dir) = std::env::var("YASEIR_MANAGER_DATA_DIR") {
-        if !override_dir.trim().is_empty() {
-            return PathBuf::from(override_dir);
-        }
-    }
-    // Legacy fallback: pre-migration installs set YASSER_MANAGER_DATA_DIR.
-    if let Ok(override_dir) = std::env::var("YASSER_MANAGER_DATA_DIR") {
-        if !override_dir.trim().is_empty() {
-            return PathBuf::from(override_dir);
-        }
-    }
-    #[cfg(debug_assertions)]
-    {
-        if let Ok(override_dir) = std::env::var("ODOO_PRINT_MANAGER_DATA_DIR") {
-            if !override_dir.trim().is_empty() {
-                return PathBuf::from(override_dir);
-            }
-        }
-    }
-    if let Ok(pd) = std::env::var("PROGRAMDATA") {
-        if !pd.trim().is_empty() {
-            let canonical = PathBuf::from(&pd).join("YaseirManager");
-            if canonical.exists() {
-                return canonical;
-            }
-            let legacy = PathBuf::from(&pd).join("YasserManager");
-            if legacy.exists() {
-                return legacy;
-            }
-            return canonical;
-        }
+    if let Some(path) = development_data_override(&[
+        "YASEIR_MANAGER_DATA_DIR",
+        "YASSER_MANAGER_DATA_DIR",
+        "ODOO_PRINT_MANAGER_DATA_DIR",
+    ]) {
+        return path;
     }
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\ProgramData\YaseirManager")
+        let pd = windows_program_data_root();
+        let canonical = pd.join("YaseirManager");
+        if canonical.exists() {
+            return canonical;
+        }
+        let legacy = pd.join("YasserManager");
+        if legacy.exists() {
+            return legacy;
+        }
+        return canonical;
     }
     #[cfg(not(windows))]
     {
@@ -113,58 +181,42 @@ pub fn ensure_agent_data_root() -> std::io::Result<PathBuf> {
 }
 
 fn agent_data_root_candidate() -> PathBuf {
-    if let Ok(override_dir) = std::env::var("YASEIR_AGENT_DATA_DIR") {
-        if !override_dir.trim().is_empty() {
-            return PathBuf::from(override_dir);
-        }
-    }
-    // Legacy fallback: pre-migration installs set YASSER_AGENT_DATA_DIR.
-    if let Ok(override_dir) = std::env::var("YASSER_AGENT_DATA_DIR") {
-        if !override_dir.trim().is_empty() {
-            return PathBuf::from(override_dir);
-        }
-    }
-    #[cfg(debug_assertions)]
-    {
-        if let Ok(override_dir) = std::env::var("ODOO_PRINT_AGENT_DATA_DIR") {
-            if !override_dir.trim().is_empty() {
-                return PathBuf::from(override_dir);
-            }
-        }
-    }
-    if let Ok(pd) = std::env::var("PROGRAMDATA") {
-        if !pd.trim().is_empty() {
-            let canonical = PathBuf::from(&pd).join("YaseirAgent");
-            let legacy = PathBuf::from(&pd).join("YasserAgent");
-            let very_legacy = PathBuf::from(&pd).join("OdooPrintAgent");
-
-            if canonical.join("config.yaml").is_file() {
-                return canonical;
-            }
-            if legacy.join("config.yaml").is_file() {
-                return legacy;
-            }
-            if very_legacy.join("config.yaml").is_file() {
-                return very_legacy;
-            }
-
-            // No paired config exists yet. Preserve any existing writable data
-            // root before creating a new canonical one.
-            if canonical.exists() {
-                return canonical;
-            }
-            if legacy.exists() {
-                return legacy;
-            }
-            if very_legacy.exists() {
-                return very_legacy;
-            }
-            return canonical;
-        }
+    if let Some(path) = development_data_override(&[
+        "YASEIR_AGENT_DATA_DIR",
+        "YASSER_AGENT_DATA_DIR",
+        "ODOO_PRINT_AGENT_DATA_DIR",
+    ]) {
+        return path;
     }
     #[cfg(windows)]
     {
-        PathBuf::from(r"C:\ProgramData\YaseirAgent")
+        let pd = windows_program_data_root();
+        let canonical = pd.join("YaseirAgent");
+        let legacy = pd.join("YasserAgent");
+        let very_legacy = pd.join("OdooPrintAgent");
+
+        if canonical.join("config.yaml").is_file() {
+            return canonical;
+        }
+        if legacy.join("config.yaml").is_file() {
+            return legacy;
+        }
+        if very_legacy.join("config.yaml").is_file() {
+            return very_legacy;
+        }
+
+        // No paired config exists yet. Preserve any existing writable data
+        // root before creating a new canonical one.
+        if canonical.exists() {
+            return canonical;
+        }
+        if legacy.exists() {
+            return legacy;
+        }
+        if very_legacy.exists() {
+            return very_legacy;
+        }
+        return canonical;
     }
     #[cfg(not(windows))]
     {
@@ -204,12 +256,41 @@ pub fn ensure_dir(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn windows_system32_exe(name: &str) -> PathBuf {
-    let root = std::env::var_os("WINDIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-    root.join("System32").join(name)
+pub fn windows_system32_exe(name: &str) -> std::io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    if name.is_empty() || name.contains('\\') || name.contains('/') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid Windows system executable name",
+        ));
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+
+    let mut buffer = vec![0u16; 32_768];
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+    if length == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if length as usize >= buffer.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Windows system directory path is too long",
+        ));
+    }
+    let root = PathBuf::from(OsString::from_wide(&buffer[..length as usize]));
+    let path = root.join(name);
+    if !path.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Windows system executable not found: {}", path.display()),
+        ));
+    }
+    Ok(path)
 }
 
 #[cfg(windows)]
@@ -232,7 +313,7 @@ fn reject_windows_reparse_point(path: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn run_icacls(path: &Path, args: &[&str]) -> std::io::Result<()> {
-    let output = Command::new(windows_system32_exe("icacls.exe"))
+    let output = Command::new(windows_system32_exe("icacls.exe")?)
         .arg(path)
         .args(args)
         .output()?;
