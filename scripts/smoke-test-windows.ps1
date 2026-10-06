@@ -58,10 +58,23 @@ if (-not $InstallDir) {
   }
 }
 
-# Each run owns an isolated data root; never reuse production ProgramData.
+# Agent first-run state is isolated per smoke run. The packaged Manager is
+# intentionally different: release builds ignore YASEIR_MANAGER_DATA_DIR and
+# must use the machine-wide ProgramData root so an inherited user environment
+# cannot redirect trusted Gateway settings into an attacker-controlled path.
 $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yaseir-smoke-" + [guid]::NewGuid().ToString("N"))
 $agentDataDir = Join-Path $smokeRoot "agent"
-$managerDataDir = Join-Path $smokeRoot "manager"
+$programDataRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+if (-not $programDataRoot) { $programDataRoot = "C:\ProgramData" }
+$canonicalManagerDataDir = Join-Path $programDataRoot "YaseirManager"
+$legacyManagerDataDir = Join-Path $programDataRoot "YasserManager"
+$managerDataDir = if (Test-Path -LiteralPath $canonicalManagerDataDir) {
+  $canonicalManagerDataDir
+} elseif (Test-Path -LiteralPath $legacyManagerDataDir) {
+  $legacyManagerDataDir
+} else {
+  $canonicalManagerDataDir
+}
 
 function Assert-Path {
   param([string]$Path, [string]$Label)
@@ -135,7 +148,10 @@ $oldAgentData = $env:YASEIR_AGENT_DATA_DIR
 $oldManagerData = $env:YASEIR_MANAGER_DATA_DIR
 $oldAutostart = $env:YASEIR_MANAGER_AUTOSTART_AGENT
 $env:YASEIR_AGENT_DATA_DIR = $agentDataDir
-$env:YASEIR_MANAGER_DATA_DIR = $managerDataDir
+# Do not set a Manager data override for the packaged release. Production
+# deliberately ignores it; the smoke test must validate the real ProgramData
+# path and its hardened ownership/DACL instead of testing a debug-only path.
+Remove-Item Env:YASEIR_MANAGER_DATA_DIR -ErrorAction SilentlyContinue
 $env:YASEIR_MANAGER_AUTOSTART_AGENT = "0"
 try {
 
@@ -146,10 +162,11 @@ try {
   $desktop = Start-Process -FilePath $appExe -PassThru
   Assert-NotExited $desktop "Yaseir Print Manager desktop process"
 
-  # The Manager runtime contains the trusted Gateway origin. A locally
-  # pre-created writable ProgramData tree must never be accepted: the desktop
-  # hardens ownership/DACL at startup and fails closed before reading settings.
-  Assert-Path $managerDataDir "Manager writable data directory"
+  # The Manager runtime contains the trusted Gateway origin. Release builds
+  # must stay on the shared ProgramData root even if the caller supplies a
+  # YASEIR_MANAGER_DATA_DIR environment override. The desktop hardens
+  # ownership/DACL at startup and fails closed before trusting settings.
+  Assert-Path $managerDataDir "Manager ProgramData directory"
   $managerAcl = Get-Acl -LiteralPath $managerDataDir
   if (-not $managerAcl.AreAccessRulesProtected) {
     throw "FAIL: Manager data directory still inherits parent ACLs"
