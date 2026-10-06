@@ -382,6 +382,8 @@ func (p PrinterConfig) NormalizedType() string {
 	switch t {
 	case "tcp":
 		return "network"
+	case "windows_spooler":
+		return "spooler"
 	case "usb":
 		// A USB device with an installed Windows spooler queue is executed by
 		// the spooler backend, not by the raw USB backend. Normalize it here so
