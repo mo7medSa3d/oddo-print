@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
-import { requireManagerPermission } from "../../../../lib/authorization";
+import { hasManagerPermission, requireManagerPermission } from "../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { buildJobDiagnosticPayload } from "../../../../lib/job-diagnostic-payload";
 
@@ -14,10 +14,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try { requireManagerPermission(claims, "jobs.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   const { id } = await params;
   const includePayload = new URL(req.url).searchParams.get("includePayload") === "1";
-  if (includePayload) {
-    try { requireManagerPermission(claims, "jobs.payload.read"); }
-    catch { return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: { "Cache-Control": "no-store" } }); }
-  }
+  const canReadPayload = includePayload && hasManagerPermission(claims, "jobs.payload.read");
   const row = await db
     .select({
       id: printJobs.id,
@@ -56,7 +53,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // workspace manager can inspect/copy exactly what was admitted for this job.
   // The tenant predicate above prevents cross-workspace access, and no-store
   // keeps customer document content out of intermediary caches.
-  const diagnosticPayload = includePayload
+  const diagnosticPayload = canReadPayload
     ? payload ?? null
     : buildJobDiagnosticPayload(payload);
 
