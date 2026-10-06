@@ -432,13 +432,53 @@ func isAutoDiscoveredSpoolerRow(d DeviceInfo) bool {
 // require an explicit protocol; only transports with their own identity
 // (spooler queues, IPP URLs) may derive it.
 func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) {
+	// Manual registration is an executable configuration boundary, not merely
+	// an inventory hint. Canonicalize aliases here so the local registry,
+	// runtime factory, heartbeat contract and Gateway all see the same
+	// transport vocabulary.
+	connectionType := strings.ToLower(strings.TrimSpace(info.ConnectionType))
+	if connectionType == "" {
+		connectionType = strings.ToLower(strings.TrimSpace(info.Type))
+	}
+	switch connectionType {
+	case "", "network":
+		connectionType = "network"
+	case "tcp":
+		connectionType = "network"
+	case "windows_spooler":
+		connectionType = "spooler"
+	}
+	info.ConnectionType = connectionType
+	info.Type = connectionType
+
+	info.Protocol = strings.ToLower(strings.TrimSpace(info.Protocol))
+	if info.Protocol == "windows_spooler" {
+		info.Protocol = "spooler"
+	}
+
+	// A Windows queue discovered/configured through a USB-facing UI is still a
+	// spooler transport. Persist it canonically so it never reaches heartbeat
+	// as direct USB with a document-spool protocol.
+	if info.ConnectionType == "usb" && strings.TrimSpace(info.SpoolerName) != "" {
+		info.ConnectionType = "spooler"
+		info.Type = "spooler"
+		info.Protocol = "spooler"
+	}
+	if info.ConnectionType == "spooler" {
+		if strings.TrimSpace(info.SpoolerName) == "" {
+			info.SpoolerName = strings.TrimSpace(info.Endpoint)
+		}
+		if strings.TrimSpace(info.Endpoint) == "" {
+			info.Endpoint = info.SpoolerName
+		}
+	}
+
 	if info.ID == "" {
 		// Preserve the established manual USB ID namespace so existing operator
 		// registrations remain stable. Automatic discovery can still use the
 		// stronger source-independent identity and UpsertRegistry will migrate
 		// to an existing persisted ID when the physical identity matches.
-		connectionType := strings.ToLower(strings.TrimSpace(info.ConnectionType))
-		if connectionType == "usb" && (info.USBVID != "" || info.USBPID != "" || info.USBSerial != "") {
+		if info.ConnectionType == "usb" && (info.USBVID != "" || info.USBPID != "" || info.USBSerial != "") {
 			location := capabilityIdentityValue(info, "location", "usb_location", "usbLocation")
 			info.ID = StableIDFromUSB(info.USBVID, info.USBPID, info.USBSerial, location)
 		} else {
@@ -448,27 +488,45 @@ func RegisterManual(registryPath string, info DeviceInfo) ([]DeviceInfo, error) 
 	if info.Status == "" {
 		info.Status = "unknown"
 	}
-	if info.ConnectionType == "" {
-		info.ConnectionType = "network"
-	}
 	if info.Protocol == "" {
 		switch info.ConnectionType {
-		case "spooler", "windows_spooler":
+		case "spooler":
 			info.Protocol = "spooler"
 		case "ipp", "ipps":
 			info.Protocol = info.ConnectionType
 		case "usb":
-			if strings.TrimSpace(info.SpoolerName) != "" {
-				info.Protocol = "spooler"
-			} else {
-				return nil, fmt.Errorf("printer %q: --protocol is required for %s printers (raw, escpos, zpl, tspl); no default is guessed", info.ID, info.ConnectionType)
-			}
+			return nil, fmt.Errorf("printer %q: --protocol is required for direct USB printers (raw, escpos, zpl, tspl); no default is guessed", info.ID)
 		default:
-			return nil, fmt.Errorf("printer %q: --protocol is required for %s printers (raw, escpos, zpl, tspl); no default is guessed", info.ID, info.ConnectionType)
+			return nil, fmt.Errorf("printer %q: --protocol is required for %s printers (raw, escpos, zpl, tspl, ipp, or unknown); no default is guessed", info.ID, info.ConnectionType)
 		}
 	}
+
+	// Reuse the same executable transport validator as agent.yaml. This keeps
+	// the manual registry from accepting a row that can never survive runtime
+	// construction or Gateway heartbeat validation.
+	enabled := info.Enabled
+	cfg := config.PrinterConfig{
+		ID:             info.ID,
+		Name:           info.Name,
+		Type:           info.ConnectionType,
+		ConnectionType: info.ConnectionType,
+		Endpoint:       info.Endpoint,
+		Protocol:       info.Protocol,
+		SpoolerName:    info.SpoolerName,
+		PrinterType:    info.PrinterType,
+		USBVID:         info.USBVID,
+		USBPID:         info.USBPID,
+		USBSerial:      info.USBSerial,
+		Capabilities:   info.Capabilities,
+		Enabled:        &enabled,
+	}
+	if err := config.ValidatePrinterConfig(cfg); err != nil {
+		return nil, fmt.Errorf("printer %q: invalid manual configuration: %w", info.ID, err)
+	}
+
 	// Explicit operator intent: a manually registered queue stays visible even
-	// when no transport can be proven from its metadata.
+	// when its declared protocol is "unknown"; it remains non-routable until
+	// the protocol is configured.
 	if info.Capabilities == nil {
 		info.Capabilities = map[string]interface{}{}
 	}
