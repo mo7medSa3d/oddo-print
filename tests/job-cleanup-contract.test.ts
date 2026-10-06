@@ -52,6 +52,8 @@ describe("print-job cleanup contract", () => {
     expect(server).toContain("JOB_RETENTION_SWEEP_INTERVAL_MS");
     expect(odoo).toContain("_TERMINAL_RETENTION_HOURS = 48");
     expect(odoo).toContain("def cron_cleanup_terminal_jobs");
+    expect(odoo).toContain("COALESCE(completed_at, write_date, create_date)");
+    expect(odoo).toContain("def _stable_terminal_values");
     expect(cron).toContain("model.cron_cleanup_terminal_jobs()");
   });
 

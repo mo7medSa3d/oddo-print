@@ -193,13 +193,33 @@ class PrintGatewayJob(models.Model):
         else:
             preserved_error = message
             next_retry = False
-        job.write({
+        missing_values = self._stable_terminal_values(job, "unknown", {
             "status": "unknown",
             "last_error": preserved_error,
             "next_retry_at": next_retry,
             "completed_at": db_now_utc(self.env.cr),
         })
+        job.write(missing_values)
         return True
+
+    def _stable_terminal_values(self, job, target, values):
+        """Preserve the FIRST terminal timestamp as the 48-hour retention clock.
+
+        Reconciliation may refresh errors or convert an ambiguous terminal
+        outcome to late success, but those writes must never restart retention.
+        Legacy terminal rows without completed_at inherit their existing
+        write_date once, then keep that timestamp permanently.
+        """
+        stable = dict(values)
+        if target not in self._TERMINAL:
+            return stable
+        if job.completed_at:
+            stable.pop("completed_at", None)
+        elif job.status in self._TERMINAL and job.write_date:
+            stable["completed_at"] = job.write_date
+        else:
+            stable.setdefault("completed_at", db_now_utc(job.env.cr))
+        return stable
 
     def _advance_status(self, job, target, values):
         """Write a status advance honoring the canonical chain.
@@ -213,6 +233,7 @@ class PrintGatewayJob(models.Model):
         """
         job.ensure_one()
         self._lock_status_row(job)
+        values = self._stable_terminal_values(job, target, values)
         if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown"):
             raise ValidationError(
                 _("Invalid print job state transition from '%s' to '%s'.")
@@ -792,7 +813,7 @@ class PrintGatewayJob(models.Model):
                 cr.rollback()
                 return False
             if current == target or target in ("failed", "unknown"):
-                final_values = dict(values)
+                final_values = self._stable_terminal_values(locked_job, target, values)
                 final_values["status"] = target
                 final_values.update({
                     "submit_claim_token": False,
@@ -1719,7 +1740,7 @@ class PrintGatewayJob(models.Model):
                 raise ValidationError(_("Gateway late success requires the original reconcilable remote operation."))
         else:
             raise ValidationError(_("Gateway late success is not valid for this terminal state."))
-        success_values = dict(values)
+        success_values = self._stable_terminal_values(job, "success", values)
         success_values["status"] = "success"
         super(PrintGatewayJob, job).write(success_values)
 
@@ -2136,8 +2157,8 @@ class PrintGatewayJob(models.Model):
             SELECT id
               FROM print_gateway_print_job
              WHERE status IN ('success', 'failed', 'partial', 'unknown')
-               AND write_date <= %s
-             ORDER BY write_date ASC, id ASC
+               AND COALESCE(completed_at, write_date, create_date) <= %s
+             ORDER BY COALESCE(completed_at, write_date, create_date) ASC, id ASC
              LIMIT 500
              FOR UPDATE SKIP LOCKED
         """, (cutoff,))

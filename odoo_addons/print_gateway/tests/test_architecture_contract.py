@@ -44,6 +44,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         cron = (ADDON / "data/cron.xml").read_text(encoding="utf-8")
         self.assertIn("_TERMINAL_RETENTION_HOURS = 48", source)
         self.assertIn("def cron_cleanup_terminal_jobs", source)
+        self.assertIn("COALESCE(completed_at, write_date, create_date)", source)
+        self.assertIn("def _stable_terminal_values", source)
         self.assertIn("FOR UPDATE SKIP LOCKED", source)
         self.assertIn("cron_cleanup_terminal_gateway_print_jobs", cron)
         self.assertIn("model.cron_cleanup_terminal_jobs()", cron)
@@ -763,6 +765,17 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         })
         model._advance_status(job2, "unknown", {"last_error": "UNKNOWN_SUBMISSION_OUTCOME: x"})
         self.assertEqual(job2.status, "unknown")
+        terminal_since = job2.completed_at
+        self.assertTrue(terminal_since)
+        model._advance_status(job2, "unknown", {
+            "last_error": "UNKNOWN_SUBMISSION_OUTCOME: refreshed",
+            "completed_at": "2000-01-01 00:00:00",
+        })
+        self.assertEqual(
+            job2.completed_at,
+            terminal_since,
+            "terminal reconciliation must not restart the 48-hour retention clock",
+        )
         # Regressions are refused by the stepper itself, not just write().
         with self.assertRaises(ValidationError):
             model._advance_status(job2, "queued", {})
