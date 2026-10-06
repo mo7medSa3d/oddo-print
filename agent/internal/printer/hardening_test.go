@@ -384,6 +384,27 @@ func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
 	}
 }
 
+func TestFactoryUSBSupportsDeclaredLabelLanguages(t *testing.T) {
+	for _, protocol := range []string{"zpl", "tspl"} {
+		t.Run(protocol, func(t *testing.T) {
+			pc := config.PrinterConfig{
+				ID: "usb-" + protocol, Name: "USB Label " + protocol, Type: "usb", Protocol: protocol,
+				Endpoint: `\\?\usb#vid_1234&pid_5678#LABEL`, USBVID: "1234", USBPID: "5678",
+			}
+			p, err := New(pc)
+			if err != nil {
+				t.Fatalf("New(%s): %v", protocol, err)
+			}
+			if !SupportsKind(p, KindRaw) {
+				t.Fatalf("direct USB %s must accept its validated byte-stream payload", protocol)
+			}
+			if SupportsKind(p, KindPDF) || SupportsKind(p, KindImage) {
+				t.Fatalf("direct USB %s must not gain a document renderer", protocol)
+			}
+		})
+	}
+}
+
 func TestFactoryUSBRequiresExplicitByteProtocol(t *testing.T) {
 	pc := config.PrinterConfig{ID: "usb-unknown", Name: "USB Unknown", Type: "usb", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
 	if _, err := New(pc); err == nil {
