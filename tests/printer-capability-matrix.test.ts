@@ -20,6 +20,11 @@ describe("printer-capability-matrix", () => {
     expect(isSpoolerTransport("network", "windows_spooler")).toBe(true);
   });
 
+  it("treats windows_spooler and network IPPS aliases as document transports everywhere", () => {
+    expect(getSupportedDocumentTypes("windows_spooler", "network")).toEqual(["pdf", "image"]);
+    expect(getSupportedDocumentTypes("ipps", "network")).toEqual(["pdf"]);
+  });
+
   it("RAW transport supports raw only", () => {
     expect(getSupportedDocumentTypes("raw", "network")).toEqual(["raw"]);
     expect(getSupportedDocumentTypes("escpos", "network")).toContain("escpos");
