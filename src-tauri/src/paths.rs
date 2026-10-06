@@ -251,6 +251,131 @@ fn run_icacls(path: &Path, args: &[&str]) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
+fn manager_path_owned_by_administrators(path: &Path) -> std::io::Result<bool> {
+    use std::os::windows::ffi::OsStrExt;
+
+    type RawHandle = *mut std::ffi::c_void;
+    const SE_FILE_OBJECT: u32 = 1;
+    const OWNER_SECURITY_INFORMATION: u32 = 0x0000_0001;
+    const WIN_BUILTIN_ADMINISTRATORS_SID: i32 = 26;
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn GetNamedSecurityInfoW(
+            object_name: *const u16,
+            object_type: u32,
+            security_info: u32,
+            owner: *mut RawHandle,
+            group: *mut RawHandle,
+            dacl: *mut RawHandle,
+            sacl: *mut RawHandle,
+            security_descriptor: *mut RawHandle,
+        ) -> u32;
+        fn IsWellKnownSid(sid: RawHandle, well_known_sid_type: i32) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LocalFree(memory: RawHandle) -> RawHandle;
+    }
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut owner: RawHandle = std::ptr::null_mut();
+    let mut descriptor: RawHandle = std::ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    let is_admin_owner =
+        !owner.is_null() && unsafe { IsWellKnownSid(owner, WIN_BUILTIN_ADMINISTRATORS_SID) } != 0;
+    if !descriptor.is_null() {
+        unsafe {
+            let _ = LocalFree(descriptor);
+        }
+    }
+    Ok(is_admin_owner)
+}
+
+#[cfg(windows)]
+fn manager_directory_is_writable(path: &Path) -> std::io::Result<bool> {
+    for attempt in 0..8u32 {
+        let probe = path.join(format!(
+            ".yaseir-manager-acl-probe-{}-{attempt}",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+        {
+            Ok(file) => {
+                drop(file);
+                let _ = std::fs::remove_file(&probe);
+                return Ok(true);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique Manager ACL probe file",
+    ))
+}
+
+#[cfg(windows)]
+fn manager_file_is_writable(path: &Path) -> std::io::Result<bool> {
+    match std::fs::OpenOptions::new().write(true).open(path) {
+        Ok(file) => {
+            drop(file);
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(windows)]
+fn verify_windows_manager_readonly_security(path: &Path, is_directory: bool) -> std::io::Result<()> {
+    reject_windows_reparse_point(path)?;
+    if !manager_path_owned_by_administrators(path)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "Manager runtime path is not owned by BUILTIN\\Administrators: {}",
+                path.display()
+            ),
+        ));
+    }
+    let writable = if is_directory {
+        manager_directory_is_writable(path)?
+    } else {
+        manager_file_is_writable(path)?
+    };
+    if writable {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "Manager runtime path is writable by the current non-elevated user: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
 fn ensure_windows_manager_acl(path: &Path, is_directory: bool) -> std::io::Result<()> {
     reject_windows_reparse_point(path)?;
 
@@ -258,39 +383,51 @@ fn ensure_windows_manager_acl(path: &Path, is_directory: bool) -> std::io::Resul
     // owner who may rewrite its DACL later. Move ownership to Administrators
     // before replacing inherited permissions. SIDs avoid localized account
     // names on non-English Windows installations.
-    run_icacls(path, &["/setowner", "*S-1-5-32-544"])?;
+    let harden = (|| {
+        run_icacls(path, &["/setowner", "*S-1-5-32-544"])?;
+        if is_directory {
+            run_icacls(
+                path,
+                &[
+                    "/inheritance:r",
+                    "/grant:r",
+                    "*S-1-5-18:(OI)(CI)F",
+                    "*S-1-5-32-544:(OI)(CI)F",
+                    "*S-1-5-32-545:(OI)(CI)RX",
+                ],
+            )
+        } else {
+            run_icacls(
+                path,
+                &[
+                    "/inheritance:r",
+                    "/grant:r",
+                    "*S-1-5-18:F",
+                    "*S-1-5-32-544:F",
+                    "*S-1-5-32-545:R",
+                ],
+            )
+        }
+    })();
 
-    if is_directory {
-        run_icacls(
-            path,
-            &[
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F",
-                "/grant:r",
-                "*S-1-5-32-544:(OI)(CI)F",
-                "/grant:r",
-                "*S-1-5-32-545:(OI)(CI)RX",
-            ],
-        )
-    } else {
-        run_icacls(
-            path,
-            &[
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:F",
-                "/grant:r",
-                "*S-1-5-32-544:F",
-                "/grant:r",
-                "*S-1-5-32-545:R",
-            ],
-        )
+    match harden {
+        Ok(()) => Ok(()),
+        // Normal standard-user launches cannot rewrite a protected DACL. They
+        // may still read the Manager configuration, but only after proving the
+        // path is owned by Administrators, is not a reparse point, and is not
+        // writable by the current user. This preserves the desktop's
+        // non-elevated read-only UX without reopening the pre-creation attack.
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            verify_windows_manager_readonly_security(path, is_directory)
+        }
+        Err(e) => Err(e),
     }
 }
 
 /// Harden a Manager-owned directory. On Windows, SYSTEM and Administrators
-/// retain full control while standard Users are read/execute only.
+/// retain full control while standard Users are read/execute only. A
+/// non-elevated caller may use an already-secure read-only path after verifying
+/// its owner and effective write denial.
 pub fn ensure_manager_directory_security(path: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
