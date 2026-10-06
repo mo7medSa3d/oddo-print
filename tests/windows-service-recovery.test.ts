@@ -39,6 +39,12 @@ describe("windows-service-recovery", () => {
     expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 
+    const tauriConf = fs.readFileSync("src-tauri/tauri.conf.json", "utf8");
+    expect(wix).toContain('ComponentGroup Id="YaseirServiceLifecycle"');
+    expect(wix).toContain('Component Id="YaseirServiceLifecycleAnchor"');
+    expect(tauriConf).toContain('"componentGroupRefs"');
+    expect(tauriConf).toContain('"YaseirServiceLifecycle"');
+
     expect(wix).toContain('Id="YaseirKillManagerProcesses"');
     expect(wix).toContain('Id="YaseirKillAgentProcesses"');
     expect(wix).toContain("-service purge");

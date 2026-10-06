@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="YaseirServiceLifecycleAnchor" Guid="*" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Yaseir\PrintManager">
+          <RegistryValue Id="YaseirServiceLifecycleMarker"
+                         Name="ServiceLifecycle"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+    <ComponentGroup Id="YaseirServiceLifecycle">
+      <ComponentRef Id="YaseirServiceLifecycleAnchor" />
+    </ComponentGroup>
+
     <!--
       MSI parity with the NSIS lifecycle hooks.  The bundled Agent executable
       remains the single authority for service registration/recovery settings;

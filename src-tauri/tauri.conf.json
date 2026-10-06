@@ -63,6 +63,9 @@
       "wix": {
         "fragmentPaths": [
           "./wix/service.wxs"
+        ],
+        "componentGroupRefs": [
+          "YaseirServiceLifecycle"
         ]
       }
     }
