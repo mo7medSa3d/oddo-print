@@ -249,6 +249,38 @@ suite("agent heartbeat pagination contract", () => {
     expect(row.rows[0].inventory_present).toBe(true);
   });
 
+  it("does not reconcile absence when a late insert-stage ownership conflict is discovered", async () => {
+    const f = await seedFixture();
+    const pendingId = "gateway-owned-deletion-pending";
+
+    const response = await heartbeat(f.agentAuth, {
+      ...snapshotHeartbeat("snap-late-conflict", true, [makePrinter(pendingId)]),
+      gatewayOwnedPrinterIds: [pendingId],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      skippedPrinters: expect.arrayContaining([
+        { id: pendingId, reason: "gateway_owned_deletion_pending" },
+      ]),
+    });
+
+    const existing = await pool().query(
+      `SELECT inventory_present, status
+       FROM printers
+       WHERE tenant_id = $1 AND id = $2`,
+      [f.tenantId, f.printerId],
+    );
+    expect(existing.rows[0].inventory_present).toBe(true);
+
+    const pending = await pool().query(
+      `SELECT COUNT(*)::int AS count
+       FROM printers
+       WHERE tenant_id = $1 AND id = $2`,
+      [f.tenantId, pendingId],
+    );
+    expect(pending.rows[0].count).toBe(0);
+  });
+
   it("rejects out-of-order or replaced snapshot pages without destructive reconciliation", async () => {
     const f = await seedFixture();
 

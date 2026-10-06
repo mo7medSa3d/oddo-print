@@ -73,7 +73,7 @@ func (p *USBPrinter) Status() string {
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
 	case KindRaw:
-		return p.Protocol == "raw" || p.Protocol == "escpos"
+		return p.Protocol == "raw" || p.Protocol == "escpos" || p.Protocol == "zpl" || p.Protocol == "tspl"
 	case KindESCPOS:
 		return p.SupportsESCPOS
 	default:

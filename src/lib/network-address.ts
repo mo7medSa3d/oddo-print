@@ -2,8 +2,14 @@ import { isIP } from "node:net";
 
 export function isPrivateNetworkAddress(ip: string): boolean {
   const family = isIP(ip);
-  if (family === 4) return isPrivateIPv4(ip);
-  if (family === 6) return isPrivateIPv6(ip);
+  if (family === 4) {
+    if (ip === "169.254.169.254") return false;
+    return isPrivateIPv4(ip);
+  }
+  if (family === 6) {
+    if (ip.toLowerCase() === "fd00:ec2::254") return false;
+    return isPrivateIPv6(ip);
+  }
   return false;
 }
 

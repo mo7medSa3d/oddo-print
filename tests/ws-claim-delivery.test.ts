@@ -37,6 +37,20 @@ function agentRequest(f: Fixture, method: "GET" | "PATCH", body?: unknown) {
 }
 
 suite("WS claim-before-delivery", () => {
+  it("keeps claim predicates scoped to executable transports", () => {
+    const fs = require("node:fs");
+    const wsClaim = fs.readFileSync("src/lib/job-delivery.ts", "utf8");
+    const pollClaim = fs.readFileSync("src/app/api/agent/jobs/route.ts", "utf8");
+    expect(wsClaim).toContain("pr.connection_type = 'spooler'");
+    expect(pollClaim).toContain("pr.connection_type = 'spooler'");
+    expect(wsClaim).not.toContain("pr.protocol IN ('spooler','windows_spooler')");
+    expect(pollClaim).not.toContain("pr.protocol IN ('spooler','windows_spooler')");
+    expect(wsClaim).toContain("pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps')");
+    expect(pollClaim).toContain("pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps')");
+    expect(wsClaim).not.toContain("OR pr.protocol IN ('ipp','ipps') OR");
+    expect(pollClaim).not.toContain("OR pr.protocol IN ('ipp','ipps')\n");
+  });
+
   it("keeps the Gateway claim ceiling aligned with Agent local capacity", () => {
     expect(MAX_AGENT_IN_FLIGHT_JOBS).toBe(64);
   });

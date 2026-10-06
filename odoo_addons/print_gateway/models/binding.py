@@ -325,11 +325,15 @@ class PrintGatewayBinding(models.Model):
         """
         if not isinstance(printer, dict):
             return "unknown"
+        connection_type = str(printer.get("connectionType") or "").strip().lower()
+        if connection_type == "windows_spooler":
+            connection_type = "spooler"
         protocol = str(printer.get("protocol") or "").strip().lower()
+        if protocol == "windows_spooler" and connection_type == "spooler":
+            protocol = "spooler"
         supported = {"spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"}
         if protocol in supported:
             return protocol
-        connection_type = str(printer.get("connectionType") or "").strip().lower()
         if connection_type in {"spooler", "ipp", "ipps"}:
             return connection_type
         return "unknown"

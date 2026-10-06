@@ -38,13 +38,17 @@ describe("dashboard diagnostic payload loading contract", () => {
     expect(source).toContain('? t("loading.payload")');
     expect(source).toContain('setSelectedJobPayloadLoading(true)');
     expect(source).toContain('setSelectedJobPayloadLoading(false)');
+    expect(source).toContain('retrySelectedJobPayload');
+    expect(source).toContain('setSelectedJobPayloadReloadKey((key) => key + 1)');
+    expect(source).toContain('{t("common.retry")}');
+    expect(source).toContain("?includePayload=1");
   });
 });
 
 // Audit P1-02 regression: the dashboard 50-row list (page.tsx initial props
 // AND the getDashboardState poll payload) must be metadata-only. Full
 // payloads (base64 documents, multi-MB per job) remain server-side. The
-// inspector fetches only a redacted diagnostic summary from GET /api/jobs/[id].
+// inspector fetches one job explicitly with includePayload=1; list/poll queries remain metadata-only.
 suite("dashboard list queries never carry full job payloads", () => {
   let fixture: Fixture;
 

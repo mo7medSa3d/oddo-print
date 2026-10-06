@@ -160,12 +160,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     ? t("billing.noRenewalDate")
     : sub.status === "cancelled"
       ? sub.currentPeriodEnd
-        ? `Ended ${formatDate(sub.currentPeriodEnd)}`
+        ? t("billing.periodEndsOn", { date: formatDate(sub.currentPeriodEnd) })
         : t("billing.ended")
       : sub.cancelAtPeriodEnd && sub.currentPeriodEnd
-        ? `Ends ${formatDate(sub.currentPeriodEnd)}`
+        ? t("billing.cancelScheduled", { date: formatDate(sub.currentPeriodEnd) })
         : sub.currentPeriodEnd
-          ? `Renews ${formatDate(sub.currentPeriodEnd)}`
+          ? t("billing.renewsOn", { date: formatDate(sub.currentPeriodEnd) })
           : t("billing.noRenewalDate");
 
   const usagePct =

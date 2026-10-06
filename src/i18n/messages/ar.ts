@@ -604,6 +604,7 @@ export const ar: Catalog = {
   "errors.copyManually": "يُرجى نسخ الرمز يدويًا.",
   "errors.loadJobsFailed": "تعذّر تحميل المهام. أعد المحاولة.",
   "billing.resetsOn": "يُعاد الضبط في",
+  "billing.resetsOnDate": "يُعاد الضبط في {date}",
   "job.refreshing": "جارٍ تحديث قائمة المهام…",
   "agent.expiresIn": "تنتهي الصلاحية بعد",
   "agent.openManagerStep": "افتح Yaseir Print Manager على جهاز Windows الموصولة به الطابعة.",

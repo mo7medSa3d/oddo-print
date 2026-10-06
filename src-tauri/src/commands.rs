@@ -743,6 +743,8 @@ fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String> {
         .ok_or_else(|| format!("settings path has no parent: {}", path.display()))?;
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("create settings dir {}: {e}", parent.display()))?;
+    paths::ensure_manager_directory_security(parent)
+        .map_err(|e| format!("secure settings dir {}: {e}", parent.display()))?;
 
     let file_name = path
         .file_name()
@@ -773,6 +775,8 @@ fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String> {
             file.sync_all()
                 .map_err(|e| format!("sync settings temp {}: {e}", temp_path.display()))?;
             drop(file);
+            paths::ensure_manager_file_security(&temp_path)
+                .map_err(|e| format!("secure settings temp {}: {e}", temp_path.display()))?;
             atomic_replace_file(&temp_path, path)
         })();
         if write_result.is_err() {
@@ -792,7 +796,19 @@ fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_gateway_config() -> Result<GatewayConfig, String> {
-    let path = paths::settings_path();
+    let root = paths::ensure_manager_data_root().map_err(|e| {
+        let message = format!("manager data directory is not secure or accessible: {e}");
+        logging::error(&message);
+        message
+    })?;
+    let path = root.join("settings.json");
+    if path.exists() {
+        paths::ensure_manager_file_security(&path).map_err(|e| {
+            let message = format!("manager settings file is not secure: {e}");
+            logging::error(&message);
+            message
+        })?;
+    }
     let raw = read_file_or_default(&path).map_err(|e| {
         logging::error(&e);
         e
@@ -812,11 +828,15 @@ pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, 
     let url = normalize_gateway_url(&url)?;
     let mut state = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
     let previous = get_gateway_config().map(|cfg| cfg.url).unwrap_or_default();
-    let path = paths::settings_path();
+    let root = paths::ensure_manager_data_root()
+        .map_err(|e| format!("manager data directory is not secure or accessible: {e}"))?;
+    let path = root.join("settings.json");
     let cfg = GatewayConfig { url: url.clone() };
     let json =
         serde_json::to_string_pretty(&cfg).map_err(|e| format!("serialize settings: {e}"))?;
     atomic_write_settings(&path, json.as_bytes())?;
+    paths::ensure_manager_file_security(&path)
+        .map_err(|e| format!("secure manager settings file after save: {e}"))?;
     logging::info(&format!("gateway settings saved to {}", path.display()));
     if previous != url {
         state.generation = state.generation.wrapping_add(1);

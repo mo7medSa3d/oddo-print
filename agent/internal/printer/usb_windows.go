@@ -217,17 +217,37 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	return nil
 }
 
+// Printer-language diagnostic tickets interpolate operator-controlled display
+// names. Strip command delimiters rather than escaping them ambiguously:
+// diagnostic labels do not need those characters, and a crafted queue name
+// must never terminate a field or inject another command.
+func sanitizeZPLTestText(s string) string {
+	return strings.NewReplacer("^", " ", "~", " ").Replace(sanitizeTestText(s))
+}
+
+func sanitizeTSPLTestText(s string) string {
+	return strings.NewReplacer("\"", "'", "\\", "/").Replace(sanitizeTestText(s))
+}
+
 func (p *USBPrinter) testPayload() []byte {
 	name := sanitizeTestText(p.Name)
-	if p.SupportsESCPOS {
-		// ESC/POS control bytes are sent only when the configured capability
+	switch strings.ToLower(strings.TrimSpace(p.Protocol)) {
+	case "escpos":
+		// ESC/POS control bytes are sent only when the configured protocol
 		// explicitly declares ESC/POS. Do not cut by default: cutter support is
 		// a separate capability and cannot be inferred from USB/thermal class.
 		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
+	case "zpl":
+		zplName := sanitizeZPLTestText(name)
+		return []byte("^XA\n^FO40,40^A0N,30,30^FDYASEIR USB TEST^FS\n^FO40,80^A0N,24,24^FDPrinter: " + zplName + "^FS\n^XZ\n")
+	case "tspl":
+		tsplName := sanitizeTSPLTestText(name)
+		return []byte("SIZE 75 mm, 40 mm\nGAP 2 mm, 0 mm\nCLS\nTEXT 30,30,\"3\",0,1,1,\"YASEIR USB TEST\"\nTEXT 30,70,\"2\",0,1,1,\"Printer: " + tsplName + "\"\nPRINT 1,1\n")
+	default:
+		// Generic raw USB diagnostics use printable ASCII only. A raw byte
+		// stream is not evidence that the device understands ESC/POS commands.
+		return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
 	}
-	// Generic raw USB diagnostics use printable ASCII only. A raw byte stream
-	// is not evidence that the device understands ESC/POS commands.
-	return []byte("USB Direct Test Print for Yaseir Agent\r\nPrinter: " + name + "\r\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\r\n\r\n")
 }
 
 func (p *USBPrinter) Test(ctx context.Context) error {
@@ -393,6 +413,8 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			caps["device_path"] = devicePath
 			caps["direct_usb_available"] = true
 			caps["requires_spooler"] = false
+			caps["verification"] = "candidate_only"
+			caps["diagnostic"] = "Direct USB interface is available, but printer language is not proven; select raw/escpos/zpl/tspl explicitly before enabling direct USB execution"
 		} else {
 			caps["diagnostic"] = "USB device discovered, no device path found; install as Windows spooler queue or ensure driver exposes USBPRINT interface"
 			caps["verification"] = "candidate_only"
@@ -406,7 +428,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			DisplayName:    friendlyName,
 			PrinterType:    "unknown",
 			ConnectionType: "usb",
-			Protocol:       "raw",
+			Protocol:       "unknown",
 			Endpoint:       devicePath,
 			SpoolerName:    "",
 			USBVID:         vidStr,
@@ -418,7 +440,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			Type:           "usb",
 		}
 		if devicePath == "" {
-			di.Protocol = "unknown"
 			diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
 		}
 		lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
@@ -519,9 +540,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				caps["device_path"] = devicePath
 				caps["direct_usb_available"] = devicePath != ""
 				caps["requires_spooler"] = devicePath == ""
+				caps["verification"] = "candidate_only"
 				if devicePath == "" {
 					caps["diagnostic"] = "USB printer has no direct device path; install its Windows spooler queue"
-					caps["verification"] = "candidate_only"
+				} else {
+					caps["diagnostic"] = "Direct USB interface is available, but printer language is not proven; select raw/escpos/zpl/tspl explicitly before enabling direct USB execution"
 				}
 				di := DeviceInfo{
 					ID:             id,
@@ -529,7 +552,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					DisplayName:    friendlyName,
 					PrinterType:    "unknown",
 					ConnectionType: "usb",
-					Protocol:       "raw",
+					Protocol:       "unknown",
 					Endpoint:       devicePath,
 					USBVID:         vidStr,
 					USBPID:         pidStr,
@@ -541,7 +564,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				}
 				if devicePath == "" {
 					di.Status = "unknown"
-					di.Protocol = "unknown"
 					diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
 				}
 				lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
@@ -783,7 +805,10 @@ func parseVIDPIDSerial(instanceID string) (vid uint16, pid uint16, serial string
 func (p *USBPrinter) SupportsKind(kind string) bool {
 	switch NormalizeKind(kind) {
 	case KindRaw:
-		return strings.EqualFold(p.Protocol, "raw") || strings.EqualFold(p.Protocol, "escpos")
+		return strings.EqualFold(p.Protocol, "raw") ||
+			strings.EqualFold(p.Protocol, "escpos") ||
+			strings.EqualFold(p.Protocol, "zpl") ||
+			strings.EqualFold(p.Protocol, "tspl")
 	case KindESCPOS:
 		return p.SupportsESCPOS
 	default:

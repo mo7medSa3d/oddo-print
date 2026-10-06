@@ -9,6 +9,11 @@ describe("isPrivateNetworkAddress", () => {
     expect(isPrivateNetworkAddress("169.254.10.10")).toBe(true);
   });
 
+  it("rejects cloud metadata endpoints even inside private/link-local ranges", () => {
+    expect(isPrivateNetworkAddress("169.254.169.254")).toBe(false);
+    expect(isPrivateNetworkAddress("fd00:ec2::254")).toBe(false);
+  });
+
   it("rejects public and loopback IPv4", () => {
     expect(isPrivateNetworkAddress("8.8.8.8")).toBe(false);
     expect(isPrivateNetworkAddress("127.0.0.1")).toBe(false);

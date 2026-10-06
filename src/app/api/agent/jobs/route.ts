@@ -27,9 +27,8 @@ const printerEligibilityPredicate = sql`
       pr.status = 'unknown'
       AND (
         pr.connection_type = 'spooler'
-        OR pr.protocol = 'spooler'
         OR pr.connection_type IN ('ipp','ipps')
-        OR pr.protocol IN ('ipp','ipps')
+        OR (pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps'))
         OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl'))
       )
     )

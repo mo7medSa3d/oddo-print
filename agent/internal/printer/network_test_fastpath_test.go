@@ -39,7 +39,7 @@ func TestNetworkPrinterTestPathSkipsStatusPreflightAndReturnsPromptly(t *testing
 	}
 	select {
 	case got := <-received:
-		want := []byte("\x1b\x40Hello from Yaseir Agent!\n\n\x1d\x56\x01")
+		want := localESCPOSDiagnosticPayload()
 		if string(got) != string(want) {
 			t.Fatalf("received %q, want %q", got, want)
 		}

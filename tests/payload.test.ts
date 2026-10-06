@@ -143,6 +143,18 @@ describe("payload", () => {
     })).toThrow(/no supported test ticket format/i);
   });
 
+  it("normalizes legacy Windows spooler aliases when building a test page", async () => {
+    const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
+    const payload = buildTestPrintPayloadForPrinter("Office Queue", "Agent", {
+      connectionType: "network",
+      protocol: "windows_spooler",
+      capabilities: null,
+    });
+    expect(payload.type).toBe("pdf");
+    expect(payload.protocol).toBeUndefined();
+    expect(validatePrintJobPayload(payload).type).toBe("pdf");
+  });
+
   it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {
     const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
     const payload = buildTestPrintPayloadForPrinter("IPP Printer", "Agent", {
@@ -155,11 +167,11 @@ describe("payload", () => {
     expect(validatePrintJobPayload(payload).type).toBe("pdf");
   });
 
-  it("test payload is decodable and has cut command", () => {
+  it("test payload is decodable and does not assume cutter support", () => {
     const p = buildTestPrintPayload("Receipt", "Main");
     const decoded = Buffer.from(p.data, "base64").toString("binary");
     expect(decoded).toContain("Yaseir Agent");
-    expect(decoded).toContain("\x1d\x56\x01");
+    expect(decoded).not.toContain("\x1d\x56");
   });
   it("test payload never embeds control bytes from user-controlled names", () => {
     const p = buildTestPrintPayload("ACME\x1b@Corp\x00Ltd", 'Agent"\x1b');

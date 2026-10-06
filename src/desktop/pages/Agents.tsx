@@ -32,7 +32,14 @@ export function AgentsPage({ s }: { s: DesktopState }) {
             </div>
             <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={s.startAgent} disabled={s.busy} icon={<Play className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.start")}</Button><Button variant="secondary" onClick={s.requestStopAgent} disabled={s.busy} icon={<Square className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.stop")}</Button><Button variant="ghost" onClick={s.restartAgent} disabled={s.busy} icon={<RotateCcw className="h-4 w-4" />} className="h-9">{t("desktop.agents.restart")}</Button></div>
             <DetailList rows={[
-              { label: t("desktop.agents.lastCheck"), value: <Mono>{s.lastStatusCheck ? formatDateTime(s.lastStatusCheck) : "—"}</Mono> },
+              {
+                label: t("desktop.agents.lastCheck"),
+                value: (
+                  <span dir="auto" className="inline-block text-sm text-ink-2 [unicode-bidi:isolate]">
+                    {s.lastStatusCheck ? formatDateTime(s.lastStatusCheck) : "—"}
+                  </span>
+                ),
+              },
               { label: t("desktop.agents.service"), value: String(anyStatus?.service || t("desktop.agents.windowsService")) },
               { label: t("desktop.agents.version"), value: <Mono>{String(anyStatus?.version || s.version || "—")}</Mono> },
               { label: t("desktop.agents.hostname"), value: <Mono>{String(anyStatus?.hostname || "—")}</Mono> },

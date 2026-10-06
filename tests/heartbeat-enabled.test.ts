@@ -333,6 +333,54 @@ suite("heartbeat validation and lifecycle preservation", () => {
     expect(after.rows[0]).toEqual(before.rows[0]);
   });
 
+  it("canonicalizes current connectionType aliases before Gateway validation", async () => {
+    const tcpId = "printer_tcp_alias_01";
+    const spoolerId = "printer_windows_spooler_alias_01";
+    const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
+      method: "POST",
+      headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+      body: JSON.stringify({
+        status: "online",
+        printers: [
+          {
+            id: tcpId,
+            name: "TCP Alias",
+            printerType: "physical",
+            deviceClass: "thermal",
+            connectionType: "tcp",
+            protocol: "raw",
+            config: { ip: "10.10.20.30", port: 9100 },
+            status: "online",
+          },
+          {
+            id: spoolerId,
+            name: "Spooler Alias",
+            printerType: "physical",
+            deviceClass: "laser",
+            connectionType: "windows_spooler",
+            protocol: "windows_spooler",
+            config: { spooler_name: "Office Queue" },
+            status: "online",
+          },
+        ],
+      }),
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ skippedPrinters: [] });
+
+    const rows = await pool().query(
+      `SELECT id, connection_type, protocol
+       FROM printers
+       WHERE tenant_id = $1 AND id = ANY($2::text[])
+       ORDER BY id`,
+      [f.tenantId, [tcpId, spoolerId]],
+    );
+    expect(rows.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: tcpId, connection_type: "network", protocol: "raw" }),
+      expect.objectContaining({ id: spoolerId, connection_type: "spooler", protocol: "spooler" }),
+    ]));
+  });
+
   it("normalizes agent and printer status casing/whitespace", async () => {
     const res = await heartbeatPOST(new Request("http://gateway.test/api/agent/heartbeat", {
       method: "POST",

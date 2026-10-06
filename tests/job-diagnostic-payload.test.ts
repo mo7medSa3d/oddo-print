@@ -37,15 +37,18 @@ describe("job diagnostic payload", () => {
     expect(diagnostic?.data).toEqual({ redacted: true, base64Characters: 3, decodedBytes: null, sha256: null });
   });
 
-  it("wires the tenant-scoped job detail route to redacted diagnostics and bounds dashboard loading", () => {
+  it("keeps default job diagnostics redacted but lets the explicit inspector request the tenant-scoped payload", () => {
     const route = readFileSync("src/app/api/jobs/[id]/route.ts", "utf8");
     const dashboard = readFileSync("src/app/dashboard/dashboard-client.tsx", "utf8");
 
     expect(route).toContain("eq(printJobs.tenantId, claims.tenantId)");
-    expect(route).toContain("diagnosticPayload: buildJobDiagnosticPayload(payload)");
+    expect(route).toContain('searchParams.get("includePayload") === "1"');
+    expect(route).toContain("includePayload");
+    expect(route).toContain("buildJobDiagnosticPayload(payload)");
+    expect(route).toContain('"Cache-Control": "private, no-store"');
     expect(route).toContain("const { payload, ...metadata } = row[0]");
-    expect(route).not.toContain("NextResponse.json({ ...metadata, payload");
 
+    expect(dashboard).toContain("?includePayload=1");
     expect(dashboard).toContain("new AbortController()");
     expect(dashboard).toContain("8_000");
     expect(dashboard).toContain('t("job.payloadLoadFailed")');

@@ -7,6 +7,14 @@ mod paths {
     pub fn ensure_manager_data_root() -> std::io::Result<std::path::PathBuf> {
         Ok(super::ROOT.get().expect("test log root initialized").clone())
     }
+
+    pub fn ensure_manager_directory_security(_path: &std::path::Path) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    pub fn ensure_manager_file_security(_path: &std::path::Path) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 #[path = "../src/logging.rs"]
 mod logging;

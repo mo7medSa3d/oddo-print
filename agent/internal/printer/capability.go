@@ -46,15 +46,21 @@ type TransportFacts struct {
 func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bool, string) {
 	pt := strings.ToLower(strings.TrimSpace(plType))
 	pp := strings.ToLower(strings.TrimSpace(plProtocol))
-	proto := strings.ToLower(strings.TrimSpace(d.Protocol))
 	conn := strings.ToLower(strings.TrimSpace(d.Connection))
+	if conn == "windows_spooler" {
+		conn = "spooler"
+	}
+	proto := strings.ToLower(strings.TrimSpace(d.Protocol))
+	if proto == "windows_spooler" && conn == "spooler" {
+		proto = "spooler"
+	}
 	family := proto
 	if family == "" || family == "unknown" {
 		family = conn
 	}
 	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
 	physicalPDF := conn == "spooler" || proto == "spooler" || conn == "ipp" || conn == "ipps" ||
-		(conn == "network" && proto == "ipp")
+		(conn == "network" && (proto == "ipp" || proto == "ipps"))
 	physicalImage := conn == "spooler" || proto == "spooler" ||
 		(conn == "network" && proto == "escpos")
 	physicalByteProtocol := func(protocol string) bool {
@@ -185,9 +191,16 @@ func familyOrUnknown(family string) string {
 // not configured an explicit list; the derived list never contains a
 // protocol the device cannot physically consume.
 func SupportedProtocolsForDevice(d TransportFacts) []string {
+	conn := strings.ToLower(strings.TrimSpace(d.Connection))
+	if conn == "windows_spooler" {
+		conn = "spooler"
+	}
 	family := strings.ToLower(strings.TrimSpace(d.Protocol))
+	if family == "windows_spooler" && conn == "spooler" {
+		family = "spooler"
+	}
 	if family == "" || family == "unknown" {
-		family = strings.ToLower(strings.TrimSpace(d.Connection))
+		family = conn
 	}
 	switch family {
 	case "escpos":

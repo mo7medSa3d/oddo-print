@@ -23,6 +23,32 @@ func getCurrentUserSID() (string, error) {
 	return u.User.Sid.String(), nil
 }
 
+func secureOwnerSID(path string) (*windows.SID, error) {
+	if IsUserDirectory(path) {
+		value, err := getCurrentUserSID()
+		if err != nil {
+			return nil, err
+		}
+		return windows.StringToSid(value)
+	}
+	return windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+}
+
+func rejectWindowsReparsePoint(path string) error {
+	ptr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return fmt.Errorf("invalid Windows path %q: %w", path, err)
+	}
+	attrs, err := windows.GetFileAttributes(ptr)
+	if err != nil {
+		return fmt.Errorf("read Windows file attributes for %s: %w", path, err)
+	}
+	if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return fmt.Errorf("refusing security-sensitive path through a Windows reparse point: %s", path)
+	}
+	return nil
+}
+
 // BuildSecureSDDL returns the appropriate SDDL depending on whether the directory is
 // a per-user directory (%LOCALAPPDATA% / %USERPROFILE%) or a system-wide service directory (%ProgramData%).
 func BuildSecureSDDL(path string) (string, error) {
@@ -42,6 +68,9 @@ func BuildSecureSDDL(path string) (string, error) {
 // Administrators. Standard Users never receive write access to service data
 // that is later consumed by a LocalSystem service.
 func EnsureSecureDirectoryACL(path string) error {
+	if err := rejectWindowsReparsePoint(path); err != nil {
+		return err
+	}
 	sddl, err := BuildSecureSDDL(path)
 	if err != nil {
 		return err
@@ -55,18 +84,22 @@ func EnsureSecureDirectoryACL(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get DACL: %w", err)
 	}
+	owner, err := secureOwnerSID(path)
+	if err != nil {
+		return fmt.Errorf("resolve secure owner for %s: %w", path, err)
+	}
 
 	err = windows.SetNamedSecurityInfo(
 		path,
 		windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner,
 		nil,
 		dacl,
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to set secure NTFS permissions on %s: %w", path, err)
+		return fmt.Errorf("failed to set secure NTFS owner/permissions on %s: %w", path, err)
 	}
 	return nil
 }
@@ -76,7 +109,11 @@ func EnsureSecureDirectoryACL(path string) error {
 // ACL was hardened; directory protection alone does not rewrite an existing
 // child object's explicit DACL.
 func EnsureSecureFileACL(path string) error {
-	sddl, err := BuildSecureSDDL(filepath.Dir(path))
+	if err := rejectWindowsReparsePoint(path); err != nil {
+		return err
+	}
+	parent := filepath.Dir(path)
+	sddl, err := BuildSecureSDDL(parent)
 	if err != nil {
 		return err
 	}
@@ -88,8 +125,20 @@ func EnsureSecureFileACL(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get file DACL: %w", err)
 	}
-	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
-		return fmt.Errorf("failed to set secure NTFS permissions on %s: %w", path, err)
+	owner, err := secureOwnerSID(parent)
+	if err != nil {
+		return fmt.Errorf("resolve secure owner for %s: %w", path, err)
+	}
+	if err := windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		owner,
+		nil,
+		dacl,
+		nil,
+	); err != nil {
+		return fmt.Errorf("failed to set secure NTFS owner/permissions on %s: %w", path, err)
 	}
 	return nil
 }

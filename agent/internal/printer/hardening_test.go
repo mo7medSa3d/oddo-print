@@ -222,6 +222,7 @@ func TestManualRegistrationWithUSBFields(t *testing.T) {
 		Name:           "USB Label",
 		ConnectionType: "usb",
 		Protocol:       "raw",
+		Endpoint:       `\\?\usb#vid_03f0&pid_0c17#CN999`,
 		USBVID:         "03f0",
 		USBPID:         "0c17",
 		USBSerial:      "CN999",
@@ -384,6 +385,27 @@ func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
 	}
 }
 
+func TestFactoryUSBSupportsDeclaredLabelLanguages(t *testing.T) {
+	for _, protocol := range []string{"zpl", "tspl"} {
+		t.Run(protocol, func(t *testing.T) {
+			pc := config.PrinterConfig{
+				ID: "usb-" + protocol, Name: "USB Label " + protocol, Type: "usb", Protocol: protocol,
+				Endpoint: `\\?\usb#vid_1234&pid_5678#LABEL`, USBVID: "1234", USBPID: "5678",
+			}
+			p, err := New(pc)
+			if err != nil {
+				t.Fatalf("New(%s): %v", protocol, err)
+			}
+			if !SupportsKind(p, KindRaw) {
+				t.Fatalf("direct USB %s must accept its validated byte-stream payload", protocol)
+			}
+			if SupportsKind(p, KindPDF) || SupportsKind(p, KindImage) {
+				t.Fatalf("direct USB %s must not gain a document renderer", protocol)
+			}
+		})
+	}
+}
+
 func TestFactoryUSBRequiresExplicitByteProtocol(t *testing.T) {
 	pc := config.PrinterConfig{ID: "usb-unknown", Name: "USB Unknown", Type: "usb", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
 	if _, err := New(pc); err == nil {
@@ -493,6 +515,35 @@ func TestIsValidSpoolerPrinter(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isValidSpoolerPrinter port=%q driver=%q name=%q: got %v want %v", tc.port, tc.driver, tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestRuntimeDiscoveryKeepsAutomaticDirectUSBAsCandidateUntilProtocolIsExplicit(t *testing.T) {
+	auto := DeviceInfo{
+		ID:             "printer_usb_candidate",
+		Name:           "USB Printer",
+		ConnectionType: "usb",
+		Protocol:       "unknown",
+		Endpoint:       `\\?\usb#vid_1234&pid_5678#AUTO`,
+		USBVID:         "1234",
+		USBPID:         "5678",
+		Capabilities: map[string]interface{}{
+			"discovered_via":       SourceUSB,
+			"direct_usb_available": true,
+			"verification":         "candidate_only",
+		},
+	}
+	if IsRuntimeDiscoveryPrinter(auto) {
+		t.Fatal("automatic direct USB discovery must remain a candidate until its printer language is explicitly declared")
+	}
+
+	manual := auto
+	manual.Protocol = "zpl"
+	manual.Capabilities = map[string]interface{}{
+		"registration_source": "manual",
+	}
+	if !IsRuntimeDiscoveryPrinter(manual) {
+		t.Fatal("explicitly configured direct USB protocol must remain runtime-capable")
 	}
 }
 

@@ -11,7 +11,13 @@ def test_actual_rust_logging_and_process_identity(tmp_path):
     identity_tests = agent[agent.index("#[cfg(test)]\nmod image_identity_audit_tests"):]
     logging = (ROOT / "src-tauri/src/logging.rs").read_text()
     # Only the OS data-root boundary is substituted; logger code/tests stay intact.
-    source = "mod paths { pub fn ensure_manager_data_root() -> std::io::Result<std::path::PathBuf> { Ok(std::env::temp_dir()) } }\n"
+    source = (
+        "mod paths { "
+        "pub fn ensure_manager_data_root() -> std::io::Result<std::path::PathBuf> { Ok(std::env::temp_dir()) } "
+        "pub fn ensure_manager_directory_security(_path: &std::path::Path) -> std::io::Result<()> { Ok(()) } "
+        "pub fn ensure_manager_file_security(_path: &std::path::Path) -> std::io::Result<()> { Ok(()) } "
+        "}\n"
+    )
     source += "mod logging {\n" + logging + "\n}\n" + helpers + identity_tests
     rust_file = tmp_path / "actual_helpers.rs"
     binary = tmp_path / "actual_helpers"

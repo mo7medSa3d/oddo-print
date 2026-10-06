@@ -15,11 +15,32 @@ import {
 } from "../../../../lib/session-tokens";
 
 export async function POST(req: Request) {
-  const customerClaims = await validateCustomer(req);
-  const managerClaims = await validateManager(req);
+  let customerClaims: Awaited<ReturnType<typeof validateCustomer>> = null;
+  let managerClaims: Awaited<ReturnType<typeof validateManager>> = null;
+  let revokeFailed = false;
+
+  // Validation is database-backed for v2 families. Treat an outage as an
+  // inability to prove server-side revocation, but never let it skip the
+  // unconditional Set-Cookie clearing at the end of this handler.
+  try {
+    customerClaims = await validateCustomer(req);
+  } catch (error) {
+    revokeFailed = true;
+    logError("auth.logout.customer_validation_failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+  try {
+    managerClaims = await validateManager(req);
+  } catch (error) {
+    revokeFailed = true;
+    logError("auth.logout.manager_validation_failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+
   const customerRefreshToken = getRefreshTokenFromRequest(req, "customer");
   const managerRefreshToken = getRefreshTokenFromRequest(req, "manager");
-  let revokeFailed = false;
 
   const revokeCustomerSession = async () => {
     if (customerClaims?.kind === "customer" && customerClaims.familyId) {

@@ -8,7 +8,7 @@ import {
   pool,
   type Fixture,
 } from "./helpers/pg";
-import { validatePayloadForPrinter } from "../src/lib/routing";
+import { isPrinterStatusExecutable, validatePayloadForPrinter } from "../src/lib/routing";
 import { db } from "../src/db";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
@@ -110,6 +110,50 @@ suite("gateway runtime printer availability + payload capability contract", () =
       connectionType: "spooler",
       capabilities: { supported_protocols: ["raw", "escpos", "pdf"] },
     })).toEqual({ ok: true });
+  });
+
+  it("keeps the legacy Windows spooler protocol executable only on a spooler transport", () => {
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "spooler",
+      protocol: "windows_spooler",
+    })).toBe(true);
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "windows_spooler",
+      connectionType: "spooler",
+    }).ok).toBe(true);
+
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "network",
+      protocol: "windows_spooler",
+    })).toBe(false);
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "windows_spooler",
+      connectionType: "network",
+    }).ok).toBe(false);
+
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "ipps",
+      connectionType: "network",
+    }).ok).toBe(true);
+  });
+
+  it("does not treat an IPP protocol token as executable on the wrong transport", () => {
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "usb",
+      protocol: "ipp",
+    })).toBe(false);
+    expect(isPrinterStatusExecutable({
+      status: "unknown",
+      connectionType: "network",
+      protocol: "ipp",
+    })).toBe(true);
+    expect(validatePayloadForPrinter({ type: "pdf" }, {
+      protocol: "ipp",
+      connectionType: "usb",
+    }).ok).toBe(false);
   });
 
   it("treats USB printers backed by the Windows spooler as spooler document transports", () => {
