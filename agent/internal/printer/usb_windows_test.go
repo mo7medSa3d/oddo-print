@@ -280,8 +280,11 @@ func TestUSBLabelProtocolTestPayloadsUseTheirDeclaredLanguage(t *testing.T) {
 
 	tspl := &USBPrinter{ID: "tspl", Name: "Label \"\nPRINT 9,9", Protocol: "tspl"}
 	tsplPayload := string(tspl.testPayload())
-	if !strings.Contains(tsplPayload, "CLS\n") || strings.Count(tsplPayload, "PRINT 1,1") != 1 || strings.Contains(tsplPayload, "PRINT 9,9") {
-		t.Fatalf("TSPL test payload must use one fixed print command and sanitize field injection, got %q", tsplPayload)
+	if !strings.Contains(tsplPayload, "CLS\n") ||
+		strings.Count(tsplPayload, "PRINT 1,1") != 1 ||
+		strings.Contains(tsplPayload, "\"\nPRINT 9,9") ||
+		strings.Contains(tsplPayload, "\nPRINT 9,9\n") {
+		t.Fatalf("TSPL test payload must keep attacker text inside the field and emit one fixed print command, got %q", tsplPayload)
 	}
 }
 
