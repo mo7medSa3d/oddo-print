@@ -43,6 +43,10 @@ suite("WS claim-before-delivery", () => {
     const pollClaim = fs.readFileSync("src/app/api/agent/jobs/route.ts", "utf8");
     expect(wsClaim).toContain("pr.protocol IN ('spooler','windows_spooler')");
     expect(pollClaim).toContain("pr.protocol IN ('spooler','windows_spooler')");
+    expect(wsClaim).toContain("pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps')");
+    expect(pollClaim).toContain("pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps')");
+    expect(wsClaim).not.toContain("OR pr.protocol IN ('ipp','ipps') OR");
+    expect(pollClaim).not.toContain("OR pr.protocol IN ('ipp','ipps')\n");
   });
 
   it("keeps the Gateway claim ceiling aligned with Agent local capacity", () => {
