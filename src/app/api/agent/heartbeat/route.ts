@@ -394,25 +394,6 @@ export async function POST(req: Request) {
           ));
       }
 
-      // Only a final page from a complete, ordered and error-free snapshot may
-      // declare absence. Partial discovery, malformed rows, ownership conflicts
-      // or a failed earlier page leave prior presence untouched. Lifecycle is
-      // deliberately not changed: absence is observational and rediscovery of
-      // the same stable ID must reactivate presence automatically.
-      const mayReconcileAbsence = snapshotEnabled && isFinalHeartbeatPage && inventoryComplete && !priorSnapshotHadErrors && !pageHadErrors;
-      if (mayReconcileAbsence) {
-        await tx.execute(sql`
-          UPDATE printers
-          SET inventory_present = false, status = 'unknown', updated_at = now()
-          WHERE tenant_id = ${agent.tenantId}
-            AND agent_id = ${agent.id}
-            AND management_source = 'agent'
-            AND lifecycle <> 'retired'
-            AND inventory_present = true
-            AND inventory_snapshot_id IS DISTINCT FROM ${inventorySnapshotId}
-        `);
-      }
-
       for (const p of sanitizedPrinters) {
         if (inventoryById.has(p.id)) continue;
         if (gatewayOwnedPrinterIds.has(p.id)) {
@@ -468,6 +449,24 @@ export async function POST(req: Request) {
             pageHadErrors = true;
           }
         }
+      }
+
+      // Only a final page from a complete, ordered and error-free snapshot may
+      // declare absence. This MUST run after every insert/conflict decision on
+      // the page: late ownership/insert conflicts are snapshot errors too and
+      // must preserve prior presence rather than deleting healthy inventory.
+      const mayReconcileAbsence = snapshotEnabled && isFinalHeartbeatPage && inventoryComplete && !priorSnapshotHadErrors && !pageHadErrors;
+      if (mayReconcileAbsence) {
+        await tx.execute(sql`
+          UPDATE printers
+          SET inventory_present = false, status = 'unknown', updated_at = now()
+          WHERE tenant_id = ${agent.tenantId}
+            AND agent_id = ${agent.id}
+            AND management_source = 'agent'
+            AND lifecycle <> 'retired'
+            AND inventory_present = true
+            AND inventory_snapshot_id IS DISTINCT FROM ${inventorySnapshotId}
+        `);
       }
 
       if (snapshotEnabled) {
