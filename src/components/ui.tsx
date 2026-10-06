@@ -993,7 +993,8 @@ export function Mono({
 }) {
   return (
     <code
-      className={`font-mono text-xs tracking-[-0.01em] text-ink-3 ${className}`}
+      dir="ltr"
+      className={`inline-block font-mono text-sm tracking-[-0.01em] text-ink-2 [unicode-bidi:isolate] ${className}`}
       title={typeof children === "string" ? children : undefined}
     >
       {children}
