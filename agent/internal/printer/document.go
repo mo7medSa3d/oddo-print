@@ -45,6 +45,18 @@ func sanitizeTestText(s string) string {
 	return string(out)
 }
 
+// Printer-language diagnostic tickets interpolate operator-controlled display
+// names. Strip command delimiters rather than escaping them ambiguously:
+// diagnostic labels do not need those characters, and a crafted queue name
+// must never terminate a field or inject another command.
+func sanitizeZPLTestText(s string) string {
+	return strings.NewReplacer("^", " ", "~", " ").Replace(sanitizeTestText(s))
+}
+
+func sanitizeTSPLTestText(s string) string {
+	return strings.NewReplacer(""", "'", "\\", "/").Replace(sanitizeTestText(s))
+}
+
 var ErrCapabilityMismatch = errors.New("CAPABILITY_MISMATCH")
 
 func CapabilityMismatchf(format string, args ...interface{}) error {
