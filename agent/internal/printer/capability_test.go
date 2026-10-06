@@ -132,4 +132,3 @@ func TestSupportedProtocolsForSpoolerIsDocumentOnly(t *testing.T) {
 		}
 	}
 }
-
