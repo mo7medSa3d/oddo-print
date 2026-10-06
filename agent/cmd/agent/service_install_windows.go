@@ -62,7 +62,6 @@ func updateInstalledService(wanted *service.Config) error {
 	return existing.UpdateConfig(current)
 }
 
-
 func purgeRunValues(root registry.Key, path string) {
 	key, err := registry.OpenKey(root, path, registry.SET_VALUE)
 	if err != nil {
