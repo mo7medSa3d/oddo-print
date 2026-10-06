@@ -271,6 +271,20 @@ func TestUSBTestPayloadDoesNotInjectESCPOSWithoutCapability(t *testing.T) {
 	}
 }
 
+func TestUSBLabelProtocolTestPayloadsUseTheirDeclaredLanguage(t *testing.T) {
+	zpl := &USBPrinter{ID: "zpl", Name: "Label ) ^XZ", Protocol: "zpl"}
+	zplPayload := string(zpl.testPayload())
+	if !strings.HasPrefix(zplPayload, "^XA") || !strings.Contains(zplPayload, "^XZ") {
+		t.Fatalf("ZPL test payload must be framed as ZPL, got %q", zplPayload)
+	}
+
+	tspl := &USBPrinter{ID: "tspl", Name: "Label \" PRINT", Protocol: "tspl"}
+	tsplPayload := string(tspl.testPayload())
+	if !strings.Contains(tsplPayload, "CLS\n") || !strings.Contains(tsplPayload, "PRINT 1,1") {
+		t.Fatalf("TSPL test payload must use TSPL framing, got %q", tsplPayload)
+	}
+}
+
 func TestUSBStatusDoesNotTreatInterfaceAccessAsPhysicalHealth(t *testing.T) {
 	missing := &USBPrinter{ID: "u", Name: "USB", Protocol: "raw"}
 	if got := missing.Status(); got != "unknown" {
