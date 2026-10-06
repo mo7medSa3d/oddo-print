@@ -266,7 +266,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
     )
-    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL
     FROM candidates WHERE print_jobs.id = candidates.id
   `);
   await db.execute(sql`
@@ -284,7 +284,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       LIMIT ${SWEEP_BATCH}
       FOR UPDATE SKIP LOCKED
     )
-    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = now()
+    UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL
     FROM candidates WHERE print_jobs.id = candidates.id
   `);
 
