@@ -413,6 +413,8 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			caps["device_path"] = devicePath
 			caps["direct_usb_available"] = true
 			caps["requires_spooler"] = false
+			caps["verification"] = "candidate_only"
+			caps["diagnostic"] = "Direct USB interface is available, but printer language is not proven; select raw/escpos/zpl/tspl explicitly before enabling direct USB execution"
 		} else {
 			caps["diagnostic"] = "USB device discovered, no device path found; install as Windows spooler queue or ensure driver exposes USBPRINT interface"
 			caps["verification"] = "candidate_only"
@@ -426,7 +428,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			DisplayName:    friendlyName,
 			PrinterType:    "unknown",
 			ConnectionType: "usb",
-			Protocol:       "raw",
+			Protocol:       "unknown",
 			Endpoint:       devicePath,
 			SpoolerName:    "",
 			USBVID:         vidStr,
@@ -438,7 +440,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 			Type:           "usb",
 		}
 		if devicePath == "" {
-			di.Protocol = "unknown"
 			diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
 		}
 		lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
@@ -539,9 +540,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				caps["device_path"] = devicePath
 				caps["direct_usb_available"] = devicePath != ""
 				caps["requires_spooler"] = devicePath == ""
+				caps["verification"] = "candidate_only"
 				if devicePath == "" {
 					caps["diagnostic"] = "USB printer has no direct device path; install its Windows spooler queue"
-					caps["verification"] = "candidate_only"
+				} else {
+					caps["diagnostic"] = "Direct USB interface is available, but printer language is not proven; select raw/escpos/zpl/tspl explicitly before enabling direct USB execution"
 				}
 				di := DeviceInfo{
 					ID:             id,
@@ -549,7 +552,7 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					DisplayName:    friendlyName,
 					PrinterType:    "unknown",
 					ConnectionType: "usb",
-					Protocol:       "raw",
+					Protocol:       "unknown",
 					Endpoint:       devicePath,
 					USBVID:         vidStr,
 					USBPID:         pidStr,
@@ -561,7 +564,6 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				}
 				if devicePath == "" {
 					di.Status = "unknown"
-					di.Protocol = "unknown"
 					diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
 				}
 				lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
