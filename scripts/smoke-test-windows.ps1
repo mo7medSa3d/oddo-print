@@ -146,6 +146,34 @@ try {
   $desktop = Start-Process -FilePath $appExe -PassThru
   Assert-NotExited $desktop "Yaseir Print Manager desktop process"
 
+  # The Manager runtime contains the trusted Gateway origin. A locally
+  # pre-created writable ProgramData tree must never be accepted: the desktop
+  # hardens ownership/DACL at startup and fails closed before reading settings.
+  Assert-Path $managerDataDir "Manager writable data directory"
+  $managerAcl = Get-Acl -LiteralPath $managerDataDir
+  if (-not $managerAcl.AreAccessRulesProtected) {
+    throw "FAIL: Manager data directory still inherits parent ACLs"
+  }
+  $ownerSid = ([System.Security.Principal.NTAccount]$managerAcl.Owner).Translate([System.Security.Principal.SecurityIdentifier]).Value
+  if ($ownerSid -ne "S-1-5-32-544") {
+    throw "FAIL: Manager data directory owner is $ownerSid; expected BUILTIN\Administrators"
+  }
+  $usersSid = "S-1-5-32-545"
+  $dangerousRights = ([System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Modify -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership)
+  foreach ($rule in $managerAcl.Access) {
+    try {
+      $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    } catch {
+      continue
+    }
+    if ($ruleSid -eq $usersSid -and $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow) {
+      if (($rule.FileSystemRights -band $dangerousRights) -ne 0) {
+        throw "FAIL: BUILTIN\Users retained write-capable rights on Manager data: $($rule.FileSystemRights)"
+      }
+    }
+  }
+  Write-Host "PASS: Manager data ownership/DACL is protected; standard Users are read-only."
+
   # Regression guard: repeated clicks must focus/exit the duplicate launcher,
   # never create another long-lived desktop that can race Agent control.
   $secondDesktop = Start-Process -FilePath $appExe -PassThru
