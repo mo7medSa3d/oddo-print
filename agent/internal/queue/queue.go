@@ -378,7 +378,7 @@ func (q *Queue) ClaimTokenFor(id string) string {
 // remote 2xx response, so a process crash between local terminalization and
 // remote acknowledgement leaves a durable retryable report in SQLite.
 func (q *Queue) ClearClaimToken(id, claimToken string) error {
-	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('success', 'failed') AND claim_token = ?`, id, claimToken)
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, claimed_at = NULL WHERE id = ? AND status IN ('success', 'failed') AND claim_token = ?`, id, claimToken)
 	return err
 }
 
