@@ -1258,12 +1258,21 @@ export function Menu({
 
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const menuRect = menuRef.current.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    const viewportHeight = window.innerHeight;
+    // Use the visual viewport when available. Docked DevTools, browser zoom,
+    // mobile keyboards and embedded WebViews can make window.innerHeight larger
+    // than the actually visible area; positioning against that layout viewport
+    // is what made bottom-rail menus render below the screen.
+    const visualViewport = window.visualViewport;
+    const viewportLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportTop = visualViewport?.offsetTop ?? 0;
+    const viewportWidth = visualViewport?.width ?? document.documentElement.clientWidth;
+    const viewportHeight = visualViewport?.height ?? window.innerHeight;
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
     const viewportPadding = 8;
     const gap = 6;
-    const roomBelow = Math.max(0, viewportHeight - triggerRect.bottom - gap - viewportPadding);
-    const roomAbove = Math.max(0, triggerRect.top - gap - viewportPadding);
+    const roomBelow = Math.max(0, viewportBottom - triggerRect.bottom - gap - viewportPadding);
+    const roomAbove = Math.max(0, triggerRect.top - viewportTop - gap - viewportPadding);
     const naturalHeight = Math.max(menuRect.height, menuRef.current.scrollHeight);
 
     let resolvedPlacement = placement;
@@ -1278,8 +1287,8 @@ export function Menu({
     const renderedHeight = Math.min(naturalHeight, maxHeight);
     const top =
       resolvedPlacement === "below"
-        ? Math.min(triggerRect.bottom + gap, viewportHeight - viewportPadding)
-        : Math.max(viewportPadding, triggerRect.top - gap - renderedHeight);
+        ? Math.min(triggerRect.bottom + gap, viewportBottom - viewportPadding - renderedHeight)
+        : Math.max(viewportTop + viewportPadding, triggerRect.top - gap - renderedHeight);
 
     const direction = window.getComputedStyle(triggerRef.current).direction;
     const isRtl = direction === "rtl";
@@ -1292,7 +1301,10 @@ export function Menu({
       left = isRtl ? triggerRect.right - menuWidth : triggerRect.left;
     }
 
-    left = Math.max(viewportPadding, Math.min(left, viewportWidth - menuWidth - viewportPadding));
+    left = Math.max(
+      viewportLeft + viewportPadding,
+      Math.min(left, viewportRight - menuWidth - viewportPadding),
+    );
     setFloatingPosition({ top, left, maxHeight });
   }, [align, open, placement]);
 
@@ -1319,12 +1331,16 @@ export function Menu({
     document.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", onViewportChange);
     window.addEventListener("scroll", onViewportChange, true);
+    window.visualViewport?.addEventListener("resize", onViewportChange);
+    window.visualViewport?.addEventListener("scroll", onViewportChange);
 
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", onViewportChange);
       window.removeEventListener("scroll", onViewportChange, true);
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("scroll", onViewportChange);
       window.cancelAnimationFrame(frame);
     };
   }, [open, close, updateFloatingPosition]);
