@@ -42,4 +42,13 @@ describe("desktop administrator recovery and Windows startup UX", () => {
     expect(paths).toContain("crate::agent::run_bounded_command");
     expect(paths).toContain('windows_system32_exe("icacls.exe")');
   });
+
+  it("repairs a missing Agent service when an elevated Manager starts", () => {
+    const agent = read("src-tauri/src/agent.rs");
+    const start = agent.indexOf("pub fn ensure_started");
+    const block = agent.slice(start, start + 2200);
+    expect(block).toContain("sc_query()?.is_none()");
+    expect(block).toContain('run_agent_service_command(app, "install", COMMAND_TIMEOUT)');
+    expect(block).toContain("start_inner(app)");
+  });
 });
