@@ -1,4 +1,4 @@
-RESUME HERE: Phase 2 capability/CI repair | completed=R02 committed 0e263bc4; R01 invalid-framing repair and Go regressions persisted | current=bound capabilities collection (R03) | next=repair CI native-suite glob/assertion (R04); continue Odoo/UI/security/deployment audit | blockers=Go/Rust/Windows/Odoo/PostgreSQL runtimes absent; original PC connection failure unconfirmed
+RESUME HERE: Phase 2 CI/Odoo audit | completed=R02 0e263bc4; R01 a1a074c0; R03 bounded keyset capabilities and 15 regressions pass | current=close native test coverage drift (R04) | next=finish Odoo/document geometry, UI/IPC, security and deployment source review; run full suites and second pass | blockers=Go/Rust/Windows/Odoo/PostgreSQL runtimes absent; exact physical page fidelity unverified; original PC connection failure unconfirmed
 
 ## 2026-10-07 complete printing audit — execution checkpoint
 
@@ -62,6 +62,14 @@ RESUME HERE: Phase 2 capability/CI repair | completed=R02 committed 0e263bc4; R0
 
 - Invalid DLE EOT response framing now yields status-unsupported before decoding any fault bit; valid offline/cover/paper/error evidence still stops transmission. Reviewed both network printing and Status/preflight consumers: optional unsupported health responses do not become asserted hardware failure or health proof.
 - Added invalid fault-looking replies for all three inquiries and valid-fault controls; updated the existing TCP test's garbage case to the unsupported-status behavior. Go test/race execution remains BLOCKED locally; source/test changes are committed for CI, not represented as passes.
+
+### R03 repair checkpoint
+
+- Replaced the unbounded capabilities query with tenant-scoped ascending-ID keyset pages (100 default, 1000 maximum, one lookahead row). The existing tenant+ID unique index supports this predicate/order; no new index is justified.
+- Limits apply before diagnostics are built; sentinel rows are discarded before projection. Responses remain arrays with no-store, X-Has-More and a canonical base64url X-Next-Cursor. UTF-8/Unicode IDs cannot break headers. Direct printerId reads and permissions remain scoped.
+- PASS: 15 executable query/route regressions including bounds, sentinel discard, tenant predicate, cursor, Unicode, bad cursors, authentication and RBAC. Desktop Vite production bundle also PASS (native Tauri remains BLOCKED).
+- Odoo rendering/binding source review confirms native QWeb PDF bytes, source-record read checks, company/branch restrictions, explicit binding validation and selected Test Print binding. Physical PDF rendering fits the configured Windows driver printable area; arbitrary browser dialog settings cannot be captured and exact physical custom-size/margin/font output remains a required live certification item.
+- Authoritative ESC/POS framing reference inspected: https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/dle_eot.html (fixed bits before status interpretation).
 
 
 ## 2026-10-07 Gateway connection report

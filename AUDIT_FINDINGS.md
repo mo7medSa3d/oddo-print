@@ -34,8 +34,8 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Problem/root cause: a tenant-wide query without LIMIT projects full config/capabilities and human-readable diagnostics for every printer. A time deadline is not a response/memory bound.
 - Affected flow/impact: authenticated fleet capability reads have O(fleet) database/network/memory work; no traversal contract for large fleets.
 - Fix strategy: bounded deterministic keyset pagination before projection, preserve array response, expose next-page headers; keep direct printerId lookup.
-- Regression/verification: pending.
-- Status: CONFIRMED / REPAIR PENDING.
+- Regression/verification: 15 executable query/route cases PASS; tenant/cursor predicates and pre-projection limits checked.
+- Status: FIXED.
 
 ### R04 — P2 — offline regression coverage drift
 

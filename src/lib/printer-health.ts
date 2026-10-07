@@ -16,7 +16,8 @@
 
 import { db, queryWithTimeout } from "../db/client";
 import { agents, printers } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc, gt } from "drizzle-orm";
+import { clampListLimit } from "./request-limits";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
@@ -260,14 +261,27 @@ export function buildPrinterCapabilityMatrix(p: typeof printers.$inferSelect, ag
   };
 }
 
-export async function getAllPrintersCapabilityMatrix(tenantId: string): Promise<PrinterCapabilityMatrix[]> {
+export async function getPrinterCapabilityPage(
+  tenantId: string,
+  options: { limit?: number; afterId?: string } = {},
+): Promise<{ items: PrinterCapabilityMatrix[]; hasMore: boolean; nextCursor?: string }> {
+  const limit = clampListLimit(String(options.limit ?? 100), 100, 1000);
   const rows = await queryWithTimeout(
     () => db.select({ printer: printers, agent: agents }).from(printers)
       .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
-      .where(eq(printers.tenantId, tenantId)),
+      .where(and(eq(printers.tenantId, tenantId), options.afterId ? gt(printers.id, options.afterId) : undefined))
+      .orderBy(asc(printers.id))
+      .limit(limit + 1),
     3000,
-    "getAllPrintersCapability",
+    "getPrinterCapabilityPage",
   );
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit);
   const now = gatewayNow();
-  return rows.map(row => buildPrinterCapabilityMatrix(row.printer, row.agent, now));
+  const last = page.at(-1);
+  return {
+    items: page.map(row => buildPrinterCapabilityMatrix(row.printer, row.agent, now)),
+    hasMore,
+    ...(hasMore && last ? { nextCursor: Buffer.from(last.printer.id, "utf8").toString("base64url") } : {}),
+  };
 }
