@@ -1093,7 +1093,14 @@ export default function App() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <strong>{t("desktop.app.readOnlyMode")}</strong> {t("desktop.app.readOnlyBody")}
+                <strong>
+                  {agentServiceNeedsAdmin
+                    ? t("desktop.app.agentAdminRequiredTitle")
+                    : t("desktop.app.readOnlyMode")}
+                </strong>{" "}
+                {agentServiceNeedsAdmin
+                  ? t("desktop.app.agentAdminRequiredBody")
+                  : t("desktop.app.readOnlyBody")}
               </span>
             </div>
             <button
