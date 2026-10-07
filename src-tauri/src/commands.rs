@@ -180,7 +180,15 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if url.contains(char::is_whitespace) {
         return Err("gateway URL cannot contain whitespace".into());
     }
-    let parsed = url
+    // Match the renderer: an operator can paste a plain domain and the
+    // desktop safely promotes it to HTTPS. Explicit non-HTTP schemes are
+    // still rejected below.
+    let candidate = if url.contains("://") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    };
+    let parsed = candidate
         .parse::<url::Url>()
         .map_err(|e| format!("invalid gateway URL: {e}"))?;
     let scheme = parsed.scheme();
@@ -328,6 +336,7 @@ fn current_manager_token() -> Option<String> {
 
 fn is_public_gateway_path(path: &str) -> bool {
     path == "/api/health"
+        || path == "/api/agent/probe"
         || path == "/api/auth/manager/login"
         || path == "/api/auth/manager/refresh"
 }
@@ -415,13 +424,13 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .parse::<url::Url>()
         .map_err(|e| format!("invalid Gateway URL: {e}"))?;
     let target = origin
-        .join("api/health")
-        .map_err(|e| format!("invalid Gateway health URL: {e}"))?;
+        .join("api/agent/probe")
+        .map_err(|e| format!("invalid Gateway probe URL: {e}"))?;
     if target.scheme() != origin.scheme()
         || target.host_str() != origin.host_str()
         || target.port_or_known_default() != origin.port_or_known_default()
     {
-        return Err("Gateway health probe must stay on the candidate origin".into());
+        return Err("Gateway probe must stay on the candidate origin".into());
     }
 
     let client = reqwest::Client::builder()
@@ -435,7 +444,7 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .header("Origin", "tauri://localhost")
         .send()
         .await
-        .map_err(|e| format!("Gateway health probe failed: {e}"))?;
+        .map_err(|e| format!("Gateway probe failed: {e}"))?;
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 1024 * 1024).await?;
     Ok(GatewayResponse { status, body })
@@ -1817,8 +1826,9 @@ mod security_tests {
     };
 
     #[test]
-    fn only_health_and_manager_login_are_public_gateway_paths() {
+    fn only_probe_health_and_manager_login_are_public_gateway_paths() {
         assert!(is_public_gateway_path("/api/health"));
+        assert!(is_public_gateway_path("/api/agent/probe"));
         assert!(is_public_gateway_path("/api/auth/manager/login"));
         assert!(is_public_gateway_path("/api/auth/manager/refresh"));
         assert!(uses_manager_refresh_credential("/api/auth/manager/refresh"));
@@ -1833,6 +1843,14 @@ mod security_tests {
         assert!(normalize_gateway_url("http://[::1]:3000").is_ok());
         assert!(normalize_gateway_url("http://[2001:db8::1]:3000").is_err());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+        assert_eq!(
+            normalize_gateway_url("gateway.example.com").unwrap(),
+            "https://gateway.example.com"
+        );
+        assert_eq!(
+            normalize_gateway_url("https://gateway.example.com/").unwrap(),
+            "https://gateway.example.com"
+        );
     }
 
     #[test]
