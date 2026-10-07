@@ -1,0 +1,124 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFile } from "node:fs/promises";
+import { stripTypeScriptTypes } from "node:module";
+import { dirname, resolve } from "node:path";
+import vm from "node:vm";
+
+// Exercise the production functions and real catalogs with Node's bundled
+// parser. This suite also runs in the existing dependency-free CI lane.
+async function load(file, globals = {}, select = (source) => source) {
+  const context = vm.createContext({ console, URL, Error, ...globals });
+  const modules = new Map();
+  async function get(path) {
+    if (modules.has(path)) return modules.get(path);
+    const source = select(await readFile(path, "utf8"), path);
+    const module = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
+    modules.set(path, module);
+    await module.link((name) => get(resolve(dirname(path), `${name}.ts`)));
+    return module;
+  }
+  const module = await get(resolve(file));
+  await module.evaluate();
+  return module.namespace;
+}
+
+function slice(source, start, end) {
+  const offset = source.indexOf(start);
+  assert.ok(offset >= 0, start);
+  const stop = source.indexOf(end, offset);
+  assert.ok(stop > offset, end);
+  return source.slice(offset, stop);
+}
+
+async function presentation() {
+  return load("src/desktop/lib/printers.ts", {}, (source, path) => path.endsWith("/printers.ts")
+    ? `import { DEFAULT_LOCALE } from "../../i18n/config";
+       import { translate as tr } from "../../i18n/translate";
+       ${slice(source, "export function friendlyGatewayError", "export function friendlyPrinterError")}`
+    : source);
+}
+
+test("Gateway HTTP status survives machine messages in English and Arabic", async () => {
+  const api = await presentation();
+  const catalogs = await load("src/i18n/translate.ts");
+  for (const locale of ["en", "ar"]) {
+    for (const [status, key] of [[500, "serverError"], [503, "serverError"], [401, "unauthorized"], [403, "unauthorized"], [404, "notGateway"]]) {
+      const error = Object.assign(new Error("INTERNAL_ERROR"), { status });
+      assert.equal(api.friendlyGatewayError(error, locale), catalogs.translate(locale, `desktop.gateway.${key}`));
+    }
+    assert.equal(api.friendlyGatewayError(null, locale), catalogs.translate(locale, "desktop.gateway.failed"));
+  }
+});
+
+test("Gateway native transport causes keep specific guidance", async () => {
+  const api = await presentation();
+  const catalogs = await load("src/i18n/translate.ts");
+  for (const locale of ["en", "ar"]) {
+    for (const [message, key] of [
+      ["Gateway probe failed: connect: error sending request: dns error: failed to lookup address", "dns"],
+      ["Gateway probe failed: connect: invalid peer certificate: UnknownIssuer", "tls"],
+      ["Gateway probe failed: timeout: operation timed out", "timeout"],
+    ]) {
+      assert.equal(api.friendlyGatewayError(new Error(message), locale), catalogs.translate(locale, `desktop.gateway.${key}`));
+    }
+  }
+});
+
+test("candidate probe preserves HTTP failure and still rejects non-Gateway responses", async () => {
+  const ipcSource = await readFile("src/desktop/lib/ipc.ts", "utf8");
+  let response = { status: 500, body: '{"error":"INTERNAL_ERROR"}' };
+  const requests = [];
+  const api = await load("src/desktop/lib/ipc.ts", {
+    isTauri: true,
+    normalizeGatewayUrl: (value) => value,
+    invoke: async (command, args) => { requests.push({ command, args }); return response; },
+  }, () => `${slice(ipcSource, "function gatewayErrorMessage", "async function gatewayRequest")}
+           ${slice(ipcSource, "export async function probeGatewayHealth", "export async function fetchGatewayHealth")}`);
+  await assert.rejects(api.probeGatewayHealth("https://print.yaseir.cloud"), (error) => error.status === 500 && error.message === "INTERNAL_ERROR");
+  response = { status: 200, body: '{"ok":true}' };
+  await assert.rejects(api.probeGatewayHealth("https://print.yaseir.cloud"), /unexpected service response/);
+  response = { status: 404, body: "Not found" };
+  await assert.rejects(api.probeGatewayHealth("https://print.yaseir.cloud"), (error) => error.status === 404);
+  response = { status: 200, body: '{"ok":true,"service":"yaseir-print-gateway"}' };
+  assert.equal((await api.probeGatewayHealth("https://print.yaseir.cloud")).ok, true);
+  assert.equal(requests.length, 4);
+  assert.ok(requests.every((request) => request.command === "probe_gateway_health" && Object.keys(request.args).join() === "url"));
+});
+
+test("failed candidate check keeps configuration and presents HTTP guidance once", async () => {
+  const { friendlyGatewayError } = await presentation();
+  const { translate } = await load("src/i18n/translate.ts");
+  const changes = [], drafts = [], messages = [];
+  const api = await load("src/desktop/main.tsx", {
+    useCallback: (fn) => fn, gatewayUrl: "https://print.yaseir.cloud", locale: "ar",
+    t: (key) => translate("ar", key), normalizeGatewayUrl: (value) => value,
+    configurationFlight: { current: false }, savedOriginRef: { current: "https://existing.example" },
+    setGatewayChecking: () => {}, setGatewayDraftError: (value) => drafts.push(value),
+    probeGatewayHealth: async () => { throw Object.assign(new Error("INTERNAL_ERROR"), { status: 500 }); },
+    setGatewayUrl: async (value) => changes.push(value),
+    setMsg: (value) => messages.push(value), friendlyGatewayError,
+    errMsg: (error) => error instanceof Error ? error.message : String(error),
+  }, (source) => `${slice(source, "const checkHealth = useCallback", "const handleDiscover = useCallback")}\nexport { checkHealth };`);
+  await api.checkHealth();
+  assert.equal(changes.length, 0);
+  assert.equal(drafts.at(-1), translate("ar", "desktop.gateway.serverError"));
+  assert.equal(messages.at(-1).text, drafts.at(-1));
+  for (const page of ["Settings", "Agents"]) {
+    const source = await readFile(`src/desktop/pages/${page}.tsx`, "utf8");
+    assert.doesNotMatch(source, /friendlyGatewayError\(/);
+  }
+});
+
+test("native probe records bounded diagnostics without response bodies or credentials", async () => {
+  const source = await readFile("src-tauri/src/commands.rs", "utf8");
+  const probe = slice(source, "pub async fn probe_gateway_health", "fn configured_gateway_origin");
+  assert.match(probe, /Gateway probe started/);
+  assert.match(probe, /status=\{status\} confirmed=\{confirmed\}/);
+  assert.match(probe, /logging::warn/);
+  assert.match(probe, /logging::error/);
+  assert.match(probe, /std::error::Error::source/);
+  assert.match(probe, /error\.without_url\(\)/);
+  assert.match(probe, /take\(2048\)/);
+  assert.doesNotMatch(probe, /logging::\w+\([^;]*(?:\{body\}|bearer_auth|cookie)/);
+});

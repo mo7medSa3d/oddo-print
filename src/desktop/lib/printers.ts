@@ -222,10 +222,23 @@ export function friendlyAgentError(raw: string, locale: Locale = DEFAULT_LOCALE)
   return tr(locale, "desktop.agent.failed");
 }
 
-export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCALE): string {
-  const lower = raw.toLowerCase();
+export function friendlyGatewayError(raw: unknown, locale: Locale = DEFAULT_LOCALE): string {
+  // Keep the HTTP status before translating: the response's machine message
+  // may omit it (for example INTERNAL_ERROR), but IPC preserves it on Error.
+  const failure = raw && typeof raw === "object"
+    ? raw as { status?: unknown; message?: unknown }
+    : null;
+  const status = typeof failure?.status === "number" ? failure.status : undefined;
+  const message = typeof raw === "string" ? raw
+    : typeof failure?.message === "string" ? failure.message : "";
+  const lower = message.toLowerCase();
 
-  if (lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden")) {
+  if (status !== undefined && status >= 500 && status <= 599) {
+    return tr(locale, "desktop.gateway.serverError");
+  }
+  if (status === 404) return tr(locale, "desktop.gateway.notGateway");
+
+  if (status === 401 || status === 403 || lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden")) {
     return tr(locale, "desktop.gateway.unauthorized");
   }
   if (

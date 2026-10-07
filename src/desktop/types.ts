@@ -43,8 +43,10 @@ export interface DesktopState {
   /** Origin associated with the latest saved-Gateway health observation. */
   checkedGatewayUrl: string;
   gatewayDraftMatchesSaved: boolean;
+  /** Safe, localized copy; pages must render it without translating again. */
   gatewayDraftError: string | null;
   health: Record<string, unknown> | null;
+  /** Safe, localized copy; pages must render it without translating again. */
   healthError: string | null;
   gatewayConnected: boolean;
   gatewayChecking: boolean;

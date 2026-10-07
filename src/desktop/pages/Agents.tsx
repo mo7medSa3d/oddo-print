@@ -4,7 +4,7 @@ import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, Sta
 import { DetailList, StatItem, StatStrip } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { agentStatusNoteKey, friendlyAgentError, friendlyGatewayError, isProductionPrinter, printerIsStale } from "../lib/printers";
+import { agentStatusNoteKey, friendlyAgentError, isProductionPrinter, printerIsStale } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const { t, locale, formatDateTime } = useI18n();
@@ -53,7 +53,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
         <Card className="overflow-hidden">
           <CardHeader title={t("desktop.agents.statFleet")} subtitle={t("desktop.agents.fleetSubtitle", { target: s.gatewayUrl ? t("desktop.agents.fleetSubtitleGateway") : t("desktop.agents.fleetSubtitleNone") })} icon={<Server className="h-4 w-4 text-brand" />} actions={s.gatewayUrl ? <Button size="sm" variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>{t("desktop.agents.check")}</Button> : undefined} />
           <div className="px-5 pb-5">
-            {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title={t("desktop.agents.notConfigured")} description={t("desktop.agents.notConfiguredBody")} action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>{t("desktop.agents.openSettings")}</Button>} /> : s.healthError ? <ErrorState title={t("desktop.agents.checkFailed")} message={friendlyGatewayError(s.healthError, locale)} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
+            {!s.gatewayUrl ? <EmptyState icon={<Server className="h-8 w-8" />} title={t("desktop.agents.notConfigured")} description={t("desktop.agents.notConfiguredBody")} action={<Button variant="primary" onClick={() => s.navigate("settings")} icon={<Settings className="h-4 w-4" />}>{t("desktop.agents.openSettings")}</Button>} /> : s.healthError ? <ErrorState title={t("desktop.agents.checkFailed")} message={s.healthError} retry={s.checkHealth} /> : s.fleetTotal !== null && s.fleetTotal > 0 ? (
               <div className="space-y-4">
                 {/* The fleet counts repeat what the metric row above already
                     states, so the card shows them once as data, not as two
