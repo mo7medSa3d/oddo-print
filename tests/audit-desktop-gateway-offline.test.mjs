@@ -13,14 +13,14 @@ async function load(file, globals = {}, select = (source) => source) {
   async function get(path) {
     if (modules.has(path)) return modules.get(path);
     const source = select(await readFile(path, "utf8"), path);
-    const module = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
-    modules.set(path, module);
-    await module.link((name) => get(resolve(dirname(path), `${name}.ts`)));
-    return module;
+    const loadedModule = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
+    modules.set(path, loadedModule);
+    await loadedModule.link((name) => get(resolve(dirname(path), `${name}.ts`)));
+    return loadedModule;
   }
-  const module = await get(resolve(file));
-  await module.evaluate();
-  return module.namespace;
+  const loadedModule = await get(resolve(file));
+  await loadedModule.evaluate();
+  return loadedModule.namespace;
 }
 
 function slice(source, start, end) {
