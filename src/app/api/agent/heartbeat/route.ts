@@ -2,13 +2,13 @@ import { db } from "../../../../db";
 import { agents, printJobs, printers } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -31,22 +31,6 @@ const VALID_AGENT_STATUSES = new Set(["online", "offline"]);
 
 function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
-}
-
-/**
- * Agent-scoped identity for colliding local discovery IDs. Agent stable IDs
- * derive from local coordinates (USB serial, spooler queue, ip:port), so two
- * agents in one tenant can legitimately observe the same local ID for two
- * distinct physical devices. The printers table is keyed (tenant_id, id):
- * the first agent keeps the bare local ID (all existing mappings preserved)
- * while a colliding agent's row is stored under a deterministic alias. The
- * "~" sentinel never appears in locally generated stable IDs, so the agent
- * recovers its local backend by stripping the suffix; the alias is a pure
- * function of (agent, localId), hence stable across reconnects.
- */
-function aliasPrinterIdForAgent(localId: string, agentId: string): string {
-  const suffix = createHash("sha256").update(`printer-alias:${agentId}:${localId}`, "utf8").digest("hex").slice(0, 8);
-  return `${localId}~${suffix}`;
 }
 
 type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; observedDesiredRevision?: unknown };

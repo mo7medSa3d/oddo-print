@@ -410,8 +410,9 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
     def test_report_binding_selection_is_fenced_against_dispatch_toctou(self):
         router = (MODELS / "print_router.py").read_text(encoding="utf-8")
         binding = (MODELS / "binding.py").read_text(encoding="utf-8")
-        self.assertIn("def route_report(self, report, records, data=None, explicit_binding=None):", router)
-        route_start = router.index("def route_report(self, report, records, data=None, explicit_binding=None):")
+        signature = "def route_report(self, report, records, data=None, explicit_binding=None, idempotency_key=None):"
+        self.assertIn(signature, router)
+        route_start = router.index(signature)
         route_block = router[route_start:route_start + 2600]
         self.assertGreaterEqual(route_block.count("explicit_binding=explicit_binding or None"), 2)
         self.assertIn(
@@ -798,40 +799,31 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("hashlib.sha256", source)
         self.assertIn("receipt:{order.id}:{binding_id}", source)
         # The computed key must be forwarded to _submit_route.
-        import re
-        submit_call = re.search(
-            r"def route_pos_receipt.*?return self._submit_route",
-            source, re.DOTALL,
-        )
-        self.assertIsNotNone(submit_call, "route_pos_receipt must call _submit_route")
-        self.assertIn("idempotency_key=idempotency_key", submit_call.group(0))
+        route_start = source.index("def route_pos_receipt")
+        route_end = source.index("def route_kitchen_print", route_start)
+        route_block = source[route_start:route_end]
+        self.assertIn("return self._submit_route(", route_block)
+        self.assertIn("idempotency_key=idempotency_key", route_block)
 
     def test_route_pos_sale_details_produces_deterministic_idempotency_key(self):
         """route_pos_sale_details() must produce a stable SHA-256 key."""
         source = (MODELS / "print_router.py").read_text(encoding="utf-8")
         self.assertIn("def route_pos_sale_details(self, session, image_base64, *, idempotency_key=None)", source)
         self.assertIn("sale_details:{session.id}:{binding_id}", source)
-        import re
-        submit_call = re.search(
-            r"def route_pos_sale_details.*?return self._submit_route",
-            source, re.DOTALL,
-        )
-        self.assertIsNotNone(submit_call)
-        self.assertIn("idempotency_key=idempotency_key", submit_call.group(0))
+        route_start = source.index("def route_pos_sale_details")
+        route_end = source.index("def route_intent", route_start)
+        route_block = source[route_start:route_end]
+        self.assertIn("return self._submit_route(", route_block)
+        self.assertIn("idempotency_key=idempotency_key", route_block)
 
     # ------------------------------------------------------------------
-    # P1-2 Regression: route_raw_command wire type matches protocol
+    # P1-2 Regression: route_raw_command wire type matches the Gateway contract
     # ------------------------------------------------------------------
-    def test_route_raw_command_uses_protocol_as_wire_type_for_byte_stream_protocols(self):
-        """route_raw_command() must emit type=escpos (not type=raw) for ESC/POS
-        payloads, and similarly for zpl/tspl so the Agent selects the right
-        byte-stream handler."""
+    def test_route_raw_command_uses_contract_wire_types_for_byte_stream_protocols(self):
+        """The Gateway wire contract has dedicated ESC/POS but not ZPL/TSPL
+        payload types. ZPL/TSPL therefore travel as type=raw plus an explicit
+        protocol so the Agent can select the correct byte-stream handler."""
         source = (MODELS / "print_router.py").read_text(encoding="utf-8")
-        # The byte-stream wire-type set must exist and cover all four languages.
-        self.assertIn("_BYTE_STREAM_WIRE_TYPES", source)
-        self.assertIn('"escpos"', source)
-        self.assertIn('"zpl"', source)
-        self.assertIn('"tspl"', source)
         import re
         raw_cmd_fn = re.search(
             r"def route_raw_command.*?def route_test_page",
@@ -839,8 +831,10 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         )
         self.assertIsNotNone(raw_cmd_fn, "route_raw_command function not found")
         fn_body = raw_cmd_fn.group(0)
-        # wire_type derivation must be present; hardcoded "type": "raw" must not be.
-        self.assertIn("wire_type = protocol if protocol in _BYTE_STREAM_WIRE_TYPES else", fn_body)
+        self.assertIn('wire_type = "escpos" if protocol == "escpos" else "raw"', fn_body)
+        self.assertIn('"type": wire_type', fn_body)
+        self.assertIn('"protocol": protocol', fn_body)
+        self.assertNotIn("_BYTE_STREAM_WIRE_TYPES", fn_body)
 
     # ------------------------------------------------------------------
     # P1-4 Regression: cross-company test-print switch hint

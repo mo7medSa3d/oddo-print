@@ -139,8 +139,8 @@ pub(crate) fn run_bounded_command(
         return Err("command output exceeded the configured stream budget".to_string());
     }
 
-    let stdout = join_reader_thread(out_thread, "stdout")??;
-    let stderr = join_reader_thread(err_thread, "stderr")??;
+    let stdout = join_reader_thread(out_thread, "stdout")?;
+    let stderr = join_reader_thread(err_thread, "stderr")?;
     if overflow.load(Ordering::Acquire) {
         return Err("command output exceeded the configured stream budget".to_string());
     }

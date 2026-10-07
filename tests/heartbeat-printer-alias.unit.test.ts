@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aliasPrinterIdForAgent } from "../src/app/api/agent/heartbeat/route";
+import { aliasPrinterIdForAgent } from "../src/lib/printer-identity";
 
 describe("agent-scoped printer alias identity", () => {
   it("is deterministic per agent and local id", () => {
