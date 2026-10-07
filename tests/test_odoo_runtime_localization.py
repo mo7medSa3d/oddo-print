@@ -1,6 +1,5 @@
 from pathlib import Path
 import importlib.util
-import re
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
