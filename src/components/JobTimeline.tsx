@@ -3,7 +3,7 @@
 import { fetchWithTimeout } from "../lib/fetch-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, MinusCircle, RefreshCw } from "lucide-react";
-import { Button, Mono, Skeleton, StatusBadge, type Tone } from "./ui";
+import { Button, Skeleton, StatusBadge, type Tone } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
@@ -28,7 +28,6 @@ type TimelineEvent = {
   metadata?: Record<string, unknown>;
 };
 
-type Correlation = Record<string, string | null | undefined>;
 
 const STAGE_KEYS: Record<string, MessageKey> = {
   created: "timeline.created",
@@ -103,7 +102,6 @@ function TimelineSession({ jobId }: { jobId: string }) {
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [correlation, setCorrelation] = useState<Correlation | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   const retry = useCallback(() => {
@@ -125,7 +123,6 @@ function TimelineSession({ jobId }: { jobId: string }) {
         const data = await res.json();
         if (controller.signal.aborted) return;
         setEvents(Array.isArray(data.timeline) ? data.timeline : []);
-        setCorrelation((data.correlation ?? null) as Correlation | null);
         if (!["success", "failed", "expired"].includes(String(data.job?.status ?? data.status ?? ""))) timer = setTimeout(() => { void load(); }, 3000);
       } catch (e) {
         if (controller.signal.aborted) return;
@@ -187,28 +184,8 @@ function TimelineSession({ jobId }: { jobId: string }) {
     );
   }
 
-  const correlated = correlation
-    ? Object.entries(correlation).filter(([, value]) => Boolean(value))
-    : [];
-
   return (
     <div className="space-y-4">
-      {correlated.length > 0 && (
-        <dl className="rounded-md border border-edge bg-surface-2 px-3.5 py-3">
-          <div className="label-caps">{t("timeline.correlationIds")}</div>
-          <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
-            {correlated.map(([key, value]) => (
-              <div key={key} className="flex items-baseline justify-between gap-3">
-                <dt className="text-xs text-ink-3">{key}</dt>
-                <dd className="min-w-0">
-                  <Mono className="block truncate">{String(value).slice(0, 32)}</Mono>
-                </dd>
-              </div>
-            ))}
-          </div>
-        </dl>
-      )}
-
       <ol className="relative space-y-4 ps-7">
         <span className="absolute start-[9px] top-2 bottom-2 w-px bg-edge" aria-hidden />
         {events.map((ev) => {
@@ -243,43 +220,6 @@ function TimelineSession({ jobId }: { jobId: string }) {
                     ? t(ev.messageKey as MessageKey, ev.messageVars ?? undefined)
                     : ev.message}
                 </p>
-              )}
-              {ev.errorCode && (
-                <p className="mt-1 text-xs text-ink-3">
-                  {t("job.errorCode")} <Mono>{ev.errorCode}</Mono>
-                </p>
-              )}
-              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-                {ev.attemptId && (
-                  <span className="text-xs text-ink-4">
-                    {t("timeline.corr.attempt")} <Mono>{ev.attemptId.slice(0, 12)}</Mono>
-                  </span>
-                )}
-                {ev.claimId && (
-                  <span className="text-xs text-ink-4">
-                    {t("timeline.corr.claim")} <Mono>{ev.claimId.slice(0, 8)}…</Mono>
-                  </span>
-                )}
-                {ev.spoolerJobId && (
-                  <span className="text-xs text-ink-4">
-                    {t("timeline.corr.spooler")} <Mono className="text-ink-2">{ev.spoolerJobId}</Mono>
-                  </span>
-                )}
-                {ev.requestId && (
-                  <span className="text-xs text-ink-4">
-                    {t("timeline.corr.request")} <Mono>{ev.requestId.slice(0, 12)}</Mono>
-                  </span>
-                )}
-              </div>
-              {ev.metadata && Object.keys(ev.metadata).length > 0 && (
-                <details className="group mt-2">
-                  <summary className="cursor-pointer list-none text-xs font-[550] text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
-                    {t("timeline.technicalDetails")}
-                  </summary>
-                  <pre dir="ltr" className="mt-1.5 max-h-40 overflow-auto rounded-sm border border-edge bg-surface-2 p-3 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
-                    {JSON.stringify(ev.metadata, null, 2)}
-                  </pre>
-                </details>
               )}
             </li>
           );
