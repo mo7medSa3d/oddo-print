@@ -15,6 +15,7 @@
     "allow-pair-agent",
     "allow-get-gateway-config",
     "allow-set-gateway-config",
+    "allow-probe-gateway-health",
     "allow-gateway-request",
     "allow-gateway-agent-request",
     "allow-clear-manager-session",
