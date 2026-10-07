@@ -129,16 +129,23 @@ suite("delivery lifecycle enforcement", () => {
     expect(route).toContain("printingAdmissionLifecycleFence(agent.id, agent.tenantId)");
   });
 
-  it.each([
-    ["offline", "status = 'offline'"],
-    ["stale", "last_seen_at = now() - interval '10 minutes'"],
-  ])("refuses printing admission when the printer becomes %s after claim", async (_case, mutation) => {
-    const jobId = `job_admission_${_case}`;
+  it.each(["offline", "stale"] as const)("refuses printing admission when the printer becomes %s after claim", async (scenario) => {
+    const jobId = `job_admission_${scenario}`;
     await insertQueuedJob(f, jobId);
     const claim = await claimJobForDelivery(jobId, f.agentId);
     expect(claim?.claimToken).toBeTruthy();
 
-    await pool().query(`UPDATE printers SET ${mutation} WHERE id = $1 AND tenant_id = $2`, [f.printerId, f.tenantId]);
+    if (scenario === "offline") {
+      await pool().query(
+        `UPDATE printers SET status = 'offline' WHERE id = $1 AND tenant_id = $2`,
+        [f.printerId, f.tenantId],
+      );
+    } else {
+      await pool().query(
+        `UPDATE printers SET last_seen_at = now() - interval '10 minutes' WHERE id = $1 AND tenant_id = $2`,
+        [f.printerId, f.tenantId],
+      );
+    }
 
     const res = await agentJobsPATCH(
       new Request("http://gateway.test/api/agent/jobs", {
