@@ -3,8 +3,46 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - "agent/**"
+      - "src-tauri/**"
+      - "src/desktop/**"
+      - "src/components/**"
+      - "src/i18n/**"
+      - "src/shared/**"
+      - "src/lib/**"
+      - "src/app/globals.css"
+      - "contracts/**"
+      - "scripts/build-windows-installer.ps1"
+      - "scripts/smoke-test-windows.ps1"
+      - "vite.desktop.config.mts"
+      - "postcss.config.*"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - ".nvmrc"
+      - ".github/workflows/build-windows.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "agent/**"
+      - "src-tauri/**"
+      - "src/desktop/**"
+      - "src/components/**"
+      - "src/i18n/**"
+      - "src/shared/**"
+      - "src/lib/**"
+      - "src/app/globals.css"
+      - "contracts/**"
+      - "scripts/build-windows-installer.ps1"
+      - "scripts/smoke-test-windows.ps1"
+      - "vite.desktop.config.mts"
+      - "postcss.config.*"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - ".nvmrc"
+      - ".github/workflows/build-windows.yml"
   merge_group:
 
 concurrency:
@@ -50,7 +88,56 @@ jobs:
               base="$PR_BASE_SHA"
             fi
 
-            if [ -z "$base" ] || printf '%s' "$base" | grep -Eq '^0+
+            if [ -z "$base" ] || printf '%s' "$base" | grep -Eq '^0+$'; then
+              echo "No usable base SHA; running the full Windows validation."
+              windows=true
+              agent=true
+              rust=true
+            else
+              if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --depth=1 origin "$base" >/dev/null 2>&1 || true
+              fi
+
+              if git cat-file -e "$base^{commit}" 2>/dev/null; then
+                files="$(git diff --name-only "$base" "$GITHUB_SHA" || true)"
+                printf 'Changed files:\n%s\n' "$files"
+                while IFS= read -r file; do
+                  [ -z "$file" ] && continue
+                  case "$file" in
+                    agent/*|src-tauri/*|src/desktop/*|src/components/*|src/i18n/*|src/shared/*|src/lib/*|src/app/globals.css|contracts/*|scripts/build-windows-installer.ps1|scripts/smoke-test-windows.ps1|vite.desktop.config.mts|postcss.config.*|package.json|package-lock.json|tsconfig.json|.nvmrc|.github/workflows/build-windows.yml)
+                      windows=true
+                      ;;
+                  esac
+                  case "$file" in
+                    agent/*|.github/workflows/build-windows.yml)
+                      agent=true
+                      ;;
+                  esac
+                  case "$file" in
+                    src-tauri/*|.github/workflows/build-windows.yml)
+                      rust=true
+                      ;;
+                  esac
+                done <<< "$files"
+              else
+                echo "Could not resolve the base commit; failing open to full Windows validation."
+                windows=true
+                agent=true
+                rust=true
+              fi
+            fi
+          fi
+
+          {
+            echo "windows=$windows"
+            echo "agent=$agent"
+            echo "rust=$rust"
+          } >> "$GITHUB_OUTPUT"
+          echo "Windows build: $windows; Agent tests: $agent; Rust tests: $rust"
+
+  build-windows:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:
@@ -318,327 +405,6 @@ jobs:
             src-tauri/target
             ~/AppData/Local/tauri
           key: ${{ runner.os }}-rust-v2-${{ hashFiles('src-tauri/Cargo.lock') }}
-      - name: Upload Windows NSIS installer
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: Yaseir-Manager-Windows-NSIS
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yaseir Print Manager_*-setup.exe
-          if-no-files-found: error
-          compression-level: 0
-; then
-              echo "No usable base SHA; running the full Windows validation."
-              windows=true
-              agent=true
-              rust=true
-            else
-              if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-                git fetch --no-tags --depth=1 origin "$base" >/dev/null 2>&1 || true
-              fi
-
-              if git cat-file -e "$base^{commit}" 2>/dev/null; then
-                files="$(git diff --name-only "$base" "$GITHUB_SHA" || true)"
-                printf 'Changed files:\n%s\n' "$files"
-                while IFS= read -r file; do
-                  [ -z "$file" ] && continue
-                  case "$file" in
-                    agent/*|src-tauri/*|src/desktop/*|src/components/*|src/i18n/*|src/shared/*|src/lib/*|src/app/globals.css|contracts/*|scripts/build-windows-installer.ps1|scripts/smoke-test-windows.ps1|vite.desktop.config.mts|postcss.config.*|package.json|package-lock.json|tsconfig.json|.nvmrc|.github/workflows/build-windows.yml)
-                      windows=true
-                      ;;
-                  esac
-                  case "$file" in
-                    agent/*|.github/workflows/build-windows.yml)
-                      agent=true
-                      ;;
-                  esac
-                  case "$file" in
-                    src-tauri/*|.github/workflows/build-windows.yml)
-                      rust=true
-                      ;;
-                  esac
-                done <<< "$files"
-              else
-                echo "Could not resolve the base commit; failing open to full Windows validation."
-                windows=true
-                agent=true
-                rust=true
-              fi
-            fi
-          fi
-
-          {
-            echo "windows=$windows"
-            echo "agent=$agent"
-            echo "rust=$rust"
-          } >> "$GITHUB_OUTPUT"
-          echo "Windows build: $windows; Agent tests: $agent; Rust tests: $rust"
-
-  build-windows:
-    needs: changes
-    if: needs.changes.outputs.windows == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version-file: agent/go.mod
-          cache: true
-          cache-dependency-path: agent/go.sum
-      - name: Verify and test native Windows Go Agent
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go mod verify
-          if ($LASTEXITCODE -ne 0) { throw "Go module verification failed" }
-          # go test can run the full vet analyzer set before the tests, avoiding
-          # a second package load/compile from a separate go vet invocation.
-          go test -mod=readonly -vet=all ./...
-          if ($LASTEXITCODE -ne 0) { throw "Native Windows Go vet/tests failed" }
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: 1.98.1
-          targets: x86_64-pc-windows-msvc
-      - name: Verify Cargo.lock
-        shell: pwsh
-        run: |
-          if (-not (Test-Path src-tauri/Cargo.lock)) { throw "src-tauri/Cargo.lock is required and must be committed" }
-          Push-Location src-tauri
-          cargo metadata --locked --no-deps --format-version 1 | Out-Null
-          Pop-Location
-          Write-Host "Cargo.lock is present and Cargo accepts the manifest in --locked mode."
-      - name: Restore Tauri CLI cache
-        id: tauri-cli-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cargo/bin/cargo-tauri.exe
-          key: ${{ runner.os }}-tauri-cli-2.11.4
-      - name: Restore Rust build and Tauri tooling cache
-        id: rust-tauri-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-            ~/AppData/Local/tauri
-          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-rust-
-      - name: Install Tauri CLI
-        shell: pwsh
-        run: |
-          $tauri = Get-Command cargo-tauri -ErrorAction SilentlyContinue
-          if ($tauri) {
-            cargo tauri --version
-            Write-Host "Tauri CLI restored from cache; skipping install."
-          } else {
-            Write-Host "Tauri CLI not found in cache; installing 2.11.4..."
-            cargo install tauri-cli --version "=2.11.4" --locked
-          }
-      - name: Save Tauri CLI cache
-        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cargo/bin/cargo-tauri.exe
-          key: ${{ runner.os }}-tauri-cli-2.11.4
-      - name: Build Go Agent resources for Tauri
-        working-directory: agent
-        shell: pwsh
-        run: |
-          go build -mod=readonly -trimpath -ldflags="-s -w" -o YaseirAgent.exe ./cmd/agent
-          go build -mod=readonly -trimpath -ldflags="-s -w" -o yaseir-agent-cli.exe ./cmd/cli
-          if (-not (Test-Path .\YaseirAgent.exe)) { throw "Missing agent/YaseirAgent.exe" }
-          if (-not (Test-Path .\yaseir-agent-cli.exe)) { throw "Missing agent/yaseir-agent-cli.exe" }
-
-      - name: Install frontend dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
-      - name: Verify Tauri icon assets
-        shell: pwsh
-        run: |
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $icons = @($conf.bundle.icon)
-          if ($icons.Count -eq 0) { throw "No bundle.icon entries in src-tauri/tauri.conf.json" }
-          foreach ($icon in $icons) {
-            $p = Join-Path "src-tauri" ($icon -replace '/', '\\')
-            if (-not (Test-Path $p)) { throw "Missing configured icon: $p" }
-            $len = (Get-Item $p).Length
-            if ($len -le 0) { throw "Empty configured icon: $p" }
-            Write-Host "OK icon $icon ($len bytes)"
-          }
-          Write-Host "All $($icons.Count) configured icons are present."
-      - name: Rust unit tests (desktop)
-        shell: pwsh
-        run: |
-          # Unit tests validate behavior; they do not need LTO/opt-level=3.
-          # The following Tauri packaging step is the authoritative production
-          # release build, so compiling the full Rust graph in --release twice
-          # only adds minutes without increasing test coverage.
-          New-Item -ItemType Directory -Force -Path dist-desktop | Out-Null
-          Push-Location src-tauri
-          cargo test --locked --target x86_64-pc-windows-msvc
-          Pop-Location
-      - name: Clean stale Tauri installer bundles
-        shell: pwsh
-        run: |
-          $bundleRoot = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle"
-          foreach ($dir in @("nsis")) {
-            $path = Join-Path $bundleRoot $dir
-            if (Test-Path $path) {
-              Remove-Item -Recurse -Force $path
-            }
-            New-Item -ItemType Directory -Force -Path $path | Out-Null
-          }
-          Write-Host "Removed stale NSIS bundle output before packaging."
-
-      - name: Build Tauri Windows NSIS installer
-        shell: pwsh
-        run: |
-          $maxAttempts = 2
-          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            Write-Host "Tauri NSIS build attempt $attempt/$maxAttempts"
-            & cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "Tauri NSIS build succeeded on attempt $attempt."
-              break
-            }
-            if ($attempt -eq $maxAttempts) {
-              throw "Tauri NSIS build failed after $maxAttempts attempts."
-            }
-            Write-Warning "Tauri NSIS bundling failed (exit code $LASTEXITCODE). Retrying once in 10 seconds."
-            Start-Sleep -Seconds 10
-          }
-      - name: Verify NSIS installer artifact
-        shell: pwsh
-        run: |
-          $nsisDir = "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis"
-          $exe = @(Get-ChildItem (Join-Path $nsisDir "Yaseir Print Manager_*-setup.exe") -File -ErrorAction SilentlyContinue)
-          $legacyExe = @(Get-ChildItem (Join-Path $nsisDir "*Odoo Print Manager*.exe") -File -ErrorAction SilentlyContinue)
-          if ($exe.Count -ne 1) { throw "Expected exactly one Yaseir Print Manager NSIS installer, found $($exe.Count)" }
-          if ($legacyExe.Count -ne 0) { throw "Legacy Odoo Print Manager installer output detected" }
-          $exe | Select-Object FullName, Length
-      - name: Install, smoke-test, and fully uninstall NSIS package
-        shell: pwsh
-        run: |
-          $nsis = Get-ChildItem "src-tauri\\target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\Yaseir Print Manager_*-setup.exe" | Select-Object -First 1
-          if (-not $nsis) { throw "Yaseir Print Manager NSIS installer missing" }
-
-          $legacyConfig = Join-Path $env:PROGRAMDATA "YasserAgent\config.yaml"
-          New-Item -ItemType Directory -Force -Path (Split-Path $legacyConfig) | Out-Null
-          Set-Content -LiteralPath $legacyConfig -Value "{}" -Encoding UTF8
-          Write-Host "Seeded legacy Agent config at $legacyConfig"
-
-          $installDir = Join-Path $env:RUNNER_TEMP "Yaseir Print Manager NSIS"
-          if (Test-Path $installDir) {
-            Remove-Item -Recurse -Force $installDir
-          }
-          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-
-          # NSIS requires /D=... as the final argument. Keep the destination
-          # inside the ephemeral runner temp directory so this test cannot
-          # collide with a previous installation or leave Program Files state.
-          $proc = Start-Process -FilePath $nsis.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
-          if ($proc.ExitCode -ne 0) {
-            throw "NSIS install failed with code $($proc.ExitCode)"
-          }
-          if (-not (Test-Path $installDir)) {
-            throw "NSIS install directory was not created: $installDir"
-          }
-
-          $nsisService = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" -ErrorAction SilentlyContinue
-          if (-not $nsisService) { throw "NSIS did not install the YaseirAgent Windows service" }
-          $nsisPathName = [string]$nsisService.PathName
-          if ($nsisPathName -notmatch '(?i)(^|\s)-config\s+"?([^"]*YasserAgent\\config\.yaml)"?(\s|$)') {
-            Write-Host "NSIS service ImagePath: $nsisPathName"
-            throw "NSIS service did not preserve the legacy config path"
-          }
-          Write-Host "NSIS preserved legacy Agent config path: $nsisPathName"
-
-          & pwsh -NoProfile -File .\\scripts\\smoke-test-windows.ps1 -InstallDir $installDir
-          if ($LASTEXITCODE -ne 0) { throw "NSIS Windows smoke test failed" }
-
-          $uninstaller = Join-Path $installDir "uninstall.exe"
-          if (-not (Test-Path $uninstaller)) {
-            $uninstaller = Get-ChildItem $installDir -Filter "uninstall*.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-          }
-          if (-not $uninstaller) { throw "NSIS uninstaller missing" }
-
-          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @("/S") -Wait -PassThru
-          if ($uninstall.ExitCode -ne 0) {
-            throw "NSIS uninstall failed with code $($uninstall.ExitCode)"
-          }
-          if (Test-Path $installDir) {
-            $remaining = Get-ChildItem $installDir -Force -ErrorAction SilentlyContinue
-            if ($remaining) {
-              throw "NSIS uninstall left files behind in $installDir"
-            }
-          }
-
-          $deadline = (Get-Date).AddSeconds(30)
-          do {
-            $remainingService = Get-Service -Name YaseirAgent -ErrorAction SilentlyContinue
-            if (-not $remainingService) { break }
-            Start-Sleep -Seconds 1
-          } while ((Get-Date) -lt $deadline)
-          if ($remainingService) {
-            throw "NSIS uninstall left the YaseirAgent Windows service behind"
-          }
-
-          $sharedDataRoots = @(
-            (Join-Path $env:PROGRAMDATA "YaseirAgent"),
-            (Join-Path $env:PROGRAMDATA "YasserAgent"),
-            (Join-Path $env:PROGRAMDATA "OdooPrintAgent"),
-            (Join-Path $env:PROGRAMDATA "YaseirManager"),
-            (Join-Path $env:PROGRAMDATA "YasserManager"),
-            (Join-Path $env:PROGRAMDATA "OdooPrintManager")
-          )
-          foreach ($path in $sharedDataRoots) {
-            if (Test-Path $path) { throw "NSIS uninstall left shared runtime data behind: $path" }
-          }
-
-          $userDataRoots = @(
-            (Join-Path $env:LOCALAPPDATA "YaseirManager"),
-            (Join-Path $env:LOCALAPPDATA "YasserManager"),
-            (Join-Path $env:LOCALAPPDATA "Yaseir Print Manager"),
-            (Join-Path $env:LOCALAPPDATA "Yasser Print Manager"),
-            (Join-Path $env:LOCALAPPDATA "OdooPrintManager"),
-            (Join-Path $env:LOCALAPPDATA "Odoo Print Manager"),
-            (Join-Path $env:LOCALAPPDATA "com.yasser.manager"),
-            (Join-Path $env:APPDATA "YaseirManager"),
-            (Join-Path $env:APPDATA "YasserManager"),
-            (Join-Path $env:APPDATA "Yaseir Print Manager"),
-            (Join-Path $env:APPDATA "Yasser Print Manager"),
-            (Join-Path $env:APPDATA "OdooPrintManager"),
-            (Join-Path $env:APPDATA "Odoo Print Manager"),
-            (Join-Path $env:APPDATA "com.yasser.manager")
-          )
-          foreach ($path in $userDataRoots) {
-            if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }
-          }
-          Write-Host "NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed."
-      - name: Save Rust build and Tauri tooling cache
-        if: steps.rust-tauri-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-            ~/AppData/Local/tauri
-          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Upload Windows NSIS installer
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
