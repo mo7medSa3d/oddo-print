@@ -1535,7 +1535,7 @@ export function Tabs<T extends string>({
             onClick={() => onChange(t)}
             className={`relative flex h-9 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
               selected
-                ? "bg-surface text-ink shadow-xs ring-1 ring-inset ring-edge"
+                ? "bg-brand-solid text-brand-contrast shadow-xs ring-1 ring-inset ring-brand-solid"
                 : "text-ink-3 hover:bg-surface-2 hover:text-ink"
             }`}
           >
@@ -1543,7 +1543,7 @@ export function Tabs<T extends string>({
             {count !== undefined && (
               <span
                 className={`rounded-xs px-1 text-2xs font-[600] tabular ${
-                  selected ? "bg-brand-subtle text-brand-subtle-text" : "bg-surface-2 text-ink-3"
+                  selected ? "bg-white/15 text-brand-contrast" : "bg-surface-2 text-ink-3"
                 }`}
               >
                 {count}
