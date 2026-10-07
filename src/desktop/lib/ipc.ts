@@ -416,6 +416,10 @@ export async function isRunningAsAdmin(): Promise<boolean> {
   }
 }
 
+export function relaunchAsAdmin(): Promise<void> {
+  return invoke<void>("relaunch_as_admin");
+}
+
 export async function closeApp(): Promise<void> {
   if (isTauri) {
     try {
