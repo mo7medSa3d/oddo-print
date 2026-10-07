@@ -34,6 +34,74 @@ pub struct AgentStatus {
     pub note_code: String,
 }
 
+#[cfg(windows)]
+fn launch_elevated_manager() -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> isize;
+    }
+
+    const SW_SHOWNORMAL: i32 = 1;
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("resolve current Manager executable: {e}"))?;
+    let operation: Vec<u16> = std::ffi::OsStr::new("runas")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let file: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    // The new elevated process is allowed to wait briefly for this process to
+    // release the single-instance mutex instead of immediately exiting.
+    let parameters: Vec<u16> = std::ffi::OsStr::new("--elevated-relaunch")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            parameters.as_ptr(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result <= 32 {
+        let detail = match result {
+            5 => "administrator approval was cancelled or denied",
+            2 => "Manager executable was not found",
+            3 => "Manager executable path was not found",
+            _ => "Windows could not start the elevated Manager",
+        };
+        return Err(format!("{detail} (ShellExecuteW={result})"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn relaunch_as_admin() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        if is_running_as_admin() {
+            return Err("Yaseir Print Manager is already running as administrator".into());
+        }
+        launch_elevated_manager()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("administrator relaunch is only available on Windows".into())
+    }
+}
+
 #[tauri::command]
 pub fn is_running_as_admin() -> bool {
     #[cfg(windows)]
