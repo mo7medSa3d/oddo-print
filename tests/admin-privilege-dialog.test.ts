@@ -29,7 +29,7 @@ afterEach(() => {
 function renderDialog(props: {
   open: boolean;
   onClose?: () => void;
-  onRelaunch?: () => void;
+  onRelaunch?: () => Promise<void>;
 }) {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -97,7 +97,7 @@ describe("AdminPrivilegeDialog", () => {
   });
 
   it("triggers relaunch and closes the current app when the admin action is clicked", async () => {
-    const onRelaunch = vi.fn();
+    const onRelaunch = vi.fn(async () => {});
     renderDialog({ open: true, onRelaunch });
 
     const buttons = Array.from(document.querySelectorAll("button"));
