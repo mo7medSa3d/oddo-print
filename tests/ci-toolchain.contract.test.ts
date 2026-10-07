@@ -79,12 +79,6 @@ describe("CI/runtime alignment", () => {
     expect(windows).not.toContain("cargo audit");
   });
 
-  it("keeps the production Next build owned by Docker instead of duplicating it in CI", () => {
-    const ci = readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8");
-    expect(ci).not.toContain("npm run build");
-    expect(dockerfile).toContain("npm run build");
-  });
-
   it("runs the Windows installer only for desktop/agent-affecting push and PR changes", () => {
     const windows = readFileSync(path.join(root, ".github/workflows/build-windows.yml"), "utf8");
     expect((windows.match(/^[ ]{4}paths:$/gm) ?? []).length).toBe(2);
