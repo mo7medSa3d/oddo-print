@@ -29,6 +29,7 @@ export function applyApiCors(req: { url?: string; headers: Record<string, string
   res.setHeader("Access-Control-Allow-Credentials", "false");
   res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS);
   res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS);
+  res.setHeader("Access-Control-Expose-Headers", "X-Request-Id,X-Has-More,X-Next-Cursor,X-Next-Before-Created-At,X-Next-Before-Id,X-Next-Before-Id-Encoded");
   res.setHeader("Access-Control-Max-Age", "600");
   res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
   return true;

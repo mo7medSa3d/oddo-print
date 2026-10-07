@@ -41,7 +41,8 @@ test("fleet list responses preserve arrays and publish next-page evidence withou
     assert.match(source, /"Cache-Control": "no-store"/);
     assert.match(source, /"X-Has-More"/);
     assert.match(source, /"X-Next-Before-Created-At"/);
-    assert.match(source, /"X-Next-Before-Id"/);
+    assert.match(source, /fleetCursorIdHeaders\(last\.id\)/);
+    assert.match(source, /readFleetCursorId\(searchParams\)/);
   }
 });
 
