@@ -163,7 +163,8 @@ describe("Odoo Gateway activation synchronization", () => {
 
     it("renders Gateway Configuration status from the Odoo-sourced state and refreshes it", () => {
       const page = read("src/app/api-keys/page.tsx");
-      expect(page).toContain('fetch("/api/odoo/keys"');
+      expect(page).toContain('fetchWithTimeout("/api/odoo/keys"');
+      expect(page).toContain('credentials: "include"');
       expect(page).toContain("setInterval");
       // The page identity is localized now: the stable contract is the title
       // key plus its English value, not a literal sentence in the JSX.

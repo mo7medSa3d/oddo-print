@@ -161,7 +161,7 @@ suite("server-side print job maintenance", () => {
     const receipts = await pool().query("SELECT COUNT(*)::int AS n FROM print_job_receipts WHERE id LIKE 'retention-batch-%'");
     expect(Number(receipts.rows[0]?.n)).toBe(total);
     const sample = await pool().query(
-      "SELECT fingerprint, printer_id, document_type, destination, payload FROM print_job_receipts WHERE id = $1",
+      "SELECT fingerprint, printer_id, document_type, destination FROM print_job_receipts WHERE id = $1",
       ["retention-batch-0"],
     );
     const { idempotencyDigest } = await import("../src/lib/print-job-service");
@@ -169,7 +169,7 @@ suite("server-side print job maintenance", () => {
       printerId: sample.rows[0]?.printer_id,
       documentType: sample.rows[0]?.document_type,
       destination: sample.rows[0]?.destination,
-      payload: sample.rows[0]?.payload,
+      payload: { type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" },
     }));
   });
 

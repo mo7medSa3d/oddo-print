@@ -63,6 +63,7 @@ suite("heartbeat cross-agent printer identity", () => {
 
   it("scopes colliding local discovery IDs per agent without dropping either device", async () => {
     const f = await seedFixture();
+    await pool().query("DELETE FROM printers WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId]);
     const second = await secondAgentSameTenant(f.tenantId);
     const localId = "printer_net_deadbeef";
 
