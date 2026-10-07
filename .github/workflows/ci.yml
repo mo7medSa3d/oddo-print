@@ -42,17 +42,16 @@ jobs:
         with:
           path: ~/go/bin/staticcheck
           key: ${{ runner.os }}-staticcheck-v0.7.0
-      - name: Agent format, modules, and vet
+      - name: Agent modules and format
         working-directory: agent
         shell: bash
         run: |
           set -euo pipefail
           go mod verify
           test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
-          go vet -mod=readonly ./...
-      - name: Agent race tests
+      - name: Agent race tests and vet
         working-directory: agent
-        run: go test -mod=readonly ./... -race
+        run: go test -mod=readonly -race -vet=all ./...
       - name: Agent dead-code scan
         working-directory: agent
         shell: bash
