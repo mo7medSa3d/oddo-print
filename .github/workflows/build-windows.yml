@@ -3,48 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "agent/**"
-      - "src-tauri/**"
-      - "src/desktop/**"
-      - "src/components/**"
-      - "src/i18n/**"
-      - "src/shared/**"
-      - "src/lib/**"
-      - "src/app/globals.css"
-      - "contracts/**"
-      - "scripts/build-windows-installer.ps1"
-      - "scripts/smoke-test-windows.ps1"
-      - "vite.desktop.config.mts"
-      - "postcss.config.*"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
-      - ".nvmrc"
-      - ".github/workflows/build-windows.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "agent/**"
-      - "src-tauri/**"
-      - "src/desktop/**"
-      - "src/components/**"
-      - "src/i18n/**"
-      - "src/shared/**"
-      - "src/lib/**"
-      - "src/app/globals.css"
-      - "contracts/**"
-      - "scripts/build-windows-installer.ps1"
-      - "scripts/smoke-test-windows.ps1"
-      - "vite.desktop.config.mts"
-      - "postcss.config.*"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
-      - ".nvmrc"
-      - ".github/workflows/build-windows.yml"
   merge_group:
-
 concurrency:
   group: windows-build-${{ github.ref }}
   cancel-in-progress: true

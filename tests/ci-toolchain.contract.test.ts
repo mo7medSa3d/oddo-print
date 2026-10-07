@@ -86,6 +86,7 @@ describe("CI/runtime alignment", () => {
     expect(windows).toContain("if: needs.changes.outputs.windows == 'true'");
     expect(windows).toContain("if: needs.changes.outputs.agent == 'true'");
     expect(windows).toContain("if: needs.changes.outputs.rust == 'true'");
+    expect(windows).not.toMatch(/^[ ]{4}paths:$/m);
     for (const requiredPath of ["agent/*", "src-tauri/*", "src/desktop/*", "src/components/*", "src/i18n/*", "src/lib/*"]) {
       expect(windows).toContain(requiredPath);
     }
