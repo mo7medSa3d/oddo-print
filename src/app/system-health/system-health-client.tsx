@@ -9,14 +9,11 @@ import { statusMessageKey } from "../../lib/api-error-keys";
 import type { Translator } from "../../i18n/translate";
 import type { MessageKey } from "../../i18n/messages/en";
 import {
-  Activity,
   CheckCircle2,
   AlertTriangle,
   CircleSlash,
   HelpCircle,
   RefreshCw,
-  Gauge,
-  Route,
 } from "lucide-react";
 import {
   Button,
@@ -43,13 +40,10 @@ type HealthCheck = {
 
 /** Health check cards come from the server with English names. */
 const CHECK_NAME_KEYS: Record<string, MessageKey> = {
-  Database: "health.check.database",
-  Queue: "health.check.queue",
   Agents: "health.check.agents",
   Printers: "health.check.printers",
   Gateway: "health.check.gateway",
   Odoo: "health.check.odoo",
-  Billing: "health.check.billing",
 };
 type SystemHealth = {
   overall: HealthState;
@@ -85,6 +79,19 @@ function StateIcon({ state, className = "h-4 w-4" }: { state: HealthState; class
   if (state === "warn") return <AlertTriangle className={className} aria-hidden />;
   if (state === "error") return <CircleSlash className={className} aria-hidden />;
   return <HelpCircle className={className} aria-hidden />;
+}
+
+/**
+ * Customer-facing System Health intentionally shows only product-level
+ * dependencies an operator can understand and act on. Database/queue/billing
+ * internals remain available to server diagnostics and support tooling, but
+ * they are not rendered in the customer console.
+ */
+function customerOverall(checks: HealthCheck[]): HealthState {
+  if (checks.some((check) => check.state === "error")) return "error";
+  if (checks.some((check) => check.state === "warn")) return "warn";
+  if (checks.some((check) => check.state === "unknown")) return "unknown";
+  return "ok";
 }
 
 function relativeTime(iso: string, locale: string) {
@@ -159,7 +166,9 @@ export default function SystemHealthClient() {
 
   if (!health) return null;
 
-  const counts = health.checks.reduce<Record<HealthState, number>>(
+  const customerChecks = [health.gateway, health.agents, health.printers, health.odoo];
+  const visibleOverall = customerOverall(customerChecks);
+  const counts = customerChecks.reduce<Record<HealthState, number>>(
     (acc, check) => {
       acc[check.state] += 1;
       return acc;
@@ -167,7 +176,7 @@ export default function SystemHealthClient() {
     { ok: 0, warn: 0, error: 0, unknown: 0 },
   );
 
-  const criticalChecks = health.checks.filter((check) => check.state === "error" || check.state === "warn");
+  const criticalChecks = customerChecks.filter((check) => check.state === "error" || check.state === "warn");
 
   return (
     <div className="space-y-5">
@@ -178,26 +187,22 @@ export default function SystemHealthClient() {
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3.5">
             <StateIcon
-              state={health.overall}
+              state={visibleOverall}
               className={`mt-0.5 h-5 w-5 shrink-0 ${
-                health.overall === "ok" ? "text-ok" : health.overall === "warn" ? "text-warn" : health.overall === "error" ? "text-bad" : "text-ink-3"
+                visibleOverall === "ok" ? "text-ok" : visibleOverall === "warn" ? "text-warn" : visibleOverall === "error" ? "text-bad" : "text-ink-3"
               }`}
             />
             <div className="min-w-0">
               <h2 className="flex flex-wrap items-center gap-2 text-md font-[620] tracking-[-0.015em] text-ink">
-                {health.overall === "ok" ? t("health.allCriticalHealthy") : stateLabel(health.overall, t)}
-                <StatusBadge tone={STATE_TONE[health.overall]} label={stateLabel(health.overall, t)} size="sm" />
+                {visibleOverall === "ok" ? t("health.allCriticalHealthy") : stateLabel(visibleOverall, t)}
+                <StatusBadge tone={STATE_TONE[visibleOverall]} label={stateLabel(visibleOverall, t)} size="sm" />
               </h2>
               <p className="mt-1 text-sm leading-relaxed text-ink-3">
                 {criticalChecks.length === 0
                   ? t("health.sampleSummary")
                   : tc("health.checksNeedAttention", criticalChecks.length)}
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                <span>{t("health.versionGateway", { version: health.version.gateway })}</span>
-                <span aria-hidden>·</span>
-                <span>{t("health.versionSchema", { version: health.version.schema })}</span>
-                <span aria-hidden>·</span>
+              <div className="mt-2 text-xs text-ink-3">
                 <span>{t("health.sampledAt", { time: relativeTime(health.timestamp, locale) })}</span>
               </div>
             </div>
@@ -236,7 +241,7 @@ export default function SystemHealthClient() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {health.checks.map((check) => (
+        {customerChecks.map((check) => (
           <Card key={check.name} className="flex flex-col">
             <CardHeader
               title={CHECK_NAME_KEYS[check.name] ? t(CHECK_NAME_KEYS[check.name]) : check.name}
@@ -249,65 +254,11 @@ export default function SystemHealthClient() {
                   ? t(check.messageKey as MessageKey, check.messageVars)
                   : check.message}
               </p>
-              <div className="mt-auto flex flex-wrap items-center gap-3 pt-3 text-xs text-ink-3">
-                {check.latencyMs !== undefined && (
-                  <span className="inline-flex items-center gap-1.5 tabular">
-                    <Gauge className="h-3.5 w-3.5 text-ink-4" aria-hidden />
-                    {check.latencyMs} ms
-                  </span>
-                )}
-                {check.details && (
-                  <details className="group w-full">
-                    <summary className="cursor-pointer select-none text-xs font-[550] text-brand transition-colors hover:text-brand-hover">
-                      {t("health.technicalDetails")}
-                    </summary>
-                    <pre dir="ltr" className="mt-2 max-h-44 overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-2.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
-                      {JSON.stringify(check.details, null, 2)}
-                    </pre>
-                  </details>
-                )}
-              </div>
             </div>
           </Card>
         ))}
       </div>
 
-      <Card>
-        <CardHeader
-          title={t("health.tracing")}
-          subtitle={t("health.tracingText")}
-          icon={<Route className="h-4 w-4" />}
-          actions={
-            <StatusBadge tone="info" label="X-Request-Id" />
-          }
-        />
-        <div className="space-y-4 px-5 py-5">
-          <p className="max-w-[80ch] text-sm leading-relaxed text-ink-3">
-            {t("health.tracingIdsIntro")} <code className="font-mono text-xs">request_id</code>,{" "}
-            <code className="font-mono text-xs">job_id</code>,{" "}
-            <code className="font-mono text-xs">tenant_id</code>,{" "}
-            <code className="font-mono text-xs">agent_id</code>,{" "}
-            <code className="font-mono text-xs">printer_id</code>,{" "}
-            <code className="font-mono text-xs">attempt_id</code>,{" "}
-            <code className="font-mono text-xs">claim_id</code>{" "}
-            <code className="font-mono text-xs">spooler_job_id</code>{" "}
-            {t("health.tracingIdsTail")}{" "}
-            <code className="font-mono text-xs">X-Request-Id</code>{" "}
-            {t("health.tracingIdsOutro")}
-          </p>
-          <pre dir="ltr" className="overflow-x-auto rounded-md border border-edge-subtle bg-surface-2 p-3.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
-{`{"ts":"…","level":"info","event":"print.job.success","requestId":"req_…","jobId":"job_…","tenantId":"…","agentId":"…","printerId":"…","attemptId":"attempt_…","claimId":"…","spoolerJobId":"…"}`}
-          </pre>
-          <div className="flex items-start gap-2.5 rounded-md border border-edge-subtle bg-surface-2 px-3.5 py-3">
-            <Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
-            <p className="text-sm leading-relaxed text-ink-3">
-              {t("health.unverifiedIntro")}{" "}
-              <strong className="font-[600] text-ink">{t("health.unverifiedStrong")}</strong>{" "}
-              {t("health.unverifiedTail")}
-            </p>
-          </div>
-        </div>
-      </Card>
     </div>
   );
 }
