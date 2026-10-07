@@ -59,7 +59,8 @@ describe("domain staging deployment contracts", () => {
     expect(sql).toContain("pg_advisory_xact_lock");
     expect(sql).toContain("ON CONFLICT (domain) DO UPDATE");
     expect(sql).toContain("refusing to reassign it");
-    expect(sql).toContain("candidate_count > 1");
+    expect(sql).toMatch(/candidate_count > 1 THEN\s+RAISE NOTICE '[^']+';\s+RETURN;/);
+    expect(sql).not.toContain("RAISE EXCEPTION 'Multiple staging workspaces");
     expect(sql).toContain("lifecycle = 'active'");
     expect(sql).not.toMatch(/DELETE FROM|DROP TABLE|UPDATE users|UPDATE tenants/);
     expect(setup).not.toContain("curl -k");

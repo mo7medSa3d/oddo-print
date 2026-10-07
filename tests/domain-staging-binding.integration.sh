@@ -40,9 +40,10 @@ psql -c "INSERT INTO tenants(id) VALUES ('workspace-two')"
 bind_domain
 expect_failure workspace-two
 [[ "$(psql -Atc 'SELECT tenant_id FROM tenant_domains')" == "workspace-one" ]]
-# Unowned domains require an explicit selection when there are several workspaces.
+# Ambiguous optional binding must not block deployment or choose a workspace.
 psql -c 'DELETE FROM tenant_domains'
-expect_failure
+bind_domain
+[[ "$(psql -Atc 'SELECT count(*) FROM tenant_domains')" == "0" ]]
 expect_failure missing-workspace
 psql -c "UPDATE tenants SET lifecycle='suspended' WHERE id='workspace-two'"
 expect_failure workspace-two

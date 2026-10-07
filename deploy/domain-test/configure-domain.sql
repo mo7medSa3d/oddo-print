@@ -32,7 +32,8 @@ BEGIN
       RAISE NOTICE 'No staging workspace yet; rerun setup after creating the workspace';
       RETURN;
     ELSIF candidate_count > 1 THEN
-      RAISE EXCEPTION 'Multiple staging workspaces: set MANAGER_TENANT_ID once to choose the domain owner';
+      RAISE NOTICE 'Multiple staging workspaces: skipping optional domain binding; set MANAGER_TENANT_ID only to choose a domain owner';
+      RETURN;
     END IF;
   END IF;
 
