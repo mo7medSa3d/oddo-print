@@ -4,23 +4,24 @@ Repository: https://github.com/mo7medSa3d/oddo-print
 Baseline: `3334590471d3e53e97ab75072624bf1fd2569673` (latest main at clone; unchanged on final fetch).
 Branch: `audit/production-printing-hardening-20261007`.
 
-Source audit, repairs, runnable local verification and the independent second adversarial pass are complete. Publication is the remaining Task 4 step. Native/live checks are **BLOCKED locally**, not passed. Physical printing is **UNVERIFIED**. This report makes no physical production-certification claim.
+Source audit, repairs, runnable local verification and the independent second adversarial pass are complete. Repair branch published and PR #126 opened to main; CI confirmation is the remaining Task 4 step. Native/live checks are **BLOCKED locally**, not passed. Physical printing is **UNVERIFIED**. This report makes no physical production-certification claim.
 
 ## Findings
 
-New findings: **P0 0 / P1 1 / P2 8 / P3 0**. All nine have source repairs and regressions. No known unresolved P0/P1 remains in the reviewed source. Runtime confirmation for native/database changes remains subject to the gates below. Prior GW01–GW03 are preserved as historical P2 findings, separate from these counts; the original user's Windows connection failure is still unconfirmed.
+New findings: **P0 0 / P1 2 / P2 8 / P3 0**. All ten have source repairs and regressions. No known unresolved P0/P1 remains in the reviewed source. Runtime confirmation for native/database changes remains subject to the gates below. Prior GW01–GW03 are preserved as historical P2 findings, separate from these counts; the original user's Windows connection failure is still unconfirmed.
 
 | ID | Severity | Root cause and final repair | Commit |
 | --- | --- | --- | --- |
-| R01 | P2 | Invalid ESC/POS framing asserted offline/paper/cover faults; invalid replies now mean unsupported status before bit interpretation. | a1a074c0 |
-| R02 | P1 | Random snapshot IDs cannot order page-1/completed replays; retain a checked int64 decimal high-water mark under the Agent row lock, shared across pages, with rollback/restart catch-up. Legacy writers cannot authorize absence or downgrade the fence. | 0e263bc4 |
-| R03 | P2 | Capabilities selected/projected the entire fleet; tenant-scoped keyset pages apply limits before diagnostics and publish safe cursors. | 90173551 |
-| R04 | P2 | CI's audit-only filename glob omitted native Node regressions; run all 101 cases and retain the current fleet-query contract. | c37ccf1c |
-| R05 | P2 | Stale-Agent persistence updated/returned the entire backlog; ordered capped batches use SKIP LOCKED while request-time freshness stays immediate. | 1771d2b5 |
-| R06 | P2 | Windows-tagged Go regressions never executed; native module verification, vet and tests now precede Windows packaging. | cc487bd5 |
-| R07 | P2 | Valid fixed framing still admitted undefined DLE EOT 4 sensor half-pairs; reject those pairs before hardware fault interpretation, retain valid near-end/fault controls. | 4dab2874 |
-| R08 | P2 | Unicode/control IDs broke raw cursor headers and CORS hid traversal metadata; encoded UTF-8 cursors work on both fleet routes, with safe ASCII compatibility and allowed-origin exposure. | eae77c5d |
-| R09 | P2 | Paginated inventory uploads returned an unbounded authoritative desired-state list; negotiated bounded continuation pages are collected and persisted before absence reconciliation. Invalid/interrupted/unpersisted snapshots keep execution fenced. | e7cf576a |
+| R01 | P2 | Invalid ESC/POS framing asserted offline/paper/cover faults; invalid replies now mean unsupported status before bit interpretation. | 6f53311e |
+| R02 | P1 | Random snapshot IDs cannot order page-1/completed replays; retain a checked int64 decimal high-water mark under the Agent row lock, shared across pages, with rollback/restart catch-up. Legacy writers cannot authorize absence or downgrade the fence. | 47eb9bb9 |
+| R03 | P2 | Capabilities selected/projected the entire fleet; tenant-scoped keyset pages apply limits before diagnostics and publish safe cursors. | db091255 |
+| R04 | P2 | CI's audit-only filename glob omitted native Node regressions; run all 101 cases and retain the current fleet-query contract. | 86981fb2 |
+| R05 | P2 | Stale-Agent persistence updated/returned the entire backlog; ordered capped batches use SKIP LOCKED while request-time freshness stays immediate. | 37fbc11e |
+| R06 | P2 | Windows-tagged Go regressions never executed; native module verification, vet and tests now precede Windows packaging. | 14e6820d |
+| R07 | P2 | Valid fixed framing still admitted undefined DLE EOT 4 sensor half-pairs; reject those pairs before hardware fault interpretation, retain valid near-end/fault controls. | 2259c005 |
+| R08 | P2 | Unicode/control IDs broke raw cursor headers and CORS hid traversal metadata; encoded UTF-8 cursors work on both fleet routes, with safe ASCII compatibility and allowed-origin exposure. | 5a66cc79 |
+| R09 | P2 | Paginated inventory uploads returned an unbounded authoritative desired-state list; negotiated bounded continuation pages are collected and persisted before absence reconciliation. Invalid/interrupted/unpersisted snapshots keep execution fenced. | 218c36a1 |
+| R10 | P1 | Native Windows gate exposed embedded PDFium initialization failure: custom cancellation runtime omitted the pinned WASM's required exception handling. Explicitly retain it with the existing filesystem sandbox and cancellation controls. Original real renderer tests require CI rerun. | pending publication |
 
 Details, regression evidence and final file:line anchors are in `AUDIT_FINDINGS.md`. Batch history and interrupted/failed invocations remain in `FIX_LOG.md`.
 
@@ -80,7 +81,7 @@ The second pass inspected changed code and equivalent producers/consumers rather
 
 1. Run migration **0080 before the updated Gateway**. Upgrade Agents for ordered inventory and negotiated desired-state paging. Versionless legacy inventory is additive until a versioned writer is established, then rejected. Large legacy manager snapshots require upgrade; no truncated list is ever marked complete.
 2. Capabilities collection reads are now paginated (100 default / 1000 max); traverse X-Next-Cursor. Fleet lists retain arrays/offset compatibility and add encoded UTF-8 keyset IDs. API docs explain both contracts.
-3. Local Go/race/vet/staticcheck/gofmt, Windows spooler/USB/PDF tests, Rust/Tauri/installer, PostgreSQL migrations/integration/concurrency/EXPLAIN, and real Odoo 19 install/tests require runtimes absent locally. GitHub CI will be inspected after publication; **pending/canceled/unexecuted checks are not passes**.
+3. Local Go/race/vet/staticcheck/gofmt, Windows spooler/USB/PDF tests, Rust/Tauri/installer, PostgreSQL migrations/integration/concurrency/EXPLAIN, and real Odoo 19 install/tests require runtimes absent locally. Initial CI executed the Go/Linux, migration/integration and Odoo gates successfully; Windows R10 and downstream native packaging require the follow-up run; **pending/canceled/unexecuted checks are not passes**.
 4. Windows service-account versus interactive-user queue visibility, real device health/back-channel behavior, physical RAW/IPP/spooler/PDF output and crash/network/driver fault injection are **UNVERIFIED** without deployment hardware.
 5. QWeb page dimensions/layout remain in the PDF, but Windows rendering fits the queue's configured printable area. It does **not** automatically select PDF custom paper/orientation/tray/duplex or reproduce a browser print dialog. Configure the driver and physically certify custom sizes, margins, Arabic shaping, fonts, rotation, labels/barcodes, POS and kitchen output as documented in `docs/PRINT_CERTIFICATION.md`.
 6. Native desired-state traversal has explicit byte/time budgets; unusual configuration volumes require distributing work across Agents. Live load and disaster-recovery exercises remain unverified.
@@ -91,5 +92,14 @@ Risk: migration/Agent rollout and native printing paths require review and real 
 ## Publication / Definition of Done
 
 Task 2 and Task 3: complete with the explicit verification limits above.
-Task 4: final report/commit/push/PR publication in progress.
-Definition of Done: **NOT YET SATISFIED** until the repair branch and PR to main exist; CI/runtime results must be recorded accurately.
+Task 4: published ten commits through the authenticated GitHub connector; each remote tree exactly matches its local checkpoint. PR: https://github.com/mo7medSa3d/oddo-print/pull/126 (open, not merged). Head at initial publication: `655b1dcc37317f53052bff2f39bfec337151de33`. CI is running; results will be recorded without assuming pending tests passed.
+Definition of Done: **NOT YET SATISFIED** while available CI/runtime verification is still executing; the repair branch and PR to main now exist.
+
+## Native CI confirmation and repair follow-up
+
+Initial source head `655b1dcc37317f53052bff2f39bfec337151de33`:
+
+- CI https://github.com/mo7medSa3d/oddo-print/actions/runs/37666423990 PASS: Go vet/race, Linux and Windows-tag U1000, formatting, Python 211, unit 930 pass/1 skip, PostgreSQL 388 pass including migration 0080 and all new integration cases. Native Node, build, catalogs and runtime schema passed.
+- Odoo 19 on the same run PASS: real addon installation/tests; stats 219, framework result 0 failed/0 errors of 205 tests.
+- Docker 37666424139, resilience/supply chain 37666423997 and static security 37666424089 PASS.
+- Windows 37666424072 FAIL at actual embedded PDFium initialization (R10); downstream Rust/installer steps skipped, not passed. R10 source repaired; native retest pending. This finding demonstrates why compilation/mocks were insufficient and native regression coverage must remain mandatory.

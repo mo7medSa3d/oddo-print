@@ -104,3 +104,14 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 | R07 | `agent/internal/printer/health.go:105` |
 | R08 | `src/lib/fleet-cursor.ts:2` |
 | R09 | `src/lib/desired-state-page.ts:11` |
+
+### R10 — P1 — native CI: embedded PDFium runtime cannot initialize
+
+- Component/location: Windows driver PDF execution; `agent/internal/printer/pdf_windows.go:110`.
+- Problem: both actual embedded renderer smoke and rotated-page tests fail before opening a PDF with `tag section not supported as feature "exception-handling" is disabled` in Windows job 112946710068 / run 37666424072.
+- Root cause: the pinned go-pdfium v1.21.1 WASM requires exception handling for setjmp/longjmp. Its default runtime enables that feature, but the Agent supplies a custom RuntimeConfig for cancellation and inadvertently replaces the required core features.
+- Impact: every Windows driver PDF job using the actual embedded renderer fails before spool submission. Compilation and mocked PDF success did not prove runtime availability; the newly enabled native gate exposed this production failure.
+- Fix: explicitly retain CoreFeaturesV2 plus the pinned wazero experimental exception-handling feature while preserving WithCloseOnContextDone, one worker and the empty filesystem configuration. No dependency change or external renderer fallback.
+- Regression coverage: retain and execute TestPDFiumEmbeddedRendererSmoke and TestPDFiumRendersRotatedPage against the real embedded WASM; do not weaken or skip either failure. Native Windows suite rerun pending; source-only checks are not a pass.
+- Reference: https://github.com/klippa-app/go-pdfium/blob/v1.21.1/webassembly/webassembly.go (custom RuntimeConfig requirement and exact feature combination inspected).
+- Status: SOURCE REPAIRED; native runtime confirmation pending CI.

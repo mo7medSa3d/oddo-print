@@ -18,6 +18,8 @@ import (
 	"github.com/klippa-app/go-pdfium/responses"
 	"github.com/klippa-app/go-pdfium/webassembly"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/sys/windows"
 )
 
@@ -107,12 +109,17 @@ var (
 
 func getPDFiumPool() (pdfium.Pool, error) {
 	pdfiumOnce.Do(func() {
+		// The pinned PDFium WASM uses exception handling for setjmp/longjmp.
+		// Custom runtime configs must retain that upstream-required feature.
+		runtimeConfig := wazero.NewRuntimeConfig().
+			WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling).
+			WithCloseOnContextDone(true)
 		pdfiumPool, pdfiumErr = webassembly.Init(webassembly.Config{
 			MinIdle:       0,
 			MaxIdle:       1,
 			MaxTotal:      1,
 			ReuseWorkers:  true,
-			RuntimeConfig: wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
+			RuntimeConfig: runtimeConfig,
 			FSConfig:      wazero.NewFSConfig(),
 		})
 	})

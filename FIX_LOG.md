@@ -1,4 +1,4 @@
-RESUME HERE: Task 3 final verification/diff | completed=Task 2 and second adversarial source pass; R01-R09 repaired; local unit/native Node/Python/build checks pass | current=final verification evidence and complete baseline diff review | next=final report; commit/push repair branch; open PR to main; inspect native/live CI | blockers=Go/Rust/Windows/Odoo/PostgreSQL local runtimes absent; physical certification unverified
+RESUME HERE: Task 4 native CI repair R10 | completed=Tasks 2/3, R01-R09, exact-tree publication, PR #126, Linux Go/race/U1000/gofmt, 388 PG integration cases, Odoo19, Docker/security | current=Windows real PDFium smoke/rotation fail; custom RuntimeConfig omitted required exception handling; source corrected with sandbox/cancellation retained | next=publish R10 and rerun original Windows/CI gates, persist final evidence | blockers=physical certification and original connection issue remain unverified
 
 ## 2026-10-07 complete printing audit — execution checkpoint
 
@@ -130,3 +130,18 @@ Source review combines full high-risk implementation reads with repository-wide 
 - Full baseline diff reviewed across production code, all affected producers/consumers, regressions, workflows and API/rollout/certification docs; generated snapshot checked structurally against 0079. Original migration history and dependency manifests/locks are unchanged. No unrelated working-tree changes.
 - Current-source file anchors appended to findings. Database table-matrix line references refreshed; historical index/FK counts explicitly labelled historical rather than live catalog counts.
 - Final report records 9 new findings (P0 0 / P1 1 / P2 8 / P3 0), all source-repaired, with runtime proof limits and the mandatory physical/driver/connection risks. Publication is next.
+
+### Authenticated publication checkpoint
+
+- CLI push lacked credentials; authenticated GitHub connector published each existing commit, preserving messages and source trees exactly. Commit SHAs changed with server metadata; scratch publication map retains local-to-remote correspondence. Local checkpoint branch is preserved.
+- Remote repair branch head `655b1dcc37317f53052bff2f39bfec337151de33`; tree `1c3bc1e018f5db7c23bac18a2d676c97a4e33e4b` exactly matches local e34809eb. Canonical local branch now tracks the published remote; no source was reimplemented or completed tests repeated.
+- PR #126 opened to main: https://github.com/mo7medSa3d/oddo-print/pull/126. Main unchanged; PR not merged. All 16 required description sections and remote commit links present.
+- Initial Actions: CI 37666423990; Windows 37666424072; Docker 37666424139; resilience 37666423997; static security 37666424089. Pending/canceled/unexecuted jobs are not passes.
+
+- Confirmed CI PASS on initial source head: Linux module verify/vet/race, TypeScript/lint, full Node and catalogs/schema docs, Linux U1000; actual Odoo 19 install and addon tests (stats 219; result 0 failed, 0 errors of 205 framework tests). Resilience, all CodeQL/secret/dependency/supply-chain jobs and Docker runtime gates also passed. Remaining CI steps and Windows packaging are pending, not passed.
+
+### Native CI R10 checkpoint
+
+- Initial full CI run 37666423990 PASS: Linux Go vet/race, Linux+Windows U1000, gofmt, Python 211 PASS (rustc case now executed), unit 930 PASS / 1 SKIP, PostgreSQL integration 388 PASS (including newly added ordered inventory/desired-state scenarios), migrations/runtime schema, builds and catalogs. Odoo 19 job also PASS.
+- Windows run 37666424072 FAIL: module verification/vet and Agent packages pass, but actual PDFium smoke/rotated rendering fail at module compilation; Rust/build/installer steps were skipped after failure, not passed.
+- R10 P1 is a newly confirmed production runtime defect. Inspected pinned upstream initialization code; custom runtime must enable exception handling. Small source fix retains existing sandbox, cancellation and worker bounds; original native regressions must pass after publication. Findings total is now P0 0 / P1 2 / P2 8 / P3 0.
