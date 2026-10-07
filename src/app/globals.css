@@ -361,8 +361,8 @@
   --color-info-bg: var(--info-bg);
   --color-info-edge: var(--info-border);
 
-  --font-sans: "Segoe UI Variable Text", "SF Pro Text", "Noto Sans Arabic", Tahoma,
-    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-ibm-plex-sans, "Segoe UI Variable Display"), "SF Pro Text",
+    "Aptos", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
@@ -446,6 +446,23 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+  }
+
+  html[dir="rtl"] body {
+    font-family: var(--font-ibm-plex-sans-arabic, "Noto Sans Arabic"),
+      var(--font-ibm-plex-sans, "Segoe UI Variable Text"), Tahoma, Arial, sans-serif;
+    font-feature-settings: normal;
+  }
+
+  /* Arabic letterforms should keep their native joins; negative tracking that
+     looks polished in Latin can visibly damage Arabic word shapes. */
+  html[dir="rtl"] h1,
+  html[dir="rtl"] h2,
+  html[dir="rtl"] h3,
+  html[dir="rtl"] h4,
+  html[dir="rtl"] h5,
+  html[dir="rtl"] h6 {
+    letter-spacing: 0;
   }
 
   h1,
