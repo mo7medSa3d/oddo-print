@@ -268,7 +268,7 @@ func TestNetworkPrinterPreFlightCheckScenarios(t *testing.T) {
 			expectErrIs: ErrPrinterOffline,
 		},
 		{
-			name: "malformed/garbage response fails closed with ErrPrinterNotReady and sends 0 bytes",
+			name: "malformed status response is unsupported evidence and does not invent a hardware fault",
 			responder: func(conn net.Conn) {
 				cmd := make([]byte, 3)
 				if _, err := io.ReadFull(conn, cmd); err != nil {
@@ -277,7 +277,7 @@ func TestNetworkPrinterPreFlightCheckScenarios(t *testing.T) {
 				// Echoing back probe or arbitrary garbage byte failing (buf[0] & 0x93) == 0x12 framing check
 				_, _ = conn.Write([]byte{0xFF})
 			},
-			expectErrIs: ErrPrinterNotReady,
+			expectSuccess: true,
 		},
 	}
 

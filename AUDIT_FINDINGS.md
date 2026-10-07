@@ -16,8 +16,8 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Problem/root cause: fault bits are interpreted before validating fixed protocol framing. Garbage or echoed bytes with arbitrary bits become asserted offline/cover-open/paper-out status.
 - Affected flow/impact: normal ESC/POS preflight and heartbeat Status may reject a usable printer based on a response that is not a valid status frame.
 - Fix strategy: reject every invalid frame as status-unsupported; keep valid fault-frame behavior; regress all three inquiries with invalid fault-looking bytes.
-- Regression/verification: pending; Go toolchain absent locally.
-- Status: CONFIRMED / REPAIR PENDING.
+- Regression/verification: invalid-frame and valid-fault Go cases added; existing TCP preflight case corrected. Go toolchain absent locally, execution BLOCKED pending CI.
+- Status: FIXED; Go runtime confirmation pending CI.
 
 ### R02 — P1 — inventory stale snapshot replay
 

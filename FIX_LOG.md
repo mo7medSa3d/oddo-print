@@ -1,4 +1,4 @@
-RESUME HERE: Phase 2 status/capability repair | completed=R02 version fence, generated migration 0080, Agent catch-up, 18 executable policy/route regressions, typecheck | current=R01 ESC/POS invalid status framing | next=repair R03 bounded capabilities collection and R04 CI test glob; continue Odoo/UI/security/deployment audit | blockers=Go/Rust/Windows/Odoo/PostgreSQL runtimes absent; original PC connection failure unconfirmed
+RESUME HERE: Phase 2 capability/CI repair | completed=R02 committed 0e263bc4; R01 invalid-framing repair and Go regressions persisted | current=bound capabilities collection (R03) | next=repair CI native-suite glob/assertion (R04); continue Odoo/UI/security/deployment audit | blockers=Go/Rust/Windows/Odoo/PostgreSQL runtimes absent; original PC connection failure unconfirmed
 
 ## 2026-10-07 complete printing audit — execution checkpoint
 
@@ -57,6 +57,11 @@ RESUME HERE: Phase 2 status/capability repair | completed=R02 version fence, gen
 - PASS: targeted inventory unit suites; typecheck; `git diff --check`. Generated migration with the project-approved Drizzle CLI. `npm run db:generate` was blocked by tsx IPC `EPERM`; equivalent `DATABASE_URL=<local dummy> node --import tsx scripts/db-generate.ts --name inventory_snapshot_version` succeeded without connecting to a DB. SQL/snapshot diff contains only the new column/check.
 - PASS: baseline production Next.js build with the real dependency tree (compiled/prerendered; no live DB claim).
 - Exact CI-declared Python verification dependencies installed into scratch only (`pytest==9.1.1`, `pytest-asyncio==1.4.0`, `pyflakes==4.0.2`); no project dependency changes. Full Python invocation: 210 PASS, one environment FAIL because `test_tauri_std_audit.py` needs missing rustc. That case remains BLOCKED, not repaired by weakening the test.
+
+### R01 repair checkpoint
+
+- Invalid DLE EOT response framing now yields status-unsupported before decoding any fault bit; valid offline/cover/paper/error evidence still stops transmission. Reviewed both network printing and Status/preflight consumers: optional unsupported health responses do not become asserted hardware failure or health proof.
+- Added invalid fault-looking replies for all three inquiries and valid-fault controls; updated the existing TCP test's garbage case to the unsupported-status behavior. Go test/race execution remains BLOCKED locally; source/test changes are committed for CI, not represented as passes.
 
 
 ## 2026-10-07 Gateway connection report
