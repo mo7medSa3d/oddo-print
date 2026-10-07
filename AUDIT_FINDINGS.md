@@ -105,6 +105,8 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 | R08 | `src/lib/fleet-cursor.ts:2` |
 | R09 | `src/lib/desired-state-page.ts:11` |
 | R10 | `agent/internal/printer/pdf_windows.go:110` |
+| R11 | `agent/internal/agent/ws_reconnect.go:16`, `agent/internal/agent/agent.go:1132` |
+| R12 | `agent/internal/config/gateway_url.go:10`, `agent/internal/agent/agent.go:3162`, `agent/internal/agent/discovery_manager.go:334` |
 
 ### R10 — P1 — native CI: embedded PDFium runtime cannot initialize
 
@@ -134,6 +136,7 @@ R01-R10 are FIXED and all five original-source workflows passed on 4e4f586d. R11
 
 - Location: agent/internal/config/config.go:ValidateServerURL; Agent HTTP/WS endpoint construction and CLI pairing/request paths.
 - Problem/root cause: valid configured trailing root slash yields //api HTTP paths; accepted base paths are concatenated for HTTP but discarded for WS. Desktop rejects base paths, so configuration validation and transports disagree.
-- Affected flows: manually configured/CLI-paired Agent registration, heartbeat, claims/status, desired-state continuations and WS setup.
+- Affected flows: manually configured/CLI-paired Agent registration, heartbeat, claims/status, discovery reads/result retries, desired-state continuations and WS setup.
 - Fix strategy: preserve the existing origin-root deployment contract and TLS verification, explicitly reject unsupported prefixes, derive canonical same-origin HTTP/WS endpoints with net/url across every consumer. Regress slash/whitespace/IPv6/HTTP-WS mappings and real request paths.
-- Status: CONFIRMED; repair pending R11; original customer-PC failure remains unconfirmed.
+- References: https://pkg.go.dev/net/url#URL.ResolveReference ; https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2. Absolute references can replace an origin, so the shared resolver rejects them and traversal before attaching credentials; IPv6 authorities require brackets.
+- Status: SOURCE REPAIRED; actual HTTP/WS/CLI and boundary regressions added; native verification BLOCKED locally pending CI; original customer-PC failure remains unconfirmed.

@@ -66,7 +66,7 @@ func (a *Agent) collectGatewayDesiredState(parent context.Context, rows []desire
 			return nil, fmt.Errorf("repeated desired-state page cursor")
 		}
 		seen[cursor] = struct{}{}
-		endpoint := a.cfg.Server.URL + "/api/agent/desired-state?after=" + url.QueryEscape(cursor)
+		endpoint := "/api/agent/desired-state?after=" + url.QueryEscape(cursor)
 		resp, requestErr := a.doAuthorizedRequest(ctx, http.MethodGet, endpoint, nil)
 		if requestErr != nil {
 			return nil, fmt.Errorf("fetch desired-state continuation: %w", requestErr)

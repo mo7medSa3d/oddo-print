@@ -41,7 +41,7 @@ func TestWSRetryAfterLostSessionAndRejectedHandshakeIsPacedAndCancellable(t *tes
 			}))
 			defer server.Close()
 			cfg := &config.Config{}
-			cfg.Server.URL = server.URL
+			cfg.Server.URL = "  " + server.URL + "/  "
 			cfg.Agent.ID, cfg.Agent.Secret = "agent", "test-secret"
 			ag := &Agent{cfg: cfg}
 			ctx, cancel := context.WithCancel(context.Background())

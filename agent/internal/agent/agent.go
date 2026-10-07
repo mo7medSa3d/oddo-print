@@ -1130,18 +1130,11 @@ func (a *Agent) setWSConn(c *websocket.Conn) {
 }
 
 func (a *Agent) connectWebSocket(ctx context.Context) {
-	u, err := url.Parse(a.cfg.Server.URL)
+	wsURL, err := config.GatewayWebSocketURL(a.cfg.Server.URL)
 	if err != nil {
 		log.Printf("Invalid server URL: %v", err)
 		return
 	}
-
-	scheme := "wss"
-	if u.Scheme == "http" {
-		scheme = "ws"
-	}
-
-	wsURL := fmt.Sprintf("%s://%s/api/agent/ws", scheme, u.Host)
 
 	var retry wsReconnectBackoff
 	var retryDelay time.Duration
@@ -1820,7 +1813,7 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) erro
 // that may now be active for the same job, otherwise an old saturation event
 // could mutate the replacement claim.
 func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error {
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	body := map[string]interface{}{
 		"jobId":  jobID,
 		"status": "queued",
@@ -2520,7 +2513,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	if parent.Err() != nil {
 		return
 	}
-	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
+	reqURL := "/api/agent/heartbeat"
 	printerPayload := a.printerStatusPayload()
 	desiredAcks := a.desiredStateAcksPayload()
 	gatewayOwnedIDs := a.gatewayOwnedPrinterIDs()
@@ -2660,7 +2653,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 }
 
 func (a *Agent) pollJobs(ctx context.Context) {
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
 		log.Printf("Poll failed: %v", err)
@@ -3099,7 +3092,7 @@ var ErrTransitionRejected = errors.New("gateway rejected status transition")
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
 	// The caller owns this immutable attempt token; never substitute a newer delivery.
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	body := map[string]interface{}{
 		"jobId":  jobID,
 		"status": status,
@@ -3166,7 +3159,11 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	return nil
 }
 
-func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, body interface{}) (*http.Response, error) {
+func (a *Agent) doAuthorizedRequest(ctx context.Context, method, endpointPath string, body interface{}) (*http.Response, error) {
+	target, err := config.GatewayEndpoint(a.cfg.Server.URL, endpointPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Gateway endpoint: %w", err)
+	}
 	var buf io.Reader
 	if body != nil {
 		b := new(bytes.Buffer)
@@ -3176,7 +3173,7 @@ func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, bod
 		buf = b
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, buf)
+	req, err := http.NewRequestWithContext(ctx, method, target, buf)
 	if err != nil {
 		return nil, err
 	}

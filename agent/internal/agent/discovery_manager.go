@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yaseir-agent/agent/internal/config"
 	"github.com/yaseir-agent/agent/internal/printer"
 )
 
@@ -28,7 +29,7 @@ const (
 
 // pollDiscovery checks gateway for pending discovery sessions for this agent and executes them.
 func (a *Agent) pollDiscovery(ctx context.Context) {
-	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
+	reqURL := "/api/agent/discovery"
 	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return
@@ -107,7 +108,7 @@ func loadDiscoverySessionByID(ctx context.Context, doRequest func(context.Contex
 }
 
 func (a *Agent) loadDiscoverySession(ctx context.Context, discoveryID string) map[string]interface{} {
-	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
+	reqURL := "/api/agent/discovery"
 	doRequest := func(callCtx context.Context) (*http.Response, error) {
 		return a.doAuthorizedRequest(callCtx, http.MethodGet, reqURL, nil)
 	}
@@ -349,7 +350,11 @@ func (a *Agent) reportDiscoveryResult(ctx context.Context, discoveryID, status s
 		"devices":     devices,
 		"errors":      diagnostics,
 	}
-	reqURL := fmt.Sprintf("%s/api/agent/discovery", a.cfg.Server.URL)
+	reqURL, err := config.GatewayEndpoint(a.cfg.Server.URL, "/api/agent/discovery")
+	if err != nil {
+		log.Printf("[discovery] invalid Gateway endpoint for %s: %v", discoveryID, err)
+		return
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("[discovery] failed to encode results for %s: %v", discoveryID, err)

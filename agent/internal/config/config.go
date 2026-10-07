@@ -67,15 +67,9 @@ func insecureHTTPAllowed() bool {
 }
 
 func ValidateServerURL(raw string) error {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	u, err := parseServerOrigin(raw)
 	if err != nil {
-		return fmt.Errorf("server.url invalid: %w", err)
-	}
-	if u.Hostname() == "" {
-		return fmt.Errorf("server.url host is empty")
-	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
+		return err
 	}
 	// HTTPS is the production/default transport. Plain HTTP is only permitted
 	// when explicitly opted into for isolated development or test environments.

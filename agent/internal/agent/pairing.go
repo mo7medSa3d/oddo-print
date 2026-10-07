@@ -34,8 +34,16 @@ func normalizeAndValidatePairingCode(raw string) (string, error) {
 // next to the existing config file. The secret is sealed in the secure store
 // and is not persisted in plaintext config.yaml or echoed to stdout.
 func Register(serverURL, pairingCode, configPath string) error {
-	serverURL = strings.TrimRight(strings.TrimSpace(serverURL), "/")
 	if err := config.ValidateServerURL(serverURL); err != nil {
+		return err
+	}
+	origin, err := config.GatewayOrigin(serverURL)
+	if err != nil {
+		return err
+	}
+	serverURL = origin
+	endpoint, err := config.GatewayEndpoint(serverURL, "/api/agent/register")
+	if err != nil {
 		return err
 	}
 	code, err := normalizeAndValidatePairingCode(pairingCode)
@@ -71,7 +79,7 @@ func Register(serverURL, pairingCode, configPath string) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/agent/register", serverURL), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create registration request: %w", err)
 	}
