@@ -50,6 +50,16 @@ pub(crate) fn run_bounded_command(
     max_stdout: usize,
     max_stderr: usize,
 ) -> Result<std::process::Output, String> {
+    // Every helper launched from the GUI must stay invisible on Windows.
+    // Centralizing CREATE_NO_WINDOW here covers icacls, Agent CLI/service
+    // commands and diagnostics, preventing the console-window flashing users
+    // saw repeatedly during desktop startup.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
