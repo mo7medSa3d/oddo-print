@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { db } from "../../../../db";
 import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { isJobStatus, canTransition, isTerminal, derivePhysicalOutcome, AGENT_REQUEUE_REASONS, AGENT_REPRINT_AFTER_CRASH_REASON, LATE_SUCCESS_POST_EXPIRATION_MARKER, LATE_SUCCESS_ERROR_MARKERS, LATE_SUCCESS_MAX_AGE_MS, EXPIRED_LATE_SUCCESS_GRACE_MS, type JobStatus } from "../../../../lib/job-status";
 import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
@@ -17,7 +17,7 @@ import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 
 export const dynamic = "force-dynamic";
-const printerEligibilityPredicate = (tenantId: ReturnType<typeof sql>) => sql`
+const printerEligibilityPredicate = (tenantId: SQL) => sql`
   pr.lifecycle = 'active'
   AND pr.inventory_present = true
   AND (
