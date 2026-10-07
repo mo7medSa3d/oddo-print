@@ -79,11 +79,15 @@ describe("CI/runtime alignment", () => {
     expect(windows).not.toContain("cargo audit");
   });
 
-  it("runs the Windows installer only for desktop/agent-affecting push and PR changes", () => {
+  it("avoids allocating a Windows runner for unrelated changes while keeping the workflow check present", () => {
     const windows = readFileSync(path.join(root, ".github/workflows/build-windows.yml"), "utf8");
-    expect((windows.match(/^[ ]{4}paths:$/gm) ?? []).length).toBe(2);
-    for (const requiredPath of ["agent/**", "src-tauri/**", "src/desktop/**", "src/components/**", "src/i18n/**", "src/lib/**"]) {
-      expect(windows).toContain(`- "${requiredPath}"`);
+    expect(windows).toContain("name: Windows change filter");
+    expect(windows).toContain("needs: changes");
+    expect(windows).toContain("if: needs.changes.outputs.windows == 'true'");
+    expect(windows).toContain("if: needs.changes.outputs.agent == 'true'");
+    expect(windows).toContain("if: needs.changes.outputs.rust == 'true'");
+    for (const requiredPath of ["agent/*", "src-tauri/*", "src/desktop/*", "src/components/*", "src/i18n/*", "src/lib/*"]) {
+      expect(windows).toContain(requiredPath);
     }
   });
 
