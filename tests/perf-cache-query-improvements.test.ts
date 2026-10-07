@@ -27,8 +27,9 @@ describe("list endpoint bounds (offset guards)", () => {
 
     const printersRoute = readFileSync("src/app/api/printers/route.ts", "utf8");
     expect(printersRoute).toContain("MAX_PRINTERS_OFFSET");
-    expect(printersRoute).toContain(".limit(limit)");
-    expect(printersRoute).toContain(".offset(offset)");
+    expect(printersRoute).toContain(".limit(limit + 1)");
+    expect(printersRoute).toContain(".offset(beforeCreatedAt ? 0 : offset)");
+    expect(printersRoute).toContain("beforeCreatedAt + beforeId keyset pagination");
 
     const jobsRoute = readFileSync("src/app/api/jobs/route.ts", "utf8");
     expect(jobsRoute).toContain("MAX_LIST_OFFSET");
