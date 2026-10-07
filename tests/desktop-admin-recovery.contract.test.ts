@@ -43,12 +43,15 @@ describe("desktop administrator recovery and Windows startup UX", () => {
     expect(paths).toContain('windows_system32_exe("icacls.exe")');
   });
 
-  it("repairs a missing Agent service when an elevated Manager starts", () => {
+  it("repairs a missing Agent service only through the privileged service path", () => {
     const agent = read("src-tauri/src/agent.rs");
-    const start = agent.indexOf("pub fn ensure_started");
-    const block = agent.slice(start, start + 2200);
-    expect(block).toContain("sc_query()?.is_none()");
-    expect(block).toContain('run_agent_service_command(app, "install", COMMAND_TIMEOUT)');
-    expect(block).toContain("start_inner(app)");
+    const mainRust = read("src-tauri/src/main.rs");
+    const helperStart = agent.indexOf("fn ensure_service_installed");
+    const helper = agent.slice(helperStart, helperStart + 2200);
+    expect(helper).toContain("sc_query()?.is_some()");
+    expect(helper).toContain('run_agent_service_command(app, "install", COMMAND_TIMEOUT)');
+    expect(agent).toContain("ensure_service_installed(app)?");
+    expect(mainRust).toContain("!commands::is_running_as_admin()");
+    expect(mainRust).toContain("deferring Agent service repair/start until Administrator relaunch");
   });
 });
