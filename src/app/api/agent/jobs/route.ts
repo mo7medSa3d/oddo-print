@@ -613,7 +613,7 @@ export async function PATCH(req: Request) {
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
   const retainsLateSuccessFence = requestedStatus === "failed"
     && LATE_SUCCESS_ERROR_MARKERS.some((marker) => nextError?.startsWith(marker));
-  const updated = await db.update(printJobs)
+  const runStatusUpdate = (executor: typeof db) => executor.update(printJobs)
     .set({
       status: requestedStatus,
       error: nextError,
@@ -649,6 +649,32 @@ export async function PATCH(req: Request) {
       ...(requestedStatus === "printing" ? printingAdmissionLifecycleFence(agent.id, agent.tenantId) : []),
     ))
     .returning({ status: printJobs.status, error: printJobs.error });
+
+  let updated: Array<{ status: string; error: string | null }>;
+  if (requestedStatus === "printing") {
+    updated = await db.transaction(async (tx) => {
+      const lockedJob = await tx.execute(sql`
+        SELECT id FROM print_jobs
+        WHERE id = ${jobId} AND tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
+        FOR UPDATE
+      `);
+      if (lockedJob.rows.length !== 1) return [];
+
+      const lifecycle = await tx.execute(sql`
+        SELECT a.lifecycle AS agent_lifecycle, t.lifecycle AS tenant_lifecycle
+        FROM agents a
+        JOIN tenants t ON t.id = a.tenant_id
+        WHERE a.id = ${agent.id} AND a.tenant_id = ${agent.tenantId}
+        FOR SHARE OF a, t
+      `);
+      const row = lifecycle.rows[0] as { agent_lifecycle?: unknown; tenant_lifecycle?: unknown } | undefined;
+      if (row?.agent_lifecycle !== "active" || row?.tenant_lifecycle !== "active") return [];
+
+      return runStatusUpdate(tx as typeof db);
+    });
+  } else {
+    updated = await runStatusUpdate(db);
+  }
 
   if (updated.length !== 1) {
     const winner = await db.query.printJobs.findFirst({ where: whereClause });
