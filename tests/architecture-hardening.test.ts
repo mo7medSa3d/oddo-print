@@ -148,7 +148,8 @@ describe("architecture hardening", () => {
     expect(layout).toContain('const nonce = (await headers()).get("x-nonce")');
     expect(layout).toContain("<script nonce={nonce}");
     expect(layout).toContain('localStorage.getItem("theme")');
-    expect(layout).not.toMatch(/THEME_INIT[\s\S]*\$\{/);
+    const themeInit = /const THEME_INIT = `([^`]*)`;/.exec(layout)?.[1] ?? "";
+    expect(themeInit).not.toContain("${");
     expect(layout).not.toContain("req.");
     expect(layout).not.toContain("request.");
   });
