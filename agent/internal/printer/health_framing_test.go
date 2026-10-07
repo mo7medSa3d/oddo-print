@@ -26,6 +26,9 @@ func TestInvalidStatusFramingCannotAssertHardwareFaults(t *testing.T) {
 		{0xff}, {0x08}, {0x1b},
 		{0x12, 0xff}, {0x12, 0x04}, {0x12, 0x20}, {0x12, 0x40},
 		{0x12, 0x12, 0xff}, {0x12, 0x12, 0x20}, {0x12, 0x12, 0x60},
+		{0x12, 0x12, 0x16}, {0x12, 0x12, 0x1a},
+		{0x12, 0x12, 0x32}, {0x12, 0x12, 0x52},
+		{0x12, 0x12, 0x76}, {0x12, 0x12, 0x7a},
 	} {
 		status, err := QueryHealthStatus(scriptedHealthChannel{bytes.NewReader(replies)})
 		if !errors.Is(err, ErrPrinterStatusUnsupported) || status != nil {
@@ -34,6 +37,13 @@ func TestInvalidStatusFramingCannotAssertHardwareFaults(t *testing.T) {
 		if errors.Is(err, ErrPrinterOffline) || errors.Is(err, ErrPrinterCoverOpen) || errors.Is(err, ErrPrinterPaperOut) {
 			t.Errorf("invalid frame %x invented a hardware fault: %v", replies, err)
 		}
+	}
+}
+
+func TestValidPaperNearEndDoesNotAssertPaperOut(t *testing.T) {
+	status, err := QueryHealthStatus(scriptedHealthChannel{bytes.NewReader([]byte{0x12, 0x12, 0x1e})})
+	if err != nil || status == nil || !status.Online || !status.PaperNearEnd || status.PaperOut {
+		t.Fatalf("valid near-end sensor: status %v, error %v", status, err)
 	}
 }
 

@@ -1,4 +1,4 @@
-RESUME HERE: Task 2 presence/CI repair batch | completed=R01-R04 committed; security/public-route, UI/session and retention source review | current=bound stale-Agent sweep and enforce native Windows Go tests | next=targeted regressions; finish Task 2 evidence; second adversarial pass | blockers=Go/Rust/Windows/Odoo/PostgreSQL local runtimes absent; physical fidelity unverified
+RESUME HERE: Task 3 adversarial second pass | completed=Task 2 source audit; R01-R06 repaired/committed; runnable full tests/build completed | current=changed contracts, malformed sensor pairs, fleet cursor headers and concurrency fault windows | next=repair second-pass findings; final verification/diff; commit/push/open PR | blockers=Go/Rust/Windows/Odoo/PostgreSQL local runtimes absent; physical fidelity unverified
 
 ## 2026-10-07 complete printing audit — execution checkpoint
 
@@ -11,19 +11,21 @@ RESUME HERE: Task 2 presence/CI repair batch | completed=R01-R04 committed; secu
 
 ### Current-source audit checklist
 
-| Subsystem / boundary | State | Evidence to inspect |
+| Subsystem / boundary | State | Source evidence / limits |
 | --- | --- | --- |
-| Odoo report/PDF, explicit binding, Test Print, POS, paper geometry | PENDING | addon models/controllers/assets/security/report generation and consumers |
-| Windows discovery/service identity/source completeness/identity | PENDING | agent printer sources, normalization, service account diagnostics |
-| Printer capabilities/status/protocols and execution | PENDING | spooler/RAW/IPP/ESC-POS, supported formats, cleanup/cancellation |
-| Inventory sync/stale snapshots/removals/enable-reenable | PENDING | agent producers, Gateway validation, migrations, frontend/Odoo consumers |
-| Job admission/dispatch/fencing/idempotency/reconciliation | PENDING | APIs, workers, websocket, local persistence, retries and retention |
-| Authentication/RBAC/tenant/company/API-key isolation | PENDING | all API guards, SQL scoping, Odoo ACL/rules, WS identity |
-| PostgreSQL/schema/migrations/indexes/transactions | PENDING | schema, migration order, actual hot-path predicates |
-| Gateway UI/Desktop/IPC/EN-AR/RTL/menus/auth refresh | PENDING | components, routes, Tauri commands, native configuration |
-| CI/dependencies/deployment/health/TLS/backup/recovery | PENDING | workflows, lockfiles, services, scripts, shutdown |
-| Performance/observability/retention/maintainability | PENDING | bounded work, cache ownership, log redaction, active-job safety |
-| Targeted adversarial second pass and final diff | PENDING | changed code and subsystem boundaries, fault windows |
+| Odoo report/PDF, explicit binding, Test Print, POS, paper geometry | REVIEWED | ir_actions_report/print_router/binding/outbox/POS renderer and assets/ACL/rules; real Odoo/physical geometry remain unverified |
+| Windows discovery/service identity/source completeness/identity | REVIEWED | discovery_manager, discovery, spooler/USB/IPP collectors; level-4/level-2 bounds; service identity/per-user candidates; live machine visibility unverified |
+| Printer capabilities/status/protocols and execution | REVIEWED | printer-model/health/factory/document, RAW/spooler/PDFium/IPP, cancellation/partial-write/cleanup; R01 repaired; native execution pending CI |
+| Inventory sync/stale snapshots/removals/enable-reenable | REVIEWED | heartbeat producer/route, source completeness, desired-state revisions, scoped identity; R02 fixed with durable ordered versions |
+| Job admission/dispatch/fencing/idempotency/reconciliation | REVIEWED | job-service/status/delivery/fencing, WS claim/ACK/lifecycle, Agent ledger/queue and Odoo outbox; live DB/runtime tests blocked locally |
+| Authentication/RBAC/tenant/company/API-key isolation | REVIEWED | API guard census, public/auth endpoint exceptions, tenant transactions/FKs, WS credentials, Odoo ACL/rules and parameterized SQL, Tauri origin/path rules |
+| PostgreSQL/schema/migrations/indexes/transactions | REVIEWED | 25 tables, 81 ordered migrations, tenant-scoped constraints/indexes, locked hot paths; new migration metadata consistent; live migrate/EXPLAIN blocked locally |
+| Gateway UI/Desktop/IPC/EN-AR/RTL/menus/auth refresh | REVIEWED | shared Menu/modal keyboard/viewport handling; logical RTL positions/IDs; locale and cancelled refresh; structured errors; native/DOM contracts; visual certification unverified |
+| CI/dependencies/deployment/health/TLS/backup/recovery | REVIEWED | five workflows, locks/pins/caches, non-root image/startup/migrate order, strict probe/TLS/WS/CORS, backup/restore safeguards; R04/R06 test gates repaired; live recovery unverified |
+| Performance/observability/retention/maintainability | REVIEWED | bounded fleet queries/WS/jobs/discovery; R03 capabilities and R05 presence bounds; payload-free receipts/20-row materialization; redaction/correlation/rotation |
+| Targeted adversarial second pass and final diff | IN PROGRESS | next: changed contracts, malformed ESC/POS sensor pairs, fleet cursor headers, inventory fault windows, migration and compatibility review |
+
+Source review combines full high-risk implementation reads with repository-wide guard/SQL/error/marker/dependency searches. It does not imply physical certification or execution of unavailable runtimes.
 
 ### Verification ledger — this audit
 
@@ -102,3 +104,15 @@ RESUME HERE: Task 2 presence/CI repair batch | completed=R01-R04 committed; secu
 - New R05: stale-Agent presence sweep is unbounded. New R06: substantive Windows-tagged Go tests are compiled out of Linux tests and omitted from Windows CI. Both are being repaired.
 
 - R05 PASS: 9 query/batch-bound/error cases; 54 cases across presence, production contracts and system-health. Added the capped env setting and convergence semantics to operations docs. R06 native module verification/vet/tests precede Windows packaging; execution remains BLOCKED locally. Documented the actual PDF-to-driver page geometry and required physical certification; removed obsolete future-control claims.
+
+### Task 2 verification checkpoint / Task 3 start
+
+- PASS: full Vitest after the schema consumer/presence repairs: 136 files / 897 tests; 45 files / 376 tests SKIPPED, not passes. An earlier full run failed the old schema expectation; the corrected run exited 0.
+- PASS: current production Next.js build; Python 210 tests (one rustc-dependent case deliberately DESELECTED/BLOCKED after its environmental failure); pyflakes and compileall exit 0; 10 Odoo XML files parse and manifest data paths exist. Migration journal has 81 ordered SQL files and generated snapshot JSON parses.
+- Task 2 source checklist now records actual reviewed boundaries and runtime limitations. Task 3 independently challenges changed code and equivalent consumers; it is not a reread of findings alone.
+
+### Second adversarial pass — first repair checkpoint
+
+- R07 closes the independent DLE EOT 4 paired-sensor validation gap after re-checking the Epson specification; valid DLE EOT 2 single-bit faults remain blocking. Go cases are added, not counted as executed.
+- R08 reproduced unsafe raw Unicode/newline HTTP headers and repairs both fleet endpoints with encoded cursor traversal while preserving safe ASCII compatibility; allowed CORS origins can retrieve paging metadata. 27 actual route/HTTP/SQL-predicate/CORS cases PASS; 42 combined cursor/capability regressions PASS. Typecheck/lint and diff whitespace PASS.
+- Independently checked int64 precision/exhaustion, Agent clock rollback/restart catch-up, page-1/completion replay, interrupted continuation, legacy downgrade, transaction ordering before heartbeat writes, manager-owned absence fences, cursor tenant/RBAC scope, lookahead discard, batching/locking and workflow native coverage. Further desired-state response-size boundary review is ongoing.

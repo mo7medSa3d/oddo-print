@@ -63,3 +63,21 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Fix: run Go module verification, native vet and the full native Go test suite in the existing Windows runner before packaging. Linux race coverage remains in CI.
 - Regression/verification: existing substantive Windows tests inspected; native execution blocked locally.
 - Status: FIXED; runtime limitations above.
+
+### R07 — P2 — adversarial second pass: ESC/POS sensor pair validity
+
+- Location: `agent/internal/printer/health.go:QueryHealthStatus` DLE EOT 4 decoding.
+- Problem/root cause: fixed framing alone does not validate the two-bit paper sensors. Any nonzero half-pair (01/10) is treated as near-end or paper-out, though the specified encodings are 00/11.
+- Impact: an invalid reply can assert a hardware fault and stop printing. The earlier R01 framing repair alone cannot prevent this.
+- Fix: reject malformed near-end/end pairs as unsupported before interpreting either pair; preserve valid near-end and paper-out controls. DLE EOT 2 single-bit fault semantics remain distinct.
+- Regression/verification: authoritative Epson DLE EOT specification re-read; malformed-pair and valid near-end/fault Go cases added; local Go execution BLOCKED pending CI.
+- Status: FIXED; runtime limitations above.
+
+### R08 — P2 — adversarial second pass: unsafe fleet cursor headers
+
+- Location: `src/app/api/printers/route.ts:GET`, equivalent Agent list response and `src/server/cors.ts`.
+- Problem/root cause: raw IDs are emitted as HTTP header values. Heartbeat accepts Unicode/interior control characters in printer IDs; Node Headers rejects non-ByteString/newline values. Pagination metadata is also not exposed to allowed cross-origin clients.
+- Impact: a valid stored ID at a page boundary changes an authenticated fleet read into a 500; browser clients cannot retrieve traversal metadata through desktop CORS.
+- Fix: add a canonical UTF-8 base64url ID header/query alternative, retain the raw header only for safe ASCII legacy IDs, validate conflicting cursors, and expose pagination/request-ID metadata to already allowed origins.
+- Regression/verification: Node Response.json reproduced Unicode and newline header failures; 27 actual fleet-route/CORS cases PASS, plus 15 capability regressions (42 combined); typecheck/lint PASS.
+- Status: FIXED; runtime limitations above.

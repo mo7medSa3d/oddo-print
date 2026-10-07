@@ -100,12 +100,19 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 	if (buf[0] & 0x93) != 0x12 {
 		return nil, fmt.Errorf("%w: invalid ESC/POS paper status response byte 0x%02x (expected framing mask 0x93 == 0x12)", ErrPrinterStatusUnsupported, buf[0])
 	}
+	// Each sensor is encoded as a pair: only 00 and 11 are defined. A
+	// half-pair is not evidence of a hardware fault, even with valid framing.
+	nearEnd := buf[0] & 0x0C
+	paperEnd := buf[0] & 0x60
+	if (nearEnd != 0 && nearEnd != 0x0C) || (paperEnd != 0 && paperEnd != 0x60) {
+		return nil, fmt.Errorf("%w: invalid ESC/POS paper sensor pairs in response byte 0x%02x", ErrPrinterStatusUnsupported, buf[0])
+	}
 	// Bits 2 and 3: Paper roll near-end sensor
-	if (buf[0] & 0x0C) != 0 {
+	if nearEnd == 0x0C {
 		status.PaperNearEnd = true
 	}
 	// Bits 5 and 6: Paper roll end sensor (paper out when bits 5 & 6 are 1 -> 0x60)
-	if (buf[0] & 0x60) != 0 {
+	if paperEnd == 0x60 {
 		status.PaperOut = true
 		return status, ErrPrinterPaperOut
 	}
