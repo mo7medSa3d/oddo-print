@@ -76,8 +76,9 @@ suite("heartbeat cross-agent printer identity", () => {
     const body = await res.json();
     const alias = body.printerIdAliases?.[localId] as string | undefined;
     expect(typeof alias).toBe("string");
+    if (!alias) throw new Error("Expected colliding printer ID alias");
     expect(alias).not.toBe(localId);
-    expect(alias!.startsWith(`${localId}~`)).toBe(true);
+    expect(alias.startsWith(`${localId}~`)).toBe(true);
 
     const rows = await pool().query(
       `SELECT id, agent_id, lifecycle, inventory_present FROM printers WHERE tenant_id = $1 ORDER BY id`,

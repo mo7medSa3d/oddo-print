@@ -20,6 +20,7 @@ import {
   deriveOutcome as deriveOutcomeImpl,
   jobDisplayLabel as jobDisplayLabelImpl,
   jobTone as jobToneImpl,
+  printerObservationFreshness,
   printerLabel as printerLabelImpl,
 } from "../../shared/job-vocabulary";
 import { DEFAULT_LOCALE, type Locale } from "../../i18n/config";

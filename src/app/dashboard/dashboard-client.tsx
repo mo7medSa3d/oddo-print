@@ -529,7 +529,7 @@ export default function DashboardClient({
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshTimer: number | undefined;
 
     void fetchWithTimeout(`/api/jobs/${encodeURIComponent(selectedJob.id)}?includePayload=1`, {
       credentials: "include",

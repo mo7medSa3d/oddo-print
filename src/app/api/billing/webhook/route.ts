@@ -426,6 +426,8 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
           // they never match: stale/duplicate events stay fenced by the
           // newer-event gate, and equal-second ties stay intentionally
           // ambiguous.
+          const terminalDelete =
+            eventType === "customer.subscription.deleted";
           const adoptableCheckoutBinding =
             tenantRow.status === "cancelled" &&
             tenantRow.stripeSubscriptionId === subId &&
@@ -436,8 +438,6 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
             currentSnapshotSubscriptionEvents.has(eventType) &&
             !staleSnapshotEvent &&
             (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() >= storedStripeEventCreatedAtMs);
-          const terminalDelete =
-            eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =
             sameOrUnboundSubscription &&
             (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent)

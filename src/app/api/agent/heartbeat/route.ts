@@ -44,7 +44,7 @@ function utf8ByteLength(value: string): number {
  * recovers its local backend by stripping the suffix; the alias is a pure
  * function of (agent, localId), hence stable across reconnects.
  */
-export function aliasPrinterIdForAgent(localId: string, agentId: string): string {
+function aliasPrinterIdForAgent(localId: string, agentId: string): string {
   const suffix = createHash("sha256").update(`printer-alias:${agentId}:${localId}`, "utf8").digest("hex").slice(0, 8);
   return `${localId}~${suffix}`;
 }

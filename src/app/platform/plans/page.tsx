@@ -222,7 +222,7 @@ export default function PlatformPlansPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-base font-[650] text-ink">{plan.name}</div>
-                      <Mono className="mt-1 block break-all text-xs" dir="ltr">{plan.id}</Mono>
+                      <span dir="ltr" className="mt-1 block"><Mono className="break-all text-xs">{plan.id}</Mono></span>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                       {plan.isActive ? (
