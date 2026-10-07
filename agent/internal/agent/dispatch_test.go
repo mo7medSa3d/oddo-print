@@ -321,9 +321,9 @@ func TestWaitForJobsNeverBlocksShutdownForever(t *testing.T) {
 // invariant introduced in the print executor: jobs blocked on one printer's
 // per-printer mutex must not occupy all global execution slots and starve an
 // unrelated printer. The test uses the existing fake printer's barrier plus
-// the Gateway status callback as a deterministic phase boundary: once all
-// eight printing reports have been accepted, the first printer owns the
-// physical slot and the other seven are known to be waiting for that printer.
+// the durable local ledger as a deterministic phase boundary: once all
+// eight durable local attempts have been reserved, the first printer owns
+// the physical slot and the others await it without requesting printing admission.
 func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
 	const blockedJobs = maxConcurrentJobs
@@ -390,16 +390,23 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		mu.Lock()
-		count := len(printingReports)
-		mu.Unlock()
+		count, err := ag.queue.CountByStatus("printing")
+		if err != nil {
+			t.Fatal(err)
+		}
 		if count == blockedJobs {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("expected %d printing reports before probing unrelated printer, got %d", blockedJobs, count)
+			t.Fatalf("expected %d durable waiters before probing unrelated printer, got %d", blockedJobs, count)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	admitted := len(printingReports)
+	mu.Unlock()
+	if admitted != 1 {
+		t.Fatalf("waiters must not request hardware admission before their printer is free: got %d", admitted)
 	}
 
 	// With the corrected executor, the unrelated printer can start immediately

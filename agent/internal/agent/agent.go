@@ -1552,6 +1552,7 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		return false
 	}
 	jobID := fields.ID
+	pendingPrinter := a.resolvePrinterAlias(fields.PrinterID)
 
 	// The shutdown check, dedupe insert, and WaitGroup Add must be atomic with
 	// respect to each other: Run begins its Wait only after the shutdownCh is
@@ -1613,7 +1614,6 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		log.Printf("Job %s is already in flight; duplicate delivery ignored without changing the active claim token.", jobID)
 		return false
 	}
-	pendingPrinter := fields.PrinterID
 	if pendingPrinter != "" && a.pendingByPrinter[pendingPrinter] >= maxPendingJobsPerPrinter {
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
@@ -2807,34 +2807,13 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
 
-	// All admitted deliveries may report "printing" and wait without consuming
-	// a global physical-execution slot. The per-printer fence is acquired only
-	// after this report, then the desired-state/backend/capability checks are
-	// repeated under that fence immediately before any physical dispatch.
-	reportStart := time.Now()
-	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken, ""); err != nil {
-		// Context cancellation is an authoritative local lifecycle signal, not
-		// a generic gateway transport failure. Never use the stale-claim
-		// freshness heuristic to proceed to hardware after shutdown/session
-		// cancellation.
-		if ctx.Err() != nil {
-			log.Printf("Job %s: printing report cancelled by agent lifecycle; aborting before hardware", jobID)
-			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled before physical dispatch; zero bytes transmitted"); aberr != nil {
-				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
-			}
-			return
-		}
-		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, err); !proceed {
-			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
-			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
-				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
-			}
-			return
-		}
-	}
-	log.Printf("print.trace printing_report request_id=%s job_id=%s printer_id=%s report_latency_ms=%d", requestID, jobID, printerID, time.Since(reportStart).Milliseconds())
+	// Serialize Gateway aliases and bare local IDs on the same backend.
+	// Admission must follow all local waits so TTL and lifecycle are checked
+	// immediately before hardware, using the Gateway database clock.
+	gatewayPrinterID := printerID
+	localPrinterID := a.resolvePrinterAlias(printerID)
 
-	lock := a.getPrinterLock(printerID)
+	lock := a.getPrinterLock(localPrinterID)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -2843,7 +2822,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 
-	if !a.isPrinterExecutionAllowed(printerID) {
+	if !a.isPrinterExecutionAllowed(printerID) || !a.isPrinterExecutionAllowed(localPrinterID) {
 		a.queue.AbortPrint(jobID, "printer_not_at_desired_state")
 		a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state")
 		return
@@ -2853,7 +2832,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// "<local>~<agent>" alias. Recover the local backend: exact local IDs
 	// always win, so an operator-configured overlapping ID is never
 	// shadowed by suffix stripping.
-	printerID = a.resolvePrinterAlias(printerID)
+	printerID = localPrinterID
 	p, ok := a.getPrinter(printerID)
 	if !ok {
 		a.queue.AbortPrint(jobID, "printer_not_configured")
@@ -2904,9 +2883,41 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 
+	reportStart := time.Now()
+	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken, ""); err != nil {
+		// Context cancellation is an authoritative local lifecycle signal, not
+		// a generic gateway transport failure. Never use the stale-claim
+		// freshness heuristic to proceed to hardware after shutdown/session
+		// cancellation.
+		if ctx.Err() != nil {
+			log.Printf("Job %s: printing report cancelled by agent lifecycle; aborting before hardware", jobID)
+			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled before physical dispatch; zero bytes transmitted"); aberr != nil {
+				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
+			}
+			return
+		}
+		if proceed, reason := a.authorizeDispatchAfterReportFailure(jobID, err); !proceed {
+			log.Printf("Job %s: physical dispatch refused (%s); aborting before any byte is sent", jobID, reason)
+			if aberr := a.queue.AbortPrint(jobID, "dispatch_refused: "+reason+"; zero bytes transmitted"); aberr != nil {
+				log.Printf("Job %s: failed to abort local ledger row: %v", jobID, aberr)
+			}
+			return
+		}
+	}
+	log.Printf("print.trace printing_report request_id=%s job_id=%s printer_id=%s report_latency_ms=%d", requestID, jobID, printerID, time.Since(reportStart).Milliseconds())
+
 	// Only the physical execution phase gets a document-specific timeout.
 	printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))
 	defer cancel()
+	printCtx = printer.WithDispatchAdmission(printCtx, func(admissionCtx context.Context) error {
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(gatewayPrinterID) || !a.isPrinterExecutionAllowed(localPrinterID) {
+			return fmt.Errorf("dispatch refused: agent or printer configuration changed before this transport submission")
+		}
+		if err := a.updateJobStatus(admissionCtx, jobID, "printing", "", claimToken, ""); err != nil {
+			return fmt.Errorf("dispatch refused after preparation: %w", err)
+		}
+		return nil
+	})
 
 	if a.queue.IsProcessed(jobID) {
 		log.Printf("Job %s was already processed while waiting for printer %s. Skipping duplicate print.", jobID, printerID)

@@ -313,8 +313,8 @@ func abortSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName s
 	return nil
 }
 
-func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
-	return executeSpoolerSessionWithSyscallsObserved(spoolerName, data, cancelNotice, defaultSpoolerSyscalls, onJobID)
+func executeSpoolerSession(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr), admit ...func() error) spoolerTaskResult {
+	return executeSpoolerSessionWithSyscallsObserved(spoolerName, data, cancelNotice, defaultSpoolerSyscalls, onJobID, admit...)
 }
 
 // currentExecuteSpoolerSession runs the Win32 session for Print. It is a
@@ -327,7 +327,7 @@ func executeSpoolerSessionWithSyscalls(spoolerName string, data []byte, cancelNo
 	return executeSpoolerSessionWithSyscallsObserved(spoolerName, data, cancelNotice, sys, nil)
 }
 
-func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, cancelNotice <-chan struct{}, sys spoolerSyscalls, onJobID func(uintptr)) spoolerTaskResult {
+func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, cancelNotice <-chan struct{}, sys spoolerSyscalls, onJobID func(uintptr), admit ...func() error) spoolerTaskResult {
 	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
 	if err != nil {
 		return spoolerTaskResult{err: fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)}
@@ -339,6 +339,11 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 		return spoolerTaskResult{err: fmt.Errorf("OpenPrinterW(%q) failed: %w", spoolerName, err)}
 	}
 	defer sys.closePrinter(hPrinter)
+	if len(admit) > 0 && admit[0] != nil {
+		if err := admit[0](); err != nil {
+			return spoolerTaskResult{err: fmt.Errorf("spooler print admission refused: %w", err)}
+		}
+	}
 
 	select {
 	case <-cancelNotice:
@@ -859,7 +864,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 			if jobID != 0 {
 				p.lastJobID.Store(uint64(jobID))
 			}
-		})
+		}, func() error { return runDispatchAdmission(ctx) })
 	}()
 
 	select {

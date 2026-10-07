@@ -148,16 +148,9 @@ func TestEmbeddedPDFErrorClassificationMarker(t *testing.T) {
 	}
 }
 
-func TestBitmapPrintDestinationUsesPrintableOriginAndScalesCappedRender(t *testing.T) {
-	x, y, w, h, err := bitmapPrintDestination(1000, 1500, 4000, 6000)
-	if err != nil || x != 0 || y != 0 || w != 4000 || h != 6000 {
-		t.Fatalf("capped render shrank/shifted: %d,%d %dx%d %v", x, y, w, h, err)
-	}
-	x, y, w, h, err = bitmapPrintDestination(2000, 1000, 4000, 6000)
-	if err != nil || x != 0 || y != 2000 || w != 4000 || h != 2000 {
-		t.Fatalf("aspect/centering: %d,%d %dx%d %v", x, y, w, h, err)
-	}
-	if _, _, _, _, err := bitmapPrintDestination(0, 1, 4000, 6000); err == nil {
-		t.Fatal("invalid image accepted")
+func TestPDFBitmapUsesPhysicalPageOriginWithoutScalingToPrintableArea(t *testing.T) {
+	x, y, w, h, err := pdfBitmapDestination(2550, 3300, 75, 90)
+	if err != nil || x != -75 || y != -90 || w != 2550 || h != 3300 {
+		t.Fatalf("physical page changed: %d,%d %dx%d %v", x, y, w, h, err)
 	}
 }

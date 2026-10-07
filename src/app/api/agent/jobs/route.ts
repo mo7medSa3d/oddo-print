@@ -346,21 +346,9 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // A lost acknowledgement can leave this same attempt already printing.
-  // Reconfirm its live fence atomically so an Agent can safely retry admission.
-  if (requestedStatus === "printing" && currentStatus === "printing") {
-    const confirmed = await db.update(printJobs)
-      .set({ updatedAt: sql`now()` })
-      .where(and(
-        fencedJobWrite(jobId, agent.tenantId, agent.id, "printing", claimToken),
-        sql`${printJobs.expiresAt} > now()`,
-      ))
-      .returning({ status: printJobs.status });
-    if (confirmed.length !== 1) {
-      return NextResponse.json({ error: "Printing claim expired or changed", code: "STALE_CLAIM" }, { status: 409 });
-    }
-    return NextResponse.json({ success: true, status: "printing", physicalOutcome: "unknown" });
-  }
+  // A lost acknowledgement may require admission replay. It must use the
+  // same locked runtime/lifecycle checks as the first admission below.
+  const printingAdmissionReplay = requestedStatus === "printing" && currentStatus === "printing";
 
   if (requestedStatus === "expired") {
     // Guard: a terminal job (success, failed, expired) must never be re-expired.
@@ -606,7 +594,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ success: true, status: "success", physicalOutcome, physicalDetail: LATE_SUCCESS_POST_EXPIRATION_MARKER });
   }
 
-  if (!canTransition(currentStatus, requestedStatus, { allowLateSuccess: lateSuccess })) {
+  if (!printingAdmissionReplay && !canTransition(currentStatus, requestedStatus, { allowLateSuccess: lateSuccess })) {
     return NextResponse.json({ error: `Invalid status transition: ${currentStatus} -> ${requestedStatus}` }, { status: 409 });
   }
 
@@ -643,9 +631,9 @@ export async function PATCH(req: Request) {
       // agent and tenant lifecycle at the statement boundary, not just at
       // authentication time: disabling the agent or suspending its tenant
       // between validateAgent and this UPDATE must not grant printing
-      // admission. Terminal reconciliation paths stay independent of this
-      // gate. Printer desired-state/entitlement were verified at claim
-      // time and re-checked agent-side before hardware (isPrinterExecutionAllowed).
+      // admission. Terminal reconciliation stays independent of this gate.
+      // The transaction below also locks the current runtime printer: an
+      // Agent's desired-state snapshot may lag an operator disable/reconfigure.
       ...(requestedStatus === "printing" ? printingAdmissionLifecycleFence(agent.id, agent.tenantId) : []),
     ))
     .returning({ status: printJobs.status, error: printJobs.error });
@@ -661,14 +649,30 @@ export async function PATCH(req: Request) {
       if (lockedJob.rows.length !== 1) return [];
 
       const lifecycle = await tx.execute(sql`
-        SELECT a.lifecycle AS agent_lifecycle, t.lifecycle AS tenant_lifecycle
+        SELECT a.lifecycle AS agent_lifecycle, t.lifecycle AS tenant_lifecycle,
+               pr.lifecycle AS printer_lifecycle, pr.inventory_present,
+               pr.management_source, pr.desired_revision,
+               pr.applied_desired_revision, pr.observed_desired_revision
         FROM agents a
         JOIN tenants t ON t.id = a.tenant_id
+        JOIN printers pr ON pr.tenant_id = a.tenant_id AND pr.agent_id = a.id
         WHERE a.id = ${agent.id} AND a.tenant_id = ${agent.tenantId}
-        FOR SHARE OF a, t
+          AND pr.id = ${job.printerId}
+          AND ${liveTenantSubscriptionPredicate(sql`a.tenant_id`)}
+        FOR SHARE OF a, t, pr
       `);
-      const row = lifecycle.rows[0] as { agent_lifecycle?: unknown; tenant_lifecycle?: unknown } | undefined;
-      if (row?.agent_lifecycle !== "active" || row?.tenant_lifecycle !== "active") return [];
+      const row = lifecycle.rows[0] as {
+        agent_lifecycle?: unknown; tenant_lifecycle?: unknown;
+        printer_lifecycle?: unknown; inventory_present?: unknown;
+        management_source?: unknown; desired_revision?: number | string;
+        applied_desired_revision?: number | string; observed_desired_revision?: number | string;
+      } | undefined;
+      if (row?.agent_lifecycle !== "active" || row.tenant_lifecycle !== "active"
+        || row.printer_lifecycle !== "active" || row.inventory_present !== true) return [];
+      if (row.management_source === "manager" && (
+        Number(row.applied_desired_revision) < Number(row.desired_revision)
+        || Number(row.observed_desired_revision) < Number(row.desired_revision)
+      )) return [];
 
       return runStatusUpdate(tx);
     });
@@ -680,6 +684,10 @@ export async function PATCH(req: Request) {
     const winner = await db.query.printJobs.findFirst({ where: whereClause });
     const winnerStatus = winner?.status as JobStatus | undefined;
     return NextResponse.json({ error: `Concurrent status transition rejected${winnerStatus ? `; current status is ${winnerStatus}` : ""}`, status: winnerStatus ?? "unknown" }, { status: 409 });
+  }
+
+  if (printingAdmissionReplay) {
+    return NextResponse.json({ success: true, status: "printing", physicalOutcome: "unknown" });
   }
 
   const physicalOutcome = derivePhysicalOutcome(requestedStatus, nextError);
