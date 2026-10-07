@@ -95,6 +95,9 @@ for (const status of ["claimed", "printing"]) {
     assert.equal(h.statements.length, 2);
     assert.match(h.statements[0], /FOR UPDATE/);
     assert.match(h.statements[1], /pr\.id = printer-1/);
+    assert.match(h.statements[1], /pr\.status = 'online'/);
+    assert.match(h.statements[1], /pr\.last_seen_at <= now\(\)/);
+    assert.match(h.statements[1], /pr\.management_source = 'agent'/);
     assert.match(h.statements[1], /LIVE_SUBSCRIPTION/);
     assert.match(h.statements[1], /FOR SHARE OF a, t, pr/);
     assert.match(h.writes[0].fence, /jobs\.expiresAt > now\(\)/);

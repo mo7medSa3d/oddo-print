@@ -17,7 +17,7 @@ import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
 
 export const dynamic = "force-dynamic";
-const printerEligibilityPredicate = sql`
+const printerEligibilityPredicate = (tenantId: ReturnType<typeof sql>) => sql`
   pr.lifecycle = 'active'
   AND pr.inventory_present = true
   AND (
@@ -43,7 +43,7 @@ const printerEligibilityPredicate = sql`
   AND pr.last_seen_at IS NOT NULL
   AND pr.last_seen_at <= now()
   AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
-  AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
+  AND ${liveTenantSubscriptionPredicate(tenantId)}
 `;
 
 const MAX_CLAIM_BATCH = 20;
@@ -173,7 +173,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND ${printerEligibilityPredicate}
+          AND ${printerEligibilityPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -195,7 +195,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND ${printerEligibilityPredicate}
+          AND ${printerEligibilityPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY p.created_at ASC
         LIMIT ${queuedLimit}
@@ -217,7 +217,7 @@ export async function GET(req: Request) {
         AND a.last_seen_at IS NOT NULL
         AND a.last_seen_at <= now()
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
-          AND ${printerEligibilityPredicate}
+          AND ${printerEligibilityPredicate(sql`p.tenant_id`)}
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${queuedLimit}
@@ -658,7 +658,7 @@ export async function PATCH(req: Request) {
         JOIN printers pr ON pr.tenant_id = a.tenant_id AND pr.agent_id = a.id
         WHERE a.id = ${agent.id} AND a.tenant_id = ${agent.tenantId}
           AND pr.id = ${job.printerId}
-          AND ${liveTenantSubscriptionPredicate(sql`a.tenant_id`)}
+          AND ${printerEligibilityPredicate(sql`a.tenant_id`)}
         FOR SHARE OF a, t, pr
       `);
       const row = lifecycle.rows[0] as {

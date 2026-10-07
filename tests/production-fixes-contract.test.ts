@@ -408,7 +408,7 @@ describe("legacy session fixture contract", () => {
 describe("job claim predicate contracts", () => {
   it("keeps printer eligibility centralized across claim candidates and re-check", () => {
     const source = read("src/app/api/agent/jobs/route.ts");
-    expect((source.match(/\$\{printerEligibilityPredicate\}/g) ?? []).length).toBe(3);
+    expect((source.match(/\$\{printerEligibilityPredicate(?:\([^}]+\))?\}/g) ?? []).length).toBe(4);
     // Count the eligibility clauses themselves, not harmless SELECT projections
     // of the same columns used for admission diagnostics/re-checks.
     expect((source.match(/pr\.management_source\s*=\s*['"]agent['"]/g) ?? []).length).toBe(1);
