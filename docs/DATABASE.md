@@ -15,7 +15,7 @@ from the schema again.
 | Metric | Value |
 | --- | --- |
 | Tables in `schema.ts` | 25 |
-| Migration files | 77 (`0000` … `0076`) plus versioned forward repairs |
+| Migration files | 81 (`0000` … `0080`) plus versioned forward repairs |
 | Tables created by migration history and forward repairs | 32 |
 | Legacy tables later dropped | 7 |
 | Indexes created by migrations | 117 |
@@ -66,6 +66,8 @@ again later. There is no drift between the two.
 - `printer_bindings` — created in `0001_phase1_branch_foundation.sql`, dropped in a later migration. Do not reintroduce.
 
 ## Invariants enforced outside `schema.ts`
+
+Agent inventory ordering retains `agents.inventory_snapshot_version` after each completed snapshot. Migration `0080` stores the int64 value as checked decimal text, preserving exact values through Drizzle and JSON. Its high-water mark and page-state validation share the Agent row lock. Legacy versionless observations cannot reconcile absence or downgrade an established versioned writer. See [Agent heartbeat contract](../API.md#agent-heartbeat-pagination).
 
 Several guarantees live only in SQL (CHECK constraints, partial unique
 indexes, composite foreign keys and database triggers) because Drizzle

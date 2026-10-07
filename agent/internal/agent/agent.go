@@ -2571,6 +2571,15 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 			return
 		}
 		if resp.StatusCode >= 300 {
+			if resp.StatusCode == http.StatusConflict {
+				var conflict struct {
+					Code                   string `json:"code"`
+					MinimumSnapshotVersion string `json:"minimumSnapshotVersion"`
+				}
+				if json.Unmarshal(body, &conflict) == nil && conflict.Code == "INVENTORY_SNAPSHOT_CONFLICT" {
+					heartbeatInventoryClock.observe(conflict.MinimumSnapshotVersion)
+				}
+			}
 			log.Printf("Heartbeat page %d/%d rejected (%d): %s", pageIndex+1, len(pages), resp.StatusCode, string(body))
 			a.noteHeartbeatRejection(resp.StatusCode, body)
 			return

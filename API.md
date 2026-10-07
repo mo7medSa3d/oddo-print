@@ -71,12 +71,19 @@ Authenticated with the Odoo installation key. Returns the runtime status and rou
 The current Agent sends:
 - `heartbeatPage`: 1-based page number.
 - `heartbeatPageCount`: total number of pages in this heartbeat cycle.
+- `inventorySnapshotId`: one safe token shared by all pages in a cycle.
+- `inventorySnapshotVersion`: a positive int64 decimal **string**, shared by all pages. Never encode it as a JSON number: nanosecond-seeded values exceed JavaScript's exact integer range.
+- `inventoryComplete`: whether the local registry was read authoritatively.
 - `printers`: at most 500 entries per page and no more than 256 KB of serialized printer metadata per page.
 - `desiredStateAcks`: at most 500 entries per page.
 - `gatewayOwnedPrinterIds`: the Gateway-owned IDs represented on that page, used to preserve the manager-owned/deletion fence.
 - `keepAliveJobIds`: the existing bounded execution keep-alive set.
 
 Agents with more than 500 printers send multiple pages. The Gateway accepts legacy heartbeats without page fields as a single page for backward compatibility. On the current contract, the final page is the only page that returns the complete `desiredState` snapshot; the Agent applies that snapshot only after the final page succeeds.
+
+Snapshot ordering is checked under the Agent row lock before any presence, metadata, liveness or keep-alive write. A first page must exceed the retained version; every continuation must use that exact version, token, page count and expected page. The version survives final-page completion and Gateway restarts. A stale, replayed or downgraded request returns `409 INVENTORY_SNAPSHOT_CONFLICT` with `minimumSnapshotVersion` as a decimal string. The Agent advances its process counter from that value and starts a new cycle, so clock rollback or a process restart does not require clock synchronization.
+
+Only an ordered, versioned, complete and error-free final page can mark missing Agent-owned printers absent. Legacy clients without a version may add/refresh observations before the first versioned writer is accepted; they cannot declare absence. Once a versioned writer is established, versionless writes are refused. Deploy migration `0080`, then the Gateway, then upgrade Agents; downgrading an Agent requires deliberate re-pairing rather than weakening the retained fence.
 
 Agent-owned printer registration remains subject to the tenant plan's `max_printers` entitlement. Exceeding that capacity returns `429 MAX_PRINTERS_EXCEEDED`; existing printer observations are not a substitute for entitlement and manager-owned printers remain governed by desired state.
 

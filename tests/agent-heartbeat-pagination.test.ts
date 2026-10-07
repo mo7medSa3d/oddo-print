@@ -34,12 +34,17 @@ async function heartbeat(agentAuth: string, body: unknown) {
   }));
 }
 
+let nextSnapshotVersion = 0;
+const snapshotVersions = new Map<string, string>();
+
 function snapshotHeartbeat(snapshotId: string, inventoryComplete: boolean, printerRows: unknown[], heartbeatPage = 1, heartbeatPageCount = 1) {
+  if (!snapshotVersions.has(snapshotId)) snapshotVersions.set(snapshotId, String(++nextSnapshotVersion));
   return {
     status: "online",
     heartbeatPage,
     heartbeatPageCount,
     inventorySnapshotId: snapshotId,
+    inventorySnapshotVersion: snapshotVersions.get(snapshotId),
     inventoryComplete,
     printers: printerRows,
     desiredStateAcks: [],
@@ -79,6 +84,46 @@ suite("agent heartbeat pagination contract", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    nextSnapshotVersion = 0;
+    snapshotVersions.clear();
+  });
+
+  it("rejects an older empty page 1 after a newer complete inventory, without changing presence or metadata", async () => {
+    const f = await seedFixture();
+    const older = snapshotHeartbeat("old-empty", true, []);
+    const newer = snapshotHeartbeat("new-populated", true, [makePrinter(f.printerId)]);
+    expect((await heartbeat(f.agentAuth, newer)).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, older)).status).toBe(409);
+    expect((await heartbeat(f.agentAuth, newer)).status).toBe(409);
+    const result = await pool().query(
+      `SELECT a.inventory_snapshot_version, a.inventory_snapshot_id, p.inventory_present, p.status
+       FROM agents a JOIN printers p ON p.agent_id = a.id AND p.tenant_id = a.tenant_id
+       WHERE a.id = $1 AND a.tenant_id = $2 AND p.id = $3`,
+      [f.agentId, f.tenantId, f.printerId],
+    );
+    expect(result.rows[0]).toMatchObject({ inventory_snapshot_version: "2", inventory_snapshot_id: null, inventory_present: true, status: "online" });
+  });
+
+  it("keeps legacy snapshots additive and prevents downgrade after a versioned snapshot", async () => {
+    const f = await seedFixture();
+    const legacy = { ...snapshotHeartbeat("legacy-empty", true, []), inventorySnapshotVersion: undefined };
+    expect((await heartbeat(f.agentAuth, legacy)).status).toBe(200);
+    expect((await pool().query("SELECT inventory_present FROM printers WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId])).rows[0].inventory_present).toBe(true);
+    expect((await heartbeat(f.agentAuth, snapshotHeartbeat("modern", true, [makePrinter(f.printerId)]))).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, legacy)).status).toBe(409);
+  });
+
+  it("requires the reserved version on every page and preserves a newer writer during concurrent old-page replay", async () => {
+    const f = await seedFixture();
+    const first = snapshotHeartbeat("in-progress", true, [makePrinter(f.printerId)], 1, 2);
+    const final = snapshotHeartbeat("in-progress", true, [], 2, 2);
+    expect((await heartbeat(f.agentAuth, first)).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, { ...final, inventorySnapshotVersion: "9007199254740993" })).status).toBe(409);
+    expect((await heartbeat(f.agentAuth, final)).status).toBe(200);
+    const fresh = snapshotHeartbeat("next", true, [makePrinter(f.printerId)]);
+    const results = await Promise.all([heartbeat(f.agentAuth, first), heartbeat(f.agentAuth, fresh)]);
+    expect(results.map(r => r.status)).toEqual([409, 200]);
+    expect((await pool().query("SELECT inventory_present FROM printers WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId])).rows[0].inventory_present).toBe(true);
   });
 
   it("accepts 501 printers across multiple pages without truncating inventory", async () => {

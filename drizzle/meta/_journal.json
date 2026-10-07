@@ -561,6 +561,13 @@
       "when": 1790644202218,
       "tag": "0079_team_collection_pagination_indexes",
       "breakpoints": false
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1791392314899,
+      "tag": "0080_inventory_snapshot_version",
+      "breakpoints": true
     }
   ]
 }
