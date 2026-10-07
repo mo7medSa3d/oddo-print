@@ -1,4 +1,4 @@
-RESUME HERE: PHASE 1 — COMPLETE REPOSITORY AUDIT | topology/CI reviewed; Agent discovery, Windows printing, durable registry, local queue, crash recovery, job execution and reconnect paths audited; DEP-001 repaired | audit Gateway auth/tenant isolation/job lifecycle | audit database schema/migrations and Odoo binding/Test Print flow | GitHub Contents API writes fail; using Git tree commits; local clone unavailable because container DNS cannot resolve github.com
+RESUME HERE: PHASE 1 — COMPLETE REPOSITORY AUDIT | Agent/Windows complete; DEP-001 fixed; Gateway auth/tenant isolation/job delivery/fencing and core schema audited; Odoo binding/POS/security partially audited | finish Odoo routing/Test Print and DB migration parity | audit Desktop/Tauri, billing, UI, observability/deployment, then adversarial pass | GitHub Contents API writes fail; using Git tree commits; local clone unavailable because container DNS cannot resolve github.com
 
 # FIX LOG
 
@@ -10,17 +10,17 @@ Policy: evidence-driven production audit; no verification claim without an execu
 ## Phase 1 — Audit checklist
 
 - [x] Repository/build/dependency topology — inventory mapped; DEP-001 repaired.
-- [ ] Shared contracts / serialization / enums / canonical identities
+- [x] Shared contracts / serialization / enums / canonical identities — core printer/job/tenant/claim representations traced Agent ↔ Gateway ↔ DB; Odoo binding projection finishing with Odoo batch.
 - [x] Agent core lifecycle / config / auth / reconnect / cancellation
 - [x] Windows discovery: Winspool / ports / Registry / SetupAPI / USB / WMI-PowerShell fallbacks
 - [x] Network discovery: IPP/IPPS / mDNS-DNS-SD / SNMP / WSD / RAW / LPR
 - [x] Windows print execution: driver-rendered / RAW / spooler lifecycle / status
-- [x] Agent → local registry synchronization / source-authoritative deletion / crash-safe outbox
-- [ ] Gateway API / validation / authorization / tenant isolation
-- [ ] WebSocket / dispatch / queues / retries / fencing / reconciliation
-- [ ] Database schema / migrations / constraints / indexes / transactions
-- [ ] Print job lifecycle / idempotency / payload limits / cleanup
-- [ ] Odoo 19 integration / bindings / Test Print / POS / reports / security
+- [x] Agent → Gateway inventory synchronization / ordering / stale deletion / idempotency
+- [x] Gateway API / validation / authorization / tenant isolation
+- [x] WebSocket / dispatch / queues / retries / fencing / reconciliation
+- [ ] Database schema / migrations / constraints / indexes / transactions — schema/runtime assumptions reviewed; migration parity and latest migrations pending.
+- [x] Print job lifecycle / idempotency / payload limits / cleanup
+- [ ] Odoo 19 integration / bindings / Test Print / POS / reports / security — binding model, POS dedupe and record rules reviewed; explicit-binding/Test Print path pending.
 - [ ] Gateway web UI / dashboard / job/printer state / i18n / RTL
 - [ ] Desktop/Tauri IPC / config / privileged operations / updater
 - [ ] Billing / entitlements / limits / auditability
@@ -30,11 +30,13 @@ Policy: evidence-driven production audit; no verification claim without an execu
 - [ ] Performance / scalability / N+1 / unbounded work / cache correctness
 - [ ] Security sweep / injection / unsafe defaults / cross-tenant access
 
-## Agent audit checkpoint
+## Gateway/job lifecycle audit checkpoint
 
-Reviewed discovery source completion, candidate-vs-executable protocol handling, service/interactive-session queue visibility, Windows spooler status semantics, bounded discovery/probes, registry locking/atomic persistence, stale spooler reconciliation, backend replacement, local SQLite WAL/FULL durability, BeginPrint fence, claim-token persistence, crash recovery, terminal outbox replay, WebSocket reconnect/admission, physical-execution bounds and unknown-outcome propagation.
+Reviewed manager/Odoo/Agent authentication boundaries; active-tenant gates; role/permission checks; tenant-scoped Agent/printer/job APIs; heartbeat pagination and ordered inventory snapshots; cross-agent printer aliasing; desired-state revisions; in-flight capacity; PostgreSQL advisory locks; claim-token fencing; WebSocket single-attempt delivery; ambiguous-send handling; ACK/delivery evidence; crash-reprint policy; late terminal replay; Odoo API-key rotation grace and tenant-scoped idempotency; payload and metadata limits; retention receipts.
 
-No new Agent P0/P1/P2 finding confirmed. Current main CI independently reports Go vet and Go race-test success as part of the passing CI workflow; audit-branch verification will be repeated through PR CI.
+Core database schema has composite tenant ownership FKs for jobs→agents/printers/API keys and discovery rows→sessions/agents/printers, partial unique tenant idempotency keys, job-state/payload CHECKs and indexes supporting tenant/status/agent/expiry queries.
+
+No new Gateway P0/P1/P2 finding confirmed in this batch.
 
 ## Repair checkpoint
 
