@@ -613,7 +613,7 @@ export async function PATCH(req: Request) {
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
   const retainsLateSuccessFence = requestedStatus === "failed"
     && LATE_SUCCESS_ERROR_MARKERS.some((marker) => nextError?.startsWith(marker));
-  const runStatusUpdate = (executor: typeof db) => executor.update(printJobs)
+  const runStatusUpdate = (executor: Pick<typeof db, "update">) => executor.update(printJobs)
     .set({
       status: requestedStatus,
       error: nextError,
@@ -670,7 +670,7 @@ export async function PATCH(req: Request) {
       const row = lifecycle.rows[0] as { agent_lifecycle?: unknown; tenant_lifecycle?: unknown } | undefined;
       if (row?.agent_lifecycle !== "active" || row?.tenant_lifecycle !== "active") return [];
 
-      return runStatusUpdate(tx as typeof db);
+      return runStatusUpdate(tx);
     });
   } else {
     updated = await runStatusUpdate(db);
