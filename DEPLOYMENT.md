@@ -109,7 +109,8 @@ The `docker-compose.yml` includes Gateway, PostgreSQL, and Caddy services. Compo
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/live` | Cheap unauthenticated liveness (no DB, no auth; Docker/Caddy probe) |
-| `GET /api/health` | Gateway readiness (returns 200 when DB reachable, 503 otherwise; unauthenticated liveness probe) |
+| `GET /api/agent/probe` | Public Gateway identity probe used by current Desktop Manager builds |
+| `GET /api/health` | Gateway readiness (returns 200 when DB reachable, 503 otherwise); also the Desktop compatibility fallback for older Gateway deployments |
 | `GET /api/system/health` | Full system health (manager auth `agents.read` required) |
 | Agent heartbeat | Agent liveness (30s interval via WebSocket or HTTP) |
 
