@@ -58,9 +58,7 @@ describe("AdminPrivilegeDialog", () => {
 
     const text = document.body.textContent ?? "";
     expect(text).toContain("Administrator privileges required");
-    expect(text).toContain(
-      "Reopen as Administrator so Windows can install, start, and manage the local print Agent service."
-    );
+    expect(text).toContain("Open as Administrator to manage the local Agent.");
     expect(text).toContain("Restart as Administrator");
     expect(text).toContain("Continue in Read-Only Mode");
     expect(text).toContain("Run as administrator");

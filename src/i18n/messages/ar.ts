@@ -2285,7 +2285,7 @@ export const ar: Catalog = {
   "job.timeline.spoolerLink": "مهمة طباعة ويندوز {id}",
   "job.timeline.printing": "جارٍ الطباعة",
   "job.timeline.delivered": "أُرسلت إلى الطابعة",
-  "job.timeline.successUnverified": "تم التسليم إلى الطابعة. تحقق من الورق عند الحاجة.",
+  "job.timeline.successUnverified": "تم التسليم إلى الطابعة؛ إخراج الورق غير مؤكد تلقائيًا.",
   "job.timeline.failedWithDetail": "فشلت: {detail}",
   "job.timeline.failed": "فشلت",
   "job.timeline.expired": "انتهت صلاحية المهمة قبل التسليم",

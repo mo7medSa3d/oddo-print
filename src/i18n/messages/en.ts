@@ -2279,7 +2279,7 @@ export const en = {
   "job.timeline.spoolerLink": "Windows print job {id}",
   "job.timeline.printing": "Printing in progress",
   "job.timeline.delivered": "Sent to printer",
-  "job.timeline.successUnverified": "Delivered to the printer. Check the paper output when needed.",
+  "job.timeline.successUnverified": "Delivered to the printer; physical paper output is not independently verified.",
   "job.timeline.failedWithDetail": "Failed: {detail}",
   "job.timeline.failed": "Failed",
   "job.timeline.expired": "Job expired before delivery",
