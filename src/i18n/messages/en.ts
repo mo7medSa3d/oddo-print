@@ -1008,6 +1008,7 @@ export const en = {
   "desktop.gateway.dns": "Gateway domain not found. Check the URL and network.",
   "desktop.gateway.tls": "Secure connection failed. Check HTTPS and the PC clock.",
   "desktop.gateway.serverError": "Gateway is temporarily unavailable. Try again shortly.",
+  "desktop.gateway.proxyConfig": "Gateway server setup needs attention. Check the deployment, then try again.",
   "desktop.gateway.notGateway": "This address is not a Yaseir Gateway. Check the URL.",
   "desktop.gateway.pairingFailed": "Pairing failed. Check the code and try again.",
   "desktop.gateway.failed": "The Gateway couldn’t complete the request. Try again.",
