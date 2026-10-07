@@ -521,10 +521,61 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .header("Origin", "tauri://localhost")
         .send()
         .await
-        .map_err(|e| format!("Gateway probe failed: {e}"))?;
-    let status = response.status().as_u16();
+        .map_err(|e| {
+            if e.is_timeout() {
+                format!("Gateway probe timed out: {e}")
+            } else if e.is_connect() {
+                format!("Gateway probe connection failed: {e}")
+            } else {
+                format!("Gateway probe request failed: {e}")
+            }
+        })?;
+    let status = response.status();
     let body = read_response_body_limited(response, 1024 * 1024).await?;
-    Ok(GatewayResponse { status, body })
+
+    if status == reqwest::StatusCode::NOT_FOUND
+        || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+    {
+        let fallback = origin
+            .join("api/health")
+            .map_err(|e| format!("invalid Gateway health URL: {e}"))?;
+        let fallback_response = client
+            .get(fallback)
+            .header("Origin", "tauri://localhost")
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    format!("Gateway health timed out: {e}")
+                } else if e.is_connect() {
+                    format!("Gateway health connection failed: {e}")
+                } else {
+                    format!("Gateway health request failed: {e}")
+                }
+            })?;
+        let fallback_status = fallback_response.status();
+        let fallback_body = read_response_body_limited(fallback_response, 1024 * 1024).await?;
+
+        if fallback_status.is_success() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&fallback_body) {
+                if value.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                    return Ok(GatewayResponse {
+                        status: 200,
+                        body: r#"{"ok":true,"service":"yaseir-print-gateway","compatibility":"health"}"#.into(),
+                    });
+                }
+            }
+        }
+        return Ok(GatewayResponse {
+            status: fallback_status.as_u16(),
+            body: fallback_body,
+        });
+    }
+
+    Ok(GatewayResponse {
+        status: status.as_u16(),
+        body,
+    })
 }
 
 fn configured_gateway_origin() -> Result<url::Url, String> {
