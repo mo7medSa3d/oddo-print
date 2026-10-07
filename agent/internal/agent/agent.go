@@ -2822,7 +2822,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 
-	if !a.isPrinterExecutionAllowed(printerID) || !a.isPrinterExecutionAllowed(localPrinterID) {
+	if !a.isPrinterExecutionAllowed(localPrinterID) {
 		a.queue.AbortPrint(jobID, "printer_not_at_desired_state")
 		a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state")
 		return
@@ -2910,7 +2910,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))
 	defer cancel()
 	printCtx = printer.WithDispatchAdmission(printCtx, func(admissionCtx context.Context) error {
-		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(gatewayPrinterID) || !a.isPrinterExecutionAllowed(localPrinterID) {
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) {
 			return fmt.Errorf("dispatch refused: agent or printer configuration changed before this transport submission")
 		}
 		if err := a.updateJobStatus(admissionCtx, jobID, "printing", "", claimToken, ""); err != nil {
