@@ -59,9 +59,9 @@ describe("AdminPrivilegeDialog", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Administrator privileges required");
     expect(text).toContain(
-      "Desktop Agent Manager must be running as Administrator to manage the Agent service. Close this window and reopen Desktop Agent Manager as Administrator."
+      "Reopen as Administrator so Windows can install, start, and manage the local print Agent service."
     );
-    expect(text).toContain("Close & Reopen as Administrator");
+    expect(text).toContain("Restart as Administrator");
     expect(text).toContain("Continue in Read-Only Mode");
     expect(text).toContain("Run as administrator");
 
@@ -102,7 +102,7 @@ describe("AdminPrivilegeDialog", () => {
 
     const buttons = Array.from(document.querySelectorAll("button"));
     const primaryBtn = buttons.find((b) =>
-      b.textContent?.includes("Close & Reopen as Administrator")
+      b.textContent?.includes("Restart as Administrator")
     );
     expect(primaryBtn).toBeDefined();
 
