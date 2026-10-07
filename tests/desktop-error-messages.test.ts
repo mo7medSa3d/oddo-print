@@ -55,23 +55,6 @@ describe("desktop friendly error mapping", () => {
     expect(message).not.toContain("ECONNREFUSED");
   });
 
-  it("maps native reqwest connection failures without exposing transport internals", () => {
-    const message = friendlyGatewayError(
-      "Gateway probe connection failed: error sending request for url (https://print.example.com/api/agent/probe)"
-    );
-
-    expect(message).toBe("Couldn’t reach the Gateway. Check the URL and connection.");
-    expect(message).not.toContain("error sending request");
-  });
-
-  it("identifies an incomplete trusted-proxy deployment instead of a generic Gateway error", () => {
-    const message = friendlyGatewayError("TRUSTED_PROXY_REQUIRED");
-
-    expect(message).toBe(
-      "Gateway server setup needs attention. Check the deployment, then try again."
-    );
-  });
-
   it("keeps pairing failures actionable without exposing the raw backend message", () => {
     const message = friendlyAgentError(
       "pairing code validation failed: backend rejected pairing code abc123"

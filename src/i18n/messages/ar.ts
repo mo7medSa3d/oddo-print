@@ -1014,7 +1014,6 @@ export const ar: Catalog = {
   "desktop.gateway.dns": "تعذر العثور على نطاق Gateway. تحقق من الرابط والشبكة.",
   "desktop.gateway.tls": "فشل الاتصال الآمن. تحقق من HTTPS ووقت الجهاز.",
   "desktop.gateway.serverError": "Gateway غير متاح مؤقتًا. حاول بعد قليل.",
-  "desktop.gateway.proxyConfig": "إعداد Gateway على الخادم يحتاج مراجعة. تحقق من إعداد النشر ثم حاول مرة أخرى.",
   "desktop.gateway.notGateway": "هذا العنوان ليس Yaseir Gateway. تحقق من الرابط.",
   "desktop.gateway.pairingFailed": "فشل الاقتران. تحقق من الرمز وحاول مرة أخرى.",
   "desktop.gateway.failed": "تعذر على Gateway إكمال الطلب. حاول مرة أخرى.",
