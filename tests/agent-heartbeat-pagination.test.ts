@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { POST as heartbeatPOST } from "../src/app/api/agent/heartbeat/route";
+import { GET as desiredStateGET } from "../src/app/api/agent/desired-state/route";
 import { GET as odooPrintersGET } from "../src/app/api/odoo/printers/route";
 import { GET as agentJobsGET } from "../src/app/api/agent/jobs/route";
 import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
@@ -163,6 +164,33 @@ suite("agent heartbeat pagination contract", () => {
       [f.tenantId],
     );
     expect(rows.rows.map((row) => row.id)).toHaveLength(501);
+  });
+
+  it("negotiates all desired-state pages without leaking another tenant or truncating a legacy snapshot", async () => {
+    const f = await seedFixture();
+    const foreign = await seedFixture();
+    await pool().query("UPDATE printers SET management_source = 'manager', desired_revision = 1 WHERE id = ANY($1::text[])", [[f.printerId, foreign.printerId]]);
+    for (let i = 0; i < 64; i++) {
+      const id = `manager_${String(i).padStart(3, "0")}`;
+      await pool().query(`INSERT INTO printers (id, tenant_id, agent_id, name, connection_type, protocol, management_source, desired_revision, config)
+        VALUES ($1, $2, $3, $1, 'network', 'raw', 'manager', 1, '{"ip":"10.0.0.10","port":9100}')`, [id, f.tenantId, f.agentId]);
+    }
+    const legacy = await heartbeat(f.agentAuth, { printers: [] });
+    expect(await legacy.json()).toMatchObject({ success: true, desiredStateUpgradeRequired: true });
+    const modern = await heartbeat(f.agentAuth, { ...snapshotHeartbeat("desired-pages", true, []), desiredStatePaging: true });
+    expect(modern.status).toBe(200);
+    const first = await modern.json();
+    expect(first.desiredState).toHaveLength(64);
+    expect(typeof first.desiredStateNextCursor).toBe("string");
+    const last = await desiredStateGET(new Request(`http://gateway.test/api/agent/desired-state?after=${first.desiredStateNextCursor}`, { headers: { authorization: f.agentAuth } }));
+    expect(last.status).toBe(200);
+    const final = await last.json();
+    expect(final.agentId).toBe(f.agentId);
+    expect(final.desiredStateNextCursor).toBeNull();
+    const ids = [...first.desiredState, ...final.desiredState].map(row => row.id);
+    expect(new Set(ids).size).toBe(65);
+    expect(ids).toContain(f.printerId);
+    expect(ids).not.toContain(foreign.printerId);
   });
 
   it("rejects invalid page metadata before touching the tenant inventory", async () => {

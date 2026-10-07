@@ -56,16 +56,15 @@ const (
 //     payload.MaxPayloadBytes (the same ceiling dispatch enforces), so the
 //     product is the documented batch ceiling — a larger response is a
 //     contract violation and is rejected instead of absorbed;
-//   - the heartbeat carries manager-owned desired state: per-printer config
-//     is capped at 16 KiB by the gateway but max_printers may be unlimited,
-//     so this is a generous hard ceiling over any real fleet, not a
-//     contract value.
+//   - the heartbeat carries the first bounded manager-owned desired-state
+//     page. Legacy gateways can return a larger complete snapshot; the
+//     collector still enforces the local metadata budget before applying it.
 const (
 	maxGatewayErrorBodyBytes = 8 << 10
 	maxClaimBatch            = 20
 	// Heartbeat is control-plane metadata only. Keep a hard multi-megabyte
-	// ceiling; real printer desired-state payloads are far smaller, and a
-	// bounded cap prevents a malformed gateway from consuming hundreds of MiB.
+	// ceiling for legacy responses. Current Gateway pages are much smaller;
+	// a bounded cap prevents a malformed gateway from consuming hundreds of MiB.
 	maxHeartbeatBytes            = 32 << 20
 	maxHeartbeatProbeConcurrency = 64
 )
@@ -2549,6 +2548,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		if parent.Err() != nil {
 			return
 		}
+		payload["desiredStatePaging"] = true
 
 		heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
@@ -2563,14 +2563,24 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		// "response read failed: context canceled" on every cycle and returned
 		// early — skipping desired-state reconciliation and the SkippedPrinters
 		// feedback entirely. The 15s budget still bounds request + body read.
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes+1))
 		cancel()
 		_ = resp.Body.Close()
-		if readErr != nil {
-			log.Printf("Heartbeat page %d/%d response read failed: %v", pageIndex+1, len(pages), readErr)
+		if readErr != nil || len(body) > maxHeartbeatBytes {
+			if pageIndex == len(pages)-1 {
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+			}
+			log.Printf("Heartbeat page %d/%d response read failed or exceeded the byte limit: %v", pageIndex+1, len(pages), readErr)
 			return
 		}
 		if resp.StatusCode >= 300 {
+			if pageIndex == len(pages)-1 {
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+			}
 			if resp.StatusCode == http.StatusConflict {
 				var conflict struct {
 					Code                   string `json:"code"`
@@ -2589,14 +2599,16 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		}
 
 		var hbResp struct {
-			Success         bool                  `json:"success"`
-			DesiredState    *[]desiredPrinterWire `json:"desiredState"`
-			SkippedPrinters []struct {
+			Success                     bool                  `json:"success"`
+			DesiredState                *[]desiredPrinterWire `json:"desiredState"`
+			DesiredStateNextCursor      string                `json:"desiredStateNextCursor"`
+			DesiredStateUpgradeRequired bool                  `json:"desiredStateUpgradeRequired"`
+			SkippedPrinters             []struct {
 				ID     string `json:"id"`
 				Reason string `json:"reason"`
 			} `json:"skippedPrinters"`
 		}
-		if err := json.Unmarshal(body, &hbResp); err != nil {
+		if err := json.Unmarshal(body, &hbResp); err != nil || !hbResp.Success {
 			// A final page is the only authoritative desired-state snapshot.
 			// Retaining a previous sync after an invalid 2xx response would
 			// allow stale manager configuration to remain executable. Fail closed
@@ -2605,7 +2617,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 				a.desiredStateMu.Lock()
 				a.desiredStateSynced = false
 				a.desiredStateMu.Unlock()
-				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: %v", pageIndex+1, len(pages), err)
+				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: parse error=%v, success=%t", pageIndex+1, len(pages), err, hbResp.Success)
 				return
 			}
 			continue
@@ -2619,11 +2631,25 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		// pages are in flight.
 		if pageIndex == len(pages)-1 {
 			if hbResp.DesiredState != nil {
-				a.reconcileGatewayDesiredState(*hbResp.DesiredState)
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+				desired, syncErr := a.collectGatewayDesiredState(parent, *hbResp.DesiredState, hbResp.DesiredStateNextCursor)
+				if syncErr != nil {
+					log.Printf("desired-state synchronization incomplete; execution remains fenced: %v", syncErr)
+					return
+				}
+				if !a.reconcileGatewayDesiredState(desired) {
+					log.Printf("desired-state persistence failed; execution remains fenced")
+					return
+				}
 				a.desiredStateMu.Lock()
 				a.desiredStateSynced = true
 				a.desiredStateMu.Unlock()
 			} else {
+				if hbResp.DesiredStateUpgradeRequired {
+					log.Printf("Gateway requires paginated desired-state support; upgrade the Agent before manager-owned printing")
+				}
 				// Older gateways without the full desired-state contract are not
 				// allowed to make a manager-owned printer executable.
 				a.desiredStateMu.Lock()

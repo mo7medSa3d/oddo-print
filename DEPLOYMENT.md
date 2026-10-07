@@ -89,6 +89,8 @@ gateway.example.com {
 
 ### 4. Build & Deploy Agent (Windows)
 
+Upgrade Agents along with the Gateway inventory/desired-state contract. Migration `0080` must precede the Gateway that reads its retained inventory version. Versionless observations are additive before upgrade and cannot downgrade an established versioned writer. Manager fleets that exceed one desired-state page (64 rows or 512 KiB of array data) require an Agent with negotiated continuation support; older Agents stay fenced with `desiredStateUpgradeRequired` instead of applying a truncated list. Review the [heartbeat and desired-state contract](API.md#agent-heartbeat-pagination) for metadata budgets and recovery behavior.
+
 ```bash
 cd agent
 GOOS=windows GOARCH=amd64 go build -o print-agent.exe ./cmd/agent

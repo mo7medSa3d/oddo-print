@@ -5,11 +5,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { logError } from "../../../../lib/log";
+import { logError, logWarn } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
 import { inventoryVersionAllowsPage, parseInventorySnapshotVersion } from "../../../../lib/inventory-snapshot";
+import { getDesiredPrinterPage } from "../../../../lib/desired-state-page";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -144,7 +145,7 @@ export async function POST(req: Request) {
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
   if (hasBodyOverLimit(req, MAX_HEARTBEAT_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventorySnapshotVersion?: unknown; inventoryComplete?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
+  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventorySnapshotVersion?: unknown; inventoryComplete?: unknown; desiredStatePaging?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
     const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
@@ -190,6 +191,10 @@ export async function POST(req: Request) {
     if (body.inventorySnapshotVersion !== undefined && (!inventorySnapshotVersion || !inventorySnapshotId)) {
       return NextResponse.json({ error: "inventorySnapshotVersion requires inventorySnapshotId and a positive int64 decimal string" }, { status: 400 });
     }
+    if (body.desiredStatePaging !== undefined && typeof body.desiredStatePaging !== "boolean") {
+      return NextResponse.json({ error: "desiredStatePaging must be boolean" }, { status: 400 });
+    }
+    const desiredStatePaging = body.desiredStatePaging === true;
 
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     // 500 is a transport page ceiling, not a fleet-size ceiling. Agents with
@@ -526,30 +531,17 @@ export async function POST(req: Request) {
         }
       }
 
-      const desiredRows = isFinalHeartbeatPage
-        ? await tx.query.printers.findMany({
-            where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),
-            columns: {
-              id: true,
-              name: true,
-              printerType: true,
-              deviceClass: true,
-              connectionType: true,
-              protocol: true,
-              lifecycle: true,
-              config: true,
-              desiredRevision: true,
-              appliedDesiredRevision: true,
-              observedDesiredRevision: true,
-            },
-          })
-        : [];
+      const desiredPage = isFinalHeartbeatPage
+        ? await getDesiredPrinterPage(agent.tenantId, agent.id, undefined, options => tx.query.printers.findMany(options))
+        : null;
 
       return {
         kind: "ok" as const,
         skippedPrinters: skipped,
         printerIdAliases,
-        desiredState: desiredRows,
+        desiredState: desiredPage && (desiredStatePaging || desiredPage.nextCursor === null) ? desiredPage.items : null,
+        desiredStateNextCursor: desiredStatePaging ? desiredPage?.nextCursor ?? null : null,
+        desiredStateUpgradeRequired: desiredPage !== null && !desiredStatePaging && desiredPage.nextCursor !== null,
         isFinalPage: isFinalHeartbeatPage,
       };
     });
@@ -571,7 +563,7 @@ export async function POST(req: Request) {
       response.printerIdAliases = result.printerIdAliases;
     }
     if (result.isFinalPage) {
-      response.desiredState = result.desiredState.map((row) => ({
+      if (result.desiredState !== null) response.desiredState = result.desiredState.map((row) => ({
         id: row.id,
         name: row.name,
         printerType: row.printerType,
@@ -582,6 +574,11 @@ export async function POST(req: Request) {
         config: row.config,
         desiredRevision: row.desiredRevision,
       }));
+      if (result.desiredStateNextCursor !== null) response.desiredStateNextCursor = result.desiredStateNextCursor;
+      if (result.desiredStateUpgradeRequired) {
+        response.desiredStateUpgradeRequired = true;
+        logWarn("agent.heartbeat.desired_state_upgrade_required", { agentId: agent.id, tenantId: agent.tenantId });
+      }
     }
     return NextResponse.json(response);
   } catch (error) {

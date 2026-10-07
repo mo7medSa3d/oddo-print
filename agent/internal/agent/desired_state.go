@@ -177,6 +177,9 @@ func (a *Agent) persistDesiredState() error {
 	if err != nil {
 		return err
 	}
+	if len(data) > maxDesiredStateBytes {
+		return fmt.Errorf("serialized desired state exceeds %d bytes", maxDesiredStateBytes)
+	}
 
 	dir := filepath.Dir(a.desiredStatePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -519,7 +522,7 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 	return nil
 }
 
-func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
+func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) bool {
 	incoming := make(map[string]desiredPrinterWire, len(rows))
 	for _, desired := range rows {
 		if desired.ID == "" || desired.DesiredRevision < 0 {
@@ -629,7 +632,7 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 		} else {
 			log.Printf("WARNING: failed to persist Gateway desired state: %v", err)
 		}
-		return
+		return false
 	}
 
 	// Once the snapshot containing the tombstones is durable, remove any
@@ -659,4 +662,5 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) {
 	if cleanedRuntime || len(tombstones) > 0 {
 		a.reloadRegistryPrinters()
 	}
+	return true
 }

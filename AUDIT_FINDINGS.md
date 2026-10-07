@@ -81,3 +81,12 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Fix: add a canonical UTF-8 base64url ID header/query alternative, retain the raw header only for safe ASCII legacy IDs, validate conflicting cursors, and expose pagination/request-ID metadata to already allowed origins.
 - Regression/verification: Node Response.json reproduced Unicode and newline header failures; 27 actual fleet-route/CORS cases PASS, plus 15 capability regressions (42 combined); typecheck/lint PASS.
 - Status: FIXED; runtime limitations above.
+
+### R09 — P2 — adversarial second pass: desired-state response cardinality
+
+- Location: heartbeat final desired-state query/response; Agent heartbeat parser and `reconcileGatewayDesiredState`.
+- Problem/root cause: inventory uploads are paginated, but the final response selects/serializes every manager-owned printer at once. Agent has a 32 MiB response ceiling and treats the final array as an authoritative full snapshot; naively truncating it would delete omitted local printers.
+- Impact: large manager fleets/configs create unbounded Gateway query/serialization work or an invalid truncated Agent response and fail desired-state convergence.
+- Fix: negotiate bounded response pages, fetch scoped continuation pages, accumulate the full snapshot before reconciliation, and fail closed on interruption/invalid pages. Older Agents receive a full small snapshot or an explicit upgrade requirement, never a truncated authoritative array.
+- Regression/verification: 15 executable query/route/negotiation cases PASS; Go end-to-end all-pages/failure/identity/duplicate/byte/persistence regressions added. Final typecheck/lint PASS; a real PostgreSQL 65-record/foreign-tenant/legacy-continuation case added (BLOCKED locally). Native Go/PG execution BLOCKED locally.
+- Status: FIXED; native runtime confirmation pending CI.
