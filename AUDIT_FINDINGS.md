@@ -45,3 +45,21 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Fix strategy: run every native `.test.mjs` suite with the required VM flag; update the changed client contract while retaining pagination assertions.
 - Regression/verification: complete native suite 101 PASS, 0 FAIL, 0 SKIP, using the same full glob now enforced by CI.
 - Status: FIXED.
+
+### R05 — P2 — stale-Agent sweep cardinality
+
+- Location: `src/lib/agent-presence-maintenance.ts:sweepStaleAgentPresence`; server housekeeping timer.
+- Problem/root cause: a global UPDATE modifies and returns every stale online Agent in one statement, unlike the bounded job sweep. Concurrent Gateway instances contend over the same backlog.
+- Impact: a fleet-wide outage/reconnect can hold many row locks and materialize the complete stale fleet every tick. Request-time availability is already derived independently; persistence may safely converge in bounded batches.
+- Fix: ordered, bounded candidate CTE with FOR UPDATE SKIP LOCKED, a validated/capped optional sweep limit, and retained lifecycle/freshness predicates.
+- Regression/verification: 9 SQL-query/parameter/error cases PASS; combined affected regression suites 54 PASS. Live PostgreSQL contention unverified locally.
+- Status: FIXED; runtime limitations above.
+
+### R06 — P2 — native Windows Agent regressions omitted from CI
+
+- Location: `.github/workflows/build-windows.yml`; Windows-tagged spooler/USB/PDF tests.
+- Problem/root cause: Linux CI runs Go tests and cross-target staticcheck; the Windows workflow only builds Go binaries. Windows-tagged tests never execute.
+- Impact: partial spooler writes, bounded preflight, SetupAPI parsing and the embedded PDF renderer can regress without the installer gate detecting them.
+- Fix: run Go module verification, native vet and the full native Go test suite in the existing Windows runner before packaging. Linux race coverage remains in CI.
+- Regression/verification: existing substantive Windows tests inspected; native execution blocked locally.
+- Status: FIXED; runtime limitations above.
