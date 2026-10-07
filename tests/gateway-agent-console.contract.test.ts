@@ -41,6 +41,18 @@ describe("desktop Agent Gateway response contract", () => {
     expect(ipc).toContain("config.pid");
   });
 
+  it("keeps Gateway URL verification compatible with pre-probe Gateway deployments", () => {
+    const ipc = read("src/desktop/lib/ipc.ts");
+    const rust = read("src-tauri/src/commands.rs");
+
+    expect(ipc).toContain("browserResponse.status === 404 || browserResponse.status === 405");
+    expect(ipc).toContain("${base}/api/health");
+    expect(rust).toContain("reqwest::StatusCode::NOT_FOUND");
+    expect(rust).toContain("reqwest::StatusCode::METHOD_NOT_ALLOWED");
+    expect(rust).toContain('.join("api/health")');
+    expect(rust).toContain('"service":"yaseir-print-gateway"');
+  });
+
   it("allows the bare jobs endpoint while rejecting malformed query pairs", () => {
     const source = read("agent/cmd/cli/gateway.go");
     expect(source).toContain('if parsed.RawQuery == "" {');
