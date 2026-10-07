@@ -91,8 +91,8 @@ jobs:
         run: npm run lint
       - name: i18n catalog check (en/ar parity, tc() bases)
         run: npm run i18n:check
-      - name: Offline audit regressions (actual modules, built-in Node APIs)
-        run: node --experimental-vm-modules --test tests/audit-*-offline.test.mjs
+      - name: Native Node regressions (actual modules and contracts)
+        run: node --experimental-vm-modules --test tests/*.test.mjs
       - name: Odoo translation catalog check
         run: npm run i18n:odoo:check
       - name: DB schema/migration/docs drift check

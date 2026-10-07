@@ -43,5 +43,5 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Problem/root cause: CI's audit-only filename glob omits native regression suites for sessions, inventory/status, pagination, UI and retention. The full 101-case suite exposes a stale throwing-API assertion after getDashboardStateResult replaced the client call.
 - Affected flow/impact: previously added regressions can rot without CI detecting it.
 - Fix strategy: run every native `.test.mjs` suite with the required VM flag; update the changed client contract while retaining pagination assertions.
-- Regression/verification: baseline full native suite 100 PASS / 1 FAIL; focused/final verification pending.
-- Status: CONFIRMED / REPAIR PENDING.
+- Regression/verification: complete native suite 101 PASS, 0 FAIL, 0 SKIP, using the same full glob now enforced by CI.
+- Status: FIXED.
