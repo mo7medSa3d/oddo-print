@@ -791,7 +791,28 @@ fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
     Err("YaseirAgent.exe can only be launched on Windows".into())
 }
 
-pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> { start(app) }
+pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+
+    #[cfg(windows)]
+    if sc_query()?.is_none() {
+        // A normal installer creates the service, but if registration was
+        // removed or an upgrade left it missing, an elevated Manager launch
+        // should repair it automatically. An unelevated launch will simply
+        // fail this install attempt, log the reason, and continue to the
+        // existing bounded background fallback until the UI asks for elevation.
+        match run_agent_service_command(app, "install", COMMAND_TIMEOUT) {
+            Ok(message) => logging::info(&format!(
+                "repaired missing YaseirAgent service during startup: {message}"
+            )),
+            Err(error) => logging::warn(&format!(
+                "YaseirAgent service is missing and could not be repaired during startup: {error}"
+            )),
+        }
+    }
+
+    start_inner(app)
+}
 
 pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
