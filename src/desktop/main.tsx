@@ -592,9 +592,11 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    // Rust starts the Agent on a background thread during application setup.
-    // Give that startup a short grace period, then take one fresh observation
-    // before showing a persistent "Agent stopped" recovery banner.
+    // Elevated startup may start/repair the Windows service on a background
+    // thread. Give that privileged startup a short grace period before showing
+    // the separate elevated "Agent stopped" recovery banner. Unelevated
+    // launches do not auto-start the Agent and use the Administrator dialog
+    // as soon as the first local status observation arrives.
     const timer = window.setTimeout(() => {
       setAgentStartupGraceElapsed(true);
       void refreshStatus();
@@ -752,7 +754,6 @@ export default function App() {
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running === true;
   const agentServiceNeedsAdmin =
     isAdmin === false &&
-    agentStartupGraceElapsed &&
     agentStatus !== null &&
     agentStatus.note_code !== "service_running";
   useEffect(() => {
