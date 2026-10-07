@@ -175,8 +175,9 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         note: String::new(),
         note_code: "not_running".into(),
     };
-    // `sc query` + `tasklist` are fast but still subprocess I/O; keep them off
-    // the UI thread for consistency with the rest of the command surface.
+    // Local service/process inspection can touch Windows control-plane APIs
+    // and process metadata; keep it off the UI thread for consistency with the
+    // rest of the command surface.
     //
     // Only LOCAL process/service state is reported here. The agent's gateway
     // WS-connection state and last heartbeat live on the Gateway (the desktop
@@ -188,6 +189,14 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
                 "service_status_unavailable"
             } else if service_running {
                 "service_running"
+            } else if note.contains("service not detected") && running {
+                "background_running_service_missing"
+            } else if note.contains("service not detected") {
+                "service_missing"
+            } else if note.contains("owned but stopped/transitioning") && running {
+                "background_running_service_stopped"
+            } else if note.contains("owned but not running") {
+                "service_stopped"
             } else if running {
                 "background_running"
             } else {
