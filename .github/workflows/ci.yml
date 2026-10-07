@@ -157,6 +157,8 @@ jobs:
           pytest tests/test_*.py
       - name: Run unit tests (no DB)
         run: npm run test:unit
+      - name: Build Next.js for production-server integration tests
+        run: npm run build
       - name: Run Drizzle migrations
         run: npm run db:migrate
       - name: Verify final runtime-only schema
