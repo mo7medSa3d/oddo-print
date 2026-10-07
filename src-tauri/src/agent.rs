@@ -791,31 +791,42 @@ fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
     Err("YaseirAgent.exe can only be launched on Windows".into())
 }
 
-pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
-    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
-
-    #[cfg(windows)]
-    if sc_query()?.is_none() {
-        // A normal installer creates the service, but if registration was
-        // removed or an upgrade left it missing, an elevated Manager launch
-        // should repair it automatically. An unelevated launch will simply
-        // fail this install attempt, log the reason, and continue to the
-        // existing bounded background fallback until the UI asks for elevation.
-        match run_agent_service_command(app, "install", COMMAND_TIMEOUT) {
-            Ok(message) => logging::info(&format!(
-                "repaired missing YaseirAgent service during startup: {message}"
-            )),
-            Err(error) => logging::warn(&format!(
-                "YaseirAgent service is missing and could not be repaired during startup: {error}"
-            )),
-        }
+#[cfg(windows)]
+fn ensure_service_installed(app: &tauri::AppHandle) -> Result<(), String> {
+    if sc_query()?.is_some() {
+        return Ok(());
     }
 
+    let message = run_agent_service_command(app, "install", COMMAND_TIMEOUT).map_err(|error| {
+        format!(
+            "YaseirAgent Windows service is not installed and could not be installed. Reopen Yaseir Print Manager as Administrator and try again: {error}"
+        )
+    })?;
+    logging::info(&format!("installed missing YaseirAgent service: {message}"));
+
+    if sc_query()?.is_none() {
+        return Err(
+            "YaseirAgent Windows service installation completed but the service is still not registered"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn ensure_service_installed(_app: &tauri::AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    ensure_service_installed(app)?;
     start_inner(app)
 }
 
 pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    ensure_service_installed(app)?;
     start_inner(app)
 }
 
@@ -846,12 +857,10 @@ fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
                 )),
             }
         }
-        None => {
-            if is_process_running(app) {
-                return Ok(());
-            }
-            spawn_background(app).map(|_| ())
-        }
+        None => Err(
+            "YaseirAgent Windows service is not installed. Reopen Yaseir Print Manager as Administrator so the service can be installed and started."
+                .into(),
+        ),
     }
 }
 
@@ -939,6 +948,7 @@ fn stop_inner(app: &tauri::AppHandle) -> Result<(), String> {
 pub fn restart(app: &tauri::AppHandle) -> Result<(), String> {
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
     stop_inner(app)?;
+    ensure_service_installed(app)?;
     start_inner(app)
 }
 
