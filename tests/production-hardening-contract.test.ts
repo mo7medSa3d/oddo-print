@@ -199,8 +199,10 @@ describe("production hardening contracts", () => {
 
   it("never downgrades an agent panic after BeginPrint into an ordinary retryable failure", () => {
     const agent = read("agent/internal/agent/agent.go");
-    expect(agent).toContain('localStatus == "printing"');
-    expect(agent).toContain('panicMsg = "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg');
+    expect(agent).toContain('func classifyPanicOutcome(');
+    expect(agent).toContain('found && localStatus == "printing"');
+    expect(agent).toContain('return "failed", "UNKNOWN_PARTIAL_DELIVERY: " + panicMsg');
+    expect(agent).toContain('status, panicMsg := classifyPanicOutcome(');
     expect(agent).toContain('a.queue.UpdateStatusWithError(jobID, "failed", panicMsg)');
     expect(agent).toContain('a.rememberTerminalExecution(jobID, "failed", panicMsg, fields.ClaimToken, "")');
   });
@@ -209,9 +211,11 @@ describe("production hardening contracts", () => {
     const dashboard = read("src/app/dashboard/page.tsx");
     const lifecycle = read("src/app/api/agents/[id]/route.ts");
     const helper = read("src/lib/agent-lifecycle.ts");
-    expect(dashboard).toContain("eq(agents.tenantId, claims.tenantId)");
-    expect(dashboard).toContain("eq(printers.tenantId, claims.tenantId)");
-    expect(dashboard).toContain("eq(printJobs.tenantId, claims.tenantId)");
+    const dashboardState = read("src/lib/dashboard-state.ts");
+    expect(dashboard).toContain("loadDashboardStateForTenant(claims.tenantId)");
+    expect(dashboardState).toContain("eq(agents.tenantId, tenantId)");
+    expect(dashboardState).toContain("eq(printers.tenantId, tenantId)");
+    expect(dashboardState).toContain("eq(printJobs.tenantId, tenantId)");
     expect(lifecycle).toContain("transitionAgentLifecycle(id, lifecycle, claims.tenantId, {");
     expect(helper).toContain("eq(agents.tenantId, tenantId)");
     expect(helper).not.toContain("tx.update(printers)");

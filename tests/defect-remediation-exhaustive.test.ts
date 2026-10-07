@@ -196,7 +196,7 @@ describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
     const binding = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
     const router = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
     expect(binding).toContain("context=None, data=None");
-    expect(binding).toContain("route_report(report, records, data=data, explicit_binding=binding)");
+    expect(binding).toContain("route_report(report, records, data=data, explicit_binding=binding, idempotency_key=operation_id)");
     expect(router).toContain("_render_pdf_payload(report, records, data=data)");
     expect(router).toContain("res_ids=records.ids, data=data");
   });

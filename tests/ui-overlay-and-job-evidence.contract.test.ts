@@ -16,7 +16,7 @@ describe("overlay and job evidence contracts", () => {
   it("keeps modal content visible and scrollable on phone viewports", () => {
     const ui = read("src/components/ui.tsx");
     expect(ui).toContain("h-[100dvh] max-h-[100dvh]");
-    expect(ui).toContain("sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl");
+    expect(ui).toContain("sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-md");
     expect(ui).toContain("min-h-0 flex-1 overflow-y-auto overflow-x-hidden");
   });
 

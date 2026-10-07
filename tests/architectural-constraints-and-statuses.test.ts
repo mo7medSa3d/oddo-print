@@ -129,7 +129,8 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("Auto-probe only the already-persisted Gateway");
     expect(mainTsx).toContain("const raw = savedGatewayUrl.trim();");
     expect(mainTsx).toContain("await setGatewayUrl(target);");
-    expect(mainTsx).toContain('setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });');
+    expect(mainTsx).toContain('text: saveWarning ?? t("desktop.app.connectionVerified")');
+    expect(mainTsx).toContain('type: saveWarning ? "info" : "success"');
     expect(mainTsx).toContain('setMsg({ text: t("desktop.app.gatewaySettingsReadFailed"), type: "error" });');
     expect(mainTsx).not.toContain("const saveGateway = useCallback");
 

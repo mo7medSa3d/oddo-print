@@ -8,7 +8,8 @@ describe("Odoo workspace cross-system contracts", () => {
     const route = read("src/app/api/odoo/keys/route.ts");
     const page = read("src/app/api-keys/page.tsx");
 
-    expect(page).toContain('fetch("/api/odoo/keys"');
+    expect(page).toContain('fetchWithTimeout("/api/odoo/keys"');
+    expect(page).toContain('credentials: "include"');
     expect(route).toContain("validateWorkspaceManager(req)");
     expect(route).not.toContain("validateManager(req)");
   });

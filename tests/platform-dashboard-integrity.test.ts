@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const dashboard = readFileSync("src/app/platform/dashboard/page.tsx", "utf8");
 const navbar = readFileSync("src/components/TopNavbar.tsx", "utf8");
 const platformLogin = readFileSync("src/app/platform/login/page.tsx", "utf8");
+const authShell = readFileSync("src/components/AuthShell.tsx", "utf8");
 
 describe("platform dashboard visual/data integrity", () => {
   it("does not contain hard-coded demo metrics or fabricated trend data", () => {
@@ -36,7 +37,9 @@ describe("platform dashboard visual/data integrity", () => {
     expect(platformLogin).toContain('Input');
     expect(platformLogin).toContain('ErrorState');
     expect(platformLogin).toContain('subtitle={t("auth.shell.platformAdmin")}');
-    expect(platformLogin).toContain("border-edge-strong bg-surface");
+    expect(authShell).toContain("<BrandMark");
+    expect(authShell).toContain("bg-surface/40");
+    expect(authShell).toContain("ambient-surface");
     expect(platformLogin).not.toContain("var(--platform-bg)");
     expect(platformLogin).not.toContain("var(--platform-surface)");
     expect(platformLogin).not.toContain("var(--glow)");
