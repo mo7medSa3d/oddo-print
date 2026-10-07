@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -1144,10 +1143,13 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 
 	wsURL := fmt.Sprintf("%s://%s/api/agent/ws", scheme, u.Host)
 
-	backoff := 5 * time.Second
-	const maxBackoff = 60 * time.Second
+	var retry wsReconnectBackoff
+	var retryDelay time.Duration
 
 	for {
+		if retryDelay > 0 && !waitForWSReconnect(ctx, retryDelay) {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -1158,25 +1160,12 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 
 			c, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 			if err != nil {
-				// Jittered backoff (50%-100% of the step) avoids thundering
-				// reconnect herds when the gateway restarts with many agents.
-				delay := backoff/2 + time.Duration(rand.Int63n(int64(backoff/2)+1))
-				log.Printf("WebSocket dial failed: %v. Retrying in %s...", err, delay.Round(time.Millisecond))
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(delay):
-				}
-				if backoff < maxBackoff {
-					backoff *= 2
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-				}
+				retryDelay = retry.nextDelay(0)
+				log.Printf("WebSocket dial failed: %v. Retrying in %s...", err, retryDelay.Round(time.Millisecond))
 				continue
 			}
 
-			backoff = 5 * time.Second
+			sessionStarted := time.Now()
 			a.setWSConn(c)
 			log.Println("WebSocket connected.")
 
@@ -1207,8 +1196,9 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			if closeErr := c.Close(); closeErr != nil {
 				log.Printf("WebSocket connection close cleanup failed: %v", closeErr)
 			}
+			retryDelay = retry.nextDelay(time.Since(sessionStarted))
 			if err != nil {
-				log.Printf("WebSocket connection lost: %v. Reconnecting...", err)
+				log.Printf("WebSocket connection lost: %v. Retrying in %s...", err, retryDelay.Round(time.Millisecond))
 			}
 		}
 	}
