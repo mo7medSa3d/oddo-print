@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,14 +22,33 @@ func TestAgentGatewayProducersUseCanonicalPathsWithTrailingSlashAndWhitespace(t 
 		if r.Header.Get("Authorization") != "Bearer agent:test-secret" {
 			t.Errorf("request did not use the paired Agent authentication")
 		}
+		var update struct {
+			JobID      string `json:"jobId"`
+			Status     string `json:"status"`
+			ClaimToken string `json:"claimToken"`
+		}
+		if r.URL.Path == "/api/agent/jobs" && r.Method == http.MethodPatch {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&update); err != nil {
+				t.Errorf("invalid status request: %v", err)
+				http.Error(w, "invalid status request", http.StatusBadRequest)
+				return
+			}
+			if update.JobID != "job" || update.ClaimToken != "claim" || (update.Status != "queued" && update.Status != "printing") {
+				t.Errorf("unexpected fenced status request: %+v", update)
+			}
+		}
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/api/agent/heartbeat", "/api/agent/jobs":
+		case "/api/agent/heartbeat":
+			_, _ = w.Write([]byte(`{"success":true}`))
+		case "/api/agent/jobs":
 			if r.Method == http.MethodGet {
 				_, _ = w.Write([]byte(`[]`))
 			} else {
-				_, _ = w.Write([]byte(`{"success":true}`))
+				if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": update.Status}); err != nil {
+					t.Errorf("encode status acknowledgement: %v", err)
+				}
 			}
 		case "/api/agent/discovery":
 			_, _ = w.Write([]byte(`[{"id":"discovery"}]`))

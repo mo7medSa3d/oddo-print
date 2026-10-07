@@ -22,8 +22,8 @@ New findings: **P0 0 / P1 2 / P2 10 / P3 0**. All twelve have source repairs and
 | R08 | P2 | Unicode/control IDs broke raw cursor headers and CORS hid traversal metadata; encoded UTF-8 cursors work on both fleet routes, with safe ASCII compatibility and allowed-origin exposure. | 5a66cc79 |
 | R09 | P2 | Paginated inventory uploads returned an unbounded authoritative desired-state list; negotiated bounded continuation pages are collected and persisted before absence reconciliation. Invalid/interrupted/unpersisted snapshots keep execution fenced. | 218c36a1 |
 | R10 | P1 | Native Windows gate exposed embedded PDFium initialization failure: custom cancellation runtime omitted the pinned WASM's required exception handling. Explicitly retain it with the existing filesystem sandbox and cancellation controls. Original real renderer tests passed after repair. | 4e4f586d |
-| R11 | P2 | Accepted-then-closed WebSockets bypassed dial-failure backoff. Failed dials and lost sessions now share bounded jittered delays; only a stable 30-second session resets the budget. Actual accept/close and cancellation tests added. | publication pending |
-| R12 | P2 | Trailing slashes generated //api; accepted prefixes routed HTTP and WS differently. One safe net/url origin/endpoint contract normalizes slash/whitespace, rejects unsupported prefixes and derives every Agent/CLI HTTP and WS endpoint. Actual producer/registration paths covered. | publication pending |
+| R11 | P2 | Accepted-then-closed WebSockets bypassed dial-failure backoff. Failed dials and lost sessions now share bounded jittered delays; only a stable 30-second session resets the budget. Actual accept/close and cancellation tests added. | c6c46e6a |
+| R12 | P2 | Trailing slashes generated //api; accepted prefixes routed HTTP and WS differently. One safe net/url origin/endpoint contract normalizes slash/whitespace, rejects unsupported prefixes and derives every Agent/CLI HTTP and WS endpoint. Actual producer/registration paths covered. | 83550255 |
 
 Details, regression evidence and final file:line anchors are in `AUDIT_FINDINGS.md`. Batch history and interrupted/failed invocations remain in `FIX_LOG.md`.
 
@@ -95,7 +95,7 @@ Risk: migration/Agent rollout and native printing paths require review and real 
 ## Publication / Definition of Done
 
 Integrated review and second adversarial pass are complete with the explicit hardware limits above. The final comparison repairs R11/R12 must still pass native CI before audit closure.
-PR: https://github.com/mo7medSa3d/oddo-print/pull/126 (open, not merged). Published source head: `4e4f586debacfd1b689a283057b0db860a9cb812`; each remote tree matches its local checkpoint. R11/R12 publication and verification remain the next checkpoint.
+PR: https://github.com/mo7medSa3d/oddo-print/pull/126 (open, not merged). Published source head: `8355025591b3a5bbfee95842a10c20ad35886f2c`; each remote tree matches its local checkpoint. CI failed a new regression fixture that omitted the required status acknowledgement; the fixture correction is saved for publication/retest. Odoo, Docker and security jobs passed; Windows is pending. New-source native verification remains the next checkpoint.
 Definition of Done: **NOT YET SATISFIED** while new-source native verification and final publication are pending. No main merge or deployment is authorized or performed.
 
 ## Native CI confirmation and repair follow-up
@@ -132,3 +132,7 @@ The final research pass compared actual producer/consumer code with the followin
 | [OpenPrinting CUPS filter/backend API](https://openprinting.github.io/cups/doc/api-filter.html) | A mature implementation separates rendering from device submission and cancellation/resource ownership. The existing PDFium/GDI and RAW/IPP backends keep that separation; no foreign implementation was copied. |
 
 R12's final consumer census additionally covered the separately serialized discovery-result retry POST. Real request tests cover registration, heartbeat, poll/handback/status, discovery reads/results, desired-state continuation and WebSocket authentication/path. Unsupported base paths fail before credentials leave the Agent; all endpoints retain the paired origin. TLS verification and redirect refusal are unchanged.
+
+### R11/R12 first native run — verification failure retained
+
+CI 37675968726/job 112979427385 on 83550255: Go vet PASS; full race invocation FAIL solely at the new Gateway producer regression. Its fixture returned `success:true` without the `status:printing` required by the production acknowledgement fence. Config, printer/race and other Go packages completed successfully; downstream CI steps were skipped, not passed. Actual accepted-close/rejected-handshake logs show delayed reconnect. The fixture now validates job/claim/status and returns the actual Gateway status response; production acknowledgement validation is unchanged. Full native rerun is required. Odoo, Docker, static-security and security/resilience jobs on this source passed independently.
