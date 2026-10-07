@@ -33,24 +33,29 @@ export interface RuntimePaths {
 }
 
 export function normalizeGatewayUrl(raw: string): string {
-  const url = raw.trim();
-  if (!url) return "";
-  if (/\s/.test(url)) {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (/\s/.test(trimmed)) {
     throw new Error("Gateway URL cannot contain whitespace");
   }
-  if (!/^https?:\/\//i.test(url)) {
-    throw new Error("Gateway URL must use http:// or https://");
-  }
+
+  // A domain pasted without a scheme is a normal operator input. Default it
+  // to HTTPS rather than rejecting an otherwise valid production Gateway.
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("Gateway URL must use http:// or https://");
+    }
     if (parsed.username || parsed.password) {
       throw new Error("Gateway URL cannot include embedded credentials");
     }
     // Match the packaged Tauri transport policy (commands.rs
     // normalize_gateway_url): remote Gateways must use HTTPS; plain HTTP is
-    // accepted only for local development hosts. The browser preview path
-    // uses credentials:"include", so allowing remote HTTP here would send the
-    // manager session cookie over plain HTTP.
+    // accepted only for local development hosts.
     if (parsed.protocol.toLowerCase() === "http:") {
       const host = parsed.hostname.toLowerCase();
       const local = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
@@ -64,7 +69,7 @@ export function normalizeGatewayUrl(raw: string): string {
     }
     return parsed.toString().replace(/\/+$/, "");
   } catch (e) {
-    if (e instanceof Error && e.message === "Gateway URL must use HTTPS for remote Gateways") throw e;
+    if (e instanceof Error && e.message.startsWith("Gateway URL")) throw e;
     throw new Error("Gateway URL is invalid");
   }
 }
@@ -123,6 +128,9 @@ function gatewayErrorMessage(body: string, fallback: string): string {
       const value = parsed?.[key];
       if (typeof value === "string" && value.trim()) return value.trim();
     }
+    // JSON without an operator-facing message (for example {"ok":false})
+    // is machine data, not useful UI copy. Preserve the HTTP-aware fallback.
+    return fallback;
   } catch {
     // Plain-text Gateway errors remain useful when they are already concise.
   }
@@ -406,6 +414,10 @@ export async function isRunningAsAdmin(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export function relaunchAsAdmin(): Promise<void> {
+  return invoke<void>("relaunch_as_admin");
 }
 
 export async function closeApp(): Promise<void> {
@@ -759,7 +771,7 @@ export async function probeGatewayHealth(
   if (isTauri) {
     response = await invoke<GatewayResponse>("probe_gateway_health", { url: base });
   } else {
-    const browserResponse = await fetchWithTimeout(`${base}/api/health`, {
+    const browserResponse = await fetchWithTimeout(`${base}/api/agent/probe`, {
       method: "GET",
       credentials: "omit",
       headers: { Accept: "application/json" },
@@ -767,12 +779,17 @@ export async function probeGatewayHealth(
     response = { status: browserResponse.status, body: await browserResponse.text() };
   }
   if (response.status < 200 || response.status >= 300) {
-    throw gatewayHttpError(response.status, response.body, `Gateway health failed (${response.status})`);
+    throw gatewayHttpError(response.status, response.body, `Gateway probe failed (${response.status})`);
   }
   try {
-    return JSON.parse(response.body) as Record<string, unknown>;
-  } catch {
-    throw new Error("Gateway health response was not valid JSON");
+    const data = JSON.parse(response.body) as Record<string, unknown>;
+    if (data.ok !== true || data.service !== "yaseir-print-gateway") {
+      throw new Error("Gateway probe returned an unexpected service response");
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof Error && error.message === "Gateway probe returned an unexpected service response") throw error;
+    throw new Error("Gateway probe response was not valid JSON");
   }
 }
 

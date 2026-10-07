@@ -46,6 +46,7 @@ import {
   getAppVersion,
   getAutostart,
   isRunningAsAdmin,
+  relaunchAsAdmin,
   getGatewayUrl,
   getPrinters,
   fetchGatewayPrinters,
@@ -171,6 +172,7 @@ export default function App() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
+  const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
   const busyRef = useRef(false);
   // Per-printer test-print operation state (C047): one in-flight request per
   // printer, and one operation key preserved across ambiguous transport
@@ -525,11 +527,12 @@ export default function App() {
       setMsg({ text: t("desktop.app.agentStarted"), type: "success" });
       refreshStatus();
     } catch (e) {
+      if (isAdmin === false) setAdminDismissed(false);
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth, t, locale]);
+  }, [refreshStatus, setBusyBoth, t, locale, isAdmin]);
 
   const stopAgent = useCallback(async () => {
     setConfirmStop(false);
@@ -552,11 +555,12 @@ export default function App() {
       setMsg({ text: t("desktop.app.agentRestarted"), type: "success" });
       refreshStatus();
     } catch (e) {
+      if (isAdmin === false) setAdminDismissed(false);
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
       setBusyBoth(false);
     }
-  }, [refreshStatus, setBusyBoth, t, locale]);
+  }, [refreshStatus, setBusyBoth, t, locale, isAdmin]);
 
   const pair = useCallback(async () => {
     if (!pairCode.trim()) {
@@ -585,6 +589,20 @@ export default function App() {
     if (!isTauri) return;
     isRunningAsAdmin().then((admin) => setIsAdmin(admin));
   }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    // Elevated startup may start/repair the Windows service on a background
+    // thread. Give that privileged startup a short grace period before showing
+    // the separate elevated "Agent stopped" recovery banner. Unelevated
+    // launches do not auto-start the Agent and use the Administrator dialog
+    // as soon as the first local status observation arrives.
+    const timer = window.setTimeout(() => {
+      setAgentStartupGraceElapsed(true);
+      void refreshStatus();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [refreshStatus]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -734,6 +752,17 @@ export default function App() {
   // must read as unavailable — never as healthy/online (C046).
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running === true;
+  const agentServiceNeedsAdmin =
+    isAdmin === false &&
+    agentStatus !== null &&
+    agentStatus.note_code !== "service_running";
+  useEffect(() => {
+    // Re-open the Administrator guidance when the Agent transitions from a
+    // healthy Windows service to a missing/stopped/fallback state. Dismissing
+    // the dialog remains respected while the same state is unchanged.
+    if (agentServiceNeedsAdmin) setAdminDismissed(false);
+  }, [agentServiceNeedsAdmin, agentStatus?.note_code]);
+
   const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= 90 * 1000;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError && healthFresh);
   let normalizedGatewayUrl = "";
@@ -983,8 +1012,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
-        open={isAdmin === false && !adminDismissed}
+        open={agentServiceNeedsAdmin && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
+        onRelaunch={relaunchAsAdmin}
       />
       <Sidebar
         page={page}
@@ -1055,7 +1085,7 @@ export default function App() {
           </div>
         </header>
 
-        {isAdmin === false && adminDismissed && (
+        {isAdmin === false && (
           <div
             className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn lg:px-8"
             role="status"
@@ -1063,7 +1093,14 @@ export default function App() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <strong>{t("desktop.app.readOnlyMode")}</strong> {t("desktop.app.readOnlyBody")}
+                <strong>
+                  {agentServiceNeedsAdmin
+                    ? t("desktop.app.agentAdminRequiredTitle")
+                    : t("desktop.app.readOnlyMode")}
+                </strong>{" "}
+                {agentServiceNeedsAdmin
+                  ? t("desktop.app.agentAdminRequiredBody")
+                  : t("desktop.app.readOnlyBody")}
               </span>
             </div>
             <button
@@ -1072,6 +1109,31 @@ export default function App() {
             >
               {t("desktop.app.viewDetails")}
             </button>
+          </div>
+        )}
+
+        {isAdmin === true && agentStartupGraceElapsed && agentStatus !== null && !isOnline && (
+          <div
+            className="flex flex-col gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn sm:flex-row sm:items-center sm:justify-between lg:px-8"
+            role="alert"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                <strong>{t("desktop.app.agentNeedsStartTitle")}</strong>{" "}
+                {t("desktop.app.agentNeedsStartBody")}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={startAgent}
+              disabled={busy}
+              icon={<Play className="h-3.5 w-3.5" />}
+              className="shrink-0"
+            >
+              {t("desktop.app.startAgentNow")}
+            </Button>
           </div>
         )}
 

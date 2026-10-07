@@ -50,6 +50,16 @@ pub(crate) fn run_bounded_command(
     max_stdout: usize,
     max_stderr: usize,
 ) -> Result<std::process::Output, String> {
+    // Every helper launched from the GUI must stay invisible on Windows.
+    // Centralizing CREATE_NO_WINDOW here covers icacls, Agent CLI/service
+    // commands and diagnostics, preventing the console-window flashing users
+    // saw repeatedly during desktop startup.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
@@ -781,10 +791,42 @@ fn spawn_background(_app: &tauri::AppHandle) -> Result<u32, String> {
     Err("YaseirAgent.exe can only be launched on Windows".into())
 }
 
-pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> { start(app) }
+#[cfg(windows)]
+fn ensure_service_installed(app: &tauri::AppHandle) -> Result<(), String> {
+    if sc_query()?.is_some() {
+        return Ok(());
+    }
+
+    let message = run_agent_service_command(app, "install", COMMAND_TIMEOUT).map_err(|error| {
+        format!(
+            "YaseirAgent Windows service is not installed and could not be installed. Reopen Yaseir Print Manager as Administrator and try again: {error}"
+        )
+    })?;
+    logging::info(&format!("installed missing YaseirAgent service: {message}"));
+
+    if sc_query()?.is_none() {
+        return Err(
+            "YaseirAgent Windows service installation completed but the service is still not registered"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn ensure_service_installed(_app: &tauri::AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
+    let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    ensure_service_installed(app)?;
+    start_inner(app)
+}
 
 pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
+    ensure_service_installed(app)?;
     start_inner(app)
 }
 
@@ -815,12 +857,10 @@ fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
                 )),
             }
         }
-        None => {
-            if is_process_running(app) {
-                return Ok(());
-            }
-            spawn_background(app).map(|_| ())
-        }
+        None => Err(
+            "YaseirAgent Windows service is not installed. Reopen Yaseir Print Manager as Administrator so the service can be installed and started."
+                .into(),
+        ),
     }
 }
 
@@ -908,6 +948,7 @@ fn stop_inner(app: &tauri::AppHandle) -> Result<(), String> {
 pub fn restart(app: &tauri::AppHandle) -> Result<(), String> {
     let _control = AGENT_CONTROL.lock().map_err(|_| "Agent control lock poisoned")?;
     stop_inner(app)?;
+    ensure_service_installed(app)?;
     start_inner(app)
 }
 

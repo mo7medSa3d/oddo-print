@@ -7,7 +7,7 @@ import { Menu } from "./ui";
 
 export function LanguageSwitcher({
   align = "end",
-  placement = "below",
+  placement = "above",
   compact = true,
   className = "",
 }: {

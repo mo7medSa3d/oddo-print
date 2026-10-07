@@ -116,7 +116,6 @@ export function JobsPage({ s }: { s: DesktopState }) {
 
       <Card className="overflow-hidden">
         {s.jobsLoading ? <div className="p-5"><LoadingState rows={5} /></div> : s.jobsError ? <div className="p-5"><ErrorState title={t("desktop.jobs.unavailable")} message={s.jobsError} retry={() => refreshWithFilters(true)} /></div> : (<>
-          <div className="px-5 pt-3 text-xs leading-relaxed text-ink-3">{t("desktop.jobs.snapshotNote")}</div>
           {s.jobsFiltered.length === 0 ? (
           <EmptyState icon={s.jobTab === "failed" ? <XCircle className="h-8 w-8 text-bad" /> : s.jobTab === "unknown" ? <AlertTriangle className="h-8 w-8 text-warn" /> : s.jobTab === "delivered" ? <CheckCircle2 className="h-8 w-8 text-ok" /> : <Inbox className="h-8 w-8" />} title={s.jobPrinterFilter ? t("desktop.jobs.emptyForPrinter", { name: s.printerFilterName }) : s.jobTab === "all" ? t("desktop.jobs.emptyAll") : t("desktop.jobs.emptyForTab", { tab: JOB_TAB_LABELS[s.jobTab] })} description={s.jobPrinterFilter ? t("desktop.jobs.emptyFilteredBody") : s.jobTab === "failed" ? t("desktop.jobs.emptyFailedBody") : s.jobTab === "queued" ? t("desktop.jobs.emptyQueuedBody") : t("desktop.jobs.emptyDefaultBody")} action={s.jobPrinterFilter ? <Button variant="secondary" onClick={() => s.setJobPrinterFilter(null)} icon={<X className="h-4 w-4" />}>{t("desktop.jobs.clearFilter")}</Button> : undefined} />
         ) : (
@@ -133,7 +132,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
       </Card>
 
       <Modal open={cleanupOpen} onClose={() => { if (!cleanupBusy) setCleanupOpen(false); }} title={t("desktop.jobs.cleanupTitle")} description={t("desktop.jobs.cleanupDescription")} footer={<><Button variant="secondary" onClick={() => setCleanupOpen(false)} disabled={cleanupBusy}>{t("common.cancel")}</Button><Button variant="danger" onClick={handleCleanup} loading={cleanupBusy} icon={<Trash2 className="h-4 w-4" />}>{t("desktop.jobs.cleanupConfirm")}</Button></>}>
-        <div className="space-y-3 text-sm text-ink-2"><p>{t("desktop.jobs.cleanupBody1")}</p><p>{t("desktop.jobs.cleanupBody2a")} {t("desktop.jobs.cleanupBody2b")}</p><p className="text-sm leading-relaxed text-ink-3">{t("desktop.jobs.cleanupBody3")}</p></div>
+        <div className="text-sm text-ink-2"><p>{t("desktop.jobs.cleanupBody2b")}</p></div>
       </Modal>
     </div>
   );

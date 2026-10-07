@@ -110,16 +110,16 @@ describe("windows-service-recovery", () => {
     expect(agentMain.match(/purgeLegacyAgentServices\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
-  it("desktop Agent start never spawns a fallback while the Windows service exists", () => {
+  it("desktop Agent start requires the owned Windows service and never silently falls back", () => {
     const source = fs.readFileSync("src-tauri/src/agent.rs", "utf8");
     const start = source.slice(source.indexOf("fn start_inner"), source.indexOf("pub fn stop("));
     expect(start).toContain("match sc_query()?");
     expect(start).toContain("verify_installed_service_ownership(app)?");
     expect(start).toContain('run_agent_service_command(app, "start", COMMAND_TIMEOUT)?');
     expect(start).not.toContain("run_net(");
-    expect(start).toContain("None =>");
-    expect(start).toContain("spawn_background(app)");
-    expect(start.indexOf("spawn_background(app)")).toBeGreaterThan(start.indexOf("None =>"));
+    expect(start).toContain("None => Err(");
+    expect(start).toContain("Reopen Yaseir Print Manager as Administrator");
+    expect(start).not.toContain("spawn_background(app)");
   });
 
   it("service status API returns BLOCKED explicit with required fields", () => {

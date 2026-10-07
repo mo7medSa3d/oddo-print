@@ -403,23 +403,6 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 </div>
               </Card>
 
-              <Card>
-                <CardHeader title={t("billing.howChargingWorks")} icon={<CreditCard className="h-4 w-4" />} />
-                <ul className="space-y-3 px-5 py-5 text-sm text-ink-2">
-                  <li className="flex gap-2.5">
-                    <span className="mt-1.5"><span className="status-dot bg-ink-4" /></span>
-                    <span>{t("billing.howChargingStripe")}</span>
-                  </li>
-                  <li className="flex gap-2.5">
-                    <span className="mt-1.5"><span className="status-dot bg-ink-4" /></span>
-                    <span>{t("billing.howChargingProrated")}</span>
-                  </li>
-                  <li className="flex gap-2.5">
-                    <span className="mt-1.5"><span className="status-dot bg-ink-4" /></span>
-                    <span>{t("billing.howChargingCredits")}</span>
-                  </li>
-                </ul>
-              </Card>
             </aside>
           </div>
         </div>

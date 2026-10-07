@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n/react";
 export interface AdminPrivilegeDialogProps {
   open: boolean;
   onClose: () => void;
-  onRelaunch?: () => void;
+  onRelaunch?: () => Promise<void>;
 }
 
 export function AdminPrivilegeDialog({
@@ -17,20 +17,21 @@ export function AdminPrivilegeDialog({
 }: AdminPrivilegeDialogProps) {
   const { t } = useI18n();
   const [closing, setClosing] = useState(false);
+  const [relaunchError, setRelaunchError] = useState<string | null>(null);
 
   const handleCloseAndReopen = async () => {
+    if (!onRelaunch || closing) return;
     setClosing(true);
+    setRelaunchError(null);
     try {
-      // Start any relaunch action first, then always close this unelevated
-      // process so the current window cannot remain open in read-only mode.
-      onRelaunch?.();
-    } finally {
-      try {
-        await closeApp();
-      } catch {
-        // Best-effort window close if the native close command is unavailable.
-        if (typeof window !== "undefined") window.close();
-      }
+      // Request Windows elevation first. Only close the current process after
+      // ShellExecuteW accepted the elevated launch; cancelling UAC must leave
+      // this window open so the operator can retry or continue read-only.
+      await onRelaunch();
+      await closeApp();
+    } catch {
+      setRelaunchError(t("desktop.admin.relaunchFailed"));
+      setClosing(false);
     }
   };
 
@@ -75,6 +76,12 @@ export function AdminPrivilegeDialog({
         <p className="text-ink">
           {t("desktop.admin.intro")}
         </p>
+
+        {relaunchError && (
+          <div className="rounded-md border border-bad-edge bg-bad-bg px-3.5 py-3 text-sm text-bad" role="alert">
+            {relaunchError}
+          </div>
+        )}
 
         <div className="rounded-md border border-edge bg-surface-2 p-4 text-sm text-ink-3">
           <div className="font-medium text-ink mb-1.5">{t("desktop.admin.howTo")}</div>

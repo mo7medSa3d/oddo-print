@@ -17,7 +17,7 @@ def test_candidate_probe_is_non_mutating_and_public_only():
     rust = text("src-tauri/src/commands.rs")
     body = function_slice(rust, "pub async fn probe_gateway_health", "fn configured_gateway_origin")
     assert "normalize_gateway_url(&url)" in body
-    assert '.join("api/health")' in body
+    assert '.join("api/agent/probe")' in body
     assert "redirect(reqwest::redirect::Policy::none())" in body
     assert "bearer_auth" not in body
     assert "manager_session" not in body

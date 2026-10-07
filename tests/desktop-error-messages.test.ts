@@ -49,7 +49,7 @@ describe("desktop friendly error mapping", () => {
     );
 
     expect(message).toBe(
-      "The Gateway could not be reached. Check the Gateway URL and network connection, then try again."
+      "Couldn’t reach the Gateway. Check the URL and connection."
     );
     expect(message).not.toContain("68.221.27.248");
     expect(message).not.toContain("ECONNREFUSED");

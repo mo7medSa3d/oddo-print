@@ -229,6 +229,24 @@ export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCAL
     return tr(locale, "desktop.gateway.unauthorized");
   }
   if (
+    lower.includes("dns") ||
+    lower.includes("no such host") ||
+    lower.includes("failed to lookup") ||
+    lower.includes("name or service not known") ||
+    lower.includes("nodename nor servname")
+  ) {
+    return tr(locale, "desktop.gateway.dns");
+  }
+  if (
+    lower.includes("certificate") ||
+    lower.includes("tls") ||
+    lower.includes("ssl") ||
+    lower.includes("unknown issuer") ||
+    lower.includes("cert ")
+  ) {
+    return tr(locale, "desktop.gateway.tls");
+  }
+  if (
     lower.includes("connection refused") ||
     lower.includes("failed to fetch") ||
     lower.includes("network is unreachable") ||
@@ -238,6 +256,22 @@ export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCAL
   }
   if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline")) {
     return tr(locale, "desktop.gateway.timeout");
+  }
+  if (
+    lower.includes("gateway probe failed (5") ||
+    lower.includes("gateway health failed (5") ||
+    lower.includes("502") ||
+    lower.includes("503") ||
+    lower.includes("504")
+  ) {
+    return tr(locale, "desktop.gateway.serverError");
+  }
+  if (
+    lower.includes("gateway probe failed (404)") ||
+    lower.includes("unexpected service response") ||
+    lower.includes("probe response was not valid json")
+  ) {
+    return tr(locale, "desktop.gateway.notGateway");
   }
   if (lower.includes("pairing code")) {
     return tr(locale, "desktop.gateway.pairingFailed");

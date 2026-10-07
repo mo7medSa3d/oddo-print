@@ -34,6 +34,74 @@ pub struct AgentStatus {
     pub note_code: String,
 }
 
+#[cfg(windows)]
+fn launch_elevated_manager() -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> isize;
+    }
+
+    const SW_SHOWNORMAL: i32 = 1;
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("resolve current Manager executable: {e}"))?;
+    let operation: Vec<u16> = std::ffi::OsStr::new("runas")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let file: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    // The new elevated process is allowed to wait briefly for this process to
+    // release the single-instance mutex instead of immediately exiting.
+    let parameters: Vec<u16> = std::ffi::OsStr::new("--elevated-relaunch")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            parameters.as_ptr(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result <= 32 {
+        let detail = match result {
+            5 => "administrator approval was cancelled or denied",
+            2 => "Manager executable was not found",
+            3 => "Manager executable path was not found",
+            _ => "Windows could not start the elevated Manager",
+        };
+        return Err(format!("{detail} (ShellExecuteW={result})"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn relaunch_as_admin() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        if is_running_as_admin() {
+            return Err("Yaseir Print Manager is already running as administrator".into());
+        }
+        launch_elevated_manager()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("administrator relaunch is only available on Windows".into())
+    }
+}
+
 #[tauri::command]
 pub fn is_running_as_admin() -> bool {
     #[cfg(windows)]
@@ -107,8 +175,9 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
         note: String::new(),
         note_code: "not_running".into(),
     };
-    // `sc query` + `tasklist` are fast but still subprocess I/O; keep them off
-    // the UI thread for consistency with the rest of the command surface.
+    // Local service/process inspection can touch Windows control-plane APIs
+    // and process metadata; keep it off the UI thread for consistency with the
+    // rest of the command surface.
     //
     // Only LOCAL process/service state is reported here. The agent's gateway
     // WS-connection state and last heartbeat live on the Gateway (the desktop
@@ -120,6 +189,14 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
                 "service_status_unavailable"
             } else if service_running {
                 "service_running"
+            } else if note.contains("service not detected") && running {
+                "background_running_service_missing"
+            } else if note.contains("service not detected") {
+                "service_missing"
+            } else if note.contains("owned but stopped/transitioning") && running {
+                "background_running_service_stopped"
+            } else if note.contains("owned but not running") {
+                "service_stopped"
             } else if running {
                 "background_running"
             } else {
@@ -180,7 +257,15 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if url.contains(char::is_whitespace) {
         return Err("gateway URL cannot contain whitespace".into());
     }
-    let parsed = url
+    // Match the renderer: an operator can paste a plain domain and the
+    // desktop safely promotes it to HTTPS. Explicit non-HTTP schemes are
+    // still rejected below.
+    let candidate = if url.contains("://") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    };
+    let parsed = candidate
         .parse::<url::Url>()
         .map_err(|e| format!("invalid gateway URL: {e}"))?;
     let scheme = parsed.scheme();
@@ -328,6 +413,7 @@ fn current_manager_token() -> Option<String> {
 
 fn is_public_gateway_path(path: &str) -> bool {
     path == "/api/health"
+        || path == "/api/agent/probe"
         || path == "/api/auth/manager/login"
         || path == "/api/auth/manager/refresh"
 }
@@ -415,13 +501,13 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .parse::<url::Url>()
         .map_err(|e| format!("invalid Gateway URL: {e}"))?;
     let target = origin
-        .join("api/health")
-        .map_err(|e| format!("invalid Gateway health URL: {e}"))?;
+        .join("api/agent/probe")
+        .map_err(|e| format!("invalid Gateway probe URL: {e}"))?;
     if target.scheme() != origin.scheme()
         || target.host_str() != origin.host_str()
         || target.port_or_known_default() != origin.port_or_known_default()
     {
-        return Err("Gateway health probe must stay on the candidate origin".into());
+        return Err("Gateway probe must stay on the candidate origin".into());
     }
 
     let client = reqwest::Client::builder()
@@ -435,7 +521,7 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .header("Origin", "tauri://localhost")
         .send()
         .await
-        .map_err(|e| format!("Gateway health probe failed: {e}"))?;
+        .map_err(|e| format!("Gateway probe failed: {e}"))?;
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 1024 * 1024).await?;
     Ok(GatewayResponse { status, body })
@@ -1817,8 +1903,9 @@ mod security_tests {
     };
 
     #[test]
-    fn only_health_and_manager_login_are_public_gateway_paths() {
+    fn only_probe_health_and_manager_login_are_public_gateway_paths() {
         assert!(is_public_gateway_path("/api/health"));
+        assert!(is_public_gateway_path("/api/agent/probe"));
         assert!(is_public_gateway_path("/api/auth/manager/login"));
         assert!(is_public_gateway_path("/api/auth/manager/refresh"));
         assert!(uses_manager_refresh_credential("/api/auth/manager/refresh"));
@@ -1833,6 +1920,14 @@ mod security_tests {
         assert!(normalize_gateway_url("http://[::1]:3000").is_ok());
         assert!(normalize_gateway_url("http://[2001:db8::1]:3000").is_err());
         assert!(normalize_gateway_url("https://gateway.example.com").is_ok());
+        assert_eq!(
+            normalize_gateway_url("gateway.example.com").unwrap(),
+            "https://gateway.example.com"
+        );
+        assert_eq!(
+            normalize_gateway_url("https://gateway.example.com/").unwrap(),
+            "https://gateway.example.com"
+        );
     }
 
     #[test]
