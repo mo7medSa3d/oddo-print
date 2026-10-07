@@ -108,32 +108,35 @@ export default function ReleaseReadinessClient() {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    setSystemHealthLoading(true);
-    setSystemHealthError(null);
-    void fetchWithTimeout(
-      "/api/system/health",
-      { credentials: "include", cache: "no-store", signal: controller.signal },
-      10_000,
-    )
-      .then((r) => {
-        if (!r.ok) throw new Error(t("release.liveHealthError"));
-        return r.json() as Promise<SystemHealthPayload>;
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setSystemHealth(data);
-          setSystemHealthError(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSystemHealth(null);
-          setSystemHealthError(t("release.liveHealthError"));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSystemHealthLoading(false);
-      });
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSystemHealthLoading(true);
+      setSystemHealthError(null);
+      void fetchWithTimeout(
+        "/api/system/health",
+        { credentials: "include", cache: "no-store", signal: controller.signal },
+        10_000,
+      )
+        .then((r) => {
+          if (!r.ok) throw new Error(t("release.liveHealthError"));
+          return r.json() as Promise<SystemHealthPayload>;
+        })
+        .then((data) => {
+          if (!cancelled) {
+            setSystemHealth(data);
+            setSystemHealthError(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSystemHealth(null);
+            setSystemHealthError(t("release.liveHealthError"));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSystemHealthLoading(false);
+        });
+    });
     return () => {
       cancelled = true;
       controller.abort();

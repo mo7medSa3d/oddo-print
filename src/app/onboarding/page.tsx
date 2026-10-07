@@ -141,7 +141,9 @@ export default function Onboarding() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadPlans(controller.signal);
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) void loadPlans(controller.signal);
+    });
     return () => controller.abort();
   }, [loadPlans]);
 

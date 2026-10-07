@@ -703,8 +703,11 @@ export default function DashboardClient({
     }
     refreshingRef.current = true;
     setRefreshing(true);
+    let currentQuery = queryOverride;
     try {
-      const data = await getDashboardState(queryOverride ?? fleetQueryRef.current);
+      while (true) {
+        try {
+          const data = await getDashboardState(currentQuery ?? fleetQueryRef.current);
       if (data) {
         setAgents(data.agents as Agent[]);
         setPrinters(data.printers as Printer[]);
@@ -783,28 +786,39 @@ export default function DashboardClient({
           return currentPairing;
         });
       }
-      void refreshBillingUsage();
-    } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
+          void refreshBillingUsage();
+        } catch (error) {
+          setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
+        }
+
+        const queued = queuedFleetQueryRef.current;
+        queuedFleetQueryRef.current = null;
+        if (!queued) break;
+        currentQuery = queued;
+      }
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
-      const queued = queuedFleetQueryRef.current;
-      queuedFleetQueryRef.current = null;
-      if (queued) void refreshData(queued);
     }
   }, [refreshBillingUsage, t, getDashboardState, getDashboardJobs]);
 
   useEffect(() => {
+    let cancelled = false;
     const nextQuery = {
       ...fleetQueryRef.current,
       printerOffset: 0,
       printerSearch: debouncedPrinterSearch,
       printerStatus: printerStatusFilter,
     };
-    setPrinterOffset(0);
     fleetQueryRef.current = nextQuery;
-    void refreshData(nextQuery);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setPrinterOffset(0);
+      void refreshData(nextQuery);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [debouncedPrinterSearch, printerStatusFilter, refreshData]);
 
   useEffect(() => {

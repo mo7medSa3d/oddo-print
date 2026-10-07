@@ -416,7 +416,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         route_block = router[route_start:route_start + 2600]
         self.assertGreaterEqual(route_block.count("explicit_binding=explicit_binding or None"), 2)
         self.assertIn(
-            "route = router.route_report(report, records, data=data, explicit_binding=binding)",
+            "route = router.route_report(report, records, data=data, explicit_binding=binding, idempotency_key=operation_id)",
             binding,
         )
 

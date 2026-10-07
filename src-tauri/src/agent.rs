@@ -1103,7 +1103,17 @@ mod tests {
     fn system_commands_are_resolved_from_system32() {
         for name in ["tasklist.exe", "taskkill.exe"] {
             let path = system32_exe(name).expect("Windows system executable must exist");
-            assert!(path.ends_with(["System32", name].iter().collect::<std::path::PathBuf>()));
+            assert_eq!(
+                path.file_name().and_then(|part| part.to_str()).map(|part| part.to_ascii_lowercase()),
+                Some(name.to_ascii_lowercase()),
+            );
+            assert_eq!(
+                path.parent()
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|part| part.to_str())
+                    .map(|part| part.to_ascii_lowercase()),
+                Some("system32".to_string()),
+            );
         }
     }
 
@@ -1135,7 +1145,17 @@ mod tests {
             "privileged executable resolved under spoofed directory: {}",
             path.display()
         );
-        assert!(path.ends_with(["System32", "taskkill.exe"].iter().collect::<std::path::PathBuf>()));
+        assert_eq!(
+            path.file_name().and_then(|part| part.to_str()).map(|part| part.to_ascii_lowercase()),
+            Some("taskkill.exe".to_string()),
+        );
+        assert_eq!(
+            path.parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|part| part.to_str())
+                .map(|part| part.to_ascii_lowercase()),
+            Some("system32".to_string()),
+        );
     }
 }
 

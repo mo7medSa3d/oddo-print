@@ -8,7 +8,6 @@ function read(path: string): string {
 function literalInt(source: string, pattern: RegExp, what: string): number {
   const match = source.match(pattern);
   expect(match, `${what} literal not found`).not.toBeNull();
-  // eslint-disable-next-line no-eval
   return eval(match![1]) as number;
 }
 
