@@ -15,6 +15,7 @@
     "allow-pair-agent",
     "allow-get-gateway-config",
     "allow-set-gateway-config",
+    "allow-probe-gateway-health",
     "allow-gateway-request",
     "allow-gateway-agent-request",
     "allow-clear-manager-session",
@@ -28,6 +29,8 @@
     "allow-register-printer",
     "allow-get-autostart",
     "allow-set-autostart",
-    "allow-is-running-as-admin"
+    "allow-is-running-as-admin",
+    "allow-relaunch-as-admin",
+    "allow-set-tray-locale"
   ]
 }
