@@ -23,30 +23,30 @@ from the schema again.
 
 ## Table matrix
 
-| Table | schema.ts line | created in | indexes | late foreign keys |
+| Table | schema.ts line | created in | historical indexes | historical late foreign keys |
 | --- | --- | --- | --- | --- |
-| `agents` | 108 | `0000_simple_tigra.sql` | 6 | 5 |
-| `api_keys` | 177 | `0000_simple_tigra.sql` | 1 | 3 |
-| `audit_events` | 466 | `0034_saas_control_plane.sql` | 3 | 0 |
-| `auth_rate_limits` | 266 | `0005_auth_rate_limits.sql` | 4 | 0 |
-| `billing_events` | 254 | `0037_customer_identity_billing.sql` | 2 | 0 |
-| `discovered_devices` | 297 | `0010_discovery.sql` | 12 | 10 |
-| `discovery_sessions` | 277 | `0010_discovery.sql` | 6 | 4 |
-| `email_verification_tokens` | 212 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `gateway_metrics` | 457 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
-| `job_events` | 416 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
-| `manager_sessions` | 197 | `0000_simple_tigra.sql` | 3 | 1 |
-| `password_reset_tokens` | 224 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `plans` | 485 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `agents` | 109 | `0000_simple_tigra.sql` | 6 | 5 |
+| `api_keys` | 198 | `0000_simple_tigra.sql` | 1 | 3 |
+| `audit_events` | 489 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `auth_rate_limits` | 288 | `0005_auth_rate_limits.sql` | 4 | 0 |
+| `billing_events` | 276 | `0037_customer_identity_billing.sql` | 2 | 0 |
+| `discovered_devices` | 319 | `0010_discovery.sql` | 12 | 10 |
+| `discovery_sessions` | 299 | `0010_discovery.sql` | 6 | 4 |
+| `email_verification_tokens` | 233 | `0037_customer_identity_billing.sql` | 2 | 1 |
+| `gateway_metrics` | 480 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
+| `job_events` | 439 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
+| `manager_sessions` | 218 | `0000_simple_tigra.sql` | 3 | 1 |
+| `password_reset_tokens` | 245 | `0037_customer_identity_billing.sql` | 2 | 1 |
+| `plans` | 509 | `0034_saas_control_plane.sql` | 3 | 0 |
 | `platform_sessions` | 43 | `0043_add_platform_owner.sql` | 2 | 0 |
-| `print_job_receipts` | 562 | `scripts/db-migrate.ts` A86 | 1 | 0 |
-| `print_jobs` | 348 | `0000_simple_tigra.sql` | 23 | 15 |
-| `print_usage_periods` | 546 | `0061_print_usage_quota.sql` | 1 | 0 |
-| `printers` | 135 | `0000_simple_tigra.sql` | 9 | 6 |
+| `print_job_receipts` | 586 | `scripts/db-migrate.ts` A86 | 1 | 0 |
+| `print_jobs` | 370 | `0000_simple_tigra.sql` | 23 | 15 |
+| `print_usage_periods` | 570 | `0061_print_usage_quota.sql` | 1 | 0 |
+| `printers` | 149 | `0000_simple_tigra.sql` | 9 | 6 |
 | `refresh_tokens` | 54 | `0073_refresh_tokens.sql` | 4 | 1 |
 | `tenant_domains` | 18 | `0030_tenant_domains_and_manager_sessions.sql` | 3 | 0 |
-| `tenant_invitations` | 236 | `0037_customer_identity_billing.sql` | 3 | 2 |
-| `tenant_subscriptions` | 507 | `0034_saas_control_plane.sql` | 7 | 0 |
+| `tenant_invitations` | 257 | `0037_customer_identity_billing.sql` | 3 | 2 |
+| `tenant_subscriptions` | 531 | `0034_saas_control_plane.sql` | 7 | 0 |
 | `tenant_users` | 90 | `0028_add_multi_tenancy.sql` | 3 | 2 |
 | `tenants` | 4 | `0028_add_multi_tenancy.sql` | 1 | 0 |
 | `users` | 31 | `0028_add_multi_tenancy.sql` | 1 | 0 |
@@ -64,6 +64,8 @@ again later. There is no drift between the two.
 - `local_networks` — created in `0001_phase1_branch_foundation.sql`, dropped in a later migration. Do not reintroduce.
 - `print_job_rate_limits` — created in `0016_print_job_rate_limits.sql`, dropped in a later migration. Do not reintroduce.
 - `printer_bindings` — created in `0001_phase1_branch_foundation.sql`, dropped in a later migration. Do not reintroduce.
+
+The matrix counts index creation and late foreign-key additions over migration history, including entries later replaced or dropped. It is not a count of the live PostgreSQL catalog; inspect `pg_indexes`/`pg_constraint` after migration for the current definitions.
 
 ## Invariants enforced outside `schema.ts`
 

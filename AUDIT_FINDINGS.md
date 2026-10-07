@@ -90,3 +90,17 @@ The original Windows connectivity failure remains unconfirmed. The live probe an
 - Fix: negotiate bounded response pages, fetch scoped continuation pages, accumulate the full snapshot before reconciliation, and fail closed on interruption/invalid pages. Older Agents receive a full small snapshot or an explicit upgrade requirement, never a truncated authoritative array.
 - Regression/verification: 15 executable query/route/negotiation cases PASS; Go end-to-end all-pages/failure/identity/duplicate/byte/persistence regressions added. Final typecheck/lint PASS; a real PostgreSQL 65-record/foreign-tenant/legacy-continuation case added (BLOCKED locally). Native Go/PG execution BLOCKED locally.
 - Status: FIXED; native runtime confirmation pending CI.
+
+## Final source anchors
+
+| Finding | File:line (repair branch) |
+| --- | --- |
+| R01 | `agent/internal/printer/health.go:46` |
+| R02 | `src/app/api/agent/heartbeat/route.ts:142` |
+| R03 | `src/lib/printer-health.ts:264` |
+| R04 | `.github/workflows/ci.yml:94` |
+| R05 | `src/lib/agent-presence-maintenance.ts:13` |
+| R06 | `.github/workflows/build-windows.yml:38` |
+| R07 | `agent/internal/printer/health.go:105` |
+| R08 | `src/lib/fleet-cursor.ts:2` |
+| R09 | `src/lib/desired-state-page.ts:11` |

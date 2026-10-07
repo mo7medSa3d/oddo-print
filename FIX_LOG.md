@@ -23,7 +23,7 @@ RESUME HERE: Task 3 final verification/diff | completed=Task 2 and second advers
 | Gateway UI/Desktop/IPC/EN-AR/RTL/menus/auth refresh | REVIEWED | shared Menu/modal keyboard/viewport handling; logical RTL positions/IDs; locale and cancelled refresh; structured errors; native/DOM contracts; visual certification unverified |
 | CI/dependencies/deployment/health/TLS/backup/recovery | REVIEWED | five workflows, locks/pins/caches, non-root image/startup/migrate order, strict probe/TLS/WS/CORS, backup/restore safeguards; R04/R06 test gates repaired; live recovery unverified |
 | Performance/observability/retention/maintainability | REVIEWED | bounded fleet queries/WS/jobs/discovery; R03 capabilities and R05 presence bounds; payload-free receipts/20-row materialization; redaction/correlation/rotation |
-| Targeted adversarial second pass and final diff | IN PROGRESS | next: changed contracts, malformed ESC/POS sensor pairs, fleet cursor headers, inventory fault windows, migration and compatibility review |
+| Targeted adversarial second pass and final diff | COMPLETE | R07/R08/R09 independently found and repaired; changed contracts/fault windows/compatibility checked; final diff and generated snapshot reviewed |
 
 Source review combines full high-risk implementation reads with repository-wide guard/SQL/error/marker/dependency searches. It does not imply physical certification or execution of unavailable runtimes.
 
@@ -124,3 +124,9 @@ Source review combines full high-risk implementation reads with repository-wide 
 - PASS: 15 query/route/negotiation regressions (including sentinel-before-projection, byte independent of count, invalid cursor/auth, store failure, legacy and modern boundaries), plus inventory policy/route suites (29 combined in the earlier run). Go all-pages and nine fault cases, cursor/budget and persistence checks added; not counted as executed locally. Docs API/deployment describe rollout, volume budgets and failure behavior.
 
 - Final local verification after R09: 945 Vitest PASS / 371 SKIPPED / 0 FAIL; native Node 101 PASS / 0 SKIP; Python 210 PASS / 1 rustc-dependent BLOCKED; production build, typecheck/lint and DB/docs check PASS. The additional PostgreSQL desired-state scenario is unexecuted locally and adds one blocked test beyond that full-run ledger. Re-fetch of origin/main still equals baseline 33345904. Snapshot comparison/parent chain has only the new inventory column and check, apart from generated IDs.
+
+### Task 4 final review checkpoint
+
+- Full baseline diff reviewed across production code, all affected producers/consumers, regressions, workflows and API/rollout/certification docs; generated snapshot checked structurally against 0079. Original migration history and dependency manifests/locks are unchanged. No unrelated working-tree changes.
+- Current-source file anchors appended to findings. Database table-matrix line references refreshed; historical index/FK counts explicitly labelled historical rather than live catalog counts.
+- Final report records 9 new findings (P0 0 / P1 1 / P2 8 / P3 0), all source-repaired, with runtime proof limits and the mandatory physical/driver/connection risks. Publication is next.
