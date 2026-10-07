@@ -750,6 +750,18 @@ export default function App() {
   // must read as unavailable — never as healthy/online (C046).
   const isOnline =
     !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running === true;
+  const agentServiceNeedsAdmin =
+    isAdmin === false &&
+    agentStartupGraceElapsed &&
+    agentStatus !== null &&
+    agentStatus.note_code !== "service_running";
+  useEffect(() => {
+    // Re-open the Administrator guidance when the Agent transitions from a
+    // healthy Windows service to a missing/stopped/fallback state. Dismissing
+    // the dialog remains respected while the same state is unchanged.
+    if (agentServiceNeedsAdmin) setAdminDismissed(false);
+  }, [agentServiceNeedsAdmin, agentStatus?.note_code]);
+
   const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= 90 * 1000;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError && healthFresh);
   let normalizedGatewayUrl = "";
@@ -999,7 +1011,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
-        open={isAdmin === false && !adminDismissed}
+        open={agentServiceNeedsAdmin && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
         onRelaunch={relaunchAsAdmin}
       />
