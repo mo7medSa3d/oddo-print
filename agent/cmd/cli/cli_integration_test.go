@@ -62,7 +62,7 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 		return string(out)
 	}
 
-	pairOut := run("-pair", "ABC234", "-server", server.URL, "-config", configPath)
+	pairOut := run("-pair", "ABC234", "-server", "  "+server.URL+"/  ", "-config", configPath)
 	if !strings.Contains(pairOut, "Success! Agent registered as agt_cli_test") {
 		t.Fatalf("pairing output did not prove success: %s", pairOut)
 	}

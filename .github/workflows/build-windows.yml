@@ -35,6 +35,16 @@ jobs:
           go-version-file: agent/go.mod
           cache: true
           cache-dependency-path: agent/go.sum
+      - name: Verify and test native Windows Go Agent
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go mod verify
+          if ($LASTEXITCODE -ne 0) { throw "Go module verification failed" }
+          go vet -mod=readonly ./...
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows Go vet failed" }
+          go test -mod=readonly ./...
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows Go tests failed" }
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:

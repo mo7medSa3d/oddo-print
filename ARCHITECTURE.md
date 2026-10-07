@@ -177,7 +177,7 @@ claimed → queued (fenced rejection / lease timeout)
 ### PostgreSQL + Drizzle ORM
 
 **Schema**: 25 tables defined in `src/db/schema.ts`
-**Migrations**: 80 forward-only migrations (`0000`–`0079`) in `drizzle/`
+**Migrations**: 81 forward-only migrations (`0000`–`0080`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns
@@ -208,7 +208,7 @@ The WebSocket server (`src/server/ws.ts`) implements:
 
 - **Per-agent socket management**: Up to 8 concurrent sockets per agent (rolling reconnect)
 - **PostgreSQL LISTEN/NOTIFY**: Real-time job dispatch across gateway instances
-- **Automatic reconnection**: Jittered exponential backoff (5s–60s)
+- **Agent reconnection**: Both rejected handshakes and lost sessions share 5/10/20/40/60-second retry steps with 50%–100% jitter and cancellation. A session must last at least 30 seconds to reset the budget; an accepted-then-closed connection cannot create a retry storm. HTTP polling continues during this delay.
 - **Ping/pong keep-alive**: 30s server ping interval, 90s idle timeout
 - **Back-pressure**: 1MB buffered-amount check before sending
 - **Agent capacity fence**: Gateway claims at most 64 live claimed/printing jobs per Agent, matching the Agent local pending ceiling

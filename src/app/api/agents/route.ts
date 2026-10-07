@@ -6,6 +6,7 @@ import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import { clampListLimit } from "../../../lib/request-limits";
+import { fleetCursorIdHeaders, readFleetCursorId } from "../../../lib/fleet-cursor";
 import { z } from "zod";
 import { createAgentForManager } from "../../../lib/agent-control";
 import { ActionError } from "../../../lib/action-error";
@@ -35,12 +36,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: `offset must be <= ${MAX_AGENTS_OFFSET}; use beforeCreatedAt + beforeId keyset pagination for deeper fleets` }, { status: 400 });
   }
   const beforeCreatedAtRaw = searchParams.get("beforeCreatedAt");
-  const beforeId = searchParams.get("beforeId");
+  let beforeId: string | null;
+  try { beforeId = readFleetCursorId(searchParams); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid fleet cursor" }, { status: 400 }); }
   if ((beforeCreatedAtRaw == null) !== (beforeId == null)) {
     return NextResponse.json({ error: "beforeCreatedAt and beforeId must be provided together" }, { status: 400 });
-  }
-  if (beforeId != null && (beforeId.length < 1 || beforeId.length > 512)) {
-    return NextResponse.json({ error: "beforeId must be between 1 and 512 characters" }, { status: 400 });
   }
   const beforeCreatedAt = beforeCreatedAtRaw == null ? null : new Date(beforeCreatedAtRaw);
   if (beforeCreatedAt && Number.isNaN(beforeCreatedAt.getTime())) {
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
       "X-Has-More": hasMore ? "true" : "false",
       ...(hasMore && last ? {
         "X-Next-Before-Created-At": last.createdAt.toISOString(),
-        "X-Next-Before-Id": last.id,
+        ...fleetCursorIdHeaders(last.id),
       } : {}),
     },
   });

@@ -57,8 +57,10 @@ This is a diagnostic test page for certification.
 No secrets are printed.
 ```
 
-## Future
-- Diagnostic Test Page endpoint already exists: POST /api/printers/[id]/test-print
-- Per-printer concurrency 1 default (P1)
-- Driver Health Check (P1)
-- RAW vs Spooler/IPP distinction with Win32 regression suite (P1)
+## Report and paper fidelity certification
+
+The Odoo report path sends the native QWeb PDF bytes, including its paper-format page dimensions, fonts and layout. The Windows PDF path rasterizes with the embedded PDFium renderer and scales each page to fit the configured driver's printable area. It uses that queue's default driver settings; it does not automatically select a custom paper form, orientation, tray, duplex mode or browser print-dialog preferences from the PDF.
+
+Before certifying a deployment, configure the Windows queue for the intended paper and orientation, then physically compare a representative Odoo invoice/report, a custom-size label, an Arabic report, a POS receipt and a kitchen ticket. Check dimensions, margins, clipping, rotation, pagination, font shaping and barcode readability. A submitted spooler job or a successful ACK alone does not certify these properties.
+
+Existing controls include per-printer execution serialization, bounded driver preflight, separate RAW/driver/IPP capability rules, partial-write outcome fencing, and Windows spooler/USB/PDF regression tests. The Windows build workflow now executes those native Go tests. Hardware, interactive-user versus service-account queue visibility, driver defaults and physical fidelity still require this certification on the deployment machine.

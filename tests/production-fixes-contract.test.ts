@@ -231,7 +231,7 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     const source = read("src/lib/agent-presence-maintenance.ts");
     expect(source).toContain("status = 'offline'");
     expect(source).toContain("last_seen_at < now() - make_interval");
-    expect(source).toContain("RETURNING id");
+    expect(source).toContain("RETURNING agents.id");
     expect(source).not.toContain("UPDATE print_jobs");
   });
 

@@ -33,3 +33,5 @@ A configured printer may remain configured while an Agent is offline/stale. Agen
 
 ## Incident handling
 For an unknown physical outcome, inspect the printer and (for Windows jobs) the recorded spooler job identity before reprinting. Do not assume a failed acknowledgement, timeout, restart, or post-submission error means the printer definitely did not print. Automatic retry is prohibited once physical submission may have occurred. A manual reprint is an explicit new physical attempt and can produce a duplicate if the uncertain attempt already printed.
+
+Stale-Agent persistence converges every 15 seconds in ordered batches of 200 rows by default. `AGENT_PRESENCE_SWEEP_LIMIT` may set a positive batch size, capped at 5000. Multiple Gateway instances skip each other's locked candidates. Request-time availability still derives from heartbeat freshness immediately; a large outage backlog does not require one fleet-wide UPDATE.

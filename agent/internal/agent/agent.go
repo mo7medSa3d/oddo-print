@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,16 +55,15 @@ const (
 //     payload.MaxPayloadBytes (the same ceiling dispatch enforces), so the
 //     product is the documented batch ceiling — a larger response is a
 //     contract violation and is rejected instead of absorbed;
-//   - the heartbeat carries manager-owned desired state: per-printer config
-//     is capped at 16 KiB by the gateway but max_printers may be unlimited,
-//     so this is a generous hard ceiling over any real fleet, not a
-//     contract value.
+//   - the heartbeat carries the first bounded manager-owned desired-state
+//     page. Legacy gateways can return a larger complete snapshot; the
+//     collector still enforces the local metadata budget before applying it.
 const (
 	maxGatewayErrorBodyBytes = 8 << 10
 	maxClaimBatch            = 20
 	// Heartbeat is control-plane metadata only. Keep a hard multi-megabyte
-	// ceiling; real printer desired-state payloads are far smaller, and a
-	// bounded cap prevents a malformed gateway from consuming hundreds of MiB.
+	// ceiling for legacy responses. Current Gateway pages are much smaller;
+	// a bounded cap prevents a malformed gateway from consuming hundreds of MiB.
 	maxHeartbeatBytes            = 32 << 20
 	maxHeartbeatProbeConcurrency = 64
 )
@@ -1132,23 +1130,19 @@ func (a *Agent) setWSConn(c *websocket.Conn) {
 }
 
 func (a *Agent) connectWebSocket(ctx context.Context) {
-	u, err := url.Parse(a.cfg.Server.URL)
+	wsURL, err := config.GatewayWebSocketURL(a.cfg.Server.URL)
 	if err != nil {
 		log.Printf("Invalid server URL: %v", err)
 		return
 	}
 
-	scheme := "wss"
-	if u.Scheme == "http" {
-		scheme = "ws"
-	}
-
-	wsURL := fmt.Sprintf("%s://%s/api/agent/ws", scheme, u.Host)
-
-	backoff := 5 * time.Second
-	const maxBackoff = 60 * time.Second
+	var retry wsReconnectBackoff
+	var retryDelay time.Duration
 
 	for {
+		if retryDelay > 0 && !waitForWSReconnect(ctx, retryDelay) {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -1159,25 +1153,12 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 
 			c, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 			if err != nil {
-				// Jittered backoff (50%-100% of the step) avoids thundering
-				// reconnect herds when the gateway restarts with many agents.
-				delay := backoff/2 + time.Duration(rand.Int63n(int64(backoff/2)+1))
-				log.Printf("WebSocket dial failed: %v. Retrying in %s...", err, delay.Round(time.Millisecond))
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(delay):
-				}
-				if backoff < maxBackoff {
-					backoff *= 2
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-				}
+				retryDelay = retry.nextDelay(0)
+				log.Printf("WebSocket dial failed: %v. Retrying in %s...", err, retryDelay.Round(time.Millisecond))
 				continue
 			}
 
-			backoff = 5 * time.Second
+			sessionStarted := time.Now()
 			a.setWSConn(c)
 			log.Println("WebSocket connected.")
 
@@ -1208,8 +1189,9 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			if closeErr := c.Close(); closeErr != nil {
 				log.Printf("WebSocket connection close cleanup failed: %v", closeErr)
 			}
+			retryDelay = retry.nextDelay(time.Since(sessionStarted))
 			if err != nil {
-				log.Printf("WebSocket connection lost: %v. Reconnecting...", err)
+				log.Printf("WebSocket connection lost: %v. Retrying in %s...", err, retryDelay.Round(time.Millisecond))
 			}
 		}
 	}
@@ -1831,7 +1813,7 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) erro
 // that may now be active for the same job, otherwise an old saturation event
 // could mutate the replacement claim.
 func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error {
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	body := map[string]interface{}{
 		"jobId":  jobID,
 		"status": "queued",
@@ -2531,7 +2513,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	if parent.Err() != nil {
 		return
 	}
-	reqURL := fmt.Sprintf("%s/api/agent/heartbeat", a.cfg.Server.URL)
+	reqURL := "/api/agent/heartbeat"
 	printerPayload := a.printerStatusPayload()
 	desiredAcks := a.desiredStateAcksPayload()
 	gatewayOwnedIDs := a.gatewayOwnedPrinterIDs()
@@ -2549,6 +2531,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		if parent.Err() != nil {
 			return
 		}
+		payload["desiredStatePaging"] = true
 
 		heartbeatCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 		resp, err := a.doAuthorizedRequest(heartbeatCtx, "POST", reqURL, payload)
@@ -2563,14 +2546,33 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		// "response read failed: context canceled" on every cycle and returned
 		// early — skipping desired-state reconciliation and the SkippedPrinters
 		// feedback entirely. The 15s budget still bounds request + body read.
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHeartbeatBytes+1))
 		cancel()
 		_ = resp.Body.Close()
-		if readErr != nil {
-			log.Printf("Heartbeat page %d/%d response read failed: %v", pageIndex+1, len(pages), readErr)
+		if readErr != nil || len(body) > maxHeartbeatBytes {
+			if pageIndex == len(pages)-1 {
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+			}
+			log.Printf("Heartbeat page %d/%d response read failed or exceeded the byte limit: %v", pageIndex+1, len(pages), readErr)
 			return
 		}
 		if resp.StatusCode >= 300 {
+			if pageIndex == len(pages)-1 {
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+			}
+			if resp.StatusCode == http.StatusConflict {
+				var conflict struct {
+					Code                   string `json:"code"`
+					MinimumSnapshotVersion string `json:"minimumSnapshotVersion"`
+				}
+				if json.Unmarshal(body, &conflict) == nil && conflict.Code == "INVENTORY_SNAPSHOT_CONFLICT" {
+					heartbeatInventoryClock.observe(conflict.MinimumSnapshotVersion)
+				}
+			}
 			log.Printf("Heartbeat page %d/%d rejected (%d): %s", pageIndex+1, len(pages), resp.StatusCode, string(body))
 			a.noteHeartbeatRejection(resp.StatusCode, body)
 			return
@@ -2580,14 +2582,16 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		}
 
 		var hbResp struct {
-			Success         bool                  `json:"success"`
-			DesiredState    *[]desiredPrinterWire `json:"desiredState"`
-			SkippedPrinters []struct {
+			Success                     bool                  `json:"success"`
+			DesiredState                *[]desiredPrinterWire `json:"desiredState"`
+			DesiredStateNextCursor      string                `json:"desiredStateNextCursor"`
+			DesiredStateUpgradeRequired bool                  `json:"desiredStateUpgradeRequired"`
+			SkippedPrinters             []struct {
 				ID     string `json:"id"`
 				Reason string `json:"reason"`
 			} `json:"skippedPrinters"`
 		}
-		if err := json.Unmarshal(body, &hbResp); err != nil {
+		if err := json.Unmarshal(body, &hbResp); err != nil || !hbResp.Success {
 			// A final page is the only authoritative desired-state snapshot.
 			// Retaining a previous sync after an invalid 2xx response would
 			// allow stale manager configuration to remain executable. Fail closed
@@ -2596,7 +2600,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 				a.desiredStateMu.Lock()
 				a.desiredStateSynced = false
 				a.desiredStateMu.Unlock()
-				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: %v", pageIndex+1, len(pages), err)
+				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: parse error=%v, success=%t", pageIndex+1, len(pages), err, hbResp.Success)
 				return
 			}
 			continue
@@ -2610,11 +2614,25 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		// pages are in flight.
 		if pageIndex == len(pages)-1 {
 			if hbResp.DesiredState != nil {
-				a.reconcileGatewayDesiredState(*hbResp.DesiredState)
+				a.desiredStateMu.Lock()
+				a.desiredStateSynced = false
+				a.desiredStateMu.Unlock()
+				desired, syncErr := a.collectGatewayDesiredState(parent, *hbResp.DesiredState, hbResp.DesiredStateNextCursor)
+				if syncErr != nil {
+					log.Printf("desired-state synchronization incomplete; execution remains fenced: %v", syncErr)
+					return
+				}
+				if !a.reconcileGatewayDesiredState(desired) {
+					log.Printf("desired-state persistence failed; execution remains fenced")
+					return
+				}
 				a.desiredStateMu.Lock()
 				a.desiredStateSynced = true
 				a.desiredStateMu.Unlock()
 			} else {
+				if hbResp.DesiredStateUpgradeRequired {
+					log.Printf("Gateway requires paginated desired-state support; upgrade the Agent before manager-owned printing")
+				}
 				// Older gateways without the full desired-state contract are not
 				// allowed to make a manager-owned printer executable.
 				a.desiredStateMu.Lock()
@@ -2635,7 +2653,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 }
 
 func (a *Agent) pollJobs(ctx context.Context) {
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
 		log.Printf("Poll failed: %v", err)
@@ -3074,7 +3092,7 @@ var ErrTransitionRejected = errors.New("gateway rejected status transition")
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
 	// The caller owns this immutable attempt token; never substitute a newer delivery.
-	reqURL := fmt.Sprintf("%s/api/agent/jobs", a.cfg.Server.URL)
+	reqURL := "/api/agent/jobs"
 	body := map[string]interface{}{
 		"jobId":  jobID,
 		"status": status,
@@ -3141,7 +3159,11 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	return nil
 }
 
-func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, body interface{}) (*http.Response, error) {
+func (a *Agent) doAuthorizedRequest(ctx context.Context, method, endpointPath string, body interface{}) (*http.Response, error) {
+	target, err := config.GatewayEndpoint(a.cfg.Server.URL, endpointPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Gateway endpoint: %w", err)
+	}
 	var buf io.Reader
 	if body != nil {
 		b := new(bytes.Buffer)
@@ -3151,7 +3173,7 @@ func (a *Agent) doAuthorizedRequest(ctx context.Context, method, url string, bod
 		buf = b
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, buf)
+	req, err := http.NewRequestWithContext(ctx, method, target, buf)
 	if err != nil {
 		return nil, err
 	}

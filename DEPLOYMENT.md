@@ -89,12 +89,18 @@ gateway.example.com {
 
 ### 4. Build & Deploy Agent (Windows)
 
+Upgrade Agents along with the Gateway inventory/desired-state contract. Migration `0080` must precede the Gateway that reads its retained inventory version. Versionless observations are additive before upgrade and cannot downgrade an established versioned writer. Manager fleets that exceed one desired-state page (64 rows or 512 KiB of array data) require an Agent with negotiated continuation support; older Agents stay fenced with `desiredStateUpgradeRequired` instead of applying a truncated list. Review the [heartbeat and desired-state contract](API.md#agent-heartbeat-pagination) for metadata budgets and recovery behavior.
+
 ```bash
 cd agent
 GOOS=windows GOARCH=amd64 go build -o print-agent.exe ./cmd/agent
 ```
 
 Deploy `print-agent.exe` with a YAML config file pointing to the Gateway URL.
+
+Use the Gateway origin root, such as `https://print.example.com` or `https://[2001:db8::1]:8443`. A trailing root slash and surrounding whitespace are normalized for all Agent HTTP and WebSocket endpoints; `/api`, other base paths, embedded credentials, queries and fragments are rejected with an explicit configuration error. The Desktop Manager also requires the origin root. Deploy a dedicated Gateway origin when a reverse proxy needs routing; a subpath deployment is not supported by the current Gateway/UI contract. Agent service configs and CLI pairing require an explicit HTTP(S) scheme; the Desktop Manager can add HTTPS to a bare hostname.
+
+TLS verification and redirect refusal remain enabled. Agent plain HTTP requires the existing `YASEIR_AGENT_ALLOW_INSECURE_HTTP=1` opt-in for isolated development/test environments. The Desktop Manager permits loopback HTTP for local development; the Agent opt-in is still required for an HTTP service config.
 
 ## Docker Deployment
 

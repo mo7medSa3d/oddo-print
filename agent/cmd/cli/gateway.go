@@ -78,11 +78,6 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(1)
 	}
 
-	base, err := url.Parse(strings.TrimRight(strings.TrimSpace(cfg.Server.URL), "/"))
-	if err != nil || base.Hostname() == "" {
-		fmt.Fprintln(os.Stderr, "configured Gateway URL is invalid")
-		os.Exit(1)
-	}
 	// The desktop Manager origin and the paired Agent origin are distinct
 	// identities: the caller must name the origin it intends to act on, and
 	// the paired config must agree. Otherwise a Manager origin change would
@@ -93,8 +88,8 @@ func handleGatewayRequest(args []string, configPath string) {
 			os.Exit(2)
 		}
 	}
-	target, err := base.Parse(reqPath)
-	if err != nil || target.Scheme != base.Scheme || target.Host != base.Host {
+	target, err := config.GatewayEndpoint(cfg.Server.URL, reqPath)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "gateway request must stay on the configured Gateway origin")
 		os.Exit(2)
 	}
@@ -103,7 +98,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	if *body != "" {
 		reader = bytes.NewBufferString(*body)
 	}
-	req, err := http.NewRequest(reqMethod, target.String(), reader)
+	req, err := http.NewRequest(reqMethod, target, reader)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create Gateway request failed: %v\n", err)
 		os.Exit(1)

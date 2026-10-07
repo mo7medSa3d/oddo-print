@@ -5,10 +5,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { DEVICE_CLASSES, PRINTER_TYPES, CONNECTION_TYPES, PRINTER_PROTOCOLS, PRINTER_CONFIG_MAX_BYTES, PRINTER_CAPABILITIES_MAX_BYTES, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../../lib/printer-model";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
-import { logError } from "../../../../lib/log";
+import { logError, logWarn } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
+import { inventoryVersionAllowsPage, parseInventorySnapshotVersion } from "../../../../lib/inventory-snapshot";
+import { getDesiredPrinterPage } from "../../../../lib/desired-state-page";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -143,7 +145,7 @@ export async function POST(req: Request) {
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
   if (hasBodyOverLimit(req, MAX_HEARTBEAT_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventoryComplete?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
+  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventorySnapshotVersion?: unknown; inventoryComplete?: unknown; desiredStatePaging?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
     const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
@@ -185,6 +187,14 @@ export async function POST(req: Request) {
     if (inventoryComplete && !inventorySnapshotId) {
       return NextResponse.json({ error: "inventoryComplete requires inventorySnapshotId" }, { status: 400 });
     }
+    const inventorySnapshotVersion = parseInventorySnapshotVersion(body.inventorySnapshotVersion);
+    if (body.inventorySnapshotVersion !== undefined && (!inventorySnapshotVersion || !inventorySnapshotId)) {
+      return NextResponse.json({ error: "inventorySnapshotVersion requires inventorySnapshotId and a positive int64 decimal string" }, { status: 400 });
+    }
+    if (body.desiredStatePaging !== undefined && typeof body.desiredStatePaging !== "boolean") {
+      return NextResponse.json({ error: "desiredStatePaging must be boolean" }, { status: 400 });
+    }
+    const desiredStatePaging = body.desiredStatePaging === true;
 
     const reportedPrinters = Array.isArray(body?.printers) ? body.printers : [];
     // 500 is a transport page ceiling, not a fleet-size ceiling. Agents with
@@ -233,7 +243,7 @@ export async function POST(req: Request) {
       // complete heartbeat makes status, lease refresh, desired-state ACKs and
       // printer observations linearize before OR after a disable/retire.
       const lockedAgent = await tx.execute(sql`
-        SELECT id, lifecycle, inventory_snapshot_id, inventory_snapshot_page_count,
+        SELECT id, lifecycle, inventory_snapshot_id, inventory_snapshot_version, inventory_snapshot_page_count,
                inventory_snapshot_next_page, inventory_snapshot_complete, inventory_snapshot_had_errors
         FROM agents
         WHERE id = ${agent.id} AND tenant_id = ${agent.tenantId}
@@ -243,11 +253,18 @@ export async function POST(req: Request) {
         id?: string; lifecycle?: unknown; inventory_snapshot_id?: unknown;
         inventory_snapshot_page_count?: unknown; inventory_snapshot_next_page?: unknown;
         inventory_snapshot_complete?: unknown; inventory_snapshot_had_errors?: unknown;
+        inventory_snapshot_version?: string;
       } | undefined;
       if (!currentAgent?.id) return { kind: "missing" as const };
       if (currentAgent.lifecycle !== "active") return { kind: "inactive" as const, lifecycle: String(currentAgent.lifecycle) };
 
       const snapshotEnabled = inventorySnapshotId.length > 0;
+      const retainedVersion = currentAgent.inventory_snapshot_version ?? "0";
+      // A page-1 replay must be rejected even after its final page cleared the
+      // in-progress ID. Keep the high-water mark for the lifetime of the Agent.
+      if (!inventoryVersionAllowsPage(inventorySnapshotVersion, retainedVersion, heartbeatPage)) {
+        return { kind: "inventory_conflict" as const, expectedPage: Number(currentAgent.inventory_snapshot_next_page ?? 1), minimumSnapshotVersion: retainedVersion };
+      }
       const priorSnapshotHadErrors = heartbeatPage === 1 ? false : currentAgent.inventory_snapshot_had_errors === true;
       if (snapshotEnabled && heartbeatPage > 1) {
         const activeSnapshotId = typeof currentAgent.inventory_snapshot_id === "string" ? currentAgent.inventory_snapshot_id : "";
@@ -255,7 +272,7 @@ export async function POST(req: Request) {
         const expectedPage = Number(currentAgent.inventory_snapshot_next_page ?? 0);
         const activeComplete = currentAgent.inventory_snapshot_complete === true;
         if (activeSnapshotId !== inventorySnapshotId || activePageCount !== heartbeatPageCount || expectedPage !== heartbeatPage || activeComplete !== inventoryComplete) {
-          return { kind: "inventory_conflict" as const, expectedPage, activeSnapshotId };
+          return { kind: "inventory_conflict" as const, expectedPage, minimumSnapshotVersion: retainedVersion };
         }
       }
 
@@ -477,7 +494,7 @@ export async function POST(req: Request) {
       // declare absence. This MUST run after every insert/conflict decision on
       // the page: late ownership/insert conflicts are snapshot errors too and
       // must preserve prior presence rather than deleting healthy inventory.
-      const mayReconcileAbsence = snapshotEnabled && isFinalHeartbeatPage && inventoryComplete && !priorSnapshotHadErrors && !pageHadErrors;
+      const mayReconcileAbsence = snapshotEnabled && inventorySnapshotVersion !== null && isFinalHeartbeatPage && inventoryComplete && !priorSnapshotHadErrors && !pageHadErrors;
       if (mayReconcileAbsence) {
         await tx.execute(sql`
           UPDATE printers
@@ -495,6 +512,7 @@ export async function POST(req: Request) {
         const snapshotHadErrors = priorSnapshotHadErrors || pageHadErrors;
         if (isFinalHeartbeatPage) {
           await tx.update(agents).set({
+            ...(inventorySnapshotVersion ? { inventorySnapshotVersion } : {}),
             inventorySnapshotId: null,
             inventorySnapshotPageCount: 0,
             inventorySnapshotNextPage: 1,
@@ -503,6 +521,7 @@ export async function POST(req: Request) {
           }).where(and(eq(agents.id, agent.id), eq(agents.tenantId, agent.tenantId)));
         } else {
           await tx.update(agents).set({
+            ...(inventorySnapshotVersion ? { inventorySnapshotVersion } : {}),
             inventorySnapshotId,
             inventorySnapshotPageCount: heartbeatPageCount,
             inventorySnapshotNextPage: heartbeatPage + 1,
@@ -512,30 +531,17 @@ export async function POST(req: Request) {
         }
       }
 
-      const desiredRows = isFinalHeartbeatPage
-        ? await tx.query.printers.findMany({
-            where: and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), eq(printers.managementSource, "manager")),
-            columns: {
-              id: true,
-              name: true,
-              printerType: true,
-              deviceClass: true,
-              connectionType: true,
-              protocol: true,
-              lifecycle: true,
-              config: true,
-              desiredRevision: true,
-              appliedDesiredRevision: true,
-              observedDesiredRevision: true,
-            },
-          })
-        : [];
+      const desiredPage = isFinalHeartbeatPage
+        ? await getDesiredPrinterPage(agent.tenantId, agent.id, undefined, options => tx.query.printers.findMany(options))
+        : null;
 
       return {
         kind: "ok" as const,
         skippedPrinters: skipped,
         printerIdAliases,
-        desiredState: desiredRows,
+        desiredState: desiredPage && (desiredStatePaging || desiredPage.nextCursor === null) ? desiredPage.items : null,
+        desiredStateNextCursor: desiredStatePaging ? desiredPage?.nextCursor ?? null : null,
+        desiredStateUpgradeRequired: desiredPage !== null && !desiredStatePaging && desiredPage.nextCursor !== null,
         isFinalPage: isFinalHeartbeatPage,
       };
     });
@@ -546,6 +552,7 @@ export async function POST(req: Request) {
       error: "Inventory snapshot page is out of order or no longer current",
       code: "INVENTORY_SNAPSHOT_CONFLICT",
       expectedPage: result.expectedPage,
+      minimumSnapshotVersion: result.minimumSnapshotVersion,
     }, { status: 409, headers: { "Cache-Control": "no-store" } });
 
     const response: Record<string, unknown> = {
@@ -556,7 +563,7 @@ export async function POST(req: Request) {
       response.printerIdAliases = result.printerIdAliases;
     }
     if (result.isFinalPage) {
-      response.desiredState = result.desiredState.map((row) => ({
+      if (result.desiredState !== null) response.desiredState = result.desiredState.map((row) => ({
         id: row.id,
         name: row.name,
         printerType: row.printerType,
@@ -567,6 +574,11 @@ export async function POST(req: Request) {
         config: row.config,
         desiredRevision: row.desiredRevision,
       }));
+      if (result.desiredStateNextCursor !== null) response.desiredStateNextCursor = result.desiredStateNextCursor;
+      if (result.desiredStateUpgradeRequired) {
+        response.desiredStateUpgradeRequired = true;
+        logWarn("agent.heartbeat.desired_state_upgrade_required", { agentId: agent.id, tenantId: agent.tenantId });
+      }
     }
     return NextResponse.json(response);
   } catch (error) {

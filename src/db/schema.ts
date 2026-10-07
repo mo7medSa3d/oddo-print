@@ -116,11 +116,13 @@ export const agents = pgTable("agents", {
   status: text("status").notNull().default("offline"),
   lifecycle: text("lifecycle").notNull().default("active"),
   lifecycleRevision: integer("lifecycle_revision").notNull().default(0),
-  // In-progress paginated inventory snapshot state. Page 1 supersedes an
-  // abandoned prior snapshot; later pages must match this fence before they
+  // In-progress paginated inventory snapshot state. A newer version on page 1
+  // supersedes an abandoned prior snapshot; later pages must match before they
   // may mutate inventory. This lets a complete snapshot retire confirmed
   // absences without treating a partial/failed heartbeat as an empty fleet.
   inventorySnapshotId: text("inventory_snapshot_id"),
+  // Retained after completion; text preserves int64 precision in JSON/Drizzle.
+  inventorySnapshotVersion: text("inventory_snapshot_version").notNull().default("0"),
   inventorySnapshotPageCount: integer("inventory_snapshot_page_count").notNull().default(0),
   inventorySnapshotNextPage: integer("inventory_snapshot_next_page").notNull().default(1),
   inventorySnapshotComplete: boolean("inventory_snapshot_complete").notNull().default(false),
@@ -140,6 +142,7 @@ export const agents = pgTable("agents", {
   pairingCodeHashPendingUnique: uniqueIndex("agents_pairing_code_hash_pending_unique").on(table.pairingCodeHash).where(sql`pairing_code_hash IS NOT NULL`),
   lifecycleCheck: check("agents_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
   lifecycleRevisionCheck: check("agents_lifecycle_revision_check", sql`${table.lifecycleRevision} >= 0`),
+  inventoryVersionCheck: check("agents_inventory_version_check", sql`${table.inventorySnapshotVersion} ~ '^(0|[1-9][0-9]{0,18})$' AND ${table.inventorySnapshotVersion}::numeric <= 9223372036854775807`),
   statusCheck: check("agents_status_check", sql`${table.status} in ('online','offline')`),
 }));
 
