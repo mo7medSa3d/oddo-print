@@ -409,8 +409,10 @@ describe("job claim predicate contracts", () => {
   it("keeps printer eligibility centralized across claim candidates and re-check", () => {
     const source = read("src/app/api/agent/jobs/route.ts");
     expect((source.match(/\$\{printerEligibilityPredicate\}/g) ?? []).length).toBe(3);
-    expect((source.match(/pr\.management_source/g) ?? []).length).toBe(1);
-    expect((source.match(/pr\.last_seen_at <= now\(\)/g) ?? []).length).toBe(1);
+    // Count the eligibility clauses themselves, not harmless SELECT projections
+    // of the same columns used for admission diagnostics/re-checks.
+    expect((source.match(/pr\.management_source\s*=\s*['"]agent['"]/g) ?? []).length).toBe(1);
+    expect((source.match(/pr\.last_seen_at\s*<=\s*now\(\)/g) ?? []).length).toBe(1);
   });
 });
 
