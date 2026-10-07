@@ -6,15 +6,101 @@ on:
   pull_request:
     branches: [main]
   merge_group:
-
 concurrency:
   group: windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Windows change filter
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      windows: ${{ steps.filter.outputs.windows }}
+      agent: ${{ steps.filter.outputs.agent }}
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Detect Windows-relevant changes
+        id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -u
+          windows=false
+          agent=false
+          rust=false
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+            windows=true
+            agent=true
+            rust=true
+          else
+            base="$BEFORE_SHA"
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              base="$PR_BASE_SHA"
+            fi
+
+            if [ -z "$base" ] || printf '%s' "$base" | grep -Eq '^0+$'; then
+              echo "No usable base SHA; running the full Windows validation."
+              windows=true
+              agent=true
+              rust=true
+            else
+              if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --depth=1 origin "$base" >/dev/null 2>&1 || true
+              fi
+
+              if git cat-file -e "$base^{commit}" 2>/dev/null; then
+                files="$(git diff --name-only "$base" "$GITHUB_SHA" || true)"
+                printf 'Changed files:\n%s\n' "$files"
+                while IFS= read -r file; do
+                  [ -z "$file" ] && continue
+                  case "$file" in
+                    agent/*|src-tauri/*|src/desktop/*|src/components/*|src/i18n/*|src/shared/*|src/lib/*|src/app/globals.css|contracts/*|scripts/build-windows-installer.ps1|scripts/smoke-test-windows.ps1|vite.desktop.config.mts|postcss.config.*|package.json|package-lock.json|tsconfig.json|.nvmrc|.github/workflows/build-windows.yml)
+                      windows=true
+                      ;;
+                  esac
+                  case "$file" in
+                    agent/*|.github/workflows/build-windows.yml)
+                      agent=true
+                      ;;
+                  esac
+                  case "$file" in
+                    src-tauri/*|.github/workflows/build-windows.yml)
+                      rust=true
+                      ;;
+                  esac
+                done <<< "$files"
+              else
+                echo "Could not resolve the base commit; failing open to full Windows validation."
+                windows=true
+                agent=true
+                rust=true
+              fi
+            fi
+          fi
+
+          {
+            echo "windows=$windows"
+            echo "agent=$agent"
+            echo "rust=$rust"
+          } >> "$GITHUB_OUTPUT"
+          echo "Windows build: $windows; Agent tests: $agent; Rust tests: $rust"
+
   build-windows:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -35,6 +121,17 @@ jobs:
           go-version-file: agent/go.mod
           cache: true
           cache-dependency-path: agent/go.sum
+      - name: Verify and test native Windows Go Agent
+        if: needs.changes.outputs.agent == 'true'
+        working-directory: agent
+        shell: pwsh
+        run: |
+          go mod verify
+          if ($LASTEXITCODE -ne 0) { throw "Go module verification failed" }
+          # go test can run the full vet analyzer set before the tests, avoiding
+          # a second package load/compile from a separate go vet invocation.
+          go test -mod=readonly -vet=all ./...
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows Go vet/tests failed" }
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
@@ -63,8 +160,9 @@ jobs:
             ~/.cargo/git
             src-tauri/target
             ~/AppData/Local/tauri
-          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-v2-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
             ${{ runner.os }}-rust-
       - name: Install Tauri CLI
         shell: pwsh
@@ -109,15 +207,16 @@ jobs:
           }
           Write-Host "All $($icons.Count) configured icons are present."
       - name: Rust unit tests (desktop)
+        if: needs.changes.outputs.rust == 'true'
         shell: pwsh
         run: |
-          # generate_context! validates frontendDist at compile time. Unit tests
-          # do not consume frontend assets, while the later Tauri build runs the
-          # real beforeBuildCommand. Create only the directory here to avoid a
-          # duplicate Vite build.
+          # Unit tests validate behavior; they do not need LTO/opt-level=3.
+          # The following Tauri packaging step is the authoritative production
+          # release build, so compiling the full Rust graph in --release twice
+          # only adds minutes without increasing test coverage.
           New-Item -ItemType Directory -Force -Path dist-desktop | Out-Null
           Push-Location src-tauri
-          cargo test --locked --release --target x86_64-pc-windows-msvc
+          cargo test --locked --target x86_64-pc-windows-msvc
           Pop-Location
       - name: Clean stale Tauri installer bundles
         shell: pwsh
@@ -266,7 +365,7 @@ jobs:
             ~/.cargo/git
             src-tauri/target
             ~/AppData/Local/tauri
-          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-v2-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Upload Windows NSIS installer
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

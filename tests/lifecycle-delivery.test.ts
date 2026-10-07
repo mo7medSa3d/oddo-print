@@ -129,6 +129,36 @@ suite("delivery lifecycle enforcement", () => {
     expect(route).toContain("printingAdmissionLifecycleFence(agent.id, agent.tenantId)");
   });
 
+  it.each(["offline", "stale"] as const)("refuses printing admission when the printer becomes %s after claim", async (scenario) => {
+    const jobId = `job_admission_${scenario}`;
+    await insertQueuedJob(f, jobId);
+    const claim = await claimJobForDelivery(jobId, f.agentId);
+    expect(claim?.claimToken).toBeTruthy();
+
+    if (scenario === "offline") {
+      await pool().query(
+        `UPDATE printers SET status = 'offline' WHERE id = $1 AND tenant_id = $2`,
+        [f.printerId, f.tenantId],
+      );
+    } else {
+      await pool().query(
+        `UPDATE printers SET last_seen_at = now() - interval '10 minutes' WHERE id = $1 AND tenant_id = $2`,
+        [f.printerId, f.tenantId],
+      );
+    }
+
+    const res = await agentJobsPATCH(
+      new Request("http://gateway.test/api/agent/jobs", {
+        method: "PATCH",
+        headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+        body: JSON.stringify({ jobId, status: "printing", claimToken: claim!.claimToken }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect((await jobRow(jobId)).status).toBe("claimed");
+  });
+
   it("linearizes a printer lifecycle update and a claim on the same owner row", async () => {
     await insertQueuedJob(f, "race_lifecycle");
     const client = await pool().connect();

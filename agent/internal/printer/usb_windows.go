@@ -167,6 +167,9 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 			p.closeDeviceHandle(h)
 		}
 	}()
+	if err := runDispatchAdmission(ctx); err != nil {
+		return fmt.Errorf("USB print admission refused: %w", err)
+	}
 	written := 0
 	for written < len(data) {
 		select {

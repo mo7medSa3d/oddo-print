@@ -229,6 +229,9 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 			client.Timeout = timeout
 		}
 	}
+	if err := runDispatchAdmission(ctx); err != nil {
+		return fmt.Errorf("IPP print admission refused: %w", err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		if preDispatchIRErr(err) {

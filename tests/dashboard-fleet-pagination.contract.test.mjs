@@ -23,7 +23,8 @@ test("SSR and polling share the bounded fleet query instead of selecting whole f
   assert.doesNotMatch(page, /\.from\(printers\)/);
   assert.match(actions, /getDashboardState\(options: DashboardFleetOptions = \{\}\)/);
   assert.match(actions, /loadDashboardStateForTenant\(manager\.tenantId/);
-  assert.match(client, /getDashboardState\(queryOverride \?\? fleetQueryRef\.current\)/);
+  assert.match(client, /getDashboardStateResult\(options\)/);
+  assert.match(client, /getDashboardState\(currentQuery \?\? fleetQueryRef\.current\)/);
   assert.match(client, /fleet\.agentHasMore/);
   assert.match(client, /fleet\.printerHasMore/);
   assert.match(client, /common\.previousPage/);

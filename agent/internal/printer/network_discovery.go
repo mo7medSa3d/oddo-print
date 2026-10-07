@@ -276,14 +276,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	// out of the TCP scanner preserves partial results and diagnostics there.
 	out := mergeNetworkDevices(tcpDevices)
 	log.Printf("[discovery] network discovery completed: %d printers found (TCP+SNMP)", len(out))
-	// A scan that could not dispatch every target is partial inventory, not
-	// a complete one: callers gate pruning on a nil error, so truncation
-	// must surface as one. A fully dispatched scan stays clean even when
-	// the context expires during the bounded result drain (C006).
-	if dispatchedTargets < len(targets) {
-		return out, errors.Join(append(sourceDiagnostics, fmt.Errorf("network TCP scan truncated: %d of %d targets probed: %w", dispatchedTargets, len(targets), ctx.Err()))...)
-	}
-	return out, errors.Join(sourceDiagnostics...)
+	return out, errors.Join(append(sourceDiagnostics, discoveryScanError("network TCP", dispatchedTargets, len(targets), ctx.Err()))...)
 }
 
 func isGenericPrinterName(name string) bool {

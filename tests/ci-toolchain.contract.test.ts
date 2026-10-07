@@ -79,6 +79,19 @@ describe("CI/runtime alignment", () => {
     expect(windows).not.toContain("cargo audit");
   });
 
+  it("avoids allocating a Windows runner for unrelated changes while keeping the workflow check present", () => {
+    const windows = readFileSync(path.join(root, ".github/workflows/build-windows.yml"), "utf8");
+    expect(windows).toContain("name: Windows change filter");
+    expect(windows).toContain("needs: changes");
+    expect(windows).toContain("if: needs.changes.outputs.windows == 'true'");
+    expect(windows).toContain("if: needs.changes.outputs.agent == 'true'");
+    expect(windows).toContain("if: needs.changes.outputs.rust == 'true'");
+    expect(windows).not.toMatch(/^[ ]{4}paths:$/m);
+    for (const requiredPath of ["agent/*", "src-tauri/*", "src/desktop/*", "src/components/*", "src/i18n/*", "src/lib/*"]) {
+      expect(windows).toContain(requiredPath);
+    }
+  });
+
   it("keeps Caddy's forwarded-header security contract warning-free", () => {
     const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
     const httpTestCaddy = readFileSync(path.join(root, "deploy/http-test/Caddyfile"), "utf8");

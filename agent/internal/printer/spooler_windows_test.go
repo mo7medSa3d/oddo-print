@@ -743,7 +743,7 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 func TestPrintRecordsSpoolerJobIDOnSuccess(t *testing.T) {
 	withFakeQueue(t, 0, 0)
 	prev := currentExecuteSpoolerSession
-	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr), admit ...func() error) spoolerTaskResult {
 		if onJobID != nil {
 			onJobID(456)
 		}
@@ -765,7 +765,7 @@ func TestPrintRecordsSpoolerJobIDOnSuccess(t *testing.T) {
 func TestPrintLeavesNoSpoolerJobIDOnFailure(t *testing.T) {
 	withFakeQueue(t, 0, 0)
 	prev := currentExecuteSpoolerSession
-	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr), admit ...func() error) spoolerTaskResult {
 		return spoolerTaskResult{err: errors.New("simulated session failure")}
 	}
 	t.Cleanup(func() { currentExecuteSpoolerSession = prev })
@@ -781,7 +781,7 @@ func TestPrintLeavesNoSpoolerJobIDOnFailure(t *testing.T) {
 func TestPrintPreservesAllocatedSpoolerJobIDOnFailure(t *testing.T) {
 	withFakeQueue(t, 0, 0)
 	prev := currentExecuteSpoolerSession
-	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr)) spoolerTaskResult {
+	currentExecuteSpoolerSession = func(spoolerName string, data []byte, cancelNotice <-chan struct{}, onJobID func(uintptr), admit ...func() error) spoolerTaskResult {
 		if onJobID != nil {
 			onJobID(654)
 		}

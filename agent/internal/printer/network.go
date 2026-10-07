@@ -123,6 +123,9 @@ func (p *NetworkPrinter) SupportsKind(kind string) bool {
 }
 
 func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address string) (int, error) {
+	if err := runDispatchAdmission(ctx); err != nil {
+		return 0, fmt.Errorf("network print admission refused: %w", err)
+	}
 	// Closing the owned print connection interrupts a blocked Write even
 	// for contexts cancelled without a deadline.
 	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })

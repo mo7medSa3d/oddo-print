@@ -231,7 +231,7 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     const source = read("src/lib/agent-presence-maintenance.ts");
     expect(source).toContain("status = 'offline'");
     expect(source).toContain("last_seen_at < now() - make_interval");
-    expect(source).toContain("RETURNING id");
+    expect(source).toContain("RETURNING agents.id");
     expect(source).not.toContain("UPDATE print_jobs");
   });
 
@@ -408,9 +408,11 @@ describe("legacy session fixture contract", () => {
 describe("job claim predicate contracts", () => {
   it("keeps printer eligibility centralized across claim candidates and re-check", () => {
     const source = read("src/app/api/agent/jobs/route.ts");
-    expect((source.match(/\$\{printerEligibilityPredicate\}/g) ?? []).length).toBe(3);
-    expect((source.match(/pr\.management_source/g) ?? []).length).toBe(1);
-    expect((source.match(/pr\.last_seen_at <= now\(\)/g) ?? []).length).toBe(1);
+    expect((source.match(/\$\{printerEligibilityPredicate(?:\([^}]+\))?\}/g) ?? []).length).toBe(4);
+    // Count the eligibility clauses themselves, not harmless SELECT projections
+    // of the same columns used for admission diagnostics/re-checks.
+    expect((source.match(/pr\.management_source\s*=\s*['"]agent['"]/g) ?? []).length).toBe(1);
+    expect((source.match(/pr\.last_seen_at\s*<=\s*now\(\)/g) ?? []).length).toBe(1);
   });
 });
 

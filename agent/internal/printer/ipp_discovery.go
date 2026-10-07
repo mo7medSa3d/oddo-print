@@ -201,14 +201,7 @@ targetLoop:
 			out = append(out, di)
 		}
 	}
-	// A scan that could not dispatch every target is partial inventory, not
-	// a complete one: callers gate pruning on a nil error, so truncation
-	// must surface as one. A fully dispatched scan stays clean even when
-	// the context expires during the bounded result drain (C006).
-	if dispatched < len(targets) {
-		return out, errors.Join(sourceErr, fmt.Errorf("IPP TCP scan truncated: %d of %d targets probed: %w", dispatched, len(targets), ctx.Err()))
-	}
-	return out, sourceErr
+	return out, errors.Join(sourceErr, discoveryScanError("IPP TCP", dispatched, len(targets), ctx.Err()))
 }
 
 // discoverMDNSPrinters performs mDNS query for _ipp._tcp, _ipps._tcp, and _printer._tcp.

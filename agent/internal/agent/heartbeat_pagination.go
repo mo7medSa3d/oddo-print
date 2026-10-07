@@ -5,8 +5,48 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
+
+// Versions are seeded from local time, but ordering is enforced by an atomic
+// counter and the Gateway's durable high-water mark, never by clock agreement.
+// A restarted process with a rolled-back clock catches up from a fenced 409.
+type inventoryVersionClock struct {
+	last atomic.Int64
+}
+
+var heartbeatInventoryClock inventoryVersionClock
+
+func (c *inventoryVersionClock) next(now time.Time) string {
+	for {
+		previous := c.last.Load()
+		next := now.UnixNano()
+		if next <= previous {
+			// Exhaustion fails closed as a duplicate rather than wrapping negative.
+			if previous == int64(^uint64(0)>>1) {
+				return strconv.FormatInt(previous, 10)
+			}
+			next = previous + 1
+		}
+		if c.last.CompareAndSwap(previous, next) {
+			return strconv.FormatInt(next, 10)
+		}
+	}
+}
+
+func (c *inventoryVersionClock) observe(raw string) bool {
+	version, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || version < 0 || strconv.FormatInt(version, 10) != raw {
+		return false
+	}
+	for {
+		previous := c.last.Load()
+		if version <= previous || c.last.CompareAndSwap(previous, version) {
+			return true
+		}
+	}
+}
 
 const (
 	// The Gateway limit is deliberately a per-page protocol bound, not a
@@ -131,6 +171,7 @@ func buildHeartbeatPayloadPages(
 	}
 
 	snapshotID := newInventorySnapshotID()
+	snapshotVersion := heartbeatInventoryClock.next(time.Now())
 	pages := make([]map[string]interface{}, 0, totalPages)
 	for i := 0; i < totalPages; i++ {
 		var pagePrinters []map[string]interface{}
@@ -148,14 +189,15 @@ func buildHeartbeatPayloadPages(
 		}
 
 		page := map[string]interface{}{
-			"status":                 "online",
-			"printers":               pagePrinters,
-			"desiredStateAcks":       pageAcks,
-			"gatewayOwnedPrinterIds": gatewayOwnedIDsForPrinterPage(pagePrinters, gatewayOwnedIDs),
-			"heartbeatPage":          i + 1,
-			"heartbeatPageCount":     totalPages,
-			"inventorySnapshotId":    snapshotID,
-			"inventoryComplete":      inventoryComplete,
+			"status":                   "online",
+			"printers":                 pagePrinters,
+			"desiredStateAcks":         pageAcks,
+			"gatewayOwnedPrinterIds":   gatewayOwnedIDsForPrinterPage(pagePrinters, gatewayOwnedIDs),
+			"heartbeatPage":            i + 1,
+			"heartbeatPageCount":       totalPages,
+			"inventorySnapshotId":      snapshotID,
+			"inventorySnapshotVersion": snapshotVersion,
+			"inventoryComplete":        inventoryComplete,
 		}
 		if len(keepAlive) > 0 {
 			page["keepAliveJobIds"] = keepAlive

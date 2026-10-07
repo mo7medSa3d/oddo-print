@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { POST as heartbeatPOST } from "../src/app/api/agent/heartbeat/route";
+import { GET as desiredStateGET } from "../src/app/api/agent/desired-state/route";
 import { GET as odooPrintersGET } from "../src/app/api/odoo/printers/route";
 import { GET as agentJobsGET } from "../src/app/api/agent/jobs/route";
 import { POST as printJobsPOST } from "../src/app/api/print/jobs/route";
@@ -34,12 +35,17 @@ async function heartbeat(agentAuth: string, body: unknown) {
   }));
 }
 
+let nextSnapshotVersion = 0;
+const snapshotVersions = new Map<string, string>();
+
 function snapshotHeartbeat(snapshotId: string, inventoryComplete: boolean, printerRows: unknown[], heartbeatPage = 1, heartbeatPageCount = 1) {
+  if (!snapshotVersions.has(snapshotId)) snapshotVersions.set(snapshotId, String(++nextSnapshotVersion));
   return {
     status: "online",
     heartbeatPage,
     heartbeatPageCount,
     inventorySnapshotId: snapshotId,
+    inventorySnapshotVersion: snapshotVersions.get(snapshotId),
     inventoryComplete,
     printers: printerRows,
     desiredStateAcks: [],
@@ -79,6 +85,46 @@ suite("agent heartbeat pagination contract", () => {
 
   beforeEach(async () => {
     await truncateAll();
+    nextSnapshotVersion = 0;
+    snapshotVersions.clear();
+  });
+
+  it("rejects an older empty page 1 after a newer complete inventory, without changing presence or metadata", async () => {
+    const f = await seedFixture();
+    const older = snapshotHeartbeat("old-empty", true, []);
+    const newer = snapshotHeartbeat("new-populated", true, [makePrinter(f.printerId)]);
+    expect((await heartbeat(f.agentAuth, newer)).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, older)).status).toBe(409);
+    expect((await heartbeat(f.agentAuth, newer)).status).toBe(409);
+    const result = await pool().query(
+      `SELECT a.inventory_snapshot_version, a.inventory_snapshot_id, p.inventory_present, p.status
+       FROM agents a JOIN printers p ON p.agent_id = a.id AND p.tenant_id = a.tenant_id
+       WHERE a.id = $1 AND a.tenant_id = $2 AND p.id = $3`,
+      [f.agentId, f.tenantId, f.printerId],
+    );
+    expect(result.rows[0]).toMatchObject({ inventory_snapshot_version: "2", inventory_snapshot_id: null, inventory_present: true, status: "online" });
+  });
+
+  it("keeps legacy snapshots additive and prevents downgrade after a versioned snapshot", async () => {
+    const f = await seedFixture();
+    const legacy = { ...snapshotHeartbeat("legacy-empty", true, []), inventorySnapshotVersion: undefined };
+    expect((await heartbeat(f.agentAuth, legacy)).status).toBe(200);
+    expect((await pool().query("SELECT inventory_present FROM printers WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId])).rows[0].inventory_present).toBe(true);
+    expect((await heartbeat(f.agentAuth, snapshotHeartbeat("modern", true, [makePrinter(f.printerId)]))).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, legacy)).status).toBe(409);
+  });
+
+  it("requires the reserved version on every page and preserves a newer writer during concurrent old-page replay", async () => {
+    const f = await seedFixture();
+    const first = snapshotHeartbeat("in-progress", true, [makePrinter(f.printerId)], 1, 2);
+    const final = snapshotHeartbeat("in-progress", true, [], 2, 2);
+    expect((await heartbeat(f.agentAuth, first)).status).toBe(200);
+    expect((await heartbeat(f.agentAuth, { ...final, inventorySnapshotVersion: "9007199254740993" })).status).toBe(409);
+    expect((await heartbeat(f.agentAuth, final)).status).toBe(200);
+    const fresh = snapshotHeartbeat("next", true, [makePrinter(f.printerId)]);
+    const results = await Promise.all([heartbeat(f.agentAuth, first), heartbeat(f.agentAuth, fresh)]);
+    expect(results.map(r => r.status)).toEqual([409, 200]);
+    expect((await pool().query("SELECT inventory_present FROM printers WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId])).rows[0].inventory_present).toBe(true);
   });
 
   it("accepts 501 printers across multiple pages without truncating inventory", async () => {
@@ -118,6 +164,33 @@ suite("agent heartbeat pagination contract", () => {
       [f.tenantId],
     );
     expect(rows.rows.map((row) => row.id)).toHaveLength(501);
+  });
+
+  it("negotiates all desired-state pages without leaking another tenant or truncating a legacy snapshot", async () => {
+    const f = await seedFixture();
+    const foreign = await seedFixture();
+    await pool().query("UPDATE printers SET management_source = 'manager', desired_revision = 1 WHERE id = ANY($1::text[])", [[f.printerId, foreign.printerId]]);
+    for (let i = 0; i < 64; i++) {
+      const id = `manager_${String(i).padStart(3, "0")}`;
+      await pool().query(`INSERT INTO printers (id, tenant_id, agent_id, name, connection_type, protocol, management_source, desired_revision, config)
+        VALUES ($1, $2, $3, $1, 'network', 'raw', 'manager', 1, '{"ip":"10.0.0.10","port":9100}')`, [id, f.tenantId, f.agentId]);
+    }
+    const legacy = await heartbeat(f.agentAuth, { printers: [] });
+    expect(await legacy.json()).toMatchObject({ success: true, desiredStateUpgradeRequired: true });
+    const modern = await heartbeat(f.agentAuth, { ...snapshotHeartbeat("desired-pages", true, []), desiredStatePaging: true });
+    expect(modern.status).toBe(200);
+    const first = await modern.json();
+    expect(first.desiredState).toHaveLength(64);
+    expect(typeof first.desiredStateNextCursor).toBe("string");
+    const last = await desiredStateGET(new Request(`http://gateway.test/api/agent/desired-state?after=${first.desiredStateNextCursor}`, { headers: { authorization: f.agentAuth } }));
+    expect(last.status).toBe(200);
+    const final = await last.json();
+    expect(final.agentId).toBe(f.agentId);
+    expect(final.desiredStateNextCursor).toBeNull();
+    const ids = [...first.desiredState, ...final.desiredState].map(row => row.id);
+    expect(new Set(ids).size).toBe(65);
+    expect(ids).toContain(f.printerId);
+    expect(ids).not.toContain(foreign.printerId);
   });
 
   it("rejects invalid page metadata before touching the tenant inventory", async () => {

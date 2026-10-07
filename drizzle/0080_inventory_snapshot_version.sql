@@ -1,0 +1,2 @@
+ALTER TABLE "agents" ADD COLUMN "inventory_snapshot_version" text DEFAULT '0' NOT NULL;--> statement-breakpoint
+ALTER TABLE "agents" ADD CONSTRAINT "agents_inventory_version_check" CHECK ("agents"."inventory_snapshot_version" ~ '^(0|[1-9][0-9]{0,18})$' AND "agents"."inventory_snapshot_version"::numeric <= 9223372036854775807);

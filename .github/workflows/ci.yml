@@ -15,7 +15,56 @@ permissions:
   contents: read
 
 jobs:
+  agent:
+    name: Agent / Go
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Restore staticcheck cache
+        id: staticcheck-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/staticcheck
+          key: ${{ runner.os }}-staticcheck-v0.7.0
+      - name: Agent modules and format
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod verify
+          test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
+      - name: Agent race tests and vet
+        working-directory: agent
+        run: go test -mod=readonly -race -vet=all ./...
+      - name: Agent dead-code scan
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          staticcheck="$(go env GOPATH)/bin/staticcheck"
+          if [ ! -x "$staticcheck" ]; then
+            go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          fi
+          "$staticcheck" -checks=U1000 ./...
+      - name: Save staticcheck cache
+        if: steps.staticcheck-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/staticcheck
+          key: ${{ runner.os }}-staticcheck-v0.7.0
+
   ci:
+    name: App / Gateway
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
@@ -62,27 +111,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version-file: agent/go.mod
-          cache: true
-          cache-dependency-path: agent/go.sum
-      - name: Restore staticcheck cache
-        id: staticcheck-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/go/bin/staticcheck
-          key: ${{ runner.os }}-staticcheck-v0.7.0
-      - name: Agent Phase 0 - Go vet
-        working-directory: agent
-        run: |
-          go mod verify
-          go vet -mod=readonly ./...
-      - name: Agent Phase 0 - Go race tests
-        working-directory: agent
-        run: go test -mod=readonly ./... -race
-
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
       - name: Typecheck
@@ -91,35 +119,12 @@ jobs:
         run: npm run lint
       - name: i18n catalog check (en/ar parity, tc() bases)
         run: npm run i18n:check
-      - name: Offline audit regressions (actual modules, built-in Node APIs)
-        run: node --experimental-vm-modules --test tests/audit-*-offline.test.mjs
+      - name: Native Node regressions (actual modules and contracts)
+        run: node --experimental-vm-modules --test tests/*.test.mjs
       - name: Odoo translation catalog check
         run: npm run i18n:odoo:check
       - name: DB schema/migration/docs drift check
         run: npm run db:docs:check
-      - name: Go U1000 dead-code scan (Linux)
-        working-directory: agent
-        shell: bash
-        run: |
-          set -euo pipefail
-          staticcheck="$(go env GOPATH)/bin/staticcheck"
-          if [ ! -x "$staticcheck" ]; then
-            go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
-          fi
-          "$staticcheck" -checks=U1000 ./...
-      - name: Go U1000 dead-code scan (Windows build tags)
-        working-directory: agent
-        shell: bash
-        run: |
-          set -euo pipefail
-          GOOS=windows "$(go env GOPATH)/bin/staticcheck" -checks=U1000 ./...
-      - name: Save staticcheck cache
-        if: steps.staticcheck-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/go/bin/staticcheck
-          key: ${{ runner.os }}-staticcheck-v0.7.0
-
       - name: Validate Odoo 19 addon XML conventions
         run: |
           if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons/print_gateway/views; then
@@ -144,17 +149,10 @@ jobs:
           # Odoo __init__ modules intentionally import for registration.
           find odoo_addons scripts tests -name '*.py' ! -name '__init__.py' -print0 | xargs -0 python3 -m pyflakes
           pytest tests/test_*.py
-      - name: Build Next.js
-        run: npm run build
       - name: Run unit tests (no DB)
         run: npm run test:unit
-      - name: Wait for PostgreSQL
-        run: |
-          for i in $(seq 1 30); do
-            pg_isready -h 127.0.0.1 -p 5432 -U postgres -d app_db && break
-            sleep 1
-          done
-          pg_isready -h 127.0.0.1 -p 5432 -U postgres -d app_db
+      - name: Build Next.js for production-server integration tests
+        run: npm run build
       - name: Run Drizzle migrations
         run: npm run db:migrate
       - name: Verify final runtime-only schema
@@ -321,11 +319,6 @@ jobs:
         env:
           RUN_MULTI_INSTANCE_TEST: '1'
         run: npm run test:integration
-
-      - name: Go formatting gate
-        working-directory: agent
-        run: |
-          test -z "$(gofmt -l .)" || { echo 'gofmt required on:'; gofmt -l .; exit 1; }
 
   odoo19:
     runs-on: ubuntu-latest
