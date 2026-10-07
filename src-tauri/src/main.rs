@@ -55,41 +55,61 @@ fn focus_existing_manager_window() {
 }
 
 #[cfg(windows)]
-fn acquire_single_instance() -> Result<Option<SingleInstanceGuard>, String> {
+fn acquire_single_instance(wait_for_previous: bool) -> Result<Option<SingleInstanceGuard>, String> {
     const ERROR_ALREADY_EXISTS: u32 = 183;
     const ERROR_ACCESS_DENIED: u32 = 5;
     let name: Vec<u16> = "Global\\YaseirPrintManager.SingleInstance.v1"
         .encode_utf16()
         .chain(Some(0))
         .collect();
-    let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
-    if handle.is_null() {
-        let error = unsafe { GetLastError() };
-        // A manager running at a different integrity level/session can own the
-        // machine-wide mutex while denying MUTEX_ALL_ACCESS to this process.
-        // Treat that as "already running" rather than allowing a second
-        // manager to race Agent startup.
-        if error == ERROR_ACCESS_DENIED {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+
+    loop {
+        let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            let error = unsafe { GetLastError() };
+            // During an explicit Run-as-Administrator relaunch, the elevated
+            // process can race the unelevated process while it still owns the
+            // global mutex. Wait for that exact handoff instead of exiting the
+            // newly approved elevated instance.
+            if wait_for_previous
+                && error == ERROR_ACCESS_DENIED
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+            if error == ERROR_ACCESS_DENIED {
+                focus_existing_manager_window();
+                return Ok(None);
+            }
+            return Err(format!(
+                "CreateMutexW failed while enforcing single-instance startup: {error}"
+            ));
+        }
+
+        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            unsafe {
+                CloseHandle(handle);
+            }
+            if wait_for_previous && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
             focus_existing_manager_window();
             return Ok(None);
         }
-        return Err(format!(
-            "CreateMutexW failed while enforcing single-instance startup: {error}"
-        ));
+
+        return Ok(Some(SingleInstanceGuard(handle)));
     }
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        unsafe {
-            CloseHandle(handle);
-        }
-        focus_existing_manager_window();
-        return Ok(None);
-    }
-    Ok(Some(SingleInstanceGuard(handle)))
 }
 
 fn main() {
     #[cfg(windows)]
-    let _single_instance_guard = match acquire_single_instance() {
+    let elevated_relaunch = std::env::args_os()
+        .any(|arg| arg.to_string_lossy() == "--elevated-relaunch");
+    #[cfg(windows)]
+    let _single_instance_guard = match acquire_single_instance(elevated_relaunch) {
         Ok(Some(guard)) => guard,
         Ok(None) => return,
         Err(error) => {
@@ -211,6 +231,7 @@ fn main() {
             commands::get_autostart,
             commands::set_autostart,
             commands::is_running_as_admin,
+            commands::relaunch_as_admin,
             tray::set_tray_locale
         ])
         .build(tauri::generate_context!());
