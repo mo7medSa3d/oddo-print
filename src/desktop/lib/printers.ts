@@ -225,6 +225,10 @@ export function friendlyAgentError(raw: string, locale: Locale = DEFAULT_LOCALE)
 export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCALE): string {
   const lower = raw.toLowerCase();
 
+  if (lower.includes("trusted_proxy_required")) {
+    return tr(locale, "desktop.gateway.proxyConfig");
+  }
+
   if (lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden")) {
     return tr(locale, "desktop.gateway.unauthorized");
   }
@@ -250,7 +254,10 @@ export function friendlyGatewayError(raw: string, locale: Locale = DEFAULT_LOCAL
     lower.includes("connection refused") ||
     lower.includes("failed to fetch") ||
     lower.includes("network is unreachable") ||
-    lower.includes("econnrefused")
+    lower.includes("econnrefused") ||
+    lower.includes("gateway probe connection failed") ||
+    lower.includes("gateway health connection failed") ||
+    lower.includes("error sending request")
   ) {
     return tr(locale, "desktop.gateway.unreachable");
   }
