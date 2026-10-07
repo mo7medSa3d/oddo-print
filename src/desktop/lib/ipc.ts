@@ -776,7 +776,29 @@ export async function probeGatewayHealth(
       credentials: "omit",
       headers: { Accept: "application/json" },
     });
-    response = { status: browserResponse.status, body: await browserResponse.text() };
+    const probeBody = await browserResponse.text();
+    if (browserResponse.status === 404 || browserResponse.status === 405) {
+      const healthResponse = await fetchWithTimeout(`${base}/api/health`, {
+        method: "GET",
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+      });
+      const healthBody = await healthResponse.text();
+      if (healthResponse.ok) {
+        try {
+          const health = JSON.parse(healthBody) as Record<string, unknown>;
+          response = health.ok === true
+            ? { status: 200, body: JSON.stringify({ ok: true, service: "yaseir-print-gateway", compatibility: "health" }) }
+            : { status: healthResponse.status, body: healthBody };
+        } catch {
+          response = { status: healthResponse.status, body: healthBody };
+        }
+      } else {
+        response = { status: healthResponse.status, body: healthBody };
+      }
+    } else {
+      response = { status: browserResponse.status, body: probeBody };
+    }
   }
   if (response.status < 200 || response.status >= 300) {
     throw gatewayHttpError(response.status, response.body, `Gateway probe failed (${response.status})`);
