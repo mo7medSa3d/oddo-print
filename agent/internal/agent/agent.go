@@ -2810,7 +2810,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// Serialize Gateway aliases and bare local IDs on the same backend.
 	// Admission must follow all local waits so TTL and lifecycle are checked
 	// immediately before hardware, using the Gateway database clock.
-	gatewayPrinterID := printerID
 	localPrinterID := a.resolvePrinterAlias(printerID)
 
 	lock := a.getPrinterLock(localPrinterID)
