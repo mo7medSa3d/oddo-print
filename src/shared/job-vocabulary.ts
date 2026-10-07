@@ -7,7 +7,7 @@
 // in src/lib/job-status.ts (a unit test locks both lists).
 // ============================================================
 
-import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../lib/stale-threshold";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds, resolveAgentStaleThresholdSeconds } from "../lib/stale-threshold";
 import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
 import { translate } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
@@ -105,8 +105,15 @@ export function printerObservationFreshness(
 export function agentHeartbeatFreshness(
   lastSeenAt: Date | string | null | undefined,
   nowMs = Date.now(),
+  staleThresholdSeconds?: number | null,
 ): ObservationFreshness {
-  return sharedObservationFreshness(lastSeenAt, agentStaleThresholdSeconds(), nowMs);
+  return sharedObservationFreshness(
+    lastSeenAt,
+    staleThresholdSeconds == null
+      ? agentStaleThresholdSeconds()
+      : resolveAgentStaleThresholdSeconds(staleThresholdSeconds),
+    nowMs,
+  );
 }
 
 export type PhysicalOutcome = "printed" | "not_printed" | "unknown";
@@ -229,10 +236,16 @@ export function printerLabel(status: string, locale: Locale = DEFAULT_LOCALE): s
 
 /** Heartbeat-derived truth: an agent that stopped reporting is NOT online,
  *  regardless of the last status row. Mirrors src/lib/agent-availability.ts.
- *  The threshold is the shared agentStaleThresholdSeconds() so the UI and
- *  the claim gate cannot drift when STALE_AGENT_THRESHOLD_SECONDS is set. */
+ *  Browser/desktop callers receive the configured Gateway threshold with the
+ *  Agent record so the UI and claim gate cannot drift when the deployment
+ *  overrides STALE_AGENT_THRESHOLD_SECONDS. */
 export function agentLiveView(
-  agent: { status?: string | null; lastSeenAt?: Date | string | null; lifecycle?: string | null },
+  agent: {
+    status?: string | null;
+    lastSeenAt?: Date | string | null;
+    lifecycle?: string | null;
+    staleThresholdSeconds?: number | null;
+  },
   nowMs = Date.now(),
   locale: Locale = DEFAULT_LOCALE,
 ): { tone: Tone; label: string } {
@@ -244,9 +257,18 @@ export function agentLiveView(
     };
   }
   const seen = agent.lastSeenAt ? parseSharedTimeMs(agent.lastSeenAt) : null;
-  const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
-  const fresh = ageMs >= 0 && ageMs <= agentStaleThresholdSeconds() * 1000;
-  if (seen !== null && !fresh) {
+  if (seen === null) {
+    // A stored status without a heartbeat timestamp is not affirmative live
+    // evidence. Keep it visibly unknown instead of manufacturing Online (or
+    // Offline) from a row whose observation time cannot be established.
+    return { tone: "neutral", label: word("status.unknown") };
+  }
+  const ageMs = nowMs - seen;
+  const thresholdSeconds = agent.staleThresholdSeconds == null
+    ? agentStaleThresholdSeconds()
+    : resolveAgentStaleThresholdSeconds(agent.staleThresholdSeconds);
+  const fresh = ageMs >= 0 && ageMs <= thresholdSeconds * 1000;
+  if (!fresh) {
     return { tone: "bad", label: word("status.heartbeatLost") };
   }
   if (agent.status === "online") return { tone: "ok", label: word("status.online") };
@@ -267,11 +289,13 @@ export function effectivePrinterStatus(
   if (printer.lifecycle && printer.lifecycle !== "active") {
     return printer.lifecycle;
   }
-  if (printer.lastSeenAt) {
-    const seen = parseSharedTimeMs(printer.lastSeenAt);
-    const ageMs = seen === null ? Number.POSITIVE_INFINITY : nowMs - seen;
-    if (ageMs < 0 || ageMs > printerStaleThresholdSeconds() * 1000) return "unknown";
-  }
+  // Missing or unparsable observation time is not evidence of current device
+  // state. This mirrors the server-side getEffectivePrinterStatus contract.
+  if (!printer.lastSeenAt) return "unknown";
+  const seen = parseSharedTimeMs(printer.lastSeenAt);
+  if (seen === null) return "unknown";
+  const ageMs = nowMs - seen;
+  if (ageMs < 0 || ageMs > printerStaleThresholdSeconds() * 1000) return "unknown";
   const status = String(printer.status || "unknown").toLowerCase();
   return ["online", "offline", "busy", "error", "unknown"].includes(status) ? status : "unknown";
 }

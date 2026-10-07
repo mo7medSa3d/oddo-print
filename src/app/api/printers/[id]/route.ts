@@ -11,6 +11,8 @@ import { writeAuditEvent } from "../../../../lib/audit";
 import { logError } from "../../../../lib/log";
 import { isTenantBillingError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../../lib/agent-availability";
+import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +52,25 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
   });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(row);
+
+  const ownerAgent = await db.query.agents.findFirst({
+    where: and(eq(agents.id, row.agentId), eq(agents.tenantId, tenantId)),
+  });
+  await refreshClockSkew();
+  const now = gatewayNow();
+  return NextResponse.json({
+    ...row,
+    reportedStatus: row.status,
+    freshness: getPrinterObservationFreshness(row.lastSeenAt, now),
+    status: getEffectivePrinterStatus(row, ownerAgent ?? null, now),
+    agentName: ownerAgent?.name ?? null,
+    agentReportedStatus: ownerAgent?.status ?? null,
+    agentFreshness: getAgentHeartbeatFreshness(ownerAgent?.lastSeenAt ?? null, now),
+    agentStatus: ownerAgent ? getEffectiveAgentStatus(ownerAgent, now) : "unknown",
+    agentLifecycle: ownerAgent?.lifecycle ?? null,
+    agentLastSeenAt: ownerAgent?.lastSeenAt ?? null,
+    agentStaleThresholdSeconds: agentStaleThresholdSeconds(),
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {

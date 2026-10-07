@@ -8,7 +8,7 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
-const MAX_BODY = 8 * 1024 * 1024;
+const MAX_BODY = 64 * 1024;
 
 const batchQuerySchema = z.object({
   jobIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100),

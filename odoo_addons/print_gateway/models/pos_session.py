@@ -14,9 +14,9 @@ class PosSessionGatewayPrinting(models.Model):
             raise ValidationError(_("Gateway printing must use the active Odoo company."))
         return bool(self.env["print_gateway.print_router"]._gateway_config(self.env.company))
 
-    def action_print_gateway_sale_details(self, image):
+    def action_print_gateway_sale_details(self, image, operation_id=None):
         self.ensure_one()
         self.check_access("read")
         if not image:
             raise ValidationError(_("The rendered Sale Details image is required."))
-        return self.env["print_gateway.print_router"].route_pos_sale_details(self, image)
+        return self.env["print_gateway.print_router"].route_pos_sale_details(self, image, idempotency_key=operation_id)

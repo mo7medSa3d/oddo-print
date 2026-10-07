@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { tenantInvitations, users } from "../../../../db/schema";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { tenantInvitations } from "../../../../db/schema";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
@@ -9,8 +9,9 @@ import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { getServerLocale, makeT } from "../../../../i18n/server";
 import { nanoid } from "../../../../lib/nanoid";
 import { writeAuditEvent } from "../../../../lib/audit";
-import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { clampListLimit, hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
+import { queryWithTimeout } from "../../../../db/client";
 
 const ROLES = ["admin", "operator", "viewer", "integration_admin", "billing_admin"] as const;
 
@@ -18,9 +19,55 @@ export async function GET(req: Request) {
   const claims = await validateWorkspaceManager(req);
   if (!claims) return NextResponse.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, { status: 401 });
   if (!claims?.userId || !hasManagerPermission(claims, "users.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const rows = await db.select({ id: tenantInvitations.id, email: tenantInvitations.email, role: tenantInvitations.role, expiresAt: tenantInvitations.expiresAt, createdAt: tenantInvitations.createdAt })
-    .from(tenantInvitations).where(and(eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)));
-  return NextResponse.json({ invitations: rows });
+
+  const { searchParams } = new URL(req.url);
+  const limit = clampListLimit(searchParams.get("limit"), 50, 100);
+  const offset = Number(searchParams.get("offset") ?? "0");
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
+    return NextResponse.json({ error: "Invalid offset" }, { status: 400 });
+  }
+
+  const activeInvitation = and(
+    eq(tenantInvitations.tenantId, claims.tenantId),
+    isNull(tenantInvitations.acceptedAt),
+    isNull(tenantInvitations.revokedAt),
+    gt(tenantInvitations.expiresAt, sql`clock_timestamp()`),
+  );
+  const [rows, countRows] = await Promise.all([
+    queryWithTimeout(
+      () => db
+        .select({
+          id: tenantInvitations.id,
+          email: tenantInvitations.email,
+          role: tenantInvitations.role,
+          expiresAt: tenantInvitations.expiresAt,
+          createdAt: tenantInvitations.createdAt,
+        })
+        .from(tenantInvitations)
+        .where(activeInvitation)
+        .orderBy(desc(tenantInvitations.createdAt), desc(tenantInvitations.id))
+        .offset(offset)
+        .limit(limit + 1),
+      5_000,
+      "teamInvitationsList",
+    ),
+    queryWithTimeout(
+      () => db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(tenantInvitations)
+        .where(activeInvitation),
+      5_000,
+      "teamInvitationsCount",
+    ),
+  ]);
+
+  return NextResponse.json({
+    invitations: rows.slice(0, limit),
+    hasMore: rows.length > limit,
+    offset,
+    limit,
+    total: countRows[0]?.total ?? 0,
+  });
 }
 
 export async function POST(req: Request) {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import {
   agentStaleThresholdSeconds,
+  resolveAgentStaleThresholdSeconds,
   DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
   MIN_AGENT_STALE_THRESHOLD_SECONDS,
   MAX_AGENT_STALE_THRESHOLD_SECONDS,
@@ -63,6 +64,16 @@ describe("agent stale threshold bounds", () => {
       expect(agentStaleThresholdSeconds(), `threshold "${bad}" must be rejected`).toBe(
         DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
       );
+    }
+  });
+
+  it("applies the same bounds to a threshold propagated to browser/desktop clients", () => {
+    expect(resolveAgentStaleThresholdSeconds(120)).toBe(120);
+    expect(resolveAgentStaleThresholdSeconds(MIN_AGENT_STALE_THRESHOLD_SECONDS)).toBe(
+      MIN_AGENT_STALE_THRESHOLD_SECONDS,
+    );
+    for (const bad of [undefined, 0, 89, 3601, "abc", Number.POSITIVE_INFINITY]) {
+      expect(resolveAgentStaleThresholdSeconds(bad)).toBe(DEFAULT_AGENT_STALE_THRESHOLD_SECONDS);
     }
   });
 

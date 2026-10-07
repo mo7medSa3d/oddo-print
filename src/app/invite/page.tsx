@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { Suspense, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -13,6 +14,7 @@ function InviteContent() {
   const token = useSearchParams().get("token") ?? "";
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [needsAccount, setNeedsAccount] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [busy, setBusy] = useState(false);
   const feedbackRef = useRef<HTMLParagraphElement>(null);
@@ -21,18 +23,27 @@ function InviteContent() {
     event.preventDefault();
     setBusy(true);
     setMessage("");
+    setNeedsAccount(false);
     setSucceeded(false);
     try {
-      const response = await fetch("/api/team/invitations/accept", {
+      const response = await fetchWithTimeout("/api/team/invitations/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, email }),
       });
+      const body = await response.json().catch(() => ({} as { code?: unknown }));
+      const code = typeof body?.code === "string" ? body.code : undefined;
       setSucceeded(response.ok);
+      // The invitation token stays valid: a missing account is a typed
+      // recovery path (sign up with the invited email, then accept again),
+      // not a dead end behind a generic failure.
+      setNeedsAccount(!response.ok && code === "ACCOUNT_REQUIRED");
       setMessage(
         response.ok
           ? t("invite.accepted")
-          : t("invite.failed"),
+          : code === "ACCOUNT_REQUIRED"
+            ? t("invite.accountRequired")
+            : t("invite.failed"),
       );
     } catch {
       setSucceeded(false);
@@ -97,6 +108,16 @@ function InviteContent() {
             title={succeeded ? t("invite.acceptedTitle") : t("invite.rejectedTitle")}
           >
             {message}
+            {needsAccount && token && (
+              <span className="mt-2 block">
+                <Link
+                  className="font-[600] text-brand hover:text-brand-hover hover:underline"
+                  href={`/signup?${new URLSearchParams({ email, invite: token }).toString()}`}
+                >
+                  {t("invite.createAccount")}
+                </Link>
+              </span>
+            )}
           </Callout>
         </div>
       )}

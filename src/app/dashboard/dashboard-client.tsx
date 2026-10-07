@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import React, { useState, useMemo, useEffect } from "react";
 import { ensureCustomerSession } from "../../lib/session-config";
 import { useRouter } from "next/navigation";
@@ -103,12 +104,14 @@ export type Agent = {
   lastSeenAt: Date | null;
   createdAt: Date;
   printerCount: number;
+  staleThresholdSeconds?: number;
   metadata?: unknown;
 };
 
 export type Printer = {
   id: string;
   agentId: string;
+  agentName?: string | null;
   name: string;
   printerType: string;
   deviceClass?: string | null;
@@ -126,7 +129,9 @@ export type Printer = {
 export type Job = {
   id: string;
   agentId: string;
+  agentName?: string | null;
   printerId: string;
+  printerName?: string | null;
   status: string;
   destination?: string | null;
   documentType?: string | null;
@@ -140,6 +145,18 @@ export type Job = {
   expiresAt?: Date | string | null;
   createdAt: Date | string;
   updatedAt?: Date | string | null;
+};
+
+type FleetMeta = {
+  pageSize: number;
+  agentOffset: number;
+  agentHasMore: boolean;
+  printerOffset: number;
+  printerHasMore: boolean;
+  totalAgents: number;
+  onlineAgents: number;
+  totalPrinters: number;
+  onlinePrinters: number;
 };
 
 type JobDetailsResponse = Omit<Job, "payload"> & {
@@ -224,7 +241,7 @@ function isJobInFlight(status: string): boolean {
 }
 
 async function sendGatewayReprint(jobId: string): Promise<{ jobId?: string }> {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
+  const response = await fetchWithTimeout(`/api/jobs/${encodeURIComponent(jobId)}/reprint`, {
     method: "POST",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
@@ -290,7 +307,7 @@ function upgradeLimitFromLimitSignal(limit: {
 }
 
 async function sendGatewayTestPage(printerId: string): Promise<void> {
-  const response = await fetch(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
+  const response = await fetchWithTimeout(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -322,7 +339,7 @@ function KpiCell({
 }) {
   return (
     <div className="flex flex-col gap-1.5 bg-surface p-4">
-      <span className="label-caps">{label}</span>
+      <span className="text-xs font-[550] text-ink-3">{label}</span>
       <span className="text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
         {value}
       </span>
@@ -382,17 +399,24 @@ export default function DashboardClient({
   initialAgents,
   initialPrinters,
   initialJobs,
+  initialFleet,
   databaseError,
+  canMutate,
 }: {
   initialAgents: Agent[];
   initialPrinters: Printer[];
   initialJobs: Job[];
+  initialFleet: FleetMeta;
   databaseError: string | null;
+  canMutate: { printers: boolean; printersTest: boolean; agentsLifecycle: boolean; jobsCancel: boolean; jobsRetry: boolean };
 }) {
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
   const [printers, setPrinters] = useState<Printer[]>(initialPrinters);
   const [kpiJobs, setKpiJobs] = useState<Job[]>(initialJobs);
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const [fleet, setFleet] = useState<FleetMeta>(initialFleet);
+  const [agentOffset, setAgentOffset] = useState(initialFleet.agentOffset);
+  const [printerOffset, setPrinterOffset] = useState(initialFleet.printerOffset);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobsRetryTick, setJobsRetryTick] = useState(0);
@@ -419,12 +443,26 @@ export default function DashboardClient({
     setJobs(initialJobs);
   }
 
+  const [prevFleet, setPrevFleet] = useState(initialFleet);
+  if (prevFleet !== initialFleet) {
+    setPrevFleet(initialFleet);
+    setFleet(initialFleet);
+    setAgentOffset(initialFleet.agentOffset);
+    setPrinterOffset(initialFleet.printerOffset);
+  }
+
   const [agentName, setAgentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
   const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
+  // Agent ids known when the current pairing attempt started, keyed by the
+  // pairing code so manual dismissals cannot leak a stale baseline into the
+  // next attempt. A brand-new agent has no id yet, so completion is the
+  // appearance of a NEW online identity rather than any historical
+  // heartbeat (C057).
+  const pairingBaseline = React.useRef<{ code: string; ids: Set<string> } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [countdownText, setCountdownText] = useState("10:00");
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
@@ -443,6 +481,7 @@ export default function DashboardClient({
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
+  const [debouncedPrinterSearch, setDebouncedPrinterSearch] = useState("");
   const [printerStatusFilter, setPrinterStatusFilter] = useState<string>("all");
 
   const [jobSearch, setJobSearch] = useState("");
@@ -454,6 +493,10 @@ export default function DashboardClient({
   const [selectedJobPayloadLoading, setSelectedJobPayloadLoading] = useState(false);
   const [selectedJobPayloadError, setSelectedJobPayloadError] = useState(false);
   const [selectedJobPayloadReloadKey, setSelectedJobPayloadReloadKey] = useState(0);
+  // Inspector metadata refresh generation: the drawer stays open while the
+  // job advances, so details are re-polled while non-terminal instead of
+  // going stale next to a live timeline (C057).
+  const [selectedJobRefreshTick, setSelectedJobRefreshTick] = useState(0);
 
   const openJobDetails = React.useCallback((job: Job) => {
     setSelectedJob(job);
@@ -486,8 +529,9 @@ export default function DashboardClient({
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8_000);
     let cancelled = false;
+    let refreshTimer: number | undefined;
 
-    void fetch(`/api/jobs/${encodeURIComponent(selectedJob.id)}?includePayload=1`, {
+    void fetchWithTimeout(`/api/jobs/${encodeURIComponent(selectedJob.id)}?includePayload=1`, {
       credentials: "include",
       cache: "no-store",
       signal: controller.signal,
@@ -498,6 +542,11 @@ export default function DashboardClient({
         if (!cancelled) {
           setSelectedJobDetails(row);
           setSelectedJobPayload({ jobId: selectedJob.id, value: row.diagnosticPayload ?? null });
+          // Keep status/actions fresh while the job is still moving; terminal
+          // rows settle (the separately loaded payload is retained).
+          if (!["success", "failed", "expired"].includes(String(row.status ?? ""))) {
+            refreshTimer = window.setTimeout(() => setSelectedJobRefreshTick((tick) => tick + 1), 5000);
+          }
         }
       })
       .catch(() => {
@@ -514,9 +563,10 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
       controller.abort();
     };
-  }, [selectedJob, selectedJobPayloadReloadKey]);
+  }, [selectedJob, selectedJobPayloadReloadKey, selectedJobRefreshTick]);
 
   const selectedJobView =
     selectedJob && selectedJobDetails?.id === selectedJob.id
@@ -537,10 +587,33 @@ export default function DashboardClient({
     return result.data;
   }, [router, t]);
   const getDashboardJobs = React.useCallback((options?: Parameters<typeof getDashboardJobsResult>[0]) => dashboardRequest(() => getDashboardJobsResult(options)), [dashboardRequest]);
-  const getDashboardState = React.useCallback(() => dashboardRequest(getDashboardStateResult), [dashboardRequest]);
+  const getDashboardState = React.useCallback((options?: Parameters<typeof getDashboardStateResult>[0]) => dashboardRequest(() => getDashboardStateResult(options)), [dashboardRequest]);
   const deleteAgent = (id: string) => dashboardRequest(() => deleteAgentResult(id));
   const setPrinterLifecycle = (id: string, lifecycle: "active" | "disabled" | "retired") => dashboardRequest(() => setPrinterLifecycleResult(id, lifecycle));
   const setAgentLifecycle = (id: string, lifecycle: "active" | "disabled" | "retired") => dashboardRequest(() => setAgentLifecycleResult(id, lifecycle));
+
+  const fleetQueryRef = React.useRef({
+    agentOffset: initialFleet.agentOffset,
+    printerOffset: initialFleet.printerOffset,
+    printerSearch: "",
+    printerStatus: "all",
+  });
+  useEffect(() => {
+    fleetQueryRef.current = {
+      agentOffset,
+      printerOffset,
+      printerSearch: debouncedPrinterSearch,
+      printerStatus: printerStatusFilter,
+    };
+  }, [agentOffset, printerOffset, debouncedPrinterSearch, printerStatusFilter]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const normalized = printerSearch.trim();
+      setDebouncedPrinterSearch(normalized.length === 1 ? "" : normalized.slice(0, 64));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [printerSearch]);
 
   const jobsGeneration = React.useRef(0);
   const filterRef = React.useRef({ status: "all", search: "" });
@@ -549,7 +622,14 @@ export default function DashboardClient({
   }, [jobStatusFilter, debouncedJobSearch]);
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedJobSearch(jobSearch), 250);
+    const timer = setTimeout(() => {
+      const normalized = jobSearch.trim();
+      // The server query deliberately requires at least two characters so a
+      // one-character wildcard search cannot force a low-selectivity scan on
+      // every keystroke. Keep the character visible and filter the currently
+      // loaded rows locally until the term is selective enough for the server.
+      setDebouncedJobSearch(normalized.length === 1 ? "" : normalized);
+    }, 250);
     return () => clearTimeout(timer);
   }, [jobSearch]);
 
@@ -595,7 +675,7 @@ export default function DashboardClient({
 
   const refreshBillingUsage = React.useCallback(async () => {
     try {
-      const res = await fetch("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
+      const res = await fetchWithTimeout("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
       if (!res.ok) {
         setBillingUsageError(true);
         return;
@@ -614,17 +694,35 @@ export default function DashboardClient({
 
   const [refreshing, setRefreshing] = React.useState(false);
   const refreshingRef = React.useRef(false);
+  const queuedFleetQueryRef = React.useRef<typeof fleetQueryRef.current | null>(null);
 
-  const refreshData = React.useCallback(async () => {
-    if (refreshingRef.current) return;
+  const refreshData = React.useCallback(async (queryOverride?: typeof fleetQueryRef.current) => {
+    if (refreshingRef.current) {
+      if (queryOverride) queuedFleetQueryRef.current = queryOverride;
+      return;
+    }
     refreshingRef.current = true;
     setRefreshing(true);
+    let currentQuery = queryOverride;
     try {
-      const data = await getDashboardState();
+      while (true) {
+        try {
+          const data = await getDashboardState(currentQuery ?? fleetQueryRef.current);
       if (data) {
         setAgents(data.agents as Agent[]);
         setPrinters(data.printers as Printer[]);
+        setFleet(data.fleet as FleetMeta);
         setKpiJobs(data.jobs as Job[]);
+        if (data.agents.length === 0 && data.fleet.agentOffset > 0) {
+          const next = Math.max(0, data.fleet.agentOffset - data.fleet.pageSize);
+          setAgentOffset(next);
+          fleetQueryRef.current = { ...fleetQueryRef.current, agentOffset: next };
+        }
+        if (data.printers.length === 0 && data.fleet.printerOffset > 0) {
+          const next = Math.max(0, data.fleet.printerOffset - data.fleet.pageSize);
+          setPrinterOffset(next);
+          fleetQueryRef.current = { ...fleetQueryRef.current, printerOffset: next };
+        }
 
         const current = filterRef.current;
         if (current.status === "all" && !current.search) {
@@ -646,35 +744,82 @@ export default function DashboardClient({
         }
 
         setActivePairing((currentPairing) => {
-          if (!currentPairing) return null;
-          const target = data.agents.find(
-            (a) =>
-              (currentPairing.id && a.id === currentPairing.id) ||
-              a.pairingCode === currentPairing.code
-          );
-          if (
-            target &&
-            (target.status === "online" ||
-              target.lastSeenAt !== null ||
-              target.pairingCodeExpiresAt === null)
-          ) {
+          if (!currentPairing) {
+            pairingBaseline.current = null;
+            return null;
+          }
+          const online = (a: (typeof data.agents)[number]) => a.status === "online";
+          if (currentPairing.id !== undefined) {
+            // Known identity (re-pair/re-enable): completion is that identity
+            // observed online. Status is availability-derived server-side, so
+            // online implies a fresh heartbeat — a preserved lastSeenAt from
+            // before re-enabling cannot complete it (C057).
+            const target = data.agents.find((a) => a.id === currentPairing.id);
+            if (target && online(target)) {
+              setMessage({
+                text: t("success.agentPairedOnline", { name: target.name }),
+                type: "ok",
+              });
+              pairingBaseline.current = null;
+              return null;
+            }
+            return currentPairing;
+          }
+          // New agent (id not yet known): baseline the known ids on the first
+          // tick for THIS code, then complete when a NEW online identity
+          // appears. Freshness comes from the online status itself, never
+          // from a historical lastSeenAt or a cleared expiry (C057).
+          const baseline = pairingBaseline.current;
+          if (baseline === null || baseline.code !== currentPairing.code) {
+            pairingBaseline.current = { code: currentPairing.code, ids: new Set(data.agents.map((a) => a.id)) };
+            return currentPairing;
+          }
+          const newcomer = data.agents.find((a) => !baseline.ids.has(a.id) && online(a));
+          if (newcomer) {
             setMessage({
-              text: t("success.agentPairedOnline", { name: target.name }),
+              text: t("success.agentPairedOnline", { name: newcomer.name }),
               type: "ok",
             });
+            pairingBaseline.current = null;
             return null;
           }
           return currentPairing;
         });
       }
-      void refreshBillingUsage();
-    } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
+          void refreshBillingUsage();
+        } catch (error) {
+          setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
+        }
+
+        const queued = queuedFleetQueryRef.current;
+        queuedFleetQueryRef.current = null;
+        if (!queued) break;
+        currentQuery = queued;
+      }
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
     }
   }, [refreshBillingUsage, t, getDashboardState, getDashboardJobs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const nextQuery = {
+      ...fleetQueryRef.current,
+      printerOffset: 0,
+      printerSearch: debouncedPrinterSearch,
+      printerStatus: printerStatusFilter,
+    };
+    fleetQueryRef.current = nextQuery;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setPrinterOffset(0);
+      void refreshData(nextQuery);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedPrinterSearch, printerStatusFilter, refreshData]);
 
   useEffect(() => {
     const intervalMs = activePairing ? 3000 : 6000;
@@ -699,15 +844,11 @@ export default function DashboardClient({
   }, [activePairing, t]);
 
   const kpis = useMemo(() => {
-    const totalAgents = agents.length;
-    const onlineAgents = agents.filter((a) => agentLiveView(a, nowMs, locale).tone === "ok").length;
+    const totalAgents = fleet.totalAgents;
+    const onlineAgents = fleet.onlineAgents;
 
-    const totalPrinters = printers.length;
-    const agentMap = new Map(agents.map((a) => [a.id, a]));
-    const onlinePrinters = printers.filter((p) => {
-      const parentAgent = agentMap.get(p.agentId);
-      return effectivePrinterStatus(p, parentAgent, nowMs) === "online";
-    }).length;
+    const totalPrinters = fleet.totalPrinters;
+    const onlinePrinters = fleet.onlinePrinters;
 
     const inFlightJobs = kpiJobs.filter((j) => {
       const s = j.status.toLowerCase();
@@ -720,7 +861,17 @@ export default function DashboardClient({
     ).length;
     const failedJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "failed" && deriveOutcome(j.status, j.error) === "not_printed").length;
     const expiredJobs = kpiJobs.filter((j) => j.status.toLowerCase() === "expired").length;
-    const resolvedJobs = completedJobs + failedJobs + attentionJobs + expiredJobs;
+    // Mutually exclusive terminal buckets for the rate denominator: success
+    // rows report outcome unknown by design (transport success is not paper
+    // proof) and expired rows with markers are already inside attentionJobs,
+    // so naively summing the display counts double-counts them (C057).
+    const expiredDefiniteJobs = kpiJobs.filter(
+      (j) => j.status.toLowerCase() === "expired" && deriveOutcome(j.status, j.error) === "not_printed"
+    ).length;
+    const attentionTerminalJobs = kpiJobs.filter(
+      (j) => (j.status.toLowerCase() === "failed" || j.status.toLowerCase() === "expired") && deriveOutcome(j.status, j.error) === "unknown"
+    ).length;
+    const resolvedJobs = completedJobs + failedJobs + expiredDefiniteJobs + attentionTerminalJobs;
     const successRate =
       resolvedJobs > 0 ? Math.round((completedJobs / resolvedJobs) * 100) : null;
 
@@ -736,7 +887,7 @@ export default function DashboardClient({
       expiredJobs,
       successRate,
     };
-  }, [agents, printers, kpiJobs, nowMs, locale]);
+  }, [fleet, kpiJobs]);
 
   const runAction = async <T,>(operation: () => Promise<T>, successMsg?: string) => {
     setBusy(true);
@@ -850,7 +1001,7 @@ export default function DashboardClient({
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/agents", {
+      const response = await fetchWithTimeout("/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "same-origin",
@@ -869,6 +1020,8 @@ export default function DashboardClient({
           : new Date(Date.now() + 1000 * 60 * 10);
       const pairingCode = typeof body?.pairingCode === "string" ? body.pairingCode : "";
       const id = typeof body?.id === "string" ? body.id : undefined;
+      setAgentOffset(0);
+      fleetQueryRef.current = { ...fleetQueryRef.current, agentOffset: 0 };
       setActivePairing({ id, code: pairingCode, expiresAt });
       setAgentName("");
       setMessage({
@@ -902,37 +1055,23 @@ export default function DashboardClient({
     }
   };
 
-  const filteredPrinters = useMemo(() => {
-    const agentMap = new Map(agents.map((a) => [a.id, a]));
-    return printers.filter((p) => {
-      const parentAgent = agentMap.get(p.agentId);
-      const freshness = p.freshness ?? printerObservationFreshness(p.lastSeenAt, nowMs);
-      const effStatus = effectivePrinterStatus(p, parentAgent, nowMs).toLowerCase();
-      const filterStatus = freshness === "stale" ? "stale" : effStatus;
-      if (printerStatusFilter !== "all" && filterStatus !== printerStatusFilter) {
-        return false;
-      }
-      if (printerSearch.trim()) {
-        const q = printerSearch.toLowerCase();
-        return (
-          p.name.toLowerCase().includes(q) ||
-          p.id.toLowerCase().includes(q) ||
-          p.connectionType.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [printers, agents, nowMs, printerStatusFilter, printerSearch]);
+  const filteredPrinters = printers;
+  const printerFiltersActive = printerStatusFilter !== "all" || debouncedPrinterSearch.length >= 2;
 
   const filteredJobs = useMemo(() => {
     if (!jobSearch.trim()) return jobs;
     const q = jobSearch.toLowerCase();
+    // Superset of the server search fields (id, destination, document type,
+    // printer, agent, error): the client pass must never remove a row the
+    // server matched (C056).
     return jobs.filter((j) => {
       return (
         j.id.toLowerCase().includes(q) ||
         j.printerId.toLowerCase().includes(q) ||
+        (j.agentId && j.agentId.toLowerCase().includes(q)) ||
         (j.destination && j.destination.toLowerCase().includes(q)) ||
-        (j.documentType && j.documentType.toLowerCase().includes(q))
+        (j.documentType && j.documentType.toLowerCase().includes(q)) ||
+        (j.error && j.error.toLowerCase().includes(q))
       );
     });
   }, [jobs, jobSearch]);
@@ -960,8 +1099,9 @@ export default function DashboardClient({
     // Server rule (src/app/api/jobs/[id]/reprint/route.ts): reprint requires a
     // terminal job AND rejects `success` with JOB_REPRINT_NOT_ALLOWED, because
     // the document already printed. Offering it here would be a dead-end
-    // action that always fails, so success is excluded explicitly.
-    const canReprint = job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
+    // action that always fails, so success is excluded explicitly. Reprint is
+    // also a mutation: read-only roles don't see it (C058).
+    const canReprint = canMutate.jobsRetry && job.status.toLowerCase() !== "success" && !isJobInFlight(job.status);
     return [
       { key: "inspect", label: t("job.viewDetails"), icon: <Eye className="h-4 w-4" />, onSelect: () => openJobDetails(job) },
       {
@@ -986,14 +1126,19 @@ export default function DashboardClient({
 
   const printerActions = (printer: Printer): MenuItemSpec[] => {
     const active = printer.lifecycle === "active";
+    const retired = printer.lifecycle === "retired";
     return [
-      {
-        key: "test",
-        label: t("printer.sendTestPage"),
-        icon: <PlayCircle className="h-4 w-4" />,
-        disabled: busy || testingPrinterId !== null || !active,
-        onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
-      },
+      ...(canMutate.printersTest
+        ? [
+            {
+              key: "test",
+              label: t("printer.sendTestPage"),
+              icon: <PlayCircle className="h-4 w-4" />,
+              disabled: busy || testingPrinterId !== null || !active,
+              onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
+            },
+          ]
+        : []),
       { key: "certify", label: t("cert.run"), icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
       {
         key: "copy",
@@ -1001,18 +1146,41 @@ export default function DashboardClient({
         icon: <Copy className="h-4 w-4" />,
         onSelect: () => void copyTextToClipboard(printer.id),
       },
-      {
-        key: "lifecycle",
-        label: active ? t("printer.disable") : t("printer.enable"),
-        separatorBefore: true,
-        disabled: busy,
-        onSelect: () =>
-          void runAction(
-            () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
-            active ? t("printer.disabled") : t("printer.enabled"),
-          ),
-      },
+      // Terminal lifecycle cannot reactivate: retired printers are never
+      // offered enable/disable (the server rejects it). Read-only roles see
+      // no lifecycle item at all (C058).
+      ...(canMutate.printers && !retired
+        ? [
+            {
+              key: "lifecycle",
+              label: active ? t("printer.disable") : t("printer.enable"),
+              separatorBefore: true,
+              disabled: busy,
+              onSelect: () =>
+                void runAction(
+                  () => setPrinterLifecycle(printer.id, active ? "disabled" : "active"),
+                  active ? t("printer.disabled") : t("printer.enabled"),
+                ),
+            },
+          ]
+        : []),
     ];
+  };
+
+  const goToAgentOffset = (nextOffset: number) => {
+    const next = Math.max(0, nextOffset);
+    setAgentOffset(next);
+    const query = { ...fleetQueryRef.current, agentOffset: next };
+    fleetQueryRef.current = query;
+    void refreshData(query);
+  };
+
+  const goToPrinterOffset = (nextOffset: number) => {
+    const next = Math.max(0, nextOffset);
+    setPrinterOffset(next);
+    const query = { ...fleetQueryRef.current, printerOffset: next };
+    fleetQueryRef.current = query;
+    void refreshData(query);
   };
 
   const reenableAgent = async (agent: Agent) => {
@@ -1027,7 +1195,7 @@ export default function DashboardClient({
   };
 
   const agentActions = (agent: Agent): MenuItemSpec[] => [
-    ...(agent.lifecycle === "active"
+    ...(canMutate.agentsLifecycle && agent.lifecycle === "active"
       ? [
           {
             key: "disable",
@@ -1038,7 +1206,7 @@ export default function DashboardClient({
           },
         ]
       : []),
-    ...(agent.lifecycle === "disabled"
+    ...(canMutate.agentsLifecycle && agent.lifecycle === "disabled"
       ? [
           {
             key: "enable",
@@ -1049,7 +1217,7 @@ export default function DashboardClient({
           },
         ]
       : []),
-    ...(agent.lifecycle !== "retired"
+    ...(canMutate.agentsLifecycle && agent.lifecycle !== "retired"
       ? [
           {
             key: "retire",
@@ -1075,15 +1243,7 @@ export default function DashboardClient({
   const printsLimitReached = prints && prints.limit !== "unlimited" && prints.remaining !== "unlimited" && prints.remaining === 0;
   const printsPercent =
     prints && prints.limit !== "unlimited" ? (prints.used / Math.max(1, prints.limit)) * 100 : null;
-  const printerStatusOptions = useMemo(() => {
-    const agentMap = new Map(agents.map((a) => [a.id, a]));
-    const statuses = new Set<string>();
-    printers.forEach((p) => {
-      const freshness = p.freshness ?? printerObservationFreshness(p.lastSeenAt, nowMs);
-      statuses.add(freshness === "stale" ? "stale" : effectivePrinterStatus(p, agentMap.get(p.agentId), nowMs).toLowerCase());
-    });
-    return ["all", ...Array.from(statuses).sort()];
-  }, [printers, agents, nowMs]);
+  const printerStatusOptions = ["all", "online", "busy", "offline", "error", "unknown", "stale", "disabled", "retired"] as const;
 
   const onlineAgentsLabel =
     kpis.totalAgents === 0
@@ -1100,14 +1260,14 @@ export default function DashboardClient({
         : tc("printer.unavailable", kpis.totalPrinters - kpis.onlinePrinters);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* ── Fleet summary ─────────────────────────────────────────── */}
       <section
         aria-label={t("dashboard.fleetSummary")}
-        className="rounded-xl border border-edge bg-surface shadow-card"
+        className="rounded-lg border border-edge bg-surface shadow-card"
       >
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-edge-subtle px-4 py-2.5">
-          <h2 className="label-caps">{t("dashboard.fleetSummary")}</h2>
+          <h2 className="text-sm font-[600] text-ink">{t("dashboard.fleetSummary")}</h2>
           <div className="flex min-w-0 items-center gap-2">
             {/* Class order and tokens on the nominal pill are locked by
                 tests/theme-consistency.test.ts — keep the literal string. */}
@@ -1141,7 +1301,7 @@ export default function DashboardClient({
             edge after the third cell — stray lines hugging the card frame,
             which read as a broken border. 1px grid gaps are column-count
             agnostic, so no breakpoint can produce a stray edge. */}
-        <div className="overflow-hidden rounded-b-xl"><div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
+        <div className="overflow-hidden rounded-b-lg"><div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
             label={t("dashboard.agentsOnline")}
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
@@ -1280,10 +1440,8 @@ export default function DashboardClient({
           {/* Heading literals ("Agents" / "Printers" / "Recent Print Jobs") are part of the
               operator vocabulary contracts asserted by the integration suite. */}
           <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">
-                <Server className="h-4 w-4" aria-hidden />
-              </span>
+            <div className="flex min-w-0 items-start gap-2.5">
+              <Server className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
               <div className="min-w-0">
                 <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
                   {t("dashboard.tab.agents")}
@@ -1329,9 +1487,7 @@ export default function DashboardClient({
                     key={agent.id}
                     className="flex items-start gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-hover"
                   >
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
-                      <Server className="h-4 w-4" aria-hidden />
-                    </span>
+                    <Server className="mt-1 h-4 w-4 shrink-0 text-ink-4" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-[600] text-ink">{agent.name}</span>
@@ -1376,7 +1532,7 @@ export default function DashboardClient({
                         label={t("common.agentActions", { name: agent.name })}
                         items={agentActions(agent)}
                         trigger={
-                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                             <MoreHorizontal className="h-4 w-4" aria-hidden />
                           </span>
                         }
@@ -1387,14 +1543,37 @@ export default function DashboardClient({
               })}
             </ul>
           )}
+          {(fleet.agentOffset > 0 || fleet.agentHasMore) && (
+            <div className="flex items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3">
+              <span className="text-xs tabular-nums text-ink-3">
+                {formatNumber(fleet.agentOffset + (agents.length ? 1 : 0))}–{formatNumber(fleet.agentOffset + agents.length)} / {formatNumber(fleet.totalAgents)}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={refreshing || activePairing !== null || fleet.agentOffset === 0}
+                  onClick={() => goToAgentOffset(fleet.agentOffset - fleet.pageSize)}
+                >
+                  {t("common.previousPage")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={refreshing || activePairing !== null || !fleet.agentHasMore}
+                  onClick={() => goToAgentOffset(fleet.agentOffset + fleet.pageSize)}
+                >
+                  {t("common.nextPage")}
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
 
         <Card className="xl:col-span-8">
           <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">
-                <PrinterIcon className="h-4 w-4" aria-hidden />
-              </span>
+            <div className="flex min-w-0 items-start gap-2.5">
+              <PrinterIcon className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
               <div className="min-w-0">
                 <h3 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
                   {t("dashboard.tab.printers")}
@@ -1419,7 +1598,7 @@ export default function DashboardClient({
             />
           </div>
 
-          {printers.length > 0 && (
+          {fleet.totalPrinters > 0 && (
             <div className="flex flex-col gap-2.5 border-b border-edge-subtle px-4 py-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
@@ -1429,6 +1608,7 @@ export default function DashboardClient({
                   onChange={(e) => setPrinterSearch(e.target.value)}
                   placeholder={t("printer.searchPlaceholder")}
                   aria-label={t("printer.searchLabel")}
+                  maxLength={64}
                   className="ps-9"
                 />
               </div>
@@ -1447,7 +1627,7 @@ export default function DashboardClient({
             </div>
           )}
 
-          {printers.length === 0 ? (
+          {printers.length === 0 && !printerFiltersActive ? (
             <EmptyState
               icon={<PrinterIcon className="h-5 w-5" />}
               title={t("printer.noneDiscovered")}
@@ -1477,17 +1657,15 @@ export default function DashboardClient({
                 const parentAgent = agentById.get(printer.agentId);
                 const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
                 const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
-                const displayStatus = freshness === "stale" ? (printer.reportedStatus ?? printer.status ?? effStatus) : effStatus;
+                const displayStatus = effStatus;
                 const active = printer.lifecycle === "active";
                 return (
                   <li
                     key={printer.id}
-                    className="flex flex-col gap-3 rounded-sg border border-edge bg-surface p-3.5 transition-colors duration-150 hover:bg-surface-hover"
+                    className="flex flex-col gap-3 rounded-md border border-edge-subtle bg-surface-2/35 p-3.5 transition-colors duration-150 hover:border-edge hover:bg-surface-hover"
                   >
                     <div className="flex items-start gap-2.5">
-                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
-                        <PrinterIcon className="h-4 w-4" aria-hidden />
-                      </span>
+                      <PrinterIcon className="mt-1 h-4 w-4 shrink-0 text-ink-4" aria-hidden />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-[600] text-ink">{printer.name}</div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
@@ -1513,8 +1691,8 @@ export default function DashboardClient({
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
                       <div className="min-w-0">
                         <dt className="text-ink-4">{t("printer.agent")}</dt>
-                        <dd className="truncate text-ink-2" title={parentAgent?.name}>
-                          {parentAgent?.name ?? t("printer.unknownAgent")}
+                        <dd className="truncate text-ink-2" title={printer.agentName ?? parentAgent?.name ?? undefined}>
+                          {printer.agentName ?? parentAgent?.name ?? t("printer.unknownAgent")}
                         </dd>
                       </div>
                       <div className="min-w-0">
@@ -1549,7 +1727,7 @@ export default function DashboardClient({
                           label={t("printer.moreActions", { name: printer.name })}
                           items={printerActions(printer)}
                           trigger={
-                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                               <MoreHorizontal className="h-4 w-4" aria-hidden />
                             </span>
                           }
@@ -1579,7 +1757,7 @@ export default function DashboardClient({
                     const parentAgent = agentById.get(printer.agentId);
                     const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
                     const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
-                    const displayStatus = freshness === "stale" ? (printer.reportedStatus ?? printer.status ?? effStatus) : effStatus;
+                    const displayStatus = effStatus;
                     const active = printer.lifecycle === "active";
                     return (
                       <tr key={printer.id}>
@@ -1589,7 +1767,7 @@ export default function DashboardClient({
                             {shortId(printer.id)}
                           </div>
                         </td>
-                        <td className="text-sm text-ink-2">{parentAgent?.name ?? "—"}</td>
+                        <td className="text-sm text-ink-2">{printer.agentName ?? parentAgent?.name ?? "—"}</td>
                         <td>
                           <div className="flex items-center gap-1.5 text-xs text-ink-2">
                             {connectionIcon(printer.connectionType)}
@@ -1618,7 +1796,7 @@ export default function DashboardClient({
                               label={t("printer.moreActionsFor", { name: printer.name })}
                               items={printerActions(printer)}
                               trigger={
-                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                                <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                   <MoreHorizontal className="h-4 w-4" aria-hidden />
                                 </span>
                               }
@@ -1630,6 +1808,26 @@ export default function DashboardClient({
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {(fleet.printerOffset > 0 || fleet.printerHasMore) && (
+            <div className="flex items-center justify-end gap-2 border-t border-edge-subtle px-4 py-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={refreshing || fleet.printerOffset === 0}
+                onClick={() => goToPrinterOffset(fleet.printerOffset - fleet.pageSize)}
+              >
+                {t("common.previousPage")}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={refreshing || !fleet.printerHasMore}
+                onClick={() => goToPrinterOffset(fleet.printerOffset + fleet.pageSize)}
+              >
+                {t("common.nextPage")}
+              </Button>
             </div>
           )}
         </Card>
@@ -1660,6 +1858,7 @@ export default function DashboardClient({
                 onChange={(e) => setJobSearch(e.target.value)}
                 placeholder={t("job.searchPlaceholder")}
                 aria-label={t("job.searchLabel")}
+                maxLength={64}
                 className="ps-9"
               />
             </div>
@@ -1731,18 +1930,18 @@ export default function DashboardClient({
                             type="button"
                             onClick={() => openJobDetails(job)}
                             title={job.id}
-                            className="font-mono text-xs font-[600] text-brand transition-colors hover:text-brand-hover"
+                            className="rounded-xs font-mono text-xs font-[600] text-brand transition-colors hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
                           >
                             {shortId(job.id)}
                           </button>
                           <div className="mt-0.5 truncate text-2xs text-ink-3">
-                            {job.deliveryAttempts ?? 0} attempt{(job.deliveryAttempts ?? 0) === 1 ? "" : "s"}
-                            {job.retries ? ` · ${job.retries} retr${job.retries === 1 ? "y" : "ies"}` : ""}
+                            {tc("job.attempts", job.deliveryAttempts ?? 0)}
+                            {job.retries ? ` · ${tc("job.retries", job.retries)}` : ""}
                           </div>
                         </td>
                         <td>
-                          <div className="truncate text-sm text-ink-2" title={printer?.name}>
-                            {printer?.name ?? t("job.unknownPrinter")}
+                          <div className="truncate text-sm text-ink-2" title={job.printerName ?? printer?.name ?? undefined}>
+                            {job.printerName ?? printer?.name ?? t("job.unknownPrinter")}
                           </div>
                           <div className="mt-0.5 truncate font-mono text-2xs text-ink-3" title={job.printerId}>
                             {shortId(job.printerId)}
@@ -1768,7 +1967,7 @@ export default function DashboardClient({
                             items={jobActions(job)}
                             placement="above"
                             trigger={
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                 <MoreHorizontal className="h-4 w-4" aria-hidden />
                               </span>
                             }
@@ -1792,7 +1991,7 @@ export default function DashboardClient({
                       <button
                         type="button"
                         onClick={() => openJobDetails(job)}
-                        className="min-w-0 flex-1 text-start"
+                        className="min-w-0 flex-1 rounded-xs text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
                       >
                         <span className="block truncate text-sm font-[550] text-ink">
                           {job.destination ?? shortId(job.id)}
@@ -1802,7 +2001,7 @@ export default function DashboardClient({
                       <StatusBadge tone={sharedJobTone(job.status, outcome)} label={jobDisplayLabel(job.status, job.error, locale)} size="sm" />
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
-                      <span>{printer?.name ?? t("job.unknownPrinter")}</span>
+                      <span>{job.printerName ?? printer?.name ?? t("job.unknownPrinter")}</span>
                       <span aria-hidden>·</span>
                       <span title={formatDateTime(job.createdAt)}>{formatRelativeTime(job.createdAt)}</span>
                       <span aria-hidden>·</span>
@@ -1817,7 +2016,7 @@ export default function DashboardClient({
                         items={jobActions(job)}
                         placement="above"
                         trigger={
-                          <span className="inline-flex h-8 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
+                          <span className="inline-flex h-9 items-center gap-1 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2">
                             {t("job.more")}
                             <ChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
                           </span>
@@ -1976,7 +2175,7 @@ export default function DashboardClient({
                 tone={sharedJobTone(selectedJobView.status, deriveOutcome(selectedJobView.status, selectedJobView.error))}
                 label={jobDisplayLabel(selectedJobView.status, selectedJobView.error, locale)}
               />
-              <span className="font-mono text-2xs text-ink-4">{selectedJobView.id}</span>
+              <span className="font-mono text-xs text-ink-4">{selectedJobView.id}</span>
               <CopyButton value={selectedJobView.id} label={t("job.copyJobId")} />
             </div>
 
@@ -2001,8 +2200,8 @@ export default function DashboardClient({
 
             <KeyValueList
               rows={[
-                { label: t("job.printer"), value: printerById.get(selectedJobView.printerId)?.name ?? selectedJobView.printerId },
-                { label: t("printer.agent"), value: agentById.get(selectedJobView.agentId)?.name ?? selectedJobView.agentId },
+                { label: t("job.printer"), value: selectedJobView.printerName ?? printerById.get(selectedJobView.printerId)?.name ?? selectedJobView.printerId },
+                { label: t("printer.agent"), value: selectedJobView.agentName ?? agentById.get(selectedJobView.agentId)?.name ?? selectedJobView.agentId },
                 { label: t("job.document"), value: selectedJobView.documentType?.replace(/_/g, " ") ?? "—" },
                 { label: t("job.destination"), value: selectedJobView.destination ?? "—" },
                 { label: t("job.deliveryAttempts"), value: String(selectedJobView.deliveryAttempts ?? 0) },
@@ -2046,7 +2245,7 @@ export default function DashboardClient({
                     </Button>
                   </div>
                 ) : (
-                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-2xs leading-relaxed text-ink-2">
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-ink-2">
                     {selectedJobPayloadLoading
                       ? t("loading.payload")
                       : diagnosticPayloadPreview(
@@ -2110,7 +2309,7 @@ export default function DashboardClient({
             <KeyValueList
               rows={[
                 { label: t("job.job"), value: <span className="font-mono text-xs">{reprintCandidate.id}</span> },
-                { label: t("job.printer"), value: printerById.get(reprintCandidate.printerId)?.name ?? reprintCandidate.printerId },
+                { label: t("job.printer"), value: reprintCandidate.printerName ?? printerById.get(reprintCandidate.printerId)?.name ?? reprintCandidate.printerId },
                 { label: t("job.document"), value: reprintCandidate.destination ?? "—" },
                 { label: t("job.originalResult"), value: jobLabel(reprintCandidate.status, deriveOutcome(reprintCandidate.status, reprintCandidate.error), locale) },
               ]}

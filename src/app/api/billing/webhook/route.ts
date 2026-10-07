@@ -413,16 +413,35 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
           // paused/resumed pairs are otherwise order-of-arrival coin flips.
           // Strictly older events still never overwrite (see the < gate on
           // the snapshot fetch above and isNewerThanStoredEvent below).
+          //
+          // A locally cancelled row bound by a COMPLETED checkout is not an
+          // authoritative terminal cancellation. Stripe does not guarantee
+          // delivery order, so checkout.session.completed may bind the
+          // subscription ID before subscription.created/updated arrives;
+          // blocking that first lifecycle event strands a paying workspace.
+          // Likewise a fresh completed checkout that rebinds a previously
+          // cancelled subscription must let the new subscription's strictly
+          // newer lifecycle events adopt. Genuine cancellations always stamp
+          // stripeLastEventCreatedAt and clear checkout state to "none", so
+          // they never match: stale/duplicate events stay fenced by the
+          // newer-event gate, and equal-second ties stay intentionally
+          // ambiguous.
+          const terminalDelete =
+            eventType === "customer.subscription.deleted";
+          const adoptableCheckoutBinding =
+            tenantRow.status === "cancelled" &&
+            tenantRow.stripeSubscriptionId === subId &&
+            tenantRow.checkoutStatus === "completed" &&
+            !terminalDelete &&
+            (tenantRow.stripeLastEventCreatedAt == null || isNewerThanStoredEvent);
           const currentSnapshotAuthoritative =
             currentSnapshotSubscriptionEvents.has(eventType) &&
             !staleSnapshotEvent &&
             (storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() >= storedStripeEventCreatedAtMs);
-          const terminalDelete =
-            eventType === "customer.subscription.deleted";
           const sameSubscriptionCanUpdate =
             sameOrUnboundSubscription &&
             (currentSnapshotAuthoritative || terminalDelete || isNewerThanStoredEvent)
-            && !(tenantRow.status === "cancelled" && tenantRow.stripeSubscriptionId === subId && !terminalDelete);
+            && !(tenantRow.status === "cancelled" && tenantRow.stripeSubscriptionId === subId && !terminalDelete && !adoptableCheckoutBinding);
           if (sameSubscriptionCanUpdate || newerReplacementSubscription) {
             const nextStatus = typeof stateObj.status === "string" ? statusOf(stateObj.status) : tenantRow.status;
             const subscriptionPeriod = stripeSubscriptionPeriod(stateObj);

@@ -510,12 +510,22 @@ export type JobDeliveryEnvelope = {
     claimToken: string | null;
     requestId: string | null;
   };
+  // Flat aliases for legacy parsers that read the envelope without the
+  // nested job object. The document payload travels ONLY inside job
+  // (single canonical representation): duplicating a 5 MiB base64 document
+  // at the top level doubles the frame past the agent's 8 MiB read limit,
+  // silently stranding jobs the gateway recorded as delivered.
   id: string;
   printerId: string;
-  payload: unknown;
   expiresAt: string;
   requestId: string | null;
 };
+
+// MAX_WS_JOB_ENVELOPE_BYTES caps one serialized server->agent frame below
+// the agent's inbound read limit (agent/internal/agent/agent.go
+// maxWSFrameBytes = 8 MiB). A 5 MiB document base64-encodes to ~6.9 MiB of
+// JSON; anything larger is hostile or corrupt and must never be pushed.
+export const MAX_WS_JOB_ENVELOPE_BYTES = (8 << 20) - (512 << 10);
 
 export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
   // CLAIM_RETURNING rows carry naive UTC timestamp strings; parse with an
@@ -548,7 +558,6 @@ export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
     },
     id: job.id,
     printerId: job.printerId,
-    payload: job.payload,
     expiresAt,
     requestId: job.requestId ?? null,
   };
@@ -575,12 +584,26 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
     return "not_claimable";
   }
   const claimToken = claimed.claimToken;
+  const envelope = buildJobEnvelope(claimed);
+  // Wire-budget gate: measure the actual serialized frame, not the raw
+  // document bytes. An over-budget frame would die in the agent's read
+  // limit AFTER the gateway recorded delivery, stranding the job. Nothing
+  // has been transmitted yet here, so release the claim for redelivery
+  // instead of sending a frame the receiver cannot accept.
+  let wireBytes = 0;
+  try {
+    wireBytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+  } catch {
+    wireBytes = MAX_WS_JOB_ENVELOPE_BYTES + 1;
+  }
   const sendStartedAt = Date.now();
-  const sendOutcome = sendJobToAgent(job.agentId, buildJobEnvelope(claimed));
+  const sendOutcome = wireBytes > MAX_WS_JOB_ENVELOPE_BYTES
+    ? "not_sent" as const
+    : sendJobToAgent(job.agentId, envelope);
   const sendLatencyMs = Date.now() - sendStartedAt;
   if (sendOutcome === "not_sent") {
     const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimToken, "websocket delivery failed before send; job requeued for redelivery");
-    logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, outcome: outcome === "failed" ? "failed" : "requeued" });
+    logWarn("print.trace.gateway_send", { jobId: job.id, agentId: job.agentId, claimLatencyMs, sendLatencyMs, totalLatencyMs: Date.now() - startedAt, wireBytes, overBudget: wireBytes > MAX_WS_JOB_ENVELOPE_BYTES, outcome: outcome === "failed" ? "failed" : "requeued" });
     return outcome === "failed" ? "failed" : "requeued";
   }
   if (sendOutcome === "ambiguous") {

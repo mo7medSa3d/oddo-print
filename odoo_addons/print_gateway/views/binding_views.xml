@@ -39,7 +39,7 @@
                     <div class="mb-3">
                         <field name="name" readonly="1"/>
                     </div>
-                    <div class="text-muted mb-3"><small>Select the branch, destination, and Gateway physical printer for this rule. POS Receipt and POS Kitchen / Preparation do not require an Odoo printer or PDF report.</small></div>
+                    <div class="text-muted mb-3"><small>Select the branch, destination, and Gateway physical printer for this rule. POS Receipt does not require an Odoo printer or PDF report. POS Kitchen / Preparation uses the selected Odoo Preparation Printer for category routing; the Gateway printer remains the physical destination.</small></div>
                     <div class="text-muted" invisible="destination_type != 'pos_printer'">
                         <small>Gateway Kitchen / Preparation follows Odoo 19 Preparation Printers and their Printed Product Categories. Select the Odoo Preparation Printer here; the Gateway Runtime Printer remains the physical target. Existing POS Shop-only bindings remain a compatibility fallback.</small>
                     </div>

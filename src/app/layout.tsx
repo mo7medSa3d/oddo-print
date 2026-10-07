@@ -18,8 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 // Pre-paint locale resolution: the stored language decides `lang` and `dir`
 // before the first frame, so a right-to-left session never flashes a
 // left-to-right layout. Deliberately free of interpolation — the CSP nonce is
-// the only dynamic part of the document head.
-const LOCALE_INIT = `(function(){try{var stored=localStorage.getItem("yaseir:locale");var locale=(stored==="ar"||stored==="en")?stored:"en";var root=document.documentElement;root.lang=locale;root.dir=(locale==="ar")?"rtl":"ltr";}catch(e){}})();`;
+// the only dynamic part of the document head. Preference order: localStorage,
+// then the locale cookie (cookie-only preference, e.g. cleared site data),
+// then English.
+const LOCALE_INIT = `(function(){try{var stored=null;try{stored=localStorage.getItem("yaseir:locale");}catch(e){}var locale=(stored==="ar"||stored==="en")?stored:null;if(!locale){var m=/(?:^|;\\s*)yaseir_locale=(ar|en)/.exec(document.cookie||"");locale=m?m[1]:"en";}var root=document.documentElement;root.lang=locale;root.dir=(locale==="ar")?"rtl":"ltr";}catch(e){}})();`;
 
 // Pre-paint theme resolution: stored choice wins, otherwise follow the OS.
 // Runs before the body renders so there is no light/dark flash.

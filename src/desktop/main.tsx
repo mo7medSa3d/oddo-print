@@ -40,6 +40,7 @@ import { AgentsPage } from "./pages/Agents";
 import { SettingsPage } from "./pages/Settings";
 import {
   fetchGatewayHealth,
+  probeGatewayHealth,
   fetchGatewayJobs,
   getAgentStatus,
   getAppVersion,
@@ -64,6 +65,7 @@ import {
   discoverPrinters,
   testGatewayPrinter,
   setAutostart,
+  setTrayLocale,
   type PrinterInfo,
 } from "./lib/ipc";
 import {
@@ -90,6 +92,7 @@ import {
   printerEndpoint,
   printerIsStale,
   printerTone,
+  jobTimeMs,
   jobTimestamp,
 } from "./lib/printers";
 import type {
@@ -132,6 +135,11 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 export default function App() {
   const { t, locale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    void setTrayLocale(locale).catch((error) => {
+      console.warn("Could not synchronize tray locale:", error);
+    });
+  }, [locale]);
   const [page, navigate] = useHashPage("dashboard");
   const [version, setVersion] = useState("");
   const [gatewayUrl, setGw] = useState("");
@@ -148,6 +156,14 @@ export default function App() {
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  // Errors from checking the editable Settings draft are separate from the
+  // health observation for the persisted Gateway. A bad draft must not make
+  // a previously observed saved Gateway appear offline.
+  const [gatewayDraftError, setGatewayDraftError] = useState<string | null>(null);
+  // When the last Gateway probe completed: connectivity is an observation
+  // with an age, not a latch. Past the freshness window the Gateway reads
+  // as unreachable until the next successful probe (C046).
+  const [healthCheckedAt, setHealthCheckedAt] = useState(0);
   const [agentStatus, setAgentStatus] = useState<AgentStatusView | null>(null);
   const [runtimePaths, setRuntimePaths] = useState<DesktopState["runtimePaths"]>(null);
   const [busy, setBusy] = useState(false);
@@ -156,6 +172,13 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const busyRef = useRef(false);
+  // Per-printer test-print operation state (C047): one in-flight request per
+  // printer, and one operation key preserved across ambiguous transport
+  // failures so a retry reconciles the same Gateway operation instead of
+  // printing again. Any observed outcome (HTTP response, success or error)
+  // clears the key: the next click is then a distinct explicit repeat.
+  const testFlightRef = useRef(new Set<string>());
+  const testOpKeyRef = useRef(new Map<string, string>());
   const setBusyBoth = useCallback((v: boolean) => {
     busyRef.current = v;
     setBusy(v);
@@ -233,7 +256,7 @@ export default function App() {
     }
   }, [savedGatewayUrl, t, locale]);
 
-  const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number }) => {
+  const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number; printerId?: string; merge?: boolean }) => {
     if (!savedGatewayUrl) return;
     const generation = ++jobsGeneration.current;
     const current = () => generation === jobsGeneration.current && savedOriginRef.current === savedGatewayUrl;
@@ -241,7 +264,22 @@ export default function App() {
     try {
       const data = await fetchGatewayJobs(savedGatewayUrl, options);
       if (!current()) return;
-      setJobs(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      if (options?.merge) {
+        // Filtered fetch supplements the snapshot instead of replacing it:
+        // server-matched older jobs merge in so local search/tabs cannot
+        // hide them, while unrelated snapshot rows (counts, overview) stay.
+        // The union is trimmed newest-first so memory stays bounded.
+        setJobs((prev) => {
+          const byId = new Map(prev.map((j) => [jobId(j), j] as const));
+          for (const j of rows) byId.set(jobId(j), j);
+          const union = [...byId.values()];
+          union.sort((a, b) => jobTimeMs(b) - jobTimeMs(a));
+          return union.slice(0, 400);
+        });
+      } else {
+        setJobs(rows);
+      }
       setJobsError(null);
     } catch (e: unknown) {
       if (!current()) return;
@@ -265,6 +303,7 @@ export default function App() {
       if (!current()) return false;
       setHealth(h);
       setCheckedGatewayUrl(targetUrl);
+      setHealthCheckedAt(Date.now());
       const gatewayError = (h as { error?: unknown })?.error;
       if (gatewayError) {
         setHealthError(friendlyGatewayError(errMsg(gatewayError), locale));
@@ -276,20 +315,19 @@ export default function App() {
       if (!current()) return false;
       setHealth(null);
       setCheckedGatewayUrl(targetUrl);
+      setHealthCheckedAt(Date.now());
       setHealthError(friendlyGatewayError(errMsg(e), locale));
       return false;
     }
   }, [locale]);
 
   const checkHealth = useCallback(async () => {
-    // Check the operator's current draft, not the last persisted origin.
-    // The candidate is persisted immediately before probing so the Tauri
-    // request uses exactly this normalized URL, with rollback on failure.
+    // Probe the operator's draft without mutating the persisted Gateway.
+    // Persisting first used to invalidate the Manager session even when the
+    // candidate was unreachable (C050).
     const raw = gatewayUrl.trim();
     if (!raw) {
-      setHealth(null);
-      setCheckedGatewayUrl("");
-      setHealthError(t("desktop.app.gatewayUrlMissing"));
+      setGatewayDraftError(t("desktop.app.gatewayUrlMissing"));
       return;
     }
 
@@ -297,58 +335,85 @@ export default function App() {
     try {
       target = normalizeGatewayUrl(raw);
     } catch (e) {
-      setHealth(null);
-      setCheckedGatewayUrl("");
-      setHealthError(errMsg(e));
+      setGatewayDraftError(errMsg(e));
       return;
     }
 
     if (configurationFlight.current) return;
     configurationFlight.current = true;
     setGatewayChecking(true);
-    setHealthError(null);
+    setGatewayDraftError(null);
 
-    // gateway_request is intentionally pinned to the persisted Gateway origin.
-    // Persist the candidate before probing so the health request tests exactly
-    // the URL the operator entered, then restore the previous origin on failure.
-    // /api/health is public, so this pre-authentication check sends no manager
-    // credential.
-    const previousGatewayUrl = savedGatewayUrl;
+    let candidateObserved = false;
     try {
-      await setGatewayUrl(target);
-      setGw(target);
+      const candidateHealth = await probeGatewayHealth(target);
+      const candidateError = (candidateHealth as { error?: unknown }).error;
+      if (candidateError) throw new Error(errMsg(candidateError));
+      if ((candidateHealth as { ok?: unknown }).ok !== true) {
+        throw new Error(t("desktop.app.gatewayHealthNotReady"));
+      }
+      candidateObserved = true;
+
+      let saveWarning: string | null = null;
+      try {
+        await setGatewayUrl(target);
+      } catch (saveError) {
+        // set_gateway_config writes before emitting its notification. If the
+        // emit fails, the command reports an error even though disk already
+        // contains the new origin. Re-read the durable source of truth before
+        // deciding whether the save failed or merely returned ambiguously.
+        let durable: string;
+        try {
+          durable = await getGatewayUrl();
+        } catch (reconcileError) {
+          throw new Error(t("desktop.app.gatewayReconcileFailed", {
+            save: errMsg(saveError),
+            reconcile: errMsg(reconcileError),
+          }));
+        }
+        savedOriginRef.current = durable;
+        setSavedGatewayUrl(durable);
+        let normalizedDurable = "";
+        try { normalizedDurable = normalizeGatewayUrl(durable); } catch { /* invalid durable state stays non-matching */ }
+        if (normalizedDurable !== target) throw saveError;
+        saveWarning = t("desktop.app.gatewaySavedAfterReconcile");
+      }
+
+      // The candidate is now both positively observed and durably selected.
+      // Update the renderer even if the native config-change event was lost.
       savedOriginRef.current = target;
       setSavedGatewayUrl(target);
-
-      const reachable = await probeGateway(target);
-      if (!reachable) {
-        if (previousGatewayUrl && previousGatewayUrl !== target) {
-          await setGatewayUrl(previousGatewayUrl);
-          setGw(previousGatewayUrl);
-          savedOriginRef.current = previousGatewayUrl;
-          setSavedGatewayUrl(previousGatewayUrl);
-        }
-        return;
-      }
-
-      setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });
+      setGw(target);
+      setHealth(candidateHealth);
+      setCheckedGatewayUrl(target);
+      setHealthCheckedAt(Date.now());
+      setHealthError(null);
+      setGatewayDraftError(null);
+      setMsg({
+        text: saveWarning ?? t("desktop.app.connectionVerified"),
+        type: saveWarning ? "info" : "success",
+      });
     } catch (e) {
-      try {
-        if (previousGatewayUrl && previousGatewayUrl !== target) {
-          await setGatewayUrl(previousGatewayUrl);
-          setGw(previousGatewayUrl);
-          savedOriginRef.current = previousGatewayUrl;
-          setSavedGatewayUrl(previousGatewayUrl);
-        }
-      } catch {
-        // Preserve the primary connection error if restoration also fails.
+      // Candidate probe failures do not touch durable configuration. Save
+      // failures are reconciled above before reaching this point. Keep the
+      // draft visible for correction/retry while operational flows continue
+      // using savedGatewayUrl.
+      const presented = friendlyGatewayError(errMsg(e), locale);
+      if (!candidateObserved && savedOriginRef.current === target) {
+        // An explicit re-check of the active saved origin is fresh negative
+        // evidence and must immediately clear an older positive observation.
+        setHealth(null);
+        setCheckedGatewayUrl(target);
+        setHealthCheckedAt(Date.now());
+        setHealthError(presented);
       }
-      setMsg({ text: friendlyGatewayError(errMsg(e), locale), type: "error" });
+      setGatewayDraftError(presented);
+      setMsg({ text: presented, type: "error" });
     } finally {
       configurationFlight.current = false;
       setGatewayChecking(false);
     }
-  }, [gatewayUrl, probeGateway, savedGatewayUrl, t, locale]);
+  }, [gatewayUrl, t, locale]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -398,12 +463,35 @@ export default function App() {
 
   const handleTest = useCallback(
     async (id: string) => {
+      if (testFlightRef.current.has(id)) return;
+      testFlightRef.current.add(id);
       try {
         setBusyBoth(true);
         if (!savedGatewayUrl) {
           throw new Error(t("desktop.app.gatewayUrlMissing"));
         }
-        const result = await testGatewayPrinter(savedGatewayUrl, id);
+        let key = testOpKeyRef.current.get(id);
+        if (!key) {
+          key = typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffffffff).toString(36)}`;
+          testOpKeyRef.current.set(id, key);
+        }
+        let result: Record<string, unknown>;
+        try {
+          result = await testGatewayPrinter(savedGatewayUrl, id, key);
+        } catch (e) {
+          // No HTTP response was observed: the Gateway may or may not have
+          // accepted the operation. Keep the key so a retry reconciles the
+          // same operation instead of creating a second physical print.
+          if (e instanceof Error && typeof (e as Error & { status?: unknown }).status === "number") {
+            testOpKeyRef.current.delete(id);
+          }
+          throw e;
+        }
+        // Observed outcome (queued, terminal, or UNKNOWN): the next click is
+        // a distinct explicit repeat, so the key must not be reused.
+        testOpKeyRef.current.delete(id);
         const jobId = typeof result.jobId === "string" ? result.jobId : null;
         setMsg({
           text: jobId
@@ -415,6 +503,7 @@ export default function App() {
       } catch (e) {
         setMsg({ text: friendlyPrinterError(errMsg(e), locale), type: "error" });
       } finally {
+        testFlightRef.current.delete(id);
         setBusyBoth(false);
       }
     },
@@ -504,6 +593,7 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
+        savedOriginRef.current = v;
         setGw(v);
         setSavedGatewayUrl(v);
       })
@@ -543,9 +633,8 @@ export default function App() {
       return;
     }
 
-    // Auto-probe only the already-persisted Gateway. A newly edited URL must
-    // go through the explicit Check connection action, which persists the
-    // candidate before the transport probe.
+    // Auto-probe only the already-persisted Gateway. A newly edited URL is
+    // checked through the explicit non-mutating candidate probe first.
     if (target !== savedGatewayUrl) return;
 
     const timer = window.setTimeout(() => {
@@ -629,9 +718,24 @@ export default function App() {
     };
   }, [probeGateway, refreshStatus, refreshLocalPrinters, t]);
 
+  // Affirmative observations only: an empty/missing health object, an agent
+  // status without running:true, or a probe older than the freshness window
+  // must read as unavailable — never as healthy/online (C046).
+  // Staleness is derived from the heartbeat (90s by default), so an honest
+  // status needs a clock that advances while the screen stays open. Declared
+  // before the derived counts below so they re-derive on every tick.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+  // Affirmative observations only: an empty/missing health object, an agent
+  // status without running:true, or a probe older than the freshness window
+  // must read as unavailable — never as healthy/online (C046).
   const isOnline =
-    !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running !== false;
-  const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);
+    !!agentStatus && !(agentStatus as Record<string, unknown>).error && (agentStatus as { running?: boolean }).running === true;
+  const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= 90 * 1000;
+  const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError && healthFresh);
   let normalizedGatewayUrl = "";
   try {
     normalizedGatewayUrl = normalizeGatewayUrl(savedGatewayUrl);
@@ -643,6 +747,15 @@ export default function App() {
       checkedGatewayUrl === normalizedGatewayUrl &&
       healthOk
   );
+  let normalizedGatewayDraft = "";
+  try {
+    normalizedGatewayDraft = normalizeGatewayUrl(gatewayUrl);
+  } catch {
+    // Invalid/partial drafts are intentionally distinct from saved config.
+  }
+  const gatewayDraftMatchesSaved = gatewayUrl.trim().length === 0
+    ? normalizedGatewayUrl.length === 0
+    : normalizedGatewayDraft.length > 0 && normalizedGatewayDraft === normalizedGatewayUrl;
   const gatewaySubLabel = !savedGatewayUrl
     ? t("desktop.app.setGatewayUrlInSettings")
     : gatewayConnected
@@ -650,12 +763,44 @@ export default function App() {
       : t("desktop.app.failedLastCheckLong");
   const physicalPrinters = useMemo(() => printers.filter(isProductionPrinter), [printers]);
   const totalPrinters = physicalPrinters.length;
-  const onlinePrinters = physicalPrinters.filter((p) => p.status === "online").length;
+  // Counts are liveness evidence, not snapshot status: a printer whose
+  // observations went stale while the screen stays open must not count as
+  // online (C045). nowMs ticks every 15s to re-derive these on open screens.
+  const onlinePrinters = physicalPrinters.filter((p) => p.status === "online" && !printerIsStale(p, nowMs)).length;
   const offlinePrinters = physicalPrinters.filter(
     (p) => p.status === "offline" || p.status === "error"
   ).length;
+  // Single predicate behind the jobs tab filter, the tab counters, and the
+  // failed-jobs attention count: one definition keeps filter/count semantics
+  // identical by construction (C052).
+  const jobMatchesTab = useCallback((j: JobRecord, tab: JobTab): boolean => {
+    if (tab === "all") return true;
+    const st = jobStatus(j).toLowerCase();
+    const outcome = deriveOutcome(st, String(j.error ?? ""));
+    if (tab === "in_flight") return st === "claimed" || st === "printing";
+    if (tab === "queued") return st === "queued";
+    if (tab === "unassigned") {
+      const dest = String(j.destination ?? "");
+      const pid = jobPrinterId(j);
+      return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
+    }
+    if (tab === "delivered") return st === "success";
+    // "Unknown outcome" must exclude success rows. deriveOutcome() reports
+    // "unknown" for success by design (transport success is not proof of
+    // paper), so a bare outcome check makes this tab a superset of
+    // "Delivered" and inflates the counter. This mirrors the Gateway's own
+    // marker-based status=unknown filter (src/app/api/jobs/route.ts) and
+    // the guard inside jobTone (src/shared/job-vocabulary.ts).
+    if (tab === "unknown") return st !== "success" && outcome === "unknown";
+    if (tab === "failed") return st === "failed" && outcome === "not_printed";
+    if (tab === "expired") return st === "expired" && outcome !== "unknown";
+    return true;
+  }, [printers]);
+
   const pendingJobs = jobs.filter((j) => ["queued", "claimed"].includes(jobStatus(j))).length;
-  const failedJobs = jobs.filter((j) => ["failed", "expired"].includes(jobStatus(j)) && deriveOutcome(jobStatus(j), typeof j.error === "string" ? j.error : null) === "not_printed").length;
+  // Attention-worthy failures mirror the Failed + Expired tabs exactly, so
+  // the banner count and the tab counters can never disagree (C052).
+  const failedJobs = jobs.filter((j) => jobMatchesTab(j, "failed") || jobMatchesTab(j, "expired")).length;
   const fleetAgents = (health as { agents?: { total?: number; online?: number } } | null)?.agents;
   // /api/health deliberately reports liveness only. Fabricating 0/0 here lied
   // to operators; absent data renders as an explicit dash instead.
@@ -677,10 +822,10 @@ export default function App() {
       );
     }
     if (statusFilter !== "all") {
-      list = list.filter((p) => statusFilter === "stale" ? p.freshness === "stale" : p.status === statusFilter);
+      list = list.filter((p) => statusFilter === "stale" ? printerIsStale(p, nowMs) : p.status === statusFilter);
     }
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  }, [physicalPrinters, printersFilter, statusFilter]);
+  }, [physicalPrinters, printersFilter, statusFilter, nowMs]);
 
   const jobsFiltered = useMemo(() => {
     let list = jobs;
@@ -695,28 +840,7 @@ export default function App() {
       });
     }
     if (jobTab !== "all") {
-      list = list.filter((j) => {
-        const st = jobStatus(j).toLowerCase();
-        const outcome = deriveOutcome(st, String(j.error ?? ""));
-        if (jobTab === "in_flight") return st === "claimed" || st === "printing";
-        if (jobTab === "queued") return st === "queued";
-        if (jobTab === "unassigned") {
-          const dest = String(j.destination ?? "");
-          const pid = jobPrinterId(j);
-          return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
-        }
-        if (jobTab === "delivered") return st === "success";
-        // "Unknown outcome" must exclude success rows. deriveOutcome() reports
-        // "unknown" for success by design (transport success is not proof of
-        // paper), so a bare outcome check makes this tab a superset of
-        // "Delivered" and inflates the counter. This mirrors the Gateway's own
-        // marker-based status=unknown filter (src/app/api/jobs/route.ts) and
-        // the guard inside jobTone (src/shared/job-vocabulary.ts).
-        if (jobTab === "unknown") return st !== "success" && outcome === "unknown";
-        if (jobTab === "failed") return st === "failed" && outcome === "not_printed";
-        if (jobTab === "expired") return st === "expired" && outcome !== "unknown";
-        return true;
-      });
+      list = list.filter((j) => jobMatchesTab(j, jobTab));
     }
     if (jobSearch) {
       const q = jobSearch.toLowerCase();
@@ -733,21 +857,15 @@ export default function App() {
   const jobCounts = useMemo(
     () => ({
       all: jobs.length,
-      in_flight: jobs.filter((j) => ["claimed", "printing"].includes(jobStatus(j))).length,
-      queued: jobs.filter((j) => jobStatus(j) === "queued").length,
-      unassigned: jobs.filter((j) => {
-        const dest = String(j.destination ?? "");
-        const pid = jobPrinterId(j);
-        return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
-      }).length,
-      delivered: jobs.filter((j) => jobStatus(j) === "success").length,
-      unknown: jobs.filter(
-        (j) => jobStatus(j) !== "success" && deriveOutcome(jobStatus(j), String(j.error ?? "")) === "unknown"
-      ).length,
-      failed: failedJobs,
-      expired: jobs.filter((j) => jobStatus(j) === "expired" && deriveOutcome("expired", String(j.error ?? "")) !== "unknown").length,
+      in_flight: jobs.filter((j) => jobMatchesTab(j, "in_flight")).length,
+      queued: jobs.filter((j) => jobMatchesTab(j, "queued")).length,
+      unassigned: jobs.filter((j) => jobMatchesTab(j, "unassigned")).length,
+      delivered: jobs.filter((j) => jobMatchesTab(j, "delivered")).length,
+      unknown: jobs.filter((j) => jobMatchesTab(j, "unknown")).length,
+      failed: jobs.filter((j) => jobMatchesTab(j, "failed")).length,
+      expired: jobs.filter((j) => jobMatchesTab(j, "expired")).length,
     }),
-    [jobs, printers, failedJobs]
+    [jobs, jobMatchesTab]
   );
 
   const nav: NavItem[] = [
@@ -761,14 +879,6 @@ export default function App() {
   // Headings carry no subtitle where the panels already state their content.
   // The two that remain answer a question the operator cannot read off screen:
   // whose Agent this is, and what is configured here.
-  // Staleness is derived from the heartbeat (90s by default), so an honest
-  // status needs a clock that advances while the screen stays open.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 15000);
-    return () => clearInterval(timer);
-  }, []);
-
   const pageMeta: Record<Page, { title: string; subtitle?: string }> = {
     dashboard: { title: t("desktop.nav.overview") },
     printers: { title: t("desktop.nav.printers") },
@@ -777,6 +887,19 @@ export default function App() {
     settings: { title: t("desktop.nav.settings"), subtitle: t("desktop.page.settingsSubtitle") },
   };
 
+  // Selections resolve by stable ID against refreshed state: a drawer must
+  // never present a superseded snapshot after the lists change. Gateway rows
+  // win over local discovery rows for the same ID (they carry lifecycle and
+  // management source). A selection with no live row resolves to null —
+  // explicit missing handling instead of a stale drawer.
+  const resolvedSelectedPrinter = selectedPrinter
+    ? printers.find((p) => p.id === selectedPrinter.id)
+      ?? discoveredPrinters.find((p) => p.id === selectedPrinter.id)
+      ?? null
+    : null;
+  const resolvedSelectedJob = selectedJob
+    ? jobs.find((j) => jobId(j) === jobId(selectedJob)) ?? null
+    : null;
   const state: DesktopState = {
     page,
     navigate,
@@ -794,8 +917,12 @@ export default function App() {
     startAgent,
     requestStopAgent: () => setConfirmStop(true),
     restartAgent,
-    gatewayUrl,
-    setGw,
+    gatewayUrl: savedGatewayUrl,
+    gatewayDraftUrl: gatewayUrl,
+    setGatewayDraftUrl: (value: string) => { setGw(value); setGatewayDraftError(null); },
+    checkedGatewayUrl,
+    gatewayDraftMatchesSaved,
+    gatewayDraftError,
     health,
     healthError,
     gatewayConnected,
@@ -817,13 +944,14 @@ export default function App() {
     totalPrinters,
     onlinePrinters,
     offlinePrinters,
+    nowMs,
     refreshPrinters,
     handleDiscover,
     handleTest,
     updatePrinterLifecycle,
     showAdd,
     setShowAdd,
-    selectedPrinter,
+    selectedPrinter: resolvedSelectedPrinter,
     setSelectedPrinter,
     jobs,
     jobsLoading,
@@ -840,7 +968,7 @@ export default function App() {
     jobPrinterFilter,
     setJobPrinterFilter,
     printerFilterName,
-    selectedJob,
+    selectedJob: resolvedSelectedJob,
     setSelectedJob,
     runtimePaths,
     advancedOpen,
@@ -867,7 +995,7 @@ export default function App() {
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         gatewayConnected={gatewayConnected}
-        gatewayUrl={gatewayUrl}
+        gatewayUrl={savedGatewayUrl}
         isOnline={isOnline}
         version={version}
         lastStatusCheck={lastStatusCheck}
@@ -891,7 +1019,7 @@ export default function App() {
                 setCollapsed(false);
                 setSidebarOpen(true);
               }}
-              className="rounded-md border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
               aria-label={t("desktop.app.openNavigation")}
             >
               <Menu className="h-5 w-5" />
@@ -911,7 +1039,7 @@ export default function App() {
                       onClick={() => {
                         refreshStatus();
                         refreshPrinters();
-                        if (gatewayUrl) refreshJobs();
+                        if (savedGatewayUrl) refreshJobs();
                       }}
                       icon={<RefreshCw className="h-[18px] w-[18px]" />}
                       aria-label={t("desktop.app.refreshAll")}
@@ -929,7 +1057,7 @@ export default function App() {
 
         {isAdmin === false && adminDismissed && (
           <div
-            className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-xs text-warn lg:px-8"
+            className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn lg:px-8"
             role="status"
           >
             <div className="flex items-center gap-2">
@@ -940,7 +1068,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setAdminDismissed(false)}
-              className="font-medium underline hover:text-warn/80 cursor-pointer"
+              className="min-h-9 rounded-sm px-2 font-medium underline transition hover:text-warn/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/35 cursor-pointer"
             >
               {t("desktop.app.viewDetails")}
             </button>
@@ -1011,7 +1139,7 @@ export default function App() {
       >
         {selectedPrinter && (
           <div className="space-y-6">
-            <div className="flex items-center gap-3 rounded-xl border border-edge-accent bg-surface-accent px-5 py-4">
+            <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2 px-4 py-4">
               <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter))} />
               <span className="text-lg font-semibold text-ink">
                 {labelPrinter(printerDisplayStatus(selectedPrinter), locale)}
@@ -1117,6 +1245,8 @@ export default function App() {
                 status={jobStatus(selectedJob)}
                 error={selectedJob.error ? String(selectedJob.error) : null}
                 claimedAt={selectedJob.claimedAt ? String(selectedJob.claimedAt) : null}
+                deliveredAt={selectedJob.deliveredAt ? String(selectedJob.deliveredAt) : null}
+                ackedAt={selectedJob.ackedAt ? String(selectedJob.ackedAt) : null}
               />
             </div>
             <div className="divide-y divide-edge">
@@ -1144,25 +1274,29 @@ export default function App() {
               </MetaRow>
             </div>
             {selectedJob.error ? (
-              <div className="rounded-xl border border-bad-edge bg-bad-bg p-5">
+              <div className={`rounded-md border p-4 ${jobStatus(selectedJob) === "success" ? "border-info-edge bg-info-bg" : "border-bad-edge bg-bad-bg"}`}>
                 {(() => {
                   const outcome = deriveOutcome(jobStatus(selectedJob), String(selectedJob.error));
+                  const succeeded = jobStatus(selectedJob) === "success";
                   // A success row can still carry a residual error (for example
                   // the Gateway's "LATE_SUCCESS: ..." note). Its physical outcome
                   // is still unverified, but it is NOT an ambiguous failure, so
-                  // it must not render the "outcome unknown" banner.
-                  const unknown = jobStatus(selectedJob) !== "success" && outcome === "unknown";
+                  // it must not render the "outcome unknown" banner — nor the
+                  // "Print failed" verdict (C039).
+                  const unknown = !succeeded && outcome === "unknown";
                   const classified = jobFailurePresentation(String(selectedJob.error), locale);
                   return (
                     <>
-                      <div className={`flex items-center gap-2 text-md font-semibold ${unknown ? "text-warn" : "text-bad"}`}>
+                      <div className={`flex items-center gap-2 text-md font-semibold ${succeeded ? "text-info" : unknown ? "text-warn" : "text-bad"}`}>
                         <AlertTriangle className="h-5 w-5" aria-hidden />
-                        {classified?.title ?? (unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed"))}
+                        {succeeded
+                          ? (classified?.title ?? t("desktop.drawer.printSucceeded"))
+                          : (classified?.title ?? (unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed")))}
                       </div>
                       <p className="mt-2 text-base leading-relaxed text-ink-2">
                         {classified?.guidance ?? friendlyPrinterError(String(selectedJob.error), locale)}
                       </p>
-                      {!unknown && (
+                      {!unknown && !succeeded && (
                         <p className="mt-3 text-sm text-ink-3">
                           {t("desktop.drawer.failedBeforePrinting")}
                         </p>
@@ -1172,7 +1306,7 @@ export default function App() {
                 })()}
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-xl border border-info-edge bg-info-bg px-5 py-4 text-base text-info">
+              <div className="flex items-center gap-2 rounded-md border border-info-edge bg-info-bg px-4 py-4 text-base text-info">
                 <Info className="h-5 w-5 flex-shrink-0" aria-hidden />
                 {jobGuidance(jobStatus(selectedJob), deriveOutcome(jobStatus(selectedJob), null), locale) ||
                   t("desktop.drawer.noErrorRecorded")}

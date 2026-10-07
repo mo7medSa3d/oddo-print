@@ -505,6 +505,14 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 	}
 
 	a.printersMu.Lock()
+	if priorSessionMayBeLive(a.printers[pc.ID]) {
+		// Same fence as addPrinter: a detached prior session may still own
+		// the transport, and the new backend carries a fresh mutex/latch.
+		// Fail the apply (recorded by the caller) so the reconciler retries
+		// on a later sweep without advancing the applied revision.
+		a.printersMu.Unlock()
+		return fmt.Errorf("defer printer %s desired revision %d: a prior print session may still own the transport", pc.ID, row.Desired.DesiredRevision)
+	}
 	a.printers[pc.ID] = backend
 	a.printerConfigs[pc.ID] = pc
 	a.printersMu.Unlock()

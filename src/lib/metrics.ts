@@ -44,31 +44,42 @@ async function renderFleetGauges(): Promise<string> {
       `),
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE available)::bigint AS online,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT fresh)::bigint AS stale,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT available)::bigint AS offline
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND fresh)::bigint AS online,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'offline' AND fresh)::bigint AS offline,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND last_seen_at IS NOT NULL AND NOT fresh)::bigint AS stale,
+          COUNT(*) FILTER (WHERE lifecycle = 'active' AND last_seen_at IS NULL)::bigint AS unknown
         FROM (
-          SELECT lifecycle,
-            COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS fresh,
-            lifecycle = 'active' AND status = 'online' AND
-              COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS available
+          SELECT lifecycle, status, last_seen_at,
+            COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS fresh
           FROM agents
         ) observations
       `, [staleSeconds]),
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE available)::bigint AS online,
-          COUNT(*) FILTER (WHERE lifecycle = 'active' AND NOT available)::bigint AS offline,
-          COUNT(*) FILTER (WHERE lifecycle = 'disabled')::bigint AS disabled
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND printer_fresh)::bigint AS online,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'busy' AND printer_fresh)::bigint AS busy,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'offline' AND printer_fresh)::bigint AS offline,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'error' AND printer_fresh)::bigint AS error,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.last_seen_at IS NOT NULL AND NOT printer_fresh)::bigint AS stale,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND (p.last_seen_at IS NULL OR (printer_fresh AND p.status = 'unknown')))::bigint AS unknown,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'disabled')::bigint AS disabled,
+          COUNT(*) FILTER (WHERE p.lifecycle = 'retired')::bigint AS retired,
+          COUNT(*) FILTER (
+            WHERE p.lifecycle = 'active'
+              AND p.status IN ('online', 'busy')
+              AND printer_fresh
+              AND a.lifecycle = 'active'
+              AND a.status = 'online'
+              AND agent_fresh
+          )::bigint AS routable
         FROM (
-          SELECT p.lifecycle,
-            COALESCE(p.lifecycle = 'active' AND p.status IN ('online', 'busy') AND
-              p.last_seen_at BETWEEN now() - make_interval(secs => $1) AND now() AND
-              a.lifecycle = 'active' AND a.status = 'online' AND
-              a.last_seen_at BETWEEN now() - make_interval(secs => $2) AND now(), false) AS available
-          FROM printers p
-          LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-        ) observations
+          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS printer_fresh
+          FROM printers
+        ) p
+        LEFT JOIN (
+          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $2) AND now(), false) AS agent_fresh
+          FROM agents
+        ) a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
       `, [printerStaleThresholdSeconds(), staleSeconds]),
     ]);
 
@@ -86,12 +97,26 @@ async function renderFleetGauges(): Promise<string> {
       `agents_offline ${a.offline}`,
       `# TYPE agents_stale gauge`,
       `agents_stale ${a.stale}`,
+      `# TYPE agents_unknown gauge`,
+      `agents_unknown ${a.unknown}`,
       `# TYPE printers_online gauge`,
       `printers_online ${p.online}`,
+      `# TYPE printers_busy gauge`,
+      `printers_busy ${p.busy}`,
       `# TYPE printers_offline gauge`,
       `printers_offline ${p.offline}`,
+      `# TYPE printers_error gauge`,
+      `printers_error ${p.error}`,
+      `# TYPE printers_stale gauge`,
+      `printers_stale ${p.stale}`,
+      `# TYPE printers_unknown gauge`,
+      `printers_unknown ${p.unknown}`,
+      `# TYPE printers_routable gauge`,
+      `printers_routable ${p.routable}`,
       `# TYPE printers_disabled gauge`,
       `printers_disabled ${p.disabled}`,
+      `# TYPE printers_retired gauge`,
+      `printers_retired ${p.retired}`,
     ].join("\n");
   } catch (error) {
     logWarn("metrics.gauges_unavailable", { error });

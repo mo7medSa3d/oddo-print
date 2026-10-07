@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import { useRouter } from "next/navigation";
@@ -52,7 +53,7 @@ export default function LoginPage() {
     setErr("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetchWithTimeout("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -81,7 +82,7 @@ export default function LoginPage() {
     setLoading(true);
     setErr("");
     try {
-      const res = await fetch("/api/auth/select-tenant", {
+      const res = await fetchWithTimeout("/api/auth/select-tenant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

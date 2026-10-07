@@ -331,6 +331,50 @@ suite("shared refresh-token session rotation", () => {
     expect(audit.rows[0].resource_type).toBe("refresh_token_family");
   });
 
+  it("keeps family revocation durable when the reuse audit write fails", async () => {
+    // C017: the revocation UPDATE must survive an optional-telemetry
+    // failure. PostgreSQL aborts the whole transaction on a failed
+    // statement, so the audit write runs isolated behind a savepoint.
+    const auditModule = await import("../src/lib/audit");
+    const spy = vi.spyOn(auditModule, "writeAuditEvent").mockRejectedValueOnce(new Error("audit store unavailable"));
+    try {
+      const first = await issueSessionPair({
+        kind: "manager",
+        tenantId: "tenant_session_test",
+        userId: "user_session_test",
+        role: "admin",
+      });
+
+      const rotated = await rotateRefreshToken("manager", first.refreshToken);
+      expect(rotated.status).toBe("rotated");
+
+      await pool().query(
+        "UPDATE refresh_tokens SET replaced_at = clock_timestamp() - interval '6 seconds' WHERE id = $1",
+        [first.refreshTokenId],
+      );
+
+      const replay = await rotateRefreshToken("manager", first.refreshToken);
+      expect(replay.status).toBe("reused");
+      expect(spy).toHaveBeenCalled();
+
+      const family = await pool().query(
+        "SELECT id, revoked_at, revoked_reason FROM refresh_tokens WHERE family_id = $1 ORDER BY issued_at",
+        [first.familyId],
+      );
+      expect(family.rows.length).toBeGreaterThanOrEqual(2);
+      expect(family.rows.every((row) => row.revoked_at !== null)).toBe(true);
+      expect(family.rows.every((row) => row.revoked_reason === "refresh_reuse_detected")).toBe(true);
+
+      // The stolen family must stay dead: even the current token no longer rotates.
+      if (rotated.status === "rotated") {
+        const afterTheft = await rotateRefreshToken("manager", rotated.pair.refreshToken);
+        expect(afterTheft.status).toBe("invalid");
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("uses SameSite=Strict for refresh cookies and keeps the access cookie on Lax", () => {
     const refresh = refreshCookieHeader("manager", "opaque-refresh-secret", new Date("2026-10-25T00:00:00.000Z"));
     expect(refresh).toContain("HttpOnly");

@@ -2,6 +2,7 @@ package printer
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -662,5 +663,30 @@ func TestInboxDriverQueueIsNotVirtual(t *testing.T) {
 	})
 	if inbox.IsVirtual {
 		t.Fatalf("inbox-driver physical queue must not be virtual, got %+v", inbox)
+	}
+}
+
+func TestKeepPrimaryUSBDevicePreservesEnrichmentFailures(t *testing.T) {
+	readErr := errors.New("registry unreadable")
+	cases := []struct {
+		name       string
+		hwIDs      []string
+		classVal   string
+		hwErr      error
+		wantKeep   bool
+		wantIncomp bool
+	}{
+		{"printer ids kept clean", []string{`USBPRINT\HEWLETT-PACKARDHP_LASERJET`}, "Printer", nil, true, false},
+		{"non-printer with clean reads discarded", []string{`USB\VID_1234&PID_5678`}, "USB", nil, false, false},
+		{"empty enrichment with failed reads preserved", nil, "", readErr, true, true},
+		{"non-printer ids with failed class read preserved", []string{`USB\VID_1234&PID_5678`}, "", readErr, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			keep, incomplete := keepPrimaryUSBDevice(tc.hwIDs, nil, tc.classVal, tc.hwErr, nil, nil)
+			if keep != tc.wantKeep || incomplete != tc.wantIncomp {
+				t.Fatalf("keep=%v incomplete=%v, want keep=%v incomplete=%v", keep, incomplete, tc.wantKeep, tc.wantIncomp)
+			}
+		})
 	}
 }

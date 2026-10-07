@@ -102,10 +102,15 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 				ippProbe, constructorErr := NewIPPPrinter(ippURL, host)
 				status := "unknown"
 				verified := false
+				statusDetail := "probe_unanswered"
 				probeCtx, cancel2 := context.WithTimeout(ctx, 2*time.Second)
 				if constructorErr == nil {
-					if _, probeErr := ippProbe.getPrinterAttributes(probeCtx); probeErr == nil {
-						status = "online"
+					// Reuse this probe's attributes with the single shared
+					// interpreter (no second probe): a reachable IPP endpoint
+					// whose printer-state is stopped/paused/rejecting must
+					// not be reported online.
+					if attrs, probeErr := ippProbe.getPrinterAttributes(probeCtx); probeErr == nil {
+						status, statusDetail = interpretIPPPrinterStatus(attrs)
 						verified = true
 					}
 				}
@@ -154,6 +159,7 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 						"verification":       verification,
 						"ipp_url":            ippURL,
 						"ipp_verified":       verified,
+						"ipp_status_detail":  statusDetail,
 					},
 				}
 				select {
@@ -165,15 +171,21 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 			}
 		}()
 	}
+	dispatched := 0
 targetLoop:
 	for _, t := range targets {
 		select {
 		case jobs <- t:
+			dispatched++
 		case <-ctx.Done():
 			break targetLoop
 		}
 	}
 	close(jobs)
+	// discovery_extended.go): close(results) only after EVERY worker has
+	// finished its send. Workers are bounded: dial/rDNS/IPP-probe contexts
+	// all derive from this ctx, so each returns within ~1s of expiry and
+	// buffered sends never block.
 	// Channel-ownership law (see discoverSNMPPrinters in
 	// discovery_extended.go): close(results) only after EVERY worker has
 	// finished its send. Workers are bounded: dial/rDNS/IPP-probe contexts
@@ -188,6 +200,13 @@ targetLoop:
 			seenID[di.ID] = true
 			out = append(out, di)
 		}
+	}
+	// A scan that could not dispatch every target is partial inventory, not
+	// a complete one: callers gate pruning on a nil error, so truncation
+	// must surface as one. A fully dispatched scan stays clean even when
+	// the context expires during the bounded result drain (C006).
+	if dispatched < len(targets) {
+		return out, errors.Join(sourceErr, fmt.Errorf("IPP TCP scan truncated: %d of %d targets probed: %w", dispatched, len(targets), ctx.Err()))
 	}
 	return out, sourceErr
 }

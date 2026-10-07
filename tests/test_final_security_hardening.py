@@ -364,7 +364,7 @@ def test_job_timeline_and_dashboard_enforce_data_read_permissions():
     assert 'requireManagerPermission(auth, "jobs.read")' in timeline
 
     actions = read("src/app/actions.ts")
-    dashboard_start = actions.index("export async function getDashboardState()")
+    dashboard_start = actions.index("export async function getDashboardState(")
     dashboard_end = actions.find("export async function getDashboardJobs", dashboard_start)
     dashboard = actions[dashboard_start:dashboard_end if dashboard_end != -1 else None]
     for permission in ("agents.read", "printers.read", "jobs.read"):

@@ -3,13 +3,6 @@ import { BrandMark } from "./brand";
 import { ThemeToggle } from "./ThemeToggle";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useI18n } from "../i18n/react";
-import type { MessageKey } from "../i18n/messages/en";
-
-const TRUST_POINT_KEYS: MessageKey[] = [
-  "auth.shell.point1",
-  "auth.shell.point2",
-  "auth.shell.point3",
-];
 
 /**
  * Entrance surface shared by every unauthenticated route (console, platform,
@@ -35,30 +28,19 @@ export function AuthShell({
   const subtitleText = subtitle ?? t("auth.shell.console");
   return (
     <main className="ambient-surface relative flex min-h-screen flex-col">
-      <div className="relative z-10 flex min-h-screen flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">
+      <div className="relative z-10 flex min-h-screen flex-1 flex-col lg:grid lg:grid-cols-[minmax(340px,0.85fr)_minmax(420px,520px)]">
         {/* Brand rail — desktop only; small screens get the mark above the form. */}
         <section className="relative hidden flex-col justify-between border-e border-edge-subtle bg-surface/40 px-10 py-12 lg:flex xl:px-14">
           <BrandMark size="lg" title="Yaseir" subtitle={t("brand.tagline")} />
 
-          <div className="max-w-[46ch]">
+          <div className="max-w-[42ch]">
             <p className="text-eyebrow">{t("auth.shell.heading")}</p>
-            <h2 className="mt-3 text-3xl font-[640] leading-[1.15] tracking-[-0.026em] text-ink">
+            <h2 className="mt-3 text-2xl font-[640] leading-[1.18] tracking-[-0.022em] text-ink">
               {t("auth.shell.headline")}
             </h2>
-            <p className="mt-4 text-base leading-relaxed text-ink-2">
+            <p className="mt-3 text-sm leading-relaxed text-ink-2">
               {t("auth.shell.body")}
             </p>
-            <ul className="mt-8 space-y-3.5">
-              {TRUST_POINT_KEYS.map((key) => (
-                <li key={key} className="flex items-start gap-3 text-sm leading-relaxed text-ink-2">
-                  <span
-                    aria-hidden
-                    className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand"
-                  />
-                  {t(key)}
-                </li>
-              ))}
-            </ul>
           </div>
 
           <p className="text-xs text-ink-4">

@@ -4,6 +4,7 @@ import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
+import { billingIntervalLabel } from "../../lib/billing-labels";
 import { ArrowRight, Check, CreditCard, DatabaseZap, Receipt } from "lucide-react";
 import { Button, Callout, Card, StatusBadge } from "../../components/ui";
 import { BrandMark } from "../../components/brand";
@@ -93,7 +94,9 @@ export default async function Pricing() {
     const subscription = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, claims.tenantId),
     });
-    if (subscription) {
+    // Only a live subscription marks a plan current: a cancelled/expired row
+    // is history and must not badge its plan as "current" (C055).
+    if (subscription && (subscription.status === "trialing" || subscription.status === "active" || subscription.status === "past_due")) {
       currentPlanId = subscription.planId;
     }
   }
@@ -202,7 +205,7 @@ export default async function Pricing() {
                     <p className="mt-3 flex items-center gap-2 text-xs text-ink-3">
                       <Receipt className="h-3.5 w-3.5 text-ink-4" aria-hidden />
                       {t("pricing.billedPer", {
-                        interval: plan.interval ?? "month",
+                        interval: billingIntervalLabel(plan.interval, t),
                         currency: (plan.currency ?? "USD").toUpperCase(),
                       })}
                     </p>

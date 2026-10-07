@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../lib/fetch-timeout";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -96,7 +97,7 @@ function ConsoleNav({
   }, []);
 
   return (
-    <nav aria-label={t("nav.consoleNavigation")} className="flex flex-col gap-5 px-2.5">
+    <nav aria-label={t("nav.consoleNavigation")} className="flex flex-col gap-4 px-2.5">
       {groups.map((group) => (
         <div key={group.section}>
           {!collapsed && <div className="label-caps px-2 pb-1.5">{group.section}</div>}
@@ -250,7 +251,7 @@ function ConsoleShell({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/settings", { credentials: "include", cache: "no-store" })
+    fetchWithTimeout("/api/settings", { credentials: "include", cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return null;
         return (await response.json()) as { tenant?: { name?: string }; email?: string; role?: string };
@@ -266,7 +267,7 @@ function ConsoleShell({
       })
       .catch(() => undefined);
 
-    fetch("/api/billing/usage", { credentials: "include", cache: "no-store" })
+    fetchWithTimeout("/api/billing/usage", { credentials: "include", cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return null;
         return (await response.json()) as { plan?: { name?: string } };
@@ -349,7 +350,7 @@ function ConsoleShell({
               onClick={toggleCollapsed}
               aria-label={t("nav.collapseNavigation")}
               title={t("nav.collapseNavigation")}
-              className="ms-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+              className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             >
               <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
             </button>
@@ -368,7 +369,7 @@ function ConsoleShell({
                 onClick={() => setPaletteOpen(true)}
                 aria-label={t("common.search")}
                 title={t("nav.searchHint")}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <Search className="h-4 w-4" aria-hidden />
               </button>
@@ -379,7 +380,7 @@ function ConsoleShell({
                 onClick={toggleCollapsed}
                 aria-label={t("nav.expandNavigation")}
                 title={t("nav.expandNavigation")}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <PanelLeftOpen className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </button>
@@ -448,7 +449,7 @@ function ConsoleShell({
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 aria-label={t("nav.closeNavigation")}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -526,8 +527,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   async function handleLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
+    // Revoke the manager family through its own cookie path FIRST: the
+    // mgr_refresh cookie is scoped to /api/auth/manager and the generic
+    // logout below cannot see it (nor revoke the family when the access
+    // cookie already expired). Manager logout also clears the manager
+    // cookies; generic logout then revokes the customer family and clears
+    // every remaining pair. Either request failing still ends in redirect;
+    // the server answers 503 so an outage stays visible instead of silent.
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
+      await fetchWithTimeout("/api/auth/manager/logout", { method: "POST", credentials: "include", cache: "no-store" });
+    } catch {
+      // Fall through to generic logout, which still clears browser state.
+    }
+    try {
+      await fetchWithTimeout("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
     } finally {
       router.replace("/");
       router.refresh();

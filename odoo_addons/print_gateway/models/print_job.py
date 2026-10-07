@@ -1603,10 +1603,12 @@ class PrintGatewayJob(models.Model):
                             break
                         job._post_source_audit(_("Print Job #%s expired at the Gateway (%s).") % (remote_id or job.id, expired_status))
                         break
-                    # "partial" is a valid Gateway status indicating some devices
-                    # were skipped during discovery. Treat it as "submitted" since
-                    # the job was accepted but not fully processed.
-                    if remote_status not in {"queued", "submitted", "claimed", "printing", "success", "failed", "unknown", "partial"}:
+                    # 'partial' is not a valid internal Odoo status (not in
+                    # _FORWARD_CHAIN); map it to 'submitted' so the job remains
+                    # active for reconciliation rather than crashing _advance_status.
+                    if remote_status == "partial":
+                        remote_status = "submitted"
+                    if remote_status not in {"queued", "submitted", "claimed", "printing", "success", "failed", "unknown"}:
                         remote_status = "submitted"
                     values = {
                         "gateway_job_id": str(remote_id),
@@ -1853,6 +1855,10 @@ class PrintGatewayJob(models.Model):
                 status = "failed"
                 if not body.get("error"):
                     body["error"] = "GATEWAY_JOB_EXPIRED: The Gateway no longer holds the job (never claimed within its release window); nothing reached the agent"
+        elif status == "partial":
+            # 'partial' is not a valid internal Odoo status; treat as
+            # 'submitted' (job is still in-progress / partially accepted).
+            status = "submitted"
         if status not in {"submitted", "claimed", "printing", "success", "failed", "unknown"}:
             return False
         err_msg = body.get("error") or False

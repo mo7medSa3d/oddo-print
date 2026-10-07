@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { useEffect, useMemo, useState } from "react";
 import { CreditCard, Search, RefreshCw, Inbox } from "lucide-react";
 import {
@@ -74,7 +75,7 @@ export default function PlatformSubscriptionsPage() {
     let ignore = false;
     async function load() {
       try {
-        const res = await fetch(`/api/platform/subscriptions?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}&filter=${filter}`);
+        const res = await fetchWithTimeout(`/api/platform/subscriptions?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}&filter=${filter}`);
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.subs.loadFailed"));
         const data = await res.json();
@@ -207,7 +208,7 @@ export default function PlatformSubscriptionsPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-base font-[650] text-ink">{subscription.tenantName}</div>
-                        <div className="mt-1 break-all font-mono text-xs text-ink-4">{subscription.tenantId}</div>
+                        <div dir="ltr" className="mt-1 break-all font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{subscription.tenantId}</div>
                       </div>
                       <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                         <StatusBadge tone={meta.tone} label={meta.key ? t(meta.key) : meta.raw} size="sm" />
@@ -217,24 +218,24 @@ export default function PlatformSubscriptionsPage() {
                       </div>
                     </div>
 
-                    <dl className="grid grid-cols-2 gap-3 rounded-md border border-edge-subtle bg-surface-2 p-3">
-                      <div>
+                    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-edge-subtle bg-edge-subtle">
+                      <div className="bg-surface-2 p-3">
                         <dt className="text-xs text-ink-4">{t("platform.subs.plan")}</dt>
                         <dd className="mt-0.5 text-sm font-[600] text-ink">{subscription.planName}</dd>
                       </div>
-                      <div>
+                      <div className="bg-surface-2 p-3">
                         <dt className="text-xs text-ink-4">{t("platform.subs.periodEnd")}</dt>
                         <dd className="mt-0.5 text-sm text-ink-2">
                           {subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : t("common.notAvailable")}
                         </dd>
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-2 bg-surface-2 p-3">
                         <dt className="text-xs text-ink-4">{t("platform.subs.stripeCustomer")}</dt>
-                        <dd className="mt-0.5 break-all font-mono text-xs text-ink-2">
+                        <dd dir="ltr" className="mt-0.5 break-all font-mono text-xs text-ink-2 [unicode-bidi:plaintext]">
                           {subscription.stripeCustomerId || t("platform.subs.unlinkedTrial")}
                         </dd>
                       </div>
-                      <div className="col-span-2">
+                      <div className="col-span-2 bg-surface-2 p-3">
                         <dt className="text-xs text-ink-4">{t("platform.subs.created")}</dt>
                         <dd className="mt-0.5 text-sm text-ink-2">{formatDate(subscription.createdAt)}</dd>
                       </div>
@@ -264,7 +265,7 @@ export default function PlatformSubscriptionsPage() {
                     <tr key={s.tenantId}>
                       <td>
                         <div className="text-sm font-[550] text-ink">{s.tenantName}</div>
-                        <div className="mt-0.5 font-mono text-2xs text-ink-4">{s.tenantId}</div>
+                        <div dir="ltr" className="mt-0.5 font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{s.tenantId}</div>
                       </td>
                       <td className="text-sm text-ink-2">{s.planName}</td>
                       <td>
@@ -273,7 +274,7 @@ export default function PlatformSubscriptionsPage() {
                           {s.cancelAtPeriodEnd && <StatusBadge tone="warn" label={t("platform.subs.cancelsAtPeriodEnd")} size="sm" />}
                         </div>
                       </td>
-                      <td className="font-mono text-2xs text-ink-3">{s.stripeCustomerId || t("platform.subs.unlinkedTrial")}</td>
+                      <td dir="ltr" className="font-mono text-xs text-ink-3 [unicode-bidi:plaintext]">{s.stripeCustomerId || t("platform.subs.unlinkedTrial")}</td>
                       <td className="text-sm text-ink-3">
                         {s.currentPeriodEnd ? formatDate(s.currentPeriodEnd) : t("common.notAvailable")}
                       </td>
@@ -290,7 +291,7 @@ export default function PlatformSubscriptionsPage() {
         )}
       </Card>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-ink-3">{t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + subscriptions.length) })}</span>
+        <span className="text-sm text-ink-3">{subscriptions.length === 0 ? t("common.pageEmpty") : t("common.pageRange", { start: formatNumber(offset + 1), end: formatNumber(offset + subscriptions.length) })}</span>
         <div className="flex gap-2">
           <Button disabled={loading || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>{t("common.previousPage")}</Button>
           <Button disabled={loading || !hasMore} onClick={() => setOffset(value => value + 100)}>{t("common.nextPage")}</Button>

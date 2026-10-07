@@ -18,16 +18,23 @@ async function loadHooks(file = "pos_print_router.js") {
     htmlToCanvas: async () => canvas(), toCanvas: async () => canvas(), waitImages: async () => {},
     formatDateTime: () => "2026-10-04",
   };
-  const context = vm.createContext({ console, crypto: webcrypto, Set, Uint8Array, luxon: { DateTime: { now: () => ({}) } } });
+  const context = vm.createContext({
+    console, crypto: webcrypto, Set, Uint8Array, setTimeout, clearTimeout,
+    luxon: { DateTime: { now: () => ({}) } },
+  });
   const common = new vm.SyntheticModule(Object.keys(mocks), function () {
     for (const [key, value] of Object.entries(mocks)) this.setExport(key, value);
   }, { context });
+  const asyncSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/async_control.js", import.meta.url), "utf8");
+  const asyncControl = new vm.SourceTextModule(asyncSource, { context });
+  await asyncControl.link(() => { throw new Error("async_control has no external imports"); });
+  await asyncControl.evaluate();
   const limitSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog.js", import.meta.url), "utf8");
   const limits = new vm.SourceTextModule(limitSource, { context });
   await limits.link(() => common);
   const source = await readFile(new URL(`../odoo_addons/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
   const loadedModule = new vm.SourceTextModule(source, { context });
-  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : common);
+  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : common);
   await loadedModule.evaluate();
   return { hooks, exports: loadedModule.namespace, mocks };
 }

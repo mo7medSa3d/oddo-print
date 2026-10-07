@@ -8,9 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -267,35 +265,6 @@ func setupLogging(configPath string) (*lumberjack.Logger, error) {
 	return rotator, nil
 }
 
-// configureServiceRecovery declares SCM failure actions so a crashed agent
-// restarts itself (60s delay, 3 attempts, counter reset daily) instead of
-// staying dead until an operator notices. kardianos/service does not expose
-// failure actions, so this shells to sc.exe on Windows only. Warn-only: a
-// recovery-config failure must never break an otherwise good install.
-func configureServiceRecovery(serviceName string) {
-	if runtime.GOOS != "windows" {
-		return
-	}
-	systemRoot := os.Getenv("SystemRoot")
-	if systemRoot == "" {
-		log.Printf("WARNING: SystemRoot is not configured; service recovery actions not configured")
-		return
-	}
-	sc := filepath.Join(systemRoot, "System32", "sc.exe")
-	if info, err := os.Stat(sc); err != nil || info.IsDir() {
-		log.Printf("WARNING: Windows Service Control executable not found at System32; service recovery actions not configured")
-		return
-	}
-	// Arguments require mandatory space after '=': "reset= 86400" and "actions= restart/..." to prevent Windows Error 87.
-	out, err := exec.Command(sc, "failure", serviceName, "reset= 86400",
-		"actions= restart/60000/restart/60000/restart/60000").CombinedOutput()
-	if err != nil {
-		log.Printf("WARNING: configuring service recovery actions failed: %v (%s)", err, strings.TrimSpace(string(out)))
-		return
-	}
-	log.Printf("Service recovery actions configured (restart on crash)")
-}
-
 func stopServiceForRemoval(s service.Service) error {
 	deadline := time.Now().Add(30 * time.Second)
 	stopRequested := false
@@ -361,6 +330,12 @@ func handleServiceControl(rawAction, configPath string) error {
 	}
 
 	action := strings.ToLower(strings.TrimSpace(rawAction))
+	switch action {
+	case "status", "install", "uninstall", "purge", "start", "stop", "restart":
+		if err := verifyCurrentAgentServiceOwnershipIfPresent(); err != nil {
+			return err
+		}
+	}
 	switch action {
 	case "status":
 		status, err := s.Status()

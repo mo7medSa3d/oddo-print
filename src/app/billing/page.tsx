@@ -9,6 +9,7 @@ import { plans, tenantSubscriptions } from "../../db/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
+import { billingIntervalLabel } from "../../lib/billing-labels";
 import { BillingActions } from "../../components/BillingActions";
 import { AlertTriangle, ArrowRight, CalendarDays, Check, CreditCard, Receipt } from "lucide-react";
 import Link from "next/link";
@@ -43,6 +44,12 @@ function entitlementValue(value: unknown, t: Translator, locale: Locale) {
   if (typeof value === "boolean") return value ? t("billing.included") : "—";
   if (typeof value === "number") return formatNumber(value, locale);
   return String(value);
+}
+
+/** Localized billing interval. Unknown values fall back to the raw enum
+ * (safe: display-only, never a billing decision) instead of crashing. */
+function intervalLabel(value: string | null | undefined, t: Translator): string {
+  return billingIntervalLabel(value, t);
 }
 
 function planStatus(
@@ -148,9 +155,12 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const activeStatuses = new Set(["trialing", "active", "past_due"]);
   const hasActivePlan = !!sub && activeStatuses.has(sub.status);
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub.stripeSubscriptionId;
+  // The stored plan row is history, not state: a cancelled/expired
+  // subscription must not present its plan as current (C055).
+  const effectivePlan = hasActivePlan ? currentPlan : null;
   const status = sub ? planStatus(sub, t, formatDate) : null;
-  const entitlements = currentPlan?.entitlements
-    ? Object.entries(currentPlan.entitlements)
+  const entitlements = effectivePlan?.entitlements
+    ? Object.entries(effectivePlan.entitlements)
         .filter(([, value]) => value !== false)
         .slice(0, 8)
         .map(([key, value]) => ({ label: entitlementLabel(key, t), value: entitlementValue(value, t, locale) }))
@@ -206,9 +216,14 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
       <PageContainer>
         <div className="space-y-5">
-          {checkoutState === "success" && (
+          {checkoutState === "success" && hasActivePlan && hasStripeSubscription && (
             <Callout tone="ok" title={t("billing.checkoutCompleted")}>
               {t("billing.paymentReceivedBody")}
+            </Callout>
+          )}
+          {checkoutState === "success" && !(hasActivePlan && hasStripeSubscription) && (
+            <Callout tone="info" title={t("billing.checkoutInProgress")}>
+              {t("billing.paymentPendingBody")}
             </Callout>
           )}
           {checkoutState === "cancelled" && (
@@ -227,7 +242,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             </Callout>
           )}
 
-          {selectedPlan && selectedPlan.id !== currentPlan?.id && (
+          {selectedPlan && selectedPlan.id !== effectivePlan?.id && (
             <BillingActions
               hasSubscription={hasActivePlan && hasStripeSubscription}
               cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
@@ -245,10 +260,10 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   <div className="min-w-0">
                     <div className="label-caps">{t("billing.currentPlan")}</div>
                     <h2 className="mt-2 text-3xl font-[660] tracking-[-0.035em] text-ink">
-                      {currentPlan?.name ?? t("billing.noPlanSelected")}
+                      {effectivePlan?.name ?? t("billing.noPlanSelected")}
                     </h2>
                     <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-ink-3">
-                      {currentPlan?.description || status?.message || t("billing.choosePlanToActivate")}
+                      {effectivePlan?.description || status?.message || t("billing.choosePlanToActivate")}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
@@ -269,7 +284,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                     <div className="label-caps">{t("billing.billingCycle")}</div>
                     <div className="mt-1.5 flex items-center gap-2 text-sm font-[600] capitalize text-ink">
                       <CalendarDays className="h-4 w-4 text-ink-4" aria-hidden />
-                      {currentPlan?.interval ?? "—"}
+                      {intervalLabel(effectivePlan?.interval, t)}
                     </div>
                   </div>
                   <div className="px-5 py-4">
@@ -292,9 +307,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   </div>
 
                   {entitlements.length > 0 ? (
-                    <ul className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                    <ul className="mt-4 grid gap-px overflow-hidden rounded-md border border-edge-subtle bg-edge-subtle sm:grid-cols-2 lg:grid-cols-4">
                       {entitlements.map((entry) => (
-                        <li key={entry.label} className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
+                        <li key={entry.label} className="bg-surface-2 px-4 py-3.5">
                           <div className="flex items-start gap-2">
                             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-xs bg-ok-bg text-ok" aria-hidden>
                               <Check className="h-3 w-3" />
@@ -308,7 +323,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
+                    <p className="mt-4 rounded-md border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
                       {t("billing.capacityManagedBody")}
                     </p>
                   )}

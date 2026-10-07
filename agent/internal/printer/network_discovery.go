@@ -2,6 +2,7 @@ package printer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -31,6 +32,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
 	var targets []string
 	seenSubnet := make(map[string]bool)
+	var sourceDiagnostics []error
 
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
@@ -49,7 +51,11 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
 		addrs, err := iface.Addrs()
 		if err != nil {
+			// An unreadable interface means its subnet goes unscanned:
+			// partial inventory. Preserve the diagnostic alongside any
+			// truncation error below instead of dropping it (C006).
 			log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
+			sourceDiagnostics = append(sourceDiagnostics, fmt.Errorf("interface %s addresses unreadable: %w", iface.Name, err))
 			continue
 		}
 		for _, addr := range addrs {
@@ -105,6 +111,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	}
 
 	var tcpDevices []DeviceInfo
+	dispatchedTargets := 0
 	if len(targets) == 0 {
 		log.Printf("[discovery] network discovery: no private subnets found, skipping TCP scan")
 	} else {
@@ -245,6 +252,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		for _, t := range targets {
 			select {
 			case jobs <- t:
+				dispatchedTargets++
 			case <-ctx.Done():
 				break targetLoop
 			}
@@ -268,7 +276,14 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	// out of the TCP scanner preserves partial results and diagnostics there.
 	out := mergeNetworkDevices(tcpDevices)
 	log.Printf("[discovery] network discovery completed: %d printers found (TCP+SNMP)", len(out))
-	return out, nil
+	// A scan that could not dispatch every target is partial inventory, not
+	// a complete one: callers gate pruning on a nil error, so truncation
+	// must surface as one. A fully dispatched scan stays clean even when
+	// the context expires during the bounded result drain (C006).
+	if dispatchedTargets < len(targets) {
+		return out, errors.Join(append(sourceDiagnostics, fmt.Errorf("network TCP scan truncated: %d of %d targets probed: %w", dispatchedTargets, len(targets), ctx.Err()))...)
+	}
+	return out, errors.Join(sourceDiagnostics...)
 }
 
 func isGenericPrinterName(name string) bool {

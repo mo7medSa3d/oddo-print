@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getSupportedDocumentTypes, isIppTransport, isSpoolerTransport, isRawTransport } from "../src/lib/printer-capability";
-import { normalizePrinterStatus } from "../src/lib/printer-health";
+import { buildPrinterCapabilityMatrix, normalizePrinterStatus } from "../src/lib/printer-health";
 import * as fs from "fs";
 
 describe("printer-capability-matrix", () => {
@@ -96,6 +96,40 @@ describe("printer-capability-matrix", () => {
 
     const unknown = normalizePrinterStatus(null, base);
     expect(unknown.status).toBe("UNKNOWN");
+  });
+
+  it("does not turn fresh driver identity metadata into a healthy-driver verdict", () => {
+    const now = new Date("2026-10-07T00:00:00.000Z");
+    const observedAt = new Date(now.getTime() - 5_000);
+    const printer = {
+      id: "printer-driver-evidence",
+      tenantId: "tenant-driver-evidence",
+      agentId: "agent-driver-evidence",
+      name: "Queue A",
+      deviceClass: "laser",
+      connectionType: "spooler",
+      protocol: "spooler",
+      status: "online",
+      lifecycle: "active",
+      config: { spooler_name: "Queue A" },
+      capabilities: { driver_name: "Example Driver" },
+      lastSeenAt: observedAt,
+    } as unknown as Parameters<typeof buildPrinterCapabilityMatrix>[0];
+    const agent = {
+      id: "agent-driver-evidence",
+      tenantId: "tenant-driver-evidence",
+      status: "online",
+      lifecycle: "active",
+      lastSeenAt: observedAt,
+    } as unknown as Parameters<typeof buildPrinterCapabilityMatrix>[1];
+
+    const matrix = buildPrinterCapabilityMatrix(printer, agent, now);
+
+    expect(matrix.status).toBe("ONLINE");
+    expect(matrix.driver.name).toBe("Example Driver");
+    expect(matrix.driver.health).toBe("unknown");
+    expect(matrix.driver.evidence).toContain("identity evidence only");
+    expect(matrix.driver.evidence).toContain("no ACTUAL DRIVER STATUS");
   });
 
   it("driver and spooler health are evidence-based, not from DB status alone", () => {

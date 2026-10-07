@@ -1,8 +1,7 @@
 "use client";
 
 import { ArrowUpRight, CircleAlert } from "lucide-react";
-import Link from "next/link";
-import { Modal } from "./ui";
+import { Button, Modal } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { MessageKey } from "../i18n/messages/en";
 
@@ -71,23 +70,23 @@ export default function UpgradeLimitDialog({
       description={t("limit.modalDescription")}
     >
       <div className="space-y-5">
-        <div className="flex items-start gap-3 rounded-sg border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
+        <div className="flex items-start gap-3 rounded-md border border-warn-edge bg-warn-bg px-4 py-3.5 text-sm text-warn">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p className="leading-relaxed">{t(copy.description)}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-edge bg-edge-subtle">
+          <div className="bg-surface-2 px-4 py-3.5">
             <div className="text-xs font-[550] text-ink-3">{t("limit.used")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{usedText}</div>
           </div>
-          <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
+          <div className="bg-surface-2 px-4 py-3.5">
             <div className="text-xs font-[550] text-ink-3">{t("limit.planLimit")}</div>
             <div className="mt-1.5 text-xl font-bold tabular-nums text-ink">{limitText}</div>
           </div>
         </div>
 
-        <p className="text-xs leading-relaxed text-ink-3">
+        <p className="text-sm leading-relaxed text-ink-3">
           {resource === "prints"
             ? t("limit.note.prints")
             : resource === "rate"
@@ -100,21 +99,17 @@ export default function UpgradeLimitDialog({
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-10 items-center justify-center rounded-sm border border-edge-strong bg-surface-2 px-4 text-sm font-semibold text-ink-2 transition hover:bg-surface-3 hover:text-ink"
-          >
+          <Button variant="secondary" onClick={onClose}>
             {t("ui.closeDialog")}
-          </button>
-          <Link
+          </Button>
+          <Button
+            variant="primary"
             href="/billing"
             onClick={onClose}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-sm bg-brand-solid px-4 text-sm font-semibold text-brand-contrast transition hover:brightness-[0.94]"
+            icon={<ArrowUpRight className="h-4 w-4" aria-hidden />}
           >
             {t("limit.upgradePlan")}
-            <ArrowUpRight className="h-4 w-4" />
-          </Link>
+          </Button>
         </div>
       </div>
     </Modal>

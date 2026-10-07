@@ -953,4 +953,107 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     });
     expect(audits.some((a) => a.action === "billing.checkout_customer_conflict")).toBe(true);
   });
+
+  it("12. reversed event order converges: completed checkout binds first, created activates (C024)", async () => {
+    // Stripe does not guarantee delivery order. When checkout.session.completed
+    // arrives before customer.subscription.created, the local row is a
+    // locally-cancelled placeholder with the subscription already bound.
+    // The first lifecycle event must adopt it; blocking strands a paying
+    // workspace in cancelled forever.
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "cancelled");
+    await db.update(tenantSubscriptions).set({ checkoutStatus: "completed" }).where(eq(tenantSubscriptions.tenantId, tenantId));
+
+    const eventCreatedTs = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({
+      id: `evt_${nanoid(8)}`,
+      type: "customer.subscription.created",
+      created: eventCreatedTs,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "active",
+          current_period_start: eventCreatedTs - 86400,
+          current_period_end: eventCreatedTs + 30 * 86400,
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: stripePriceId } }] },
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+    const res = await postWebhook(payload, signPayload(payload));
+    expect(res.status).toBe(200);
+
+    const stored = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(stored?.stripeSubscriptionId).toBe(subscriptionId);
+    expect(stored?.status).toBe("active");
+  });
+
+  it("13. a genuine terminal cancellation is not resurrected by a stale same-subscription event", async () => {
+    const tenantId = `tenant_${nanoid(8)}`;
+    const planId = `plan_${nanoid(8)}`;
+    const stripePriceId = `price_${nanoid(8)}`;
+    const customerId = `cus_${nanoid(8)}`;
+    const subscriptionId = `sub_${nanoid(8)}`;
+
+    await createTenant(tenantId);
+    await createPlan(planId, "Starter Plan", stripePriceId);
+    await createSubscription(tenantId, planId, customerId, subscriptionId, "active");
+
+    const cancelledTs = Math.floor(Date.now() / 1000);
+    const deletedPayload = JSON.stringify({
+      id: `evt_${nanoid(8)}`,
+      type: "customer.subscription.deleted",
+      created: cancelledTs,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "canceled",
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+    expect((await postWebhook(deletedPayload, signPayload(deletedPayload))).status).toBe(200);
+    const cancelled = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(cancelled?.status).toBe("cancelled");
+
+    // A stale duplicate lifecycle snapshot for the same subscription must
+    // not resurrect it.
+    const stalePayload = JSON.stringify({
+      id: `evt_${nanoid(8)}`,
+      type: "customer.subscription.updated",
+      created: cancelledTs - 60,
+      data: {
+        object: {
+          id: subscriptionId,
+          customer: customerId,
+          status: "active",
+          current_period_start: cancelledTs - 30 * 86400,
+          current_period_end: cancelledTs + 30 * 86400,
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: stripePriceId } }] },
+          metadata: { tenant_id: tenantId },
+        },
+      },
+    });
+    expect((await postWebhook(stalePayload, signPayload(stalePayload))).status).toBe(200);
+    const stored = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    expect(stored?.status).toBe("cancelled");
+    expect(stored?.stripeSubscriptionId).toBe(subscriptionId);
+  });
 });

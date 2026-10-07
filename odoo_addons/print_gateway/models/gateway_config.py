@@ -3,6 +3,7 @@
 
 from urllib.parse import urlparse
 
+import hmac
 import logging
 import requests
 
@@ -61,6 +62,17 @@ def _same_gateway_endpoint(url_a, url_b):
             return value.strip().lower().rstrip("/")
     left, right = _canon(url_a), _canon(url_b)
     return bool(left) and left == right
+
+
+class _OldEndpointUnauthorized(ValidationError):
+    """The previous Gateway rejected shutdown because its stored API key is unauthorized."""
+
+
+def _same_credential(pending_api_key, current_api_key):
+    """Compare two credential identities without leaking timing information."""
+    if not pending_api_key or not current_api_key:
+        return False
+    return hmac.compare_digest(str(pending_api_key), str(current_api_key))
 
 
 
@@ -560,7 +572,7 @@ class PrintGatewayConfig(models.Model):
             if redirect_message:
                 raise ValidationError(redirect_message)
             if response.status_code == 401:
-                raise ValidationError(
+                raise _OldEndpointUnauthorized(
                     _("The previous Gateway rejected shutdown synchronization because its stored API key is unauthorized.")
                 )
             body = response.json() if response.content else {}
@@ -595,6 +607,12 @@ class PrintGatewayConfig(models.Model):
                 exc,
             )
             return False
+        except _OldEndpointUnauthorized:
+            # A revoked old credential grants nothing server-side: there is
+            # no live key left to shut down. Propagate (do not convert to a
+            # generic failure) so callers can converge activation instead of
+            # blocking forever on a dead credential.
+            raise
         except (ValidationError, ValueError) as exc:
             message = str(exc)[:4000]
             self._persist_gateway_migration_result(success=False, error=message)
@@ -623,9 +641,23 @@ class PrintGatewayConfig(models.Model):
             raise ValidationError(
                 _("Gateway endpoint shutdown/migration state is incomplete; automatic reconciliation is blocked until it is repaired.")
             )
+        stored_key = self.pending_disable_gateway_api_key
+        if not is_encrypted_gateway_api_key(stored_key):
+            # Heal rows written before key-removal shutdown encrypted its
+            # credential: re-protect under the deployment key exactly once so
+            # the pending shutdown becomes executable without ever exposing
+            # the value outside this healing write.
+            try:
+                stored_key = self._protected_gateway_api_key(stored_key)
+            except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
+                raise ValidationError(
+                    _("Gateway endpoint shutdown/migration state cannot be decrypted; configure the deployment-managed credential encryption key to finish the pending migration.")
+                ) from exc
+            self.sudo().write({"pending_disable_gateway_api_key": stored_key})
+            self.invalidate_recordset(["pending_disable_gateway_api_key"])
         return (
             self.pending_disable_gateway_url,
-            self._gateway_api_key_plaintext_from_value(self.pending_disable_gateway_api_key),
+            self._gateway_api_key_plaintext_from_value(stored_key),
             int(self.pending_disable_revision),
         )
 
@@ -638,6 +670,7 @@ class PrintGatewayConfig(models.Model):
         revision,
         enabled,
         pending_disable=None,
+        pending_disable_error=None,
     ):
         """Reconcile old endpoint shutdown before the new endpoint state.
 
@@ -647,31 +680,47 @@ class PrintGatewayConfig(models.Model):
         """
         try:
             skipped_same_endpoint_revision = None
+            if pending_disable_error:
+                # The durable migration fence names an old endpoint whose
+                # shutdown credential cannot be read. Enabling the new
+                # endpoint now would bypass that fence, so block
+                # synchronization with an actionable migration error until
+                # the pending state is repaired or completed.
+                self._persist_gateway_migration_result(success=False, error=pending_disable_error)
+                return False
             if pending_disable:
                 old_url, old_api_key, old_revision = pending_disable
                 if self.gateway_api_key and _same_gateway_endpoint(old_url, gateway_url):
-                    # Same-endpoint fence (key removed, then a new key added
-                    # before the old shutdown completed): the fenced PATCH
-                    # below is authoritative for this endpoint, so a separate
-                    # disable round-trip is redundant. Skipping it lets a dead
-                    # round-trip converge instead of blocking sync forever.
-                    # The fence is cleared only after the new state confirms.
-                    skipped_same_endpoint_revision = old_revision
-                    pending_disable = None
-                else:
-                    # When the pending shutdown is for the SAME endpoint as the
-                    # current configuration, a newly supplied credential can recover
-                    # a previous key-removal that was interrupted by key revocation.
-                    # URL migrations must still use the credential belonging to the
-                    # previous endpoint.
-                    shutdown_api_key = old_api_key
-                    if self.gateway_api_key and old_url == gateway_url:
-                        shutdown_api_key = api_key
-                    if not self._sync_pending_gateway_disable(
-                        gateway_url=old_url,
-                        api_key=shutdown_api_key,
-                        revision=old_revision,
-                    ):
+                    # Same endpoint, but Gateway activation is scoped to each
+                    # API-key row: a REPLACED credential (rotation) is a
+                    # different identity whose old key stays enabled unless
+                    # explicitly disabled. Skip the disable round-trip only
+                    # when the pending credential IS the current one
+                    # (disable+re-enable would be a no-op round-trip). The
+                    # fence clears only after the new state confirms.
+                    if _same_credential(old_api_key, api_key):
+                        skipped_same_endpoint_revision = old_revision
+                        pending_disable = None
+                if pending_disable:
+                    # Shut down with the OLD credential: substituting the new
+                    # key would disable the new integration instead of the old
+                    # one. A revoked old key (401) grants nothing server-side,
+                    # so there is no live credential left to shut down: log it
+                    # and let activation converge instead of blocking forever.
+                    try:
+                        shutdown_ok = self._sync_pending_gateway_disable(
+                            gateway_url=old_url,
+                            api_key=old_api_key,
+                            revision=old_revision,
+                        )
+                    except _OldEndpointUnauthorized as exc:
+                        _logger.warning(
+                            "Previous Gateway credential for config %s is already unauthorized; no live key remains to disable: %s",
+                            self.id,
+                            exc,
+                        )
+                        shutdown_ok = True
+                    if not shutdown_ok:
                         return
                     if not self.gateway_api_key:
                         # A removed key cannot be used for a second no-op PATCH, but
@@ -1057,14 +1106,20 @@ class PrintGatewayConfig(models.Model):
             dbname = self.env.cr.dbname
             revision = int(record.enabled_sync_revision or 0)
             enabled = bool(record.enabled)
+            pending_disable_error = None
             try:
                 pending_disable = record._pending_disable_credentials()
-            except (ValidationError, ValueError):
+            except (ValidationError, ValueError) as exc:
+                # Never discard a broken migration fence: enabling the new
+                # endpoint without confirming old-endpoint shutdown bypasses
+                # migration safety. Block new-endpoint sync with an
+                # actionable error until the pending state is repaired.
                 pending_disable = None
+                pending_disable_error = (str(exc) or "pending old-endpoint shutdown state is unreadable")[:4000]
             self.env.cr.postcommit.add(
                 lambda record_id=record_id, gateway_url=gateway_url, api_key=api_key,
                        dbname=dbname, revision=revision, enabled=enabled,
-                       pending_disable=pending_disable:
+                       pending_disable=pending_disable, pending_disable_error=pending_disable_error:
                     self.browse(record_id)._run_postcommit_enabled_sync(
                         gateway_url=gateway_url,
                         api_key=api_key,
@@ -1072,6 +1127,7 @@ class PrintGatewayConfig(models.Model):
                         revision=revision,
                         enabled=enabled,
                         pending_disable=pending_disable,
+                        pending_disable_error=pending_disable_error,
                     )
             )
 
@@ -1144,7 +1200,14 @@ class PrintGatewayConfig(models.Model):
                     )
                     pre_sync_credentials[record.id] = credentials
                     if remote_may_still_be_enabled:
-                        key_removal_shutdowns[record.id] = credentials
+                        # The pending-disable reader requires authenticated
+                        # ciphertext and the value lives in PostgreSQL (and
+                        # backups): protect the shutdown credential exactly
+                        # like URL migrations do, never store plaintext.
+                        key_removal_shutdowns[record.id] = (
+                            credentials[0],
+                            self._protected_gateway_api_key(credentials[1]),
+                        )
                 except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
                     if remote_may_still_be_enabled:
                         raise ValidationError(
@@ -1580,26 +1643,40 @@ class PrintGatewayConfig(models.Model):
                     if not pending_disable:
                         continue
                     old_url, old_api_key, old_revision = pending_disable
-                    if config.gateway_api_key and _same_gateway_endpoint(old_url, config.gateway_url):
-                        # Same-endpoint fence: the authoritative fenced PATCH
-                        # in the activation block below supersedes the
-                        # redundant disable round-trip — skip the shutdown and
-                        # let the current state converge (fence clears after
-                        # the new endpoint confirms, see below).
+                    current_api_key = None
+                    if config.gateway_api_key:
+                        try:
+                            current_api_key = config._gateway_api_key_plaintext()
+                        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError):
+                            current_api_key = None
+                    if (
+                        config.gateway_api_key
+                        and current_api_key
+                        and _same_gateway_endpoint(old_url, config.gateway_url)
+                        and _same_credential(old_api_key, current_api_key)
+                    ):
+                        # Same endpoint AND same credential identity: the
+                        # activation PATCH below converges this endpoint and a
+                        # separate disable round-trip is redundant. A replaced
+                        # credential (rotation) must still shut down the old
+                        # key, which is scoped to its own integration row.
                         skipped_same_endpoint_revision = old_revision
                         pass
                     else:
-                        shutdown_api_key = old_api_key
-                        if (
-                            config.gateway_api_key
-                            and old_url == config.gateway_url
-                        ):
-                            shutdown_api_key = config._gateway_api_key_plaintext()
-                        if not config._sync_pending_gateway_disable(
-                            gateway_url=old_url,
-                            api_key=shutdown_api_key,
-                            revision=old_revision,
-                        ):
+                        try:
+                            shutdown_ok = config._sync_pending_gateway_disable(
+                                gateway_url=old_url,
+                                api_key=old_api_key,
+                                revision=old_revision,
+                            )
+                        except _OldEndpointUnauthorized as unauth:
+                            _logger.warning(
+                                "Previous Gateway credential for config %s is already unauthorized; no live key remains to disable: %s",
+                                config.id,
+                                unauth,
+                            )
+                            shutdown_ok = True
+                        if not shutdown_ok:
                             continue
                         if not config.gateway_api_key:
                             config._complete_gateway_migration(old_revision)
@@ -1719,10 +1796,14 @@ class PrintGatewayConfig(models.Model):
                     expected_revision=revision,
                 )
                 return {"type": "ir.actions.client", "tag": "reload"}
+        pending_disable_error = None
         try:
             pending_disable = self._pending_disable_credentials()
-        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError):
+        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+            # Same fence as the queued sync: a broken pending shutdown must
+            # block new-endpoint synchronization, not be dropped.
             pending_disable = None
+            pending_disable_error = (str(exc) or "pending old-endpoint shutdown state is unreadable")[:4000]
         self._run_postcommit_enabled_sync(
             gateway_url=gateway_url,
             api_key=api_key,
@@ -1730,6 +1811,7 @@ class PrintGatewayConfig(models.Model):
             revision=revision,
             enabled=enabled,
             pending_disable=pending_disable,
+            pending_disable_error=pending_disable_error,
         )
         self.invalidate_recordset([
             "gateway_sync_state",
@@ -1880,14 +1962,23 @@ class PrintGatewayConfig(models.Model):
             # activation reconciliation in this request instead of leaving the
             # form displaying a stale "Syncing" state until the next manual
             # refresh. The same fenced revision/idempotent Gateway endpoint is
-            # used by the normal post-commit sync path.
+            # used by the normal post-commit sync path. A broken pending
+            # shutdown blocks here exactly like everywhere else instead of
+            # raising out of the test action.
+            pending_disable_error = None
+            try:
+                pending_disable = self._pending_disable_credentials()
+            except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+                pending_disable = None
+                pending_disable_error = (str(exc) or "pending old-endpoint shutdown state is unreadable")[:4000]
             sync_succeeded = self._run_postcommit_enabled_sync(
                 gateway_url=self._gateway_base(for_request=True),
                 api_key=self._gateway_api_key_plaintext(),
                 dbname=self.env.cr.dbname,
                 revision=current_revision,
                 enabled=bool(self.enabled),
-                pending_disable=self._pending_disable_credentials(),
+                pending_disable=pending_disable,
+                pending_disable_error=pending_disable_error,
             )
             if not sync_succeeded:
                 self.invalidate_recordset([

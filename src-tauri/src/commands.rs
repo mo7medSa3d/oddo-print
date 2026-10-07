@@ -230,10 +230,17 @@ pub async fn pair_agent(args: PairArgs, app: tauri::AppHandle) -> Result<String,
 /// The actual pairing: invokes the bundled CLI, which performs the HTTPS
 /// register call and writes the credentials to the agent config. The returned
 /// stdout only contains the agent id by CLI contract — never the secret.
+///
+/// Pairing is serialized with runtime control: a running Agent holds its
+/// initial config in memory, so without a restart the runtime keeps the OLD
+/// connection while console requests use the NEW identity. After a durable
+/// save the runtime is restarted when it was running, and the result reports
+/// whether activation converged or the agent still needs a manual start.
 fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<String, String> {
     let cli = agent::cli_path(&app)?;
     let config = paths::agent_config_path();
     paths::ensure_agent_data_root().map_err(|e| format!("create agent data dir: {e}"))?;
+    let was_running = agent::status(&app).0;
 
     logging::info(&format!("pairing agent (server={gateway_url})"));
     let mut cmd = Command::new(&cli);
@@ -266,7 +273,14 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
     // Do not echo anything that could contain the secret. Register only prints
     // the agent id and a success hint; keep that contract on the Rust side.
     logging::info(&format!("pairing succeeded: {stdout}"));
-    Ok(stdout)
+    if was_running {
+        agent::restart(&app).map_err(|e| {
+            format!("pairing saved but the running agent could not be restarted to use it ({e}); restart the agent manually")
+        })?;
+        logging::info(&format!("agent restarted after pairing: {stdout}"));
+        return Ok(format!("{stdout} (agent restarted with the new identity)"));
+    }
+    Ok(format!("{stdout} (saved; start the agent to activate)"))
 }
 
 #[derive(Clone)]
@@ -388,6 +402,43 @@ async fn read_response_body_limited(
     }
 
     String::from_utf8(body).map_err(|e| format!("Gateway response was not valid UTF-8: {e}"))
+}
+
+/// Probe a candidate Gateway health endpoint without changing the persisted
+/// Gateway origin or touching the Manager session. Settings uses this before
+/// committing a new origin so an unreachable typo cannot revoke a valid
+/// authenticated session for the currently configured Gateway.
+#[tauri::command]
+pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String> {
+    let base = normalize_gateway_url(&url)?;
+    let origin = base
+        .parse::<url::Url>()
+        .map_err(|e| format!("invalid Gateway URL: {e}"))?;
+    let target = origin
+        .join("api/health")
+        .map_err(|e| format!("invalid Gateway health URL: {e}"))?;
+    if target.scheme() != origin.scheme()
+        || target.host_str() != origin.host_str()
+        || target.port_or_known_default() != origin.port_or_known_default()
+    {
+        return Err("Gateway health probe must stay on the candidate origin".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("build HTTP client: {e}"))?;
+    let response = client
+        .get(target)
+        .header("Origin", "tauri://localhost")
+        .send()
+        .await
+        .map_err(|e| format!("Gateway health probe failed: {e}"))?;
+    let status = response.status().as_u16();
+    let body = read_response_body_limited(response, 1024 * 1024).await?;
+    Ok(GatewayResponse { status, body })
 }
 
 fn configured_gateway_origin() -> Result<url::Url, String> {
@@ -552,6 +603,12 @@ pub struct AgentGatewayRequestArgs {
     pub path: String,
     pub method: String,
     pub body: Option<String>,
+    /// Manager-visible Gateway origin the operator intends to act on. The
+    /// paired Agent config owns a different origin (its own Server URL); the
+    /// CLI refuses the request unless they match, so changing the Manager
+    /// origin can never show or mutate the old Agent Gateway under the new
+    /// displayed origin.
+    pub expected_origin: String,
 }
 
 fn valid_gateway_printer_id(id: &str) -> bool {
@@ -636,6 +693,8 @@ pub async fn gateway_agent_request(
     {
         return Err("gateway request body exceeds 8 MiB".into());
     }
+    let expected_origin = normalize_gateway_url(&args.expected_origin)
+        .map_err(|e| format!("invalid expected Gateway origin: {e}"))?;
     run_blocking(move || {
         let cli = agent::cli_path(&app)?;
         let config = paths::agent_config_path();
@@ -647,6 +706,8 @@ pub async fn gateway_agent_request(
             .arg(&method)
             .arg("-path")
             .arg(&path)
+            .arg("-expect-origin")
+            .arg(&expected_origin)
             .arg("-config")
             .arg(&config)
             .env("YASEIR_AGENT_DATA_DIR", &root);

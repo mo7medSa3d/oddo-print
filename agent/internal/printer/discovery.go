@@ -789,6 +789,24 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 		if declaredType == "" {
 			declaredType = "unknown"
 		}
+		// Config entries are inventory declarations, not active discovery probes.
+		// Propagate the complete declared backend configuration into the
+		// inventory row: USB transport identity, operator capabilities
+		// (including supported_protocols passthrough evidence) and paper
+		// width. The runtime factory consumes PrinterConfig directly, but
+		// heartbeat/Gateway/UI only see this DeviceInfo — dropping fields
+		// here loses transport identity and capability evidence between
+		// configuration and discovery.
+		caps := map[string]interface{}{}
+		for k, v := range pc.Capabilities {
+			caps[k] = v
+		}
+		if pc.PaperWidthMM > 0 {
+			if _, ok := caps["max_paper_width"]; !ok {
+				caps["max_paper_width"] = RasterMaxWidthFromPaperWidthMM(pc.PaperWidthMM)
+			}
+		}
+		caps["registration_source"] = "config"
 		di := DeviceInfo{
 			ID:             pc.ID,
 			Name:           pc.Name,
@@ -798,13 +816,16 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 			Protocol:       pc.NormalizedProtocolOrUnknown(),
 			Endpoint:       pc.Endpoint,
 			SpoolerName:    pc.SpoolerName,
+			USBVID:         pc.USBVID,
+			USBPID:         pc.USBPID,
+			USBSerial:      pc.USBSerial,
 			Status:         "unknown",
 			Enabled:        pc.IsEnabled(),
 			Type:           pc.NormalizedType(),
 			// Printers declared in config.yaml are explicit operator intent:
 			// they stay visible even when no transport can be proven, because
 			// the operator typed the endpoint by hand.
-			Capabilities: map[string]interface{}{"registration_source": "config"},
+			Capabilities: caps,
 		}
 		if di.ConnectionType == "spooler" {
 			if di.SpoolerName == "" {
@@ -1009,20 +1030,7 @@ func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 		return fmt.Errorf("printer %q not found in local printer inventory", printerID)
 	}
 
-	pc := config.PrinterConfig{
-		ID:          target.ID,
-		Name:        target.Name,
-		Type:        target.ConnectionType,
-		Endpoint:    target.Endpoint,
-		Protocol:    target.Protocol,
-		SpoolerName: target.SpoolerName,
-	}
-	if target.ConnectionType == "spooler" && pc.SpoolerName == "" {
-		pc.SpoolerName = target.SpoolerName
-		if pc.Endpoint == "" {
-			pc.Endpoint = target.SpoolerName
-		}
-	}
+	pc := printerConfigForTest(cfg, target)
 	prt, err := New(pc)
 	if err != nil {
 		return fmt.Errorf("printer %s backend not available: %w", printerID, err)
@@ -1030,4 +1038,55 @@ func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return prt.Test(ctx)
+}
+
+// printerConfigForTest resolves the backend configuration for an explicit
+// diagnostic test against an already-selected inventory record. Configured
+// records use the authoritative PrinterConfig verbatim; discovered
+// (registry-only) records rebuild from the inventory row preserving USB
+// identity, capability evidence and paper-width caps.
+func printerConfigForTest(cfg *config.Config, target *DeviceInfo) config.PrinterConfig {
+	pc := config.PrinterConfig{}
+	if cfg != nil {
+		// Prefer the authoritative configured record: it carries the
+		// complete declared backend configuration (USB identity,
+		// capabilities, paper width) that inventory rows may only
+		// approximate.
+		for _, p := range cfg.Printers {
+			if p.ID == target.ID {
+				pc = p
+				break
+			}
+		}
+	}
+	if pc.ID == "" {
+		// Discovered (non-configured) printer: rebuild from the selected
+		// inventory row, preserving USB identity, capability evidence
+		// and paper-width caps so the diagnostic exercises the same
+		// backend configuration the operator selected.
+		caps := map[string]interface{}{}
+		for k, v := range target.Capabilities {
+			caps[k] = v
+		}
+		pc = config.PrinterConfig{
+			ID:           target.ID,
+			Name:         target.Name,
+			Type:         target.ConnectionType,
+			Endpoint:     target.Endpoint,
+			Protocol:     target.Protocol,
+			SpoolerName:  target.SpoolerName,
+			PrinterType:  target.PrinterType,
+			USBVID:       target.USBVID,
+			USBPID:       target.USBPID,
+			USBSerial:    target.USBSerial,
+			Capabilities: caps,
+		}
+	}
+	if target.ConnectionType == "spooler" && pc.SpoolerName == "" {
+		pc.SpoolerName = target.SpoolerName
+		if pc.Endpoint == "" {
+			pc.Endpoint = target.SpoolerName
+		}
+	}
+	return pc
 }

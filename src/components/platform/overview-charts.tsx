@@ -14,8 +14,8 @@ export type OverviewHourlyPoint = {
 };
 
 type Fleet = {
-  agents: { total: number; online: number; offline: number };
-  printers: { total: number; online: number; offline: number };
+  agents: { active: number; healthy: number };
+  printers: { active: number; healthy: number };
 };
 
 type Subscriptions = {
@@ -74,12 +74,12 @@ export function PrintThroughputChart({
 
   return (
     <div className="mt-5">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-2xs text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-3">
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-brand-solid" />{t("platform.chart.allPrintJobs")}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-ok-solid" />{t("platform.chart.successful")}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-bad-solid" />{t("platform.chart.failed")}</span>
       </div>
-      <div className="mt-3 overflow-hidden rounded-xl border border-edge bg-surface-2 px-2 py-3">
+      <div className="mt-3 overflow-hidden rounded-md border border-edge bg-surface-2 px-2 py-3">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="h-[260px] w-full"
@@ -117,7 +117,7 @@ export function PrintThroughputChart({
             if (index % 4 !== 0 && index !== labels.length - 1) return null;
             const x = data.length > 1 ? (index / (data.length - 1)) * width : width / 2;
             return (
-              <text key={label} x={x} y={height - 8} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"} className="fill-ink-4 text-2xs">
+              <text key={label} x={x} y={height - 8} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"} className="fill-ink-4 text-xs">
                 {label}
               </text>
             );
@@ -130,17 +130,17 @@ export function PrintThroughputChart({
 
 function AvailabilityRing({
   label,
-  online,
+  healthy,
   total,
   tone,
 }: {
   label: string;
-  online: number;
+  healthy: number;
   total: number;
   tone: "brand" | "ok";
 }) {
   const { t, formatNumber } = useI18n();
-  const percentage = rate(online, total);
+  const percentage = rate(healthy, total);
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percentage / 100) * circumference;
@@ -169,19 +169,27 @@ function AvailabilityRing({
       <div className="min-w-0">
         <div className="text-sm font-semibold text-ink">{label}</div>
         <div className="mt-1 text-xs text-ink-3">
-          {t("platform.fleet.onlineOfTotal", { online: formatNumber(online), total: formatNumber(total) })}
+          {total > 0
+            ? t("platform.fleet.healthyOfActive", { healthy: formatNumber(healthy), total: formatNumber(total) })
+            : t("platform.fleet.noneActive")}
         </div>
         <div
-          className={`mt-2 inline-flex items-center gap-1.5 text-2xs font-[550] ${
-            percentage >= 95 ? "text-ok" : percentage >= 80 ? "text-warn" : "text-bad"
+          className={`mt-2 inline-flex items-center gap-1.5 text-xs font-[550] ${
+            total === 0 ? "text-ink-4" : percentage >= 95 ? "text-ok" : percentage >= 80 ? "text-warn" : "text-bad"
           }`}
         >
-          {percentage >= 95 ? (
+          {total === 0 || percentage >= 95 ? (
             <CheckCircle2 className="h-3 w-3" aria-hidden />
           ) : (
             <AlertTriangle className="h-3 w-3" aria-hidden />
           )}
-          {percentage >= 95 ? t("platform.fleet.healthy") : percentage >= 80 ? t("platform.fleet.attention") : t("platform.fleet.risk")}
+          {total === 0
+            ? t("platform.fleet.noneActive")
+            : percentage >= 95
+              ? t("platform.fleet.healthy")
+              : percentage >= 80
+                ? t("platform.fleet.attention")
+                : t("platform.fleet.risk")}
         </div>
       </div>
     </div>
@@ -192,8 +200,8 @@ export function FleetHealthChart({ fleet }: { fleet: Fleet }) {
   const { t } = useI18n();
   return (
     <div className="mt-5 grid gap-5 sm:grid-cols-2">
-      <AvailabilityRing label={t("platform.fleet.agents")} online={fleet.agents.online} total={fleet.agents.total} tone="brand" />
-      <AvailabilityRing label={t("platform.fleet.printers")} online={fleet.printers.online} total={fleet.printers.total} tone="ok" />
+      <AvailabilityRing label={t("platform.fleet.agents")} healthy={fleet.agents.healthy} total={fleet.agents.active} tone="brand" />
+      <AvailabilityRing label={t("platform.fleet.printers")} healthy={fleet.printers.healthy} total={fleet.printers.active} tone="ok" />
     </div>
   );
 }
@@ -243,8 +251,8 @@ export function OperationalSignals({
   pastDue,
 }: {
   jobs: { failed: number; expired: number; queued: number; inFlight: number };
-  agents: { offline: number };
-  printers: { offline: number };
+  agents: { attention: number };
+  printers: { attention: number };
   pastDue: number;
 }) {
   const { t, formatNumber } = useI18n();
@@ -265,17 +273,17 @@ export function OperationalSignals({
     },
     {
       id: "agents",
-      label: t("platform.signal.offlineAgents"),
-      value: agents.offline,
-      detail: t("platform.signal.offlineAgents.detail"),
-      tone: agents.offline === 0 ? "ok" : "warn",
+      label: t("platform.signal.agentAttention"),
+      value: agents.attention,
+      detail: t("platform.signal.agentAttention.detail"),
+      tone: agents.attention === 0 ? "ok" : "warn",
     },
     {
       id: "printers",
-      label: t("platform.signal.offlinePrinters"),
-      value: printers.offline,
-      detail: t("platform.signal.offlinePrinters.detail"),
-      tone: printers.offline === 0 ? "ok" : "warn",
+      label: t("platform.signal.printerAttention"),
+      value: printers.attention,
+      detail: t("platform.signal.printerAttention.detail"),
+      tone: printers.attention === 0 ? "ok" : "warn",
     },
     {
       id: "billing",
@@ -296,7 +304,7 @@ export function OperationalSignals({
               {formatNumber(signal.value)}
             </span>
             <span
-              className={`inline-flex items-center gap-1 text-2xs font-[550] ${
+              className={`inline-flex items-center gap-1 text-xs font-[550] ${
                 signal.tone === "ok" ? "text-ok" : signal.tone === "warn" ? "text-warn" : "text-bad"
               }`}
             >

@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useState } from "react";
 import { useI18n } from "../../i18n/react";
 import Link from "next/link";
@@ -20,7 +21,7 @@ export default function Forgot() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/forgot-password", {
+      const response = await fetchWithTimeout("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),

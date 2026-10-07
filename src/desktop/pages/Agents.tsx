@@ -4,14 +4,14 @@ import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, Sta
 import { DetailList, StatItem, StatStrip } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { agentStatusNoteKey, friendlyAgentError, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
+import { agentStatusNoteKey, friendlyAgentError, friendlyGatewayError, isProductionPrinter, printerIsStale } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const { t, locale, formatDateTime } = useI18n();
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
   const physical = s.printers.filter(isProductionPrinter);
   const online = physical.filter((p) => p.status === "online").length;
-  const attention = physical.filter((p) => p.status === "offline" || p.status === "error").length;
+  const attention = physical.filter((p) => p.status === "offline" || p.status === "error" || p.status === "unknown" || printerIsStale(p)).length;
 
   return (
     <div className="space-y-5">
@@ -25,12 +25,12 @@ export function AgentsPage({ s }: { s: DesktopState }) {
         <Card className="overflow-hidden">
           <CardHeader title={t("desktop.agents.cardThisPc")} subtitle={t("desktop.agents.cardThisPcSubtitle")} icon={<Cpu className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="secondary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.agents.refresh")}</Button>} />
           <div className="space-y-4 px-5 pb-5">
-            <div className="flex items-center gap-3 rounded-sg border border-edge-accent bg-surface-accent p-4">
+            <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2 p-4">
               <StatusDot tone={s.isOnline ? "ok" : "bad"} pulse={s.isOnline} />
-              <div className="min-w-0 flex-1"><div className="text-base font-semibold text-ink">{s.isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}</div><div className="truncate text-xs text-ink-3">{String(anyStatus?.hostname || t("desktop.agents.thisPc"))}</div></div>
+              <div className="min-w-0 flex-1"><div className="text-base font-semibold text-ink">{s.isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}</div><div className="truncate text-sm text-ink-3">{String(anyStatus?.hostname || t("desktop.agents.thisPc"))}</div></div>
               <StatusBadge tone={s.isOnline ? "ok" : "bad"} label={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} />
             </div>
-            <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={s.startAgent} disabled={s.busy} icon={<Play className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.start")}</Button><Button variant="secondary" onClick={s.requestStopAgent} disabled={s.busy} icon={<Square className="h-4 w-4" />} className="h-9 rounded-md">{t("desktop.agents.stop")}</Button><Button variant="ghost" onClick={s.restartAgent} disabled={s.busy} icon={<RotateCcw className="h-4 w-4" />} className="h-9">{t("desktop.agents.restart")}</Button></div>
+            <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={s.startAgent} disabled={s.busy} icon={<Play className="h-4 w-4" />}>{t("desktop.agents.start")}</Button><Button variant="secondary" onClick={s.requestStopAgent} disabled={s.busy} icon={<Square className="h-4 w-4" />}>{t("desktop.agents.stop")}</Button><Button variant="ghost" onClick={s.restartAgent} disabled={s.busy} icon={<RotateCcw className="h-4 w-4" />}>{t("desktop.agents.restart")}</Button></div>
             <DetailList rows={[
               {
                 label: t("desktop.agents.lastCheck"),
@@ -45,7 +45,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
               { label: t("desktop.agents.hostname"), value: <Mono>{String(anyStatus?.hostname || "—")}</Mono> },
               { label: t("desktop.overview.statPrinters"), value: t("desktop.agents.printersRow", { online, total: physical.length, attention }) },
             ]} />
-            {anyStatus ? <p className="rounded-md border border-edge bg-surface-2 px-3 py-2.5 text-xs text-ink-2">{t(agentStatusNoteKey(anyStatus))}</p> : null}
+            {anyStatus ? <p className="rounded-md border border-edge bg-surface-2 px-3 py-2.5 text-sm leading-relaxed text-ink-2">{t(agentStatusNoteKey(anyStatus))}</p> : null}
             {anyStatus?.error ? <ErrorState title={t("desktop.agents.statusUnavailable")} message={friendlyAgentError(String(anyStatus.error), locale)} retry={s.refreshStatus} /> : null}
           </div>
         </Card>
@@ -65,6 +65,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
                       value: (
                         <span className="inline-flex items-center gap-2">
                           <StatusDot tone={(s.fleetOnline ?? 0) > 0 ? "ok" : "bad"} />
+                          <span className="tabular-nums">{s.fleetOnline ?? 0}</span>
                           {t("desktop.agents.ofTotal", { count: s.fleetTotal })}
                         </span>
                       ),
@@ -72,8 +73,8 @@ export function AgentsPage({ s }: { s: DesktopState }) {
                     { label: t("desktop.agents.totalAgents"), value: s.fleetTotal },
                   ]}
                 />
-                <p className="text-xs leading-relaxed text-ink-3">{t("desktop.agents.livenessNote")}</p>
-                <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="min-w-0 flex-1 truncate font-mono text-2xs text-ink-3">{s.gatewayUrl}</span><CopyButton value={s.gatewayUrl} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.agents.urlCopied"), type: "success" })} /></div>
+                <p className="text-sm leading-relaxed text-ink-3">{t("desktop.agents.livenessNote")}</p>
+                <div className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2.5"><span dir="ltr" className="min-w-0 flex-1 truncate font-mono text-xs text-ink-3 [unicode-bidi:plaintext]">{s.gatewayUrl}</span><CopyButton value={s.gatewayUrl} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.agents.urlCopied"), type: "success" })} /></div>
               </div>
             ) : <EmptyState icon={<Server className="h-8 w-8" />} title={t("desktop.agents.fleetEmpty")} description={t("desktop.agents.fleetEmptyBody")} action={<Button variant="secondary" onClick={s.checkHealth} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.agents.checkAgain")}</Button>} />}
           </div>
@@ -82,14 +83,14 @@ export function AgentsPage({ s }: { s: DesktopState }) {
 
       <Card className="overflow-hidden">
         <CardHeader title={t("desktop.agents.howTitle")} subtitle={t("desktop.agents.howSubtitle")} icon={<ShieldCheck className="h-4 w-4 text-brand" />} />
-        <div className="grid gap-4 px-5 pb-5 md:grid-cols-3">
+        <div className="mx-5 mb-5 grid gap-px overflow-hidden rounded-md border border-edge bg-edge-subtle md:grid-cols-3">
           {[
             { title: t("desktop.agents.how1Title"), body: t("desktop.agents.how1Body"), icon: Lock },
             { title: t("desktop.agents.how2Title"), body: t("desktop.agents.how2Body"), icon: HardDrive },
             { title: t("desktop.agents.how3Title"), body: t("desktop.agents.how3Body"), icon: Activity },
           ].map((c) => {
             const Ic = c.icon;
-            return <div key={c.title} className="rounded-sg border border-edge p-4"><div className="flex items-center gap-2 text-sm font-semibold text-ink"><span className="flex h-7 w-7 items-center justify-center rounded-sm bg-brand-subtle text-brand border border-edge-accent"><Ic className="h-4 w-4" /></span>{c.title}</div><p className="mt-2 text-xs leading-relaxed text-ink-2">{c.body}</p></div>;
+            return <div key={c.title} className="bg-surface p-4"><div className="flex items-center gap-2 text-sm font-semibold text-ink"><Ic className="h-4 w-4 text-brand" aria-hidden />{c.title}</div><p className="mt-2 text-sm leading-relaxed text-ink-3">{c.body}</p></div>;
           })}
         </div>
       </Card>

@@ -4,10 +4,12 @@
 For multi-tenant Manager login, add a verified `tenant_domains` row for each customer hostname. During single-tenant bootstrap, `MANAGER_TENANT_ID` may be used.
 
 ## Metrics endpoint
-`GET /api/metrics` requires a manager session whose `tenantId` equals
-`PLATFORM_TENANT_ID` (set it in the gateway environment; without it the
-endpoint answers 403 even for valid managers). Prometheus scraping therefore
-needs both a manager credential AND the platform tenant configured.
+`GET /api/metrics` requires a platform owner session (`plt_session`). Tenant
+manager sessions are never sufficient, even for members of the platform
+workspace: global telemetry is control-plane data. Configure Prometheus
+scraping with a platform owner credential (static `Cookie` header).
+
+Fleet gauges are evidence-specific: `agents_online`/`agents_offline` require a fresh explicit Agent state, while stale and never-seen Agents are exposed separately as `agents_stale`/`agents_unknown`. Printer physical observations are split into `printers_online`, `printers_busy`, `printers_offline`, `printers_error`, `printers_stale`, and `printers_unknown`. `printers_routable` is the cross-component routing signal (fresh printer ready/busy evidence plus a reachable active Agent); do not interpret it as proof that a physical printer is Online.
 
 ## API key rotation
 Gateway API-key rotation supports a bounded read-only grace window for in-flight

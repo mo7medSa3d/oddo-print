@@ -14,6 +14,10 @@ Rotating an Odoo API key creates a new key and immediately removes write capabil
 ### Manager
 `mgr_session` cookie or manager bearer session, according to `src/lib/manager-auth.ts`.
 
+Manager fleet reads `GET /api/agents` and `GET /api/printers` are bounded per request (`limit` maximum 1000). Legacy `offset` pagination remains supported up to 10,000 for compatibility and scan protection. Fleets can exceed that size because resource entitlements may be `unlimited`; callers that need deeper traversal must use keyset pagination instead of ever-increasing offsets. Pass the previous page's final `createdAt` and `id` as `beforeCreatedAt` and `beforeId`. The pair is required together and cannot be combined with a non-zero offset. Responses remain JSON arrays for backward compatibility and expose `X-Has-More`; when another page exists they also expose `X-Next-Before-Created-At` and `X-Next-Before-Id`. Ordering is stable by `(createdAt DESC, id DESC)`. These authenticated fleet responses are `no-store`.
+
+Fleet status fields are evidence-based. `status` is the current effective presentation state: stale or missing Agent/printer observations resolve to `unknown`, not `offline` or the last reported value. `reportedStatus` retains the last raw device/Agent report for diagnostics, and `freshness` (`fresh`/`stale`/`missing`) states whether that report can be treated as current. Agent reachability and physical printer state remain separate facts.
+
 ### Odoo
 `Authorization: Bearer odoo_<key>` or `X-Api-Key: odoo_<key>`.
 
@@ -88,7 +92,7 @@ The Odoo addon commits a durable outbox row before making the HTTP submission. T
 
 Customer authentication uses `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/verify-email`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, and `POST /api/auth/select-tenant`. The `/api/auth/me` browser probe also accepts Manager workspace sessions; their refresh stays at `/api/auth/manager/refresh`. Legacy manager bootstrap endpoints remain under `/api/auth/manager/*`.
 
-Workspace lifecycle uses `POST /api/onboarding`. Team lifecycle uses `GET/POST/DELETE /api/team/invitations`, `POST /api/team/invitations/accept`, `GET/PATCH/DELETE /api/team/members`, and `POST /api/team/ownership`.
+Workspace lifecycle uses `POST /api/onboarding`. Team lifecycle uses `GET/POST/DELETE /api/team/invitations`, `POST /api/team/invitations/accept`, `GET/PATCH/DELETE /api/team/members`, and `POST /api/team/ownership`. Team collection reads are bounded and paginated: both GET routes accept `limit`/`offset` (default 50, maximum 100) and return `hasMore`, `offset`, `limit`, and the tenant-scoped `total` alongside the collection.
 
 Billing uses `GET /api/billing/plans`, `POST /api/billing/checkout`, `POST /api/billing/portal`, `POST /api/billing/cancel`, `POST /api/billing/resume`, and `POST /api/billing/webhook`. Stripe webhook events are signature-verified and persisted by provider event ID before processing; the application database remains the local subscription/entitlement source of truth.
 

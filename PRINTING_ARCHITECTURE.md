@@ -55,14 +55,14 @@ The architecture enforces strict separation between **how bytes are delivered** 
 
 ### Protocol & Capability Matrix
 
-| Connection Type | Supported Protocols | Valid Payload Types | Typical Target |
+| Connection Type | Declared capability / protocol evidence | Valid Gateway payloads | Typical Target |
 | :--- | :--- | :--- | :--- |
-| `network` | `raw`, `escpos`, `zpl`, `tspl` | `raw`, `escpos`, `image*` | Network Thermal / Label Printers (Port 9100) |
-| `spooler` | `spooler`, `raw`, `escpos` | `pdf`, `raw`, `escpos`, `image` | Windows Spooler Queues, Laser/Inkjet Drivers |
-| `usb` | `raw`, `escpos` | `raw`, `escpos` | Direct USB Thermal / Label Printers |
-| `ipp` / `ipps` | `ipp`, `ipps` | `pdf` | Modern Network Office Printers / CUPS (default Port 631) |
+| `network` | Explicit byte language: `raw`, `escpos`, `zpl`, or `tspl` | `raw` with matching `protocol` (`raw`/`zpl`/`tspl`), `escpos`; `image*` only for `escpos` | Network Thermal / Label Printers (Port 9100) |
+| `spooler` | Document baseline: `pdf`, `image`; optional explicit passthrough: `raw` and/or `escpos` | `pdf`, `image`; `raw`/`escpos` only when passthrough was explicitly declared | Windows Spooler Queues, Laser/Inkjet Drivers |
+| `usb` | Explicit byte language: `raw`, `escpos`, `zpl`, or `tspl` | `raw` with matching `protocol` (`raw`/`zpl`/`tspl`) or `escpos` | Direct USB Thermal / Label Printers |
+| `ipp` / `ipps` | Document capability: `pdf` | `pdf` | Modern Network Office Printers / CUPS (default Port 631) |
 
-`image*` is supported by the network backend only when its declared protocol is `escpos`; ZPL/TSPL are native printer protocols carried inside the `raw` wire payload rather than separate top-level Gateway payload types. Printer destinations are canonicalized and validated at both control-plane and agent boundaries. Network printers use the private/link-local `config.ip` plus the protocol-approved port; a conflicting legacy `config.address` is rejected. IPP/IPPS URLs must resolve to an allowed private/link-local destination, and `ipp://` or `ipps://` without an explicit port defaults to 631.
+`protocol` identifies the transport/printer language; `supported_protocols` is capability evidence and is not a synonym for connection type. A Windows queue remains a `spooler` transport even when an operator explicitly adds RAW or ESC/POS passthrough capability. `image*` is supported by the network backend only when its declared protocol is `escpos`; ZPL/TSPL are native printer languages carried inside the top-level Gateway `raw` payload with the matching `protocol`, not separate top-level payload types. Printer destinations are canonicalized and validated at both control-plane and agent boundaries. Network printers use the private/link-local `config.ip` plus the protocol-approved port; a conflicting legacy `config.address` is rejected. IPP/IPPS URLs must resolve to an allowed private/link-local destination, and `ipp://` or `ipps://` without an explicit port defaults to 631.
 
 ---
 

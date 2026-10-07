@@ -575,3 +575,32 @@ func TestIPPRequestedAttributesUseAdditionalValues(t *testing.T) {
 		t.Fatalf("requested attribute values = %q", got)
 	}
 }
+
+func TestInterpretIPPPrinterStatusSharesDiscoveryAndRuntimeMapping(t *testing.T) {
+	cases := []struct {
+		name  string
+		attrs map[string]string
+		want  string
+	}{
+		{"idle and accepting is online", map[string]string{"printer-state": "3", "printer-is-accepting-jobs": "true", "printer-state-reasons": "none"}, "online"},
+		{"idle but not accepting is error", map[string]string{"printer-state": "3", "printer-is-accepting-jobs": "false"}, "error"},
+		{"processing is busy", map[string]string{"printer-state": "4", "printer-is-accepting-jobs": "true"}, "busy"},
+		{"stopped is error not offline", map[string]string{"printer-state": "5", "printer-state-reasons": "paused"}, "error"},
+		{"paused reason is error", map[string]string{"printer-state": "3", "printer-state-reasons": "paused"}, "error"},
+		{"offline reason is offline", map[string]string{"printer-state": "3", "printer-state-reasons": "offline-report"}, "offline"},
+		{"paper jam is error", map[string]string{"printer-state": "3", "printer-state-reasons": "media-jam"}, "error"},
+		{"missing state is unknown", map[string]string{"printer-is-accepting-jobs": "true"}, "unknown"},
+		{"nil attributes are unknown", nil, "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, detail := interpretIPPPrinterStatus(tc.attrs)
+			if got != tc.want {
+				t.Fatalf("status = %q, want %q (detail %q)", got, tc.want, detail)
+			}
+			if detail == "" {
+				t.Fatal("detail must always describe the evidence behind the status")
+			}
+		})
+	}
+}

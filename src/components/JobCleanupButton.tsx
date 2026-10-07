@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../lib/fetch-timeout";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
@@ -23,7 +24,7 @@ export function JobCleanupButton() {
     setSuccessMessage(null);
     try {
       const cutoff = new Date(Date.now() - PRINT_JOB_RETENTION_MS).toISOString();
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `/api/jobs?before=${encodeURIComponent(cutoff)}&limit=5000&confirm=1`,
         { method: "DELETE", credentials: "include" },
       );

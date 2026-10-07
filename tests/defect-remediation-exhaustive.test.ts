@@ -196,7 +196,7 @@ describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
     const binding = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/binding.py"), "utf-8");
     const router = fs.readFileSync(path.resolve(__dirname, "../odoo_addons/print_gateway/models/print_router.py"), "utf-8");
     expect(binding).toContain("context=None, data=None");
-    expect(binding).toContain("route_report(report, records, data=data, explicit_binding=binding)");
+    expect(binding).toContain("route_report(report, records, data=data, explicit_binding=binding, idempotency_key=operation_id)");
     expect(router).toContain("_render_pdf_payload(report, records, data=data)");
     expect(router).toContain("res_ids=records.ids, data=data");
   });
@@ -227,17 +227,19 @@ describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
   });
 });
 
-describe("DEFECT #8 — current agent presence is offline when heartbeat is stale", () => {
+describe("DEFECT #8 — current agent presence preserves stale heartbeat uncertainty", () => {
   it("uses offline semantics rather than an online warning when heartbeat freshness expires", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../src/shared/job-vocabulary.ts"), "utf-8");
     expect(source).toContain('return { tone: "bad", label: word("status.heartbeatLost") };');
     expect(source).not.toContain('label: "Online (heartbeat lost)"');
   });
 
-  it("server agent inventory resolves status from current heartbeat availability", () => {
+  it("server agent inventory separates effective current state from the last report", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../src/app/api/agents/route.ts"), "utf-8");
-    expect(source).toContain("isAgentAvailableForJob");
-    expect(source).toContain('status: isAgentAvailableForJob(agent, now) ? "online" : "offline"');
+    expect(source).toContain("getEffectiveAgentStatus");
+    expect(source).toContain("reportedStatus: agent.status");
+    expect(source).toContain("freshness: getAgentHeartbeatFreshness");
+    expect(source).not.toContain('status: isAgentAvailableForJob(agent, now) ? "online" : "offline"');
   });
 });
 

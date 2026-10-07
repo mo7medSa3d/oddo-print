@@ -8,14 +8,27 @@ import { CheckCircle2, MailCheck, ShieldAlert } from "lucide-react";
 import { AuthShell } from "../../components/AuthShell";
 import { Button, Callout, Field, Input, Skeleton } from "../../components/ui";
 import { codeMessageKey } from "../../lib/api-error-keys";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 
 // A token represents one mutation, even through StrictMode remounts/locale changes.
+// Failures are NOT retained: a rejected or 5xx outcome must not poison the
+// cache, or a later successful retry in the same browser is impossible (C063).
 const verificationRequests = new Map<string, Promise<{ ok: boolean; code?: string }>>();
 function verifyOnce(token: string) {
   const existing = verificationRequests.get(token);
   if (existing) return existing;
-  const request = fetch("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
-    .then(async response => { const body = await response.json().catch(() => ({})); return { ok: response.ok, code: typeof body?.code === "string" ? body.code : undefined }; });
+  const request = fetchWithTimeout("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }, 15_000)
+    .then(async response => { const body = await response.json().catch(() => ({})); return { ok: response.ok, code: typeof body?.code === "string" ? body.code : undefined }; })
+    .then(
+      (result) => {
+        if (!result.ok) verificationRequests.delete(token);
+        return result;
+      },
+      (error) => {
+        verificationRequests.delete(token);
+        throw error;
+      },
+    );
   verificationRequests.set(token, request);
   if (verificationRequests.size > 64) verificationRequests.delete(verificationRequests.keys().next().value!);
   return request;
@@ -26,6 +39,7 @@ function VerifyEmailContent() {
   const token = params.get("token");
   const initialEmail = params.get("email") ?? "";
   const planId = params.get("plan") ?? "";
+  const inviteToken = params.get("invite") ?? "";
   const { t } = useI18n();
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "error" | "pending">(
@@ -60,7 +74,11 @@ function VerifyEmailContent() {
         setMsg(t("auth.verify.verifiedBody"));
         redirectTimer = setTimeout(() => {
           if (cancelled) return;
-          const next = planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
+          // A pending team invitation survives signup: return to it so the
+          // operator can accept with the now-existing account.
+          const next = inviteToken
+            ? `/invite?token=${encodeURIComponent(inviteToken)}`
+            : planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
           router.replace(next);
         }, 500);
       } catch (error) {
@@ -74,7 +92,7 @@ function VerifyEmailContent() {
       cancelled = true;
       if (redirectTimer !== undefined) clearTimeout(redirectTimer);
     };
-  }, [token, planId, router, t]);
+  }, [token, planId, inviteToken, router, t]);
 
   async function handleResend(event: React.FormEvent) {
     event.preventDefault();
@@ -82,7 +100,7 @@ function VerifyEmailContent() {
     setResending(true);
     setResendMsg("");
     try {
-      const response = await fetch("/api/auth/resend-verification", {
+      const response = await fetchWithTimeout("/api/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resendEmail, planId }),

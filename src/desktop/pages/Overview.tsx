@@ -5,7 +5,7 @@ import { DetailList, StatItem, StatStrip, StatusNotice, ViewAllButton, PrinterAv
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
-import { agentStatusNoteKey, humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerDisplayStatus, printerEndpoint, printerIsStale, printerTone } from "../lib/printers";
+import { agentStatusNoteKey, deriveOutcome, humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerDisplayStatus, printerEndpoint, printerIsStale, printerTone } from "../lib/printers";
 
 export function OverviewPage({ s }: { s: DesktopState }) {
   const { t, tc, locale, formatTime, formatDateTime } = useI18n();
@@ -15,6 +15,11 @@ export function OverviewPage({ s }: { s: DesktopState }) {
   const online = shownPrinters.filter((p) => p.status === "online").length;
   const offline = shownPrinters.filter((p) => p.status === "offline" || p.status === "error").length;
   const unknownPrinters = shownPrinters.filter((p) => p.status === "unknown").length;
+  // Uncertain physical outcomes are attention-worthy on their own: a failed
+  // job whose outcome markers say UNKNOWN may already exist on paper.
+  const unknownJobs = s.jobs.filter(
+    (j) => jobStatus(j) === "failed" && deriveOutcome(jobStatus(j), typeof j.error === "string" ? j.error : null) === "unknown",
+  ).length;
 
   const banner = (() => {
     if (!s.gatewayUrl) {
@@ -30,24 +35,25 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       const detail = s.printersError || s.jobsError || t("desktop.overview.gatewayNoAnswerPlain");
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => { void s.refreshPrinters(); void s.refreshJobs(); }} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>}>{detail}</StatusNotice>;
     }
-    if (offline > 0 || unknownPrinters > 0 || s.failedJobs > 0) {
+    if (offline > 0 || unknownPrinters > 0 || s.failedJobs > 0 || unknownJobs > 0) {
       const parts: string[] = [];
       if (offline > 0) parts.push(tc("desktop.overview.printersNeedAttention", offline));
       if (unknownPrinters > 0) parts.push(t("desktop.overview.unreadable", { count: unknownPrinters }));
       if (s.failedJobs > 0) parts.push(tc("desktop.overview.jobsFailed", s.failedJobs));
+      if (unknownJobs > 0) parts.push(tc("desktop.overview.jobsUnknown", unknownJobs));
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => s.navigate(offline > 0 ? "printers" : "jobs")}>{offline > 0 ? t("desktop.overview.reviewPrinters") : t("desktop.overview.reviewJobs")}</Button>}>{parts.join(" • ")}</StatusNotice>;
     }
     return <StatusNotice tone="ok" icon={<CheckCircle2 className="h-5 w-5" />} title={t("desktop.overview.allNormal")}>{t("desktop.overview.allNormalBody")}</StatusNotice>;
   })();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {banner}
 
       <StatStrip>
         <StatItem label={t("desktop.overview.statAgent")} value={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} sub={s.agentStatus ? t(agentStatusNoteKey(s.agentStatus as Record<string, unknown>)) : s.isOnline ? t("desktop.overview.agentRunningExe") : t("desktop.overview.notRunning")} tone={s.isOnline ? "ok" : "bad"} icon={<Activity className="h-4 w-4" />} />
         <StatItem label={t("desktop.overview.statGateway")} value={s.gatewayUrl ? (s.gatewayConnected ? t("desktop.status.connected") : t("desktop.status.unreachable")) : t("desktop.status.notConfigured")} sub={!s.gatewayUrl ? t("desktop.overview.setUrlInSettings") : s.gatewayConnected ? t("desktop.status.reachable") : t("desktop.status.failedLastCheck")} tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} icon={<Server className="h-4 w-4" />} />
-        <StatItem label={t("desktop.overview.statPrinters")} value={`${online} / ${shownPrinters.length}`} sub={offline > 0 ? t("desktop.overview.unreadable", { count: offline }) : t("desktop.status.online")} tone={shownPrinters.length > 0 && offline === 0 ? "ok" : shownPrinters.length === 0 ? "neutral" : "warn"} icon={<PrinterIcon className="h-4 w-4" />} />
+        <StatItem label={t("desktop.overview.statPrinters")} value={`${online} / ${shownPrinters.length}`} sub={offline + unknownPrinters > 0 ? t("desktop.overview.unreadable", { count: offline + unknownPrinters }) : t("desktop.status.online")} tone={shownPrinters.length > 0 && offline + unknownPrinters === 0 ? "ok" : shownPrinters.length === 0 ? "neutral" : "warn"} icon={<PrinterIcon className="h-4 w-4" />} />
         <StatItem label={t("desktop.overview.statJobs")} value={String(s.pendingJobs)} sub={s.failedJobs > 0 ? tc("desktop.overview.jobsFailed", s.failedJobs) : t("desktop.status.pending")} tone={s.failedJobs > 0 ? "bad" : s.pendingJobs > 0 ? "info" : "neutral"} icon={<ClipboardList className="h-4 w-4" />} />
       </StatStrip>
 
@@ -63,20 +69,20 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                 action={<><Button variant="primary" onClick={s.handleDiscover} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.discover")}</Button><Button variant="secondary" onClick={() => s.setShowAdd(true)} icon={<PrinterIcon className="h-4 w-4" />}>{t("desktop.overview.addPrinter")}</Button></>}
               />
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y divide-edge-subtle">
                 {shownPrinters.slice(0, 5).map((p) => {
                   // Language badges derive ONLY from the declared protocol
                   // and connection type (printer-capability.ts) — device
                   // class must never invent a language.
                   const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", (p.connection_type || p.connectionType) ?? "unknown").join(" · ") || t("desktop.status.unknown");
                   return (
-                    <div key={p.id} className="flex w-full items-center justify-between gap-4 rounded-sg border border-edge bg-surface px-4 py-3 transition-colors hover:border-edge-accent">
-                      <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-start focus:outline-none">
+                    <div key={p.id} className="flex w-full items-center justify-between gap-4 px-1 py-3.5 transition-colors hover:bg-surface-hover sm:px-2">
+                      <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app">
                         <PrinterAvatar name={p.name} size="lg" tone={printerTone(printerDisplayStatus(p)) === "neutral" ? "brand" : printerTone(printerDisplayStatus(p))} />
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{p.name}</span><span className="block truncate text-2xs text-ink-3">{humanType(p, locale)} • {humanConnection(p, locale)} • {printerEndpoint(p)}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{p.name}</span><span className="mt-0.5 block truncate text-xs text-ink-3">{humanType(p, locale)} • {humanConnection(p, locale)} • {printerEndpoint(p)}</span></span>
                       </button>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="hidden sm:inline-flex rounded-sm border border-edge bg-surface-2 px-2 py-0.5 text-2xs font-semibold text-ink-3">{badgeLabel}</span>
+                        <span className="hidden text-xs font-[550] text-ink-3 sm:inline">{badgeLabel}</span>
                         <div className="flex items-center gap-1"><StatusBadge tone={printerTone(printerDisplayStatus(p))} label={labelPrinter(printerDisplayStatus(p), locale)} />{printerIsStale(p) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}</div>
                         <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy} icon={<Activity className="h-3 w-3 text-brand" />} title={t("desktop.overview.testNamed", { name: p.name })}>{t("desktop.overview.test")}</Button>
                       </div>
@@ -105,7 +111,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
               { label: t("desktop.overview.statAgent"), value: s.isOnline ? t("desktop.status.running") : t("desktop.status.stopped") },
             ]} />
             <div className="mt-4 border-t border-edge pt-4 space-y-2">
-              <div className="flex items-center justify-between text-2xs"><span className="font-[550] text-xs text-ink-3">{t("desktop.overview.queueTitle")}</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-warn" : s.pendingJobs > 0 ? "text-brand" : "text-ok"}`}>{s.jobsLoading ? t("desktop.overview.queueChecking") : s.jobsError ? t("desktop.overview.queueUnavailable") : s.pendingJobs > 20 ? t("desktop.overview.queueBacklogged") : s.pendingJobs > 0 ? t("desktop.overview.queueInFlight") : t("desktop.overview.queueClear")}</span></div>
+              <div className="flex items-center justify-between text-xs"><span className="font-[550] text-ink-3">{t("desktop.overview.queueTitle")}</span><span className={`font-semibold ${s.jobsError || s.jobsLoading ? "text-ink-3" : s.pendingJobs > 20 ? "text-warn" : s.pendingJobs > 0 ? "text-brand" : "text-ok"}`}>{s.jobsLoading ? t("desktop.overview.queueChecking") : s.jobsError ? t("desktop.overview.queueUnavailable") : s.pendingJobs > 20 ? t("desktop.overview.queueBacklogged") : s.pendingJobs > 0 ? t("desktop.overview.queueInFlight") : t("desktop.overview.queueClear")}</span></div>
               <div className="flex items-baseline justify-between text-xs"><span className="font-bold text-ink tabular-nums">{s.jobsLoading || s.jobsError ? "—" : s.pendingJobs}<span className="font-normal text-ink-3"> {t("desktop.overview.waiting")}</span></span><span className="text-ink-3">{t("desktop.overview.lastFifty")}</span></div>
             </div>
             <div className="mt-4 border-t border-edge pt-4">
@@ -120,9 +126,9 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         <CardHeader title={t("desktop.overview.recentJobs")} subtitle={t("desktop.overview.recentJobsSubtitle", { pending: s.pendingJobs, failed: s.failedJobs })} icon={<ClipboardList className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="ghost" onClick={() => s.navigate("jobs")}>{t("desktop.overview.viewAll")}</Button>} />
         {s.jobsLoading ? <div className="px-5 pb-5"><LoadingState rows={3} /></div> : s.jobsError ? <div className="px-5 pb-5"><ErrorState title={t("desktop.overview.jobsUnavailable")} message={s.jobsError} retry={() => { void s.refreshJobs(); }} /></div> : s.jobs.length === 0 ? <EmptyState icon={<FileText className="h-8 w-8" />} title={t("desktop.overview.noJobsYet")} description={t("desktop.overview.noJobsYetBody")} /> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-y border-edge bg-surface-2 text-start text-xs font-[550] text-ink-3"><th className="px-5 py-2.5">{t("desktop.overview.colDocument")}</th><th className="px-4 py-2.5">{t("desktop.overview.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.overview.colStatus")}</th><th className="px-5 py-2.5 text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
-              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-2xs text-ink-3">{jobId(j)}</div></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="px-5 py-3 text-end text-2xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
+            <table className="data-table min-w-[720px]">
+              <thead><tr><th>{t("desktop.overview.colDocument")}</th><th>{t("desktop.overview.colPrinter")}</th><th>{t("desktop.overview.colStatus")}</th><th className="text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
+              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)}><td><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-xs text-ink-3">{jobId(j)}</div></td><td className="text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="text-end text-xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
             </table>
           </div>
         )}
@@ -132,14 +138,19 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         // Both wire casings are accepted (Tauri serializes camelCase; the Gateway
         // /api/printers rows are camelCase too), so the hardware-profile cards
         // can actually resolve a thermal / label / spooler device.
-        const thermal = shownPrinters.find((p) => { const t = ((p.printer_type || p.printerType) || "").toLowerCase(); const d = (p.device_class || p.deviceClass || "").toLowerCase(); return t === "thermal" || d === "thermal"; });
-        const label = shownPrinters.find((p) => { const t = ((p.printer_type || p.printerType) || "").toLowerCase(); const d = (p.device_class || p.deviceClass || "").toLowerCase(); return t === "label" || d === "label"; });
-        const spooler = shownPrinters.find((p) => (p.connection_type || p.connectionType) === "spooler" || (p.device_class || p.deviceClass || "").toLowerCase() === "laser");
+        const badgesOf = (p: (typeof shownPrinters)[number]) =>
+          getPrinterLanguageBadges(p.protocol ?? "unknown", (p.connection_type || p.connectionType) ?? "unknown");
+        // Diagnostic labels derive ONLY from the declared protocol/transport
+        // (device class is not language evidence: a thermal queue can be a
+        // PDF/document backend, a label queue can be TSPL).
+        const escpos = shownPrinters.find((p) => badgesOf(p).includes("ESC/POS"));
+        const zpl = shownPrinters.find((p) => badgesOf(p).includes("ZPL"));
+        const spooler = shownPrinters.find((p) => badgesOf(p).some((b) => b.includes("Spooler") || b.includes("IPP")));
         return (
           <Card className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-md border border-edge bg-brand-subtle text-brand"><Activity className="h-4 w-4" /></span><div className="min-w-0"><div className="text-sm font-semibold text-ink">{t("desktop.overview.hardwareProfile")}</div><p className="mt-1 text-xs text-ink-3">{t("desktop.overview.hardwareProfileBody")}</p></div></div>
-              <div className="flex flex-wrap gap-2">{thermal && <Button variant="secondary" onClick={() => s.handleTest(thermal.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testEscPos")}</Button>}{label && <Button variant="secondary" onClick={() => s.handleTest(label.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testZpl")}</Button>}{spooler && <Button variant="secondary" onClick={() => s.handleTest(spooler.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testSpooler")}</Button>}{!thermal && !label && !spooler && <Button variant="secondary" onClick={() => s.handleTest(shownPrinters[0].id)} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.testNamed", { name: shownPrinters[0].name.slice(0, 18) })}</Button>}</div>
+              <div className="flex items-start gap-2.5"><Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" /><div className="min-w-0"><div className="text-sm font-semibold text-ink">{t("desktop.overview.hardwareProfile")}</div><p className="mt-1 text-xs text-ink-3">{t("desktop.overview.hardwareProfileBody")}</p></div></div>
+              <div className="flex flex-wrap gap-2">{escpos && <Button variant="secondary" onClick={() => s.handleTest(escpos.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testEscPos")}</Button>}{zpl && <Button variant="secondary" onClick={() => s.handleTest(zpl.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testZpl")}</Button>}{spooler && <Button variant="secondary" onClick={() => s.handleTest(spooler.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testSpooler")}</Button>}{!escpos && !zpl && !spooler && <Button variant="secondary" onClick={() => s.handleTest(shownPrinters[0].id)} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.testNamed", { name: shownPrinters[0].name.slice(0, 18) })}</Button>}</div>
             </div>
           </Card>
         );

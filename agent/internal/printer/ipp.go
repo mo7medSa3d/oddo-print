@@ -293,24 +293,37 @@ func (p *IPPPrinter) Status() string {
 		return "unknown"
 	}
 
+	status, detail := interpretIPPPrinterStatus(attrs)
+	p.setStatusDetail(detail)
+	return status
+}
+
+// interpretIPPPrinterStatus maps one Get-Printer-Attributes response to the
+// shared Gateway status vocabulary. It is a pure function of the attributes
+// so discovery-time classification and runtime Status() cannot diverge, and
+// discovery reuses its own probe response instead of issuing a second probe.
+func interpretIPPPrinterStatus(attrs map[string]string) (status, detail string) {
+	if attrs == nil {
+		return "unknown", "attributes_missing"
+	}
 	reasons := strings.ToLower(attrs["printer-state-reasons"])
 	if reasons != "" {
-		p.setStatusDetail(reasons)
+		detail = reasons
 	} else {
-		p.setStatusDetail("none")
+		detail = "none"
 	}
 	if reasons != "" && reasons != "none" {
 		for _, marker := range []string{"media-empty", "media-needed", "cover-open", "door-open", "toner-empty", "developer-empty", "marker-supply-empty", "jam", "interlock-open"} {
 			if strings.Contains(reasons, marker) {
-				return "error"
+				return "error", detail
 			}
 		}
 		if strings.Contains(reasons, "offline") || strings.Contains(reasons, "shutdown") {
-			return "offline"
+			return "offline", detail
 		}
 		for _, marker := range []string{"paused", "moving-to-paused", "hold-new-jobs", "spool-area-full"} {
 			if strings.Contains(reasons, marker) {
-				return "error"
+				return "error", detail
 			}
 		}
 	}
@@ -319,26 +332,26 @@ func (p *IPPPrinter) Status() string {
 		switch state {
 		case "3":
 			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
-				return "error"
+				return "error", detail
 			}
-			return "online"
+			return "online", detail
 		case "4":
 			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
-				return "error"
+				return "error", detail
 			}
-			return "busy"
+			return "busy", detail
 		case "5":
 			// STOPPED is not synonymous with physical offline. Reasons above
 			// decide offline vs device/admin error when available.
-			return "error"
+			return "error", detail
 		default:
-			return "unknown"
+			return "unknown", detail
 		}
 	}
 	if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
-		return "error"
+		return "error", detail
 	}
-	return "unknown"
+	return "unknown", detail
 }
 
 var errIPPStatusUnsupported = errors.New("get-printer-attributes unsupported")

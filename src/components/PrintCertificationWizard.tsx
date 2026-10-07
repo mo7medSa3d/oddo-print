@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../lib/fetch-timeout";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -53,6 +54,9 @@ const STEP_TONES: Record<StepStatus, Tone> = {
   running: "info",
   pending: "neutral",
 };
+
+const CERT_STATUS_MAX_CONSECUTIVE_FAILURES = 3;
+const CERT_STATUS_MAX_POLL_MS = 6 * 60 * 1000;
 
 /**
  * The certification API keeps sending human-readable `label`/`description`
@@ -119,7 +123,13 @@ function CertificationSession({ printerId }: { printerId: string }) {
 
   const operationKey = useRef<string | null>(null);
   const [terminal, setTerminal] = useState(false);
+  // Authoritative live outcome for the accepted operation, refreshed by the
+  // poll below. Stages/steps describe acceptance-time diagnostics; this is
+  // the execution evidence and may disagree with them (C054).
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [inspectBeforeRepeat, setInspectBeforeRepeat] = useState(false);
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
+  const [pollEpoch, setPollEpoch] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
     return () => { controllerRef.current?.abort(); };
@@ -128,21 +138,53 @@ function CertificationSession({ printerId }: { printerId: string }) {
     if (!jobId) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let consecutiveFailures = 0;
+    const startedAt = Date.now();
+    const pauseReconciliation = () => {
+      if (!controller.signal.aborted) setReconciliationError(t("cert.reconciliationBody"));
+    };
+    const schedulePoll = (delayMs: number) => {
+      if (Date.now() - startedAt >= CERT_STATUS_MAX_POLL_MS) {
+        pauseReconciliation();
+        return;
+      }
+      timer = setTimeout(() => { void poll(); }, delayMs);
+    };
     const poll = async () => {
+      if (Date.now() - startedAt >= CERT_STATUS_MAX_POLL_MS) {
+        pauseReconciliation();
+        return;
+      }
       try {
-        const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetchWithTimeout(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error(t("cert.failedBody"));
         const job = await response.json();
         if (controller.signal.aborted) return;
+        consecutiveFailures = 0;
+        setReconciliationError(null);
         const done = ["success", "failed", "expired"].includes(job.status);
         setTerminal(done);
+        setLiveStatus(typeof job.status === "string" ? job.status : null);
         setInspectBeforeRepeat(derivePhysicalOutcome(job.status, job.error) === "unknown");
-        if (!done) timer = setTimeout(() => { void poll(); }, 3000);
-      } catch { if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, 5000); }
+        if (!done) schedulePoll(3000);
+      } catch {
+        if (controller.signal.aborted) return;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= CERT_STATUS_MAX_CONSECUTIVE_FAILURES) {
+          pauseReconciliation();
+          return;
+        }
+        schedulePoll(5000);
+      }
     };
     void poll();
     return () => { controller.abort(); if (timer !== undefined) clearTimeout(timer); };
-  }, [jobId, t]);
+  }, [jobId, pollEpoch, t]);
+
+  function retryStatusReconciliation() {
+    setReconciliationError(null);
+    setPollEpoch((value) => value + 1);
+  }
 
   async function runCertification() {
     if (loading || (jobId && !terminal)) return;
@@ -151,7 +193,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
       if (inspectBeforeRepeat && !window.confirm(t("job.reprintClearPrinter"))) return;
       operationKey.current = null;
       try { sessionStorage.removeItem(storageKey); } catch { /* in-memory operation remains available */ }
-      setJobId(null); setSteps(null); setTerminal(false);
+      setJobId(null); setSteps(null); setTerminal(false); setLiveStatus(null); setReconciliationError(null);
     }
     if (!operationKey.current) {
       try { operationKey.current = sessionStorage.getItem(storageKey); } catch { /* storage unavailable */ }
@@ -162,8 +204,9 @@ function CertificationSession({ printerId }: { printerId: string }) {
     controllerRef.current = controller;
     setLoading(true);
     setError(null);
+    setReconciliationError(null);
     try {
-      const res = await fetch(`/api/printers/${printerId}/certify`, {
+      const res = await fetchWithTimeout(`/api/printers/${printerId}/certify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": operationKey.current },
         body: JSON.stringify({ testPage: true }),
@@ -189,11 +232,16 @@ function CertificationSession({ printerId }: { printerId: string }) {
   const completedCount = steps?.filter((step) => step.status === "ok").length ?? 0;
   const failedCount = steps?.filter((step) => step.status === "error").length ?? 0;
   const blockedCount = steps?.filter((step) => step.status === "blocked").length ?? 0;
-  const overallTone: Tone = certified ? "ok" : blocked ? "warn" : "bad";
+  // Acceptance-time verdict (from the POST) vs live execution evidence (from
+  // the poll). A terminal failure/unknown outcome overrides an accepted
+  // "certified" — the stages below stay labeled as acceptance diagnostics.
+  const liveFailed = terminal && (liveStatus === "failed" || liveStatus === "expired");
+  const liveRunning = !!jobId && !terminal && !reconciliationError;
+  const overallTone: Tone = liveFailed ? "bad" : certified ? "ok" : blocked ? "warn" : "bad";
 
   return (
     <div className="space-y-4">
-      <section className="rounded-sg border border-edge bg-surface-2 px-4 py-4">
+      <section className="rounded-md border border-edge bg-surface-2 px-4 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="label-caps flex items-center gap-2">
@@ -224,10 +272,25 @@ function CertificationSession({ printerId }: { printerId: string }) {
             <span role="alert" className="break-words">{error}</span>
           </Callout>
         )}
+
+        {reconciliationError && (
+          <Callout
+            tone="warn"
+            title={t("cert.reconciliationTitle")}
+            className="mt-4"
+            action={
+              <Button variant="secondary" size="sm" onClick={retryStatusReconciliation}>
+                {t("cert.retryStatus")}
+              </Button>
+            }
+          >
+            <span role="alert" className="break-words">{reconciliationError}</span>
+          </Callout>
+        )}
       </section>
 
       {!steps && !loading && (
-        <section className="rounded-sg border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
+        <section className="rounded-md border border-dashed border-edge-strong bg-surface px-5 py-8 text-center">
           <span aria-hidden className="mx-auto flex h-9 w-9 items-center justify-center rounded-md border border-edge bg-surface-2 text-ink-3">
             <ShieldCheck className="h-4 w-4" />
           </span>
@@ -239,7 +302,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
       )}
 
       {loading && !steps && (
-        <section className="space-y-2.5 rounded-sg border border-edge bg-surface px-5 py-5" role="status" aria-label={t("cert.loadingAria")}>
+        <section className="space-y-2.5 rounded-md border border-edge bg-surface px-5 py-5" role="status" aria-label={t("cert.loadingAria")}>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3">
               <Skeleton className="h-7 w-7 rounded-full" />
@@ -259,14 +322,14 @@ function CertificationSession({ printerId }: { printerId: string }) {
         <>
           <section
             aria-label={t("cert.summaryAria")}
-            className="grid grid-cols-1 gap-px overflow-hidden rounded-sg border border-edge bg-edge sm:grid-cols-3"
+            className="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-edge bg-edge sm:grid-cols-3"
           >
             <div className="bg-surface px-4 py-3.5">
               <div className="label-caps">{t("cert.overallResult")}</div>
               <div className="mt-1.5 flex items-center gap-2">
                 <StatusBadge
                   tone={overallTone}
-                  label={certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
+                  label={liveFailed ? t("cert.result.review") : certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
                 />
               </div>
               <div className="mt-1.5 text-sm text-ink-3">
@@ -294,13 +357,16 @@ function CertificationSession({ printerId }: { printerId: string }) {
               <div className="mt-1.5">
                 {jobId ? <Mono className="block truncate">{jobId}</Mono> : <span className="text-sm text-ink-3">{t("cert.jobNotCreated")}</span>}
               </div>
+              <div className="mt-1.5 text-sm text-ink-2">
+                {liveRunning ? t("cert.liveRunning") : liveStatus === "success" ? t("cert.liveSuccess") : liveStatus === "failed" || liveStatus === "expired" ? t("cert.liveFailed") : null}
+              </div>
               <div className="mt-1 truncate text-sm text-ink-3" title={requestId ?? undefined}>
                 {requestId ? t("cert.requestShort", { id: requestId.slice(0, 12) }) : t("cert.noRequestRecorded")}
               </div>
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-sg border border-edge bg-surface">
+          <section className="overflow-hidden rounded-md border border-edge bg-surface">
             <div className="border-b border-edge-subtle bg-surface-2 px-4 py-3">
               <h4 className="text-base font-[600] text-ink">{t("cert.stagesHeading")}</h4>
               <p className="mt-0.5 text-sm leading-relaxed text-ink-3">
@@ -356,7 +422,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
                         {step.evidence && (
                           <div className="mt-2.5 overflow-hidden rounded-sm border border-edge bg-app">
                             <div className="label-caps border-b border-edge-subtle px-3.5 py-2">{t("cert.evidence")}</div>
-                            <code className="block max-h-48 overflow-auto whitespace-pre-wrap break-words px-3.5 py-2.5 font-mono text-xs leading-relaxed text-ink-2">
+                            <code dir="ltr" className="block max-h-48 overflow-auto whitespace-pre-wrap break-words px-3.5 py-2.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
                               {step.evidence}
                             </code>
                           </div>
@@ -374,7 +440,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
           </Callout>
 
           {(requestId || timelineUrl || failedCount > 0) && (
-            <section aria-label={t("cert.referencesAria")} className="rounded-sg border border-edge bg-surface px-4 py-3.5">
+            <section aria-label={t("cert.referencesAria")} className="rounded-md border border-edge bg-surface px-4 py-3.5">
               <dl className="grid gap-3 sm:grid-cols-2">
                 {requestId && (
                   <div className="min-w-0">
@@ -396,7 +462,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
                   href={timelineUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-xs text-sm font-[550] text-brand transition-colors duration-150 hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                  className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-sm px-1 text-sm font-[600] text-brand transition-colors duration-150 hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
                 >
                   {t("cert.viewTimeline")}
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden />

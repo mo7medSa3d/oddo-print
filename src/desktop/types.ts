@@ -35,8 +35,15 @@ export interface DesktopState {
   restartAgent: () => void;
 
   /* gateway */
+  /** Persisted Gateway origin used by operational requests. */
   gatewayUrl: string;
-  setGw: (v: string) => void;
+  /** Editable Settings draft; never drives operational requests until verified and saved. */
+  gatewayDraftUrl: string;
+  setGatewayDraftUrl: (v: string) => void;
+  /** Origin associated with the latest saved-Gateway health observation. */
+  checkedGatewayUrl: string;
+  gatewayDraftMatchesSaved: boolean;
+  gatewayDraftError: string | null;
   health: Record<string, unknown> | null;
   healthError: string | null;
   gatewayConnected: boolean;
@@ -60,6 +67,8 @@ export interface DesktopState {
   totalPrinters: number;
   onlinePrinters: number;
   offlinePrinters: number;
+  /** Advancing wall clock (15s tick) so freshness re-derives on open screens. */
+  nowMs: number;
   refreshPrinters: () => void;
   handleDiscover: () => void;
   handleTest: (id: string) => void;
@@ -81,7 +90,7 @@ export interface DesktopState {
   jobCounts: Record<JobTab | "all", number>;
   pendingJobs: number;
   failedJobs: number;
-  refreshJobs: (options?: { status?: string; search?: string; limit?: number }) => Promise<void> | void;
+  refreshJobs: (options?: { status?: string; search?: string; limit?: number; printerId?: string; merge?: boolean }) => Promise<void> | void;
   jobPrinterFilter: string | null;
   setJobPrinterFilter: (v: string | null) => void;
   printerFilterName: string;

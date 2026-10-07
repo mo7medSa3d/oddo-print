@@ -47,6 +47,26 @@ function firstNonEmptyIds(...sources) {
     return [];
 }
 
+// One operation identity per interception: a lost response re-run with the
+// same id is deduplicated server-side, while a deliberate later print mints
+// a fresh id. Fail closed without a secure RNG so distinct operations can
+// never collapse into one idempotency key.
+function reportOperationUuid() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        crypto.getRandomValues(bytes);
+    } else {
+        throw new Error(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 async function silentPrintReportHandler(action, options, env) {
     if (action.type !== "ir.actions.report" || action.report_type !== "qweb-pdf") {
         return false;
@@ -76,6 +96,7 @@ async function silentPrintReportHandler(action, options, env) {
                 res_ids: resIds,
                 context: action.context || {},
                 data: action.data ?? null,
+                operation_id: reportOperationUuid(),
             }
         );
 

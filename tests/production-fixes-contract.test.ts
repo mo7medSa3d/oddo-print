@@ -266,7 +266,8 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     const printers = read("src/app/api/printers/route.ts");
     const agent = read("src/app/api/agents/[id]/route.ts");
     expect(printers).toContain("getEffectivePrinterStatus");
-    expect(agent).toContain("isAgentAvailableForJob");
+    expect(agent).toContain("getEffectiveAgentStatus");
+    expect(agent).toContain("getAgentHeartbeatFreshness");
     expect(agent).toContain("getEffectivePrinterStatus");
   });
 

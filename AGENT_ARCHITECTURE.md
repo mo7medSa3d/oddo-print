@@ -91,7 +91,7 @@ Either way, the physical outcome is recorded as UNKNOWN.
 2. **Full discovery** (async, 2s after startup):
    - Network TCP 9100 scan
    - USB enumeration (Windows)
-   - IPP endpoint probes and IPP/IPPS DNS-SD advertisements; advertisements remain candidates until verified
+   - IPP endpoint probes and IPP/IPPS DNS-SD advertisements; a valid DNS-SD advertisement supplies explicit IPP/IPPS transport metadata and may enter runtime inventory, while physical health remains `unknown` until the bounded runtime IPP status probe observes the endpoint
    - LPR/LPD discovery-only probes (candidates are not registered because LPR execution is not supported)
    - SNMP sysDescr queries across local private interfaces; identity and read-only discovery do not prove print capability
    - WSD discovery

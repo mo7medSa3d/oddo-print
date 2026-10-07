@@ -33,6 +33,24 @@ export function fencedJobWrite(
 }
 
 /**
+ * Admission-time lifecycle fence for NEW physical execution (claimed ->
+ * printing). Authentication checks agent/tenant lifecycle, but a disable or
+ * suspension landing between authentication and the status UPDATE must not
+ * grant printing admission. These EXISTS predicates are the final
+ * in-statement guard. The claimed -> printing route also locks the job row
+ * first, then reads and FOR SHARE-locks the current agent/tenant rows in a
+ * fresh READ COMMITTED statement. That transaction is the serialization
+ * boundary; these predicates remain defense in depth. Terminal reconciliation
+ * paths must NOT use this gate: reporting an outcome is independent of liveness.
+ */
+export function printingAdmissionLifecycleFence(agentId: string, tenantId: string): SQL[] {
+  return [
+    sql`EXISTS (SELECT 1 FROM agents WHERE id = ${agentId} AND tenant_id = ${tenantId} AND lifecycle = 'active')`,
+    sql`EXISTS (SELECT 1 FROM tenants WHERE id = ${tenantId} AND lifecycle = 'active')`,
+  ];
+}
+
+/**
  * Fencing for delivery-evidence writes (markDelivered / job_ack). These do
  * not change status but are still attributed to one specific claim: a
  * delivery or ack from a superseded attempt must not touch the current

@@ -36,6 +36,7 @@ import {
 } from "../../../components/ui";
 import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 
 type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
@@ -83,12 +84,14 @@ export default function PlatformPlansPage() {
   const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<Plan | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   useEffect(() => {
     let ignore = false;
+    const controller = new AbortController();
     async function load() {
       try {
-        const res = await fetch("/api/platform/plans", { cache: "no-store" });
+        const res = await fetchWithTimeout("/api/platform/plans", { cache: "no-store", signal: controller.signal });
         const data = await res.json().catch(() => null);
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.plans.loadFailed"));
@@ -98,7 +101,7 @@ export default function PlatformPlansPage() {
       finally { if (!ignore) setLoading(false); }
     }
     void load();
-    return () => { ignore = true; };
+    return () => { ignore = true; controller.abort(); };
   }, [reloadKey, t]);
 
   const filtered = useMemo(() => {
@@ -113,15 +116,19 @@ export default function PlatformPlansPage() {
   function closeEditor() { setCreating(false); setEditing(null); }
 
   async function archivePlan(plan: Plan) {
-    setError(null); setNotice(null);
+    setError(null); setNotice(null); setArchiveError(null);
     setArchiveBusy(true);
     try {
-      const res = await fetch(`/api/platform/plans/${plan.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: false }) });
+      const res = await fetchWithTimeout(`/api/platform/plans/${plan.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive: false }) });
       if (!res.ok) throw new Error(t("platform.plans.archiveFailed"));
       setNotice(t("platform.plans.archivedNotice", { name: plan.name }));
       setArchiving(null);
       refresh(false);
-    } catch (err) { setError(err instanceof Error ? err.message : t("platform.plans.archiveFailed")); }
+    } catch (err) {
+      // Inside the confirm dialog's focus scope: the page-level error would
+      // render behind the inert modal and read as unrelated (C061).
+      setArchiveError(err instanceof Error ? err.message : t("platform.plans.archiveFailed"));
+    }
     finally { setArchiveBusy(false); }
   }
 
@@ -130,7 +137,7 @@ export default function PlatformPlansPage() {
     const url = isNew ? "/api/platform/plans" : `/api/platform/plans/${form.id}`;
     const payload = { id: form.id, name: form.name, description: form.description, stripePriceId: form.stripePriceId, stripeProductId: form.stripeProductId || undefined, currency: form.currency, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
     try {
-      const res = await fetch(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetchWithTimeout(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(t("platform.plans.saveFailed"));
       closeEditor();
       setNotice(isNew ? t("platform.plans.createdNotice", { name: form.name }) : t("platform.plans.updatedNotice", { name: form.name }));
@@ -215,7 +222,7 @@ export default function PlatformPlansPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-base font-[650] text-ink">{plan.name}</div>
-                      <Mono className="mt-1 block break-all text-xs">{plan.id}</Mono>
+                      <span dir="ltr" className="mt-1 block"><Mono className="break-all text-xs">{plan.id}</Mono></span>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                       {plan.isActive ? (
@@ -236,9 +243,9 @@ export default function PlatformPlansPage() {
                     <p className="text-sm leading-relaxed text-ink-3">{plan.description}</p>
                   )}
 
-                  <dl className="grid grid-cols-2 gap-2">
+                  <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-edge-subtle bg-edge-subtle">
                     {(Object.entries(plan.entitlements) as Array<[EntitlementKey, number | "unlimited"]>).map(([k, v]) => (
-                      <div key={k} className="rounded-md border border-edge-subtle bg-surface-2 px-3 py-2">
+                      <div key={k} className="bg-surface-2 px-3 py-2.5">
                         <dt className="text-xs text-ink-4">{t(ENTITLEMENT_LABEL_KEYS[k])}</dt>
                         <dd className="mt-0.5 text-sm font-[650] tabular-nums text-ink">
                           {v === "unlimited" ? t("platform.plans.unlimited") : formatNumber(v)}
@@ -386,7 +393,7 @@ export default function PlatformPlansPage() {
 
       <ConfirmDialog
         open={archiving !== null}
-        onClose={() => { if (!archiveBusy) setArchiving(null); }}
+        onClose={() => { if (!archiveBusy) { setArchiving(null); setArchiveError(null); } }}
         onConfirm={() => { if (archiving) void archivePlan(archiving); }}
         busy={archiveBusy}
         tone="primary"
@@ -395,8 +402,13 @@ export default function PlatformPlansPage() {
         confirmLabel={t("platform.plans.archiveTitle")}
         cancelLabel={t("platform.plans.keepPlan")}
       >
+        {archiveError && (
+          <p role="alert" className="mb-3 rounded-md border border-bad-edge bg-bad-bg px-3.5 py-2.5 text-sm text-bad">
+            {archiveError}
+          </p>
+        )}
         {archiving && (
-          <div className="flex items-start gap-3 rounded-sg border border-edge bg-surface-2 p-3.5">
+          <div className="flex items-start gap-3 rounded-md border border-edge bg-surface-2 p-3.5">
             <ArchiveRestore className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-2">
               {archiving.activeSubscriberCount === 0 ? (
@@ -489,7 +501,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder={t("platform.plans.field.descriptionPlaceholder")} className="resize-none" />
         </Field>
 
-        <div className="sm:col-span-2 rounded-sg border border-edge bg-surface-2 p-4">
+        <div className="sm:col-span-2 rounded-md border border-edge bg-surface-2 p-4">
           <div className="mb-1 text-base font-[600] text-ink">{t("platform.plans.entitlementsTitle")}</div>
           <p className="mb-4 text-sm leading-relaxed text-ink-3">
             {t("platform.plans.entitlementsBody")}
@@ -507,19 +519,19 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
           </div>
         </div>
 
-        <label className="flex items-start justify-between gap-4 rounded-sg border border-edge bg-surface-2 px-4 py-3">
+        <label className="flex min-h-14 items-start justify-between gap-4 rounded-md border border-edge bg-surface-2 px-4 py-3">
           <span className="min-w-0">
             <span className="block text-base font-[550] text-ink">{t("platform.plans.editor.activeTitle")}</span>
             <span className="mt-0.5 block text-sm text-ink-3">{t("platform.plans.editor.activeBody")}</span>
           </span>
-          <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
+          <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
         </label>
-        <label className="flex items-start justify-between gap-4 rounded-sg border border-edge bg-surface-2 px-4 py-3">
+        <label className="flex min-h-14 items-start justify-between gap-4 rounded-md border border-edge bg-surface-2 px-4 py-3">
           <span className="min-w-0">
             <span className="block text-base font-[550] text-ink">{t("platform.plans.editor.publicTitle")}</span>
             <span className="mt-0.5 block text-sm text-ink-3">{t("platform.plans.editor.publicBody")}</span>
           </span>
-          <input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
+          <input type="checkbox" checked={form.isPublic} onChange={(e) => setForm({ ...form, isPublic: e.target.checked })} className="mt-0.5 h-5 w-5 shrink-0 accent-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
         </label>
       </div>
 

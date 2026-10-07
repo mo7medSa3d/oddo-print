@@ -50,8 +50,11 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0075 | 1 | Discovery state-machine CHECKs and drop of the redundant device-identity index |
 
 | 0076 | 1 | Candidate provisioning discovery CHECK |
+| 0077 | 1 | Durable per-Agent inventory snapshots and ordering state |
+| 0078 | 1 | Hot-path query indexes for jobs, audit events, Agents, and printers |
+| 0079 | 1 | Stable bounded Team member/invitation pagination indexes |
 
-**Total**: 77 historical migrations (0000–0076), followed by hash-versioned forward repairs in `scripts/db-migrate.ts`.
+**Total**: 80 forward-only SQL migrations (0000–0079), plus retained hash-versioned forward repairs in `scripts/db-migrate.ts`.
 
 The production migrator applies every unapplied hash under one advisory lock, regardless of regressing historical timestamps. Forward repairs add retained terminal receipts, Stripe revision/checkout intent fields and price history, terminal claim hashes, and the payload null-check repair; existing SQL and repair hashes must never be rewritten.
 

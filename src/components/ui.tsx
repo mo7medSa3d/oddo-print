@@ -69,20 +69,12 @@ const toneIconSurface: Record<Tone, string> = {
   brand: "border-edge-accent bg-brand-subtle text-brand",
 };
 
-export function agentTone(status: string): Tone {
-  const s = String(status).toLowerCase();
-  if (s === "online" || s === "running" || s === "active") return "ok";
-  if (s === "offline" || s === "stopped" || s === "error" || s === "retired") return "bad";
-  if (s === "disabled") return "warn";
-  return "neutral";
-}
-
 export function printerTone(status: string): Tone {
   return sharedPrinterTone(String(status)) as Tone;
 }
 
-export function jobTone(status: string): Tone {
-  return sharedJobTone(String(status)) as Tone;
+export function jobTone(status: string, outcome?: "printed" | "not_printed" | "unknown"): Tone {
+  return sharedJobTone(String(status), outcome) as Tone;
 }
 
 /** Focus treatment shared by every interactive control. */
@@ -114,8 +106,8 @@ const buttonVariants: Record<ButtonVariant, string> = {
 };
 
 const buttonSizes: Record<"sm" | "md" | "lg", string> = {
-  sm: "h-8 px-2.5 text-xs gap-1.5 rounded-sm",
-  md: "h-9 px-3.5 text-sm gap-1.5 rounded-sm",
+  sm: "h-9 px-3 text-xs gap-1.5 rounded-sm",
+  md: "h-10 px-3.5 text-sm gap-1.5 rounded-sm",
   lg: "h-11 px-5 text-base gap-2 rounded-md",
 };
 
@@ -167,6 +159,12 @@ export function Button({
       }
       props.onClick?.(event as unknown as React.MouseEvent<HTMLButtonElement>);
     };
+    // Button props are button-element attributes: forward only the
+    // global/ARIA/data attributes a link may carry, never button-only ones.
+    const linkPassthrough: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(props)) {
+      if (key.startsWith("aria-") || key.startsWith("data-")) linkPassthrough[key] = value;
+    }
 
     return (
       <Link
@@ -180,6 +178,7 @@ export function Button({
         onClick={handleLinkClick}
         title={props.title}
         id={props.id}
+        {...linkPassthrough}
       >
         {content}
       </Link>
@@ -215,7 +214,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
       {...props}
     >
       {children}
@@ -434,7 +433,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`group relative rounded-xl border border-edge bg-surface p-4 shadow-card transition-[border-color,box-shadow,transform] duration-[200ms] ease-out hover:-translate-y-px hover:border-edge-strong hover:shadow-card-hover ${className}`}
+      className={`group relative rounded-md border border-edge bg-surface p-4 transition-colors duration-150 hover:border-edge-strong ${className}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="label-caps text-ink-3">{title}</span>
@@ -453,7 +452,7 @@ export function StatCard({
         </span>
         {trend && (
           <span
-            className={`text-2xs font-[600] ${trend.positive === false ? "text-bad" : "text-ok"}`}
+            className={`text-xs font-[600] ${trend.positive === false ? "text-bad" : "text-ok"}`}
           >
             {trend.text}
           </span>
@@ -589,8 +588,8 @@ export function EmptyState({
   size?: "sm" | "md";
   className?: string;
 }) {
-  const pad = size === "sm" ? "px-5 py-8" : "px-6 py-12 sm:py-14";
-  const tile = size === "sm" ? "h-10 w-10 rounded-md" : "h-12 w-12 rounded-lg";
+  const pad = size === "sm" ? "px-5 py-7" : "px-6 py-9 sm:py-10";
+  const tile = size === "sm" ? "h-9 w-9 rounded-md" : "h-11 w-11 rounded-md";
   return (
     <div className={`flex flex-col items-center justify-center text-center ${pad} ${className}`}>
       <div
@@ -761,10 +760,10 @@ export function PageSkeleton({
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[104px] rounded-xl" />
+          <Skeleton key={i} className="h-[104px] rounded-md" />
         ))}
       </div>
-      <Skeleton className="h-[360px] rounded-2xl" />
+      <Skeleton className="h-[360px] rounded-md" />
     </div>
   );
 }
@@ -848,7 +847,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-10 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
+  "w-full h-11 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
 
 function useFieldProps({
   id,
@@ -959,13 +958,22 @@ export function Checkbox({
   const descId = description ? `${inputId}-description` : undefined;
   return (
     <div className={`flex items-start gap-2.5 ${className}`}>
-      <input
-        id={inputId}
-        type="checkbox"
-        aria-describedby={descId}
-        className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50`}
-        {...props}
-      />
+      <span className="relative mt-0.5 flex h-4 w-4 shrink-0">
+        <input
+          id={inputId}
+          type="checkbox"
+          aria-describedby={descId}
+          className="peer h-4 w-4 cursor-pointer appearance-none rounded-xs border border-control bg-surface transition-colors duration-[120ms] checked:border-brand checked:bg-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app disabled:cursor-not-allowed disabled:opacity-50"
+          {...props}
+        />
+        {/* Non-color checked indicator: the brand fill alone is not
+            discernible without color vision (C048). */}
+        <Check
+          className="pointer-events-none absolute inset-0 h-4 w-4 p-[3px] text-brand-contrast opacity-0 transition-opacity duration-[120ms] peer-checked:opacity-100 peer-disabled:opacity-0"
+          aria-hidden
+          strokeWidth={3.5}
+        />
+      </span>
       <div className="min-w-0">
         <label htmlFor={inputId} className="block cursor-pointer text-sm font-[500] text-ink">
           {label}
@@ -1049,7 +1057,7 @@ export function DataTableShell({
   className?: string;
 }) {
   return (
-    <div className={`overflow-hidden rounded-xl border border-edge bg-surface ${className}`}>
+    <div className={`overflow-hidden rounded-md border border-edge bg-surface ${className}`}>
       {children}
     </div>
   );
@@ -1383,7 +1391,16 @@ export function Menu({
                     aria-disabled={item.disabled || undefined}
                     data-variant={item.tone === "danger" ? "danger" : undefined}
                     className="menu-item"
-                    onClick={() => close(false)}
+                    onClick={(event) => {
+                      // aria-disabled alone does not stop a link: a disabled
+                      // menu link must not navigate (C048).
+                      if (item.disabled) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                      }
+                      close(false);
+                    }}
                   >
                     {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
@@ -1500,7 +1517,7 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             onClick={() => onChange(t)}
-            className={`relative flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
+            className={`relative flex h-9 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
               selected
                 ? "bg-surface text-ink shadow-xs ring-1 ring-inset ring-edge"
                 : "text-ink-3 hover:bg-surface-2 hover:text-ink"
@@ -1539,7 +1556,7 @@ export function SegmentedControl<T extends string>({
   className?: string;
 }) {
   const pad = size === "sm" ? "p-0.5" : "p-0.5";
-  const item = size === "sm" ? "h-7 px-2 text-xs" : "h-8 px-2.5 text-sm";
+  const item = size === "sm" ? "h-8 px-2 text-xs" : "h-9 px-2.5 text-sm";
   return (
     <div
       role="group"
@@ -1553,6 +1570,7 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             type="button"
             aria-pressed={selected}
+            aria-label={option.icon ? option.label : undefined}
             onClick={() => onChange(option.value)}
             className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm font-[550] transition-[background-color,color,box-shadow] duration-150 ${item} ${focusRing} ${
               selected
@@ -1739,7 +1757,7 @@ export function Modal({
         aria-label={title}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`pg-scale-in relative z-[1] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden border border-edge-strong bg-surface shadow-2xl outline-none sm:my-auto sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl ${
+        className={`pg-scale-in relative z-[1] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden border border-edge-strong bg-surface shadow-2xl outline-none sm:my-auto sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-md ${
           wide ? "sm:max-w-3xl" : "sm:max-w-[480px]"
         }`}
       >
@@ -2030,7 +2048,7 @@ export function Toast({
     <div
       role={toast.type === "error" ? "alert" : "status"}
       aria-live={toast.type === "error" ? "assertive" : "polite"}
-      className={`pg-toast-in fixed bottom-5 end-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-xl backdrop-blur-xl ${toneBg[tone]}`}
+      className={`pg-toast-in fixed bottom-5 end-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-md border px-4 py-3 text-sm shadow-lg ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

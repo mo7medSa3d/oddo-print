@@ -44,14 +44,15 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 
-  it("dynamically computes live agent status using isAgentAvailableForJob", () => {
+  it("dynamically computes truthful current agent status from fresh evidence", () => {
     const agentRoute = read("src/app/api/odoo/agents/route.ts");
-    expect(agentRoute).toContain("isAgentAvailableForJob");
-    expect(agentRoute).toContain("isAgentAvailableForJob(agent, now) ? \"online\" : \"offline\"");
+    expect(agentRoute).toContain("getEffectiveAgentStatus");
+    expect(agentRoute).toContain("reportedStatus: agent.status");
+    expect(agentRoute).toContain("freshness: getAgentHeartbeatFreshness");
 
     const agentFieldJs = read("odoo_addons/print_gateway/static/src/components/runtime_agent_field.js");
-    expect(agentFieldJs).toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/>");
-    expect(agentFieldJs).not.toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/> — <t t-esc=\"agent.status\"/>");
+    expect(agentFieldJs).toContain('const raw = agent?.status || "unknown"');
+    expect(agentFieldJs).not.toContain("agent?.reportedStatus || agent?.status");
   });
 
   it("uses the paired Agent identity for the Desktop Gateway console without Manager login UI", () => {
@@ -113,7 +114,11 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
 
     const mainTsx = read("src/desktop/main.tsx");
     expect(mainTsx).toContain("onGatewayConfigChanged");
-    expect(mainTsx).toContain("const healthOk = Boolean(health && (health as { ok?: boolean }).ok !== false && !healthError);");
+    // Affirmative health only (C046): an empty/missing health object, a stale
+    // probe, or a non-true ok flag must never read as connected.
+    expect(mainTsx).toContain("ok === true");
+    expect(mainTsx).toContain("healthFresh");
+    expect(mainTsx).toContain("healthCheckedAt");
     expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const [checkedGatewayUrl, setCheckedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const probeGateway = useCallback(async (targetUrl: string): Promise<boolean>");
@@ -124,7 +129,8 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(mainTsx).toContain("Auto-probe only the already-persisted Gateway");
     expect(mainTsx).toContain("const raw = savedGatewayUrl.trim();");
     expect(mainTsx).toContain("await setGatewayUrl(target);");
-    expect(mainTsx).toContain('setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });');
+    expect(mainTsx).toContain('text: saveWarning ?? t("desktop.app.connectionVerified")');
+    expect(mainTsx).toContain('type: saveWarning ? "info" : "success"');
     expect(mainTsx).toContain('setMsg({ text: t("desktop.app.gatewaySettingsReadFailed"), type: "error" });');
     expect(mainTsx).not.toContain("const saveGateway = useCallback");
 

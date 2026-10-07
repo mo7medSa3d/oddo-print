@@ -9,7 +9,7 @@ import { logInfo, logWarn, requestIdFrom } from "../../../../lib/log";
 import { incrementMetric } from "../../../../lib/metrics";
 import { MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "../../../../lib/job-maintenance";
 import { CLAIM_RETURNING, MAX_DELIVERY_ATTEMPTS, MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../lib/job-delivery";
-import { fencedJobWrite } from "../../../../lib/job-fencing";
+import { fencedJobWrite, printingAdmissionLifecycleFence } from "../../../../lib/job-fencing";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
 import { refreshClockSkew } from "../../../../lib/database-clock";
@@ -48,6 +48,23 @@ const printerEligibilityPredicate = sql`
 
 const MAX_CLAIM_BATCH = 20;
 const MAX_ERROR_LENGTH = 2000;
+
+// MAX_POLL_RESPONSE_BYTES bounds one serialized poll response BELOW the
+// agent's inbound reader (agent/internal/agent/agent.go pollJobsByteLimit =
+// 20 × 5 MiB = 100 MiB). Budgets are measured on the encoded wire form:
+// base64 has no JSON-escapable characters, so payload data length plus a
+// fixed per-row overhead is exact for the bulk. Twenty maximum-size jobs
+// would frame at ~140 MiB and the agent would fail the whole batch decode
+// while the claims stayed delivery-pending; trimming here returns what fits
+// and the stale-claim path safely reclaims the remainder on a later poll.
+const MAX_POLL_RESPONSE_BYTES = 64 * 1024 * 1024;
+const POLL_ROW_OVERHEAD_BYTES = 2048;
+
+function estimatedPollRowBytes(row: Record<string, unknown>): number {
+  const payload = row.payload as { data?: unknown } | null | undefined;
+  const dataLen = payload && typeof payload.data === "string" ? payload.data.length : 0;
+  return dataLen + POLL_ROW_OVERHEAD_BYTES;
+}
 
 /**
  * CLAIM_RETURNING rows come back from raw execute() as naive UTC timestamp
@@ -234,12 +251,28 @@ export async function GET(req: Request) {
     ? await db.transaction((tx) => claimJobs(tx as { execute: typeof db.execute }))
     : await claimJobs(db);
 
-  return NextResponse.json((rows as Array<Record<string, unknown>>).map((row) => ({
+  const mapped = (rows as Array<Record<string, unknown>>).map((row) => ({
     ...row,
     expiresAt: toWireIso(row.expiresAt),
     createdAt: toWireIso(row.createdAt),
     physicalOutcome: derivePhysicalOutcome(String(row.status ?? ""), typeof row.error === "string" ? row.error : null),
-  })));
+  }));
+
+  // Fill the response in claim (priority, age) order without exceeding the
+  // wire budget. Claimed-but-unreturned rows keep their fenced claim with
+  // delivery-pending evidence; the stale-claim path reclaims them on a
+  // later poll (burning one retry, never duplicating physical output since
+  // nothing was dispatched). The first row is always returned to guarantee
+  // progress even if a single document ever approaches the budget alone.
+  const budgeted: Array<Record<string, unknown>> = [];
+  let usedBytes = 2; // outer JSON array brackets
+  for (const row of mapped) {
+    const cost = estimatedPollRowBytes(row) + 1; // +1 separator comma
+    if (budgeted.length > 0 && usedBytes + cost > MAX_POLL_RESPONSE_BYTES) break;
+    budgeted.push(row);
+    usedBytes += cost;
+  }
+  return NextResponse.json(budgeted);
 }
 
 function stageForStatus(status: string): "printing" | "success" | "failed" | "expired" | "blocked" | "delivery" | "accepted" | "connection" {
@@ -580,7 +613,7 @@ export async function PATCH(req: Request) {
   const nextError = lateSuccess ? `LATE_SUCCESS: ${job.error ?? "AGENT_EXECUTION_TIMEOUT"}` : errorMessage;
   const retainsLateSuccessFence = requestedStatus === "failed"
     && LATE_SUCCESS_ERROR_MARKERS.some((marker) => nextError?.startsWith(marker));
-  const updated = await db.update(printJobs)
+  const runStatusUpdate = (executor: Pick<typeof db, "update">) => executor.update(printJobs)
     .set({
       status: requestedStatus,
       error: nextError,
@@ -606,8 +639,42 @@ export async function PATCH(req: Request) {
     .where(and(
       fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
       lateSuccess ? sql`${printJobs.updatedAt} >= now() - make_interval(secs => ${Math.floor(LATE_SUCCESS_MAX_AGE_MS / 1000)}) AND ${printJobs.updatedAt} <= now()` : requestedStatus === "printing" ? sql`${printJobs.expiresAt} > now()` : sql`TRUE`,
+      // New physical-execution admission must serialize with the CURRENT
+      // agent and tenant lifecycle at the statement boundary, not just at
+      // authentication time: disabling the agent or suspending its tenant
+      // between validateAgent and this UPDATE must not grant printing
+      // admission. Terminal reconciliation paths stay independent of this
+      // gate. Printer desired-state/entitlement were verified at claim
+      // time and re-checked agent-side before hardware (isPrinterExecutionAllowed).
+      ...(requestedStatus === "printing" ? printingAdmissionLifecycleFence(agent.id, agent.tenantId) : []),
     ))
     .returning({ status: printJobs.status, error: printJobs.error });
+
+  let updated: Array<{ status: string; error: string | null }>;
+  if (requestedStatus === "printing") {
+    updated = await db.transaction(async (tx) => {
+      const lockedJob = await tx.execute(sql`
+        SELECT id FROM print_jobs
+        WHERE id = ${jobId} AND tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
+        FOR UPDATE
+      `);
+      if (lockedJob.rows.length !== 1) return [];
+
+      const lifecycle = await tx.execute(sql`
+        SELECT a.lifecycle AS agent_lifecycle, t.lifecycle AS tenant_lifecycle
+        FROM agents a
+        JOIN tenants t ON t.id = a.tenant_id
+        WHERE a.id = ${agent.id} AND a.tenant_id = ${agent.tenantId}
+        FOR SHARE OF a, t
+      `);
+      const row = lifecycle.rows[0] as { agent_lifecycle?: unknown; tenant_lifecycle?: unknown } | undefined;
+      if (row?.agent_lifecycle !== "active" || row?.tenant_lifecycle !== "active") return [];
+
+      return runStatusUpdate(tx);
+    });
+  } else {
+    updated = await runStatusUpdate(db);
+  }
 
   if (updated.length !== 1) {
     const winner = await db.query.printJobs.findFirst({ where: whereClause });

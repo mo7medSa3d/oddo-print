@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeAgentHealthStatus } from "../src/lib/agent-health";
-import { agentLiveView } from "../src/shared/job-vocabulary";
+import { agentLiveView, effectivePrinterStatus } from "../src/shared/job-vocabulary";
 import { normalizePrinterStatus } from "../src/lib/printer-health";
 import { translate } from "../src/i18n/translate";
 
@@ -19,6 +19,17 @@ describe("cross-layer health freshness contracts", () => {
       // Assert against the resolved copy so this test checks the invariant
       // (a future heartbeat must not read as fresh) rather than frozen wording.
       .toBe(translate("en", "status.heartbeatLost"));
+  });
+
+  it("never upgrades stored online state without an observation timestamp", () => {
+    expect(agentLiveView({ status: "online", lifecycle: "active", lastSeenAt: null }, now.getTime())).toEqual({
+      tone: "neutral",
+      label: translate("en", "status.unknown"),
+    });
+    expect(effectivePrinterStatus({ status: "online", lifecycle: "active", lastSeenAt: null }, null, now.getTime()))
+      .toBe("unknown");
+    expect(effectivePrinterStatus({ status: "busy", lifecycle: "active" }, null, now.getTime()))
+      .toBe("unknown");
   });
 
   it("requires fresh parent-agent evidence for a printer to be ONLINE", () => {

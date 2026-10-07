@@ -132,15 +132,20 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
       return { name: "Printers", state: "unknown", messageKey: "health.printersNeedsTenant", message: "Printers check requires tenant context", latencyMs: Date.now() - start };
     }
     const result = await queryWithTimeout(
-      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT
+        COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total,
+        COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}))::int as ready,
+        COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as routable
+        FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
       2000,
       "systemHealthPrinters"
     );
-    const row = result.rows?.[0] as { total?: number | string; online?: number | string } | undefined;
+    const row = result.rows?.[0] as { total?: number | string; ready?: number | string; routable?: number | string } | undefined;
     const total = Number(row?.total ?? 0);
-    const online = Number(row?.online ?? 0);
-    if (total === 0) return { name: "Printers", state: "warn", messageKey: "health.printersNone", message: "No printers registered", latencyMs: Date.now() - start, details: { total, online, tenantId } };
-    return { name: "Printers", state: online > 0 ? "ok" : "warn", messageKey: "health.printersOnline", messageVars: { online, total }, message: `${online}/${total} printers online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
+    const ready = Number(row?.ready ?? 0);
+    const routable = Number(row?.routable ?? 0);
+    if (total === 0) return { name: "Printers", state: "warn", messageKey: "health.printersNone", message: "No printers registered", latencyMs: Date.now() - start, details: { total, ready, routable, tenantId } };
+    return { name: "Printers", state: routable > 0 ? "ok" : "warn", messageKey: "health.printersAvailable", messageVars: { available: routable, total }, message: `${routable}/${total} printers available for jobs`, latencyMs: Date.now() - start, details: { total, ready, routable, tenantId } };
   } catch (e) {
     return { name: "Printers", state: "unknown", messageKey: "health.printersFailed", message: `Printer check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
   }

@@ -107,7 +107,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not isinstance(agent_id, str) or not agent_id.strip() or lifecycle != 'active':
                 continue
             raw_name = agent.get('name') if isinstance(agent.get('name'), str) and agent.get('name').strip() else agent_id
-            status = agent.get('status') if isinstance(agent.get('status'), str) else 'offline'
+            status = agent.get('status') if isinstance(agent.get('status'), str) else 'unknown'
             reported_status = agent.get('reportedStatus') if isinstance(agent.get('reportedStatus'), str) else status
             freshness = agent.get('freshness') if agent.get('freshness') in {'fresh', 'stale', 'missing'} else 'missing'
             sanitized.append({

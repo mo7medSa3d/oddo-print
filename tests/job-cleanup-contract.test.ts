@@ -107,3 +107,17 @@ describe("print-job cleanup contract", () => {
     expect(src).toContain("SELECT clock_timestamp() AS now");
     expect(src).toContain("const effectiveExpiresAt = expiresAt ?? new Date(dbNow.getTime() + 60 * 60 * 1000);");
   });
+
+describe("print-job bulk memory bound", () => {
+  it("materializes full payload rows only in small inner batches on every archive path", () => {
+    const shared = read("src/shared/job-retention.ts");
+    expect(shared).toContain("RECEIPT_MATERIALIZE_BATCH_ROWS = 20");
+    for (const file of ["src/lib/job-maintenance.ts", "src/app/actions.ts", "src/app/api/jobs/route.ts"]) {
+      expect(read(file), file).toContain("RECEIPT_MATERIALIZE_BATCH_ROWS");
+    }
+    // The retention sweeper must page IDs first: no full-row select may span
+    // the whole outer limit in one statement.
+    const maintenance = read("src/lib/job-maintenance.ts");
+    expect(maintenance).toContain("SELECT id\n      FROM print_jobs");
+  });
+});

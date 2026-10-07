@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
@@ -70,12 +71,14 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState("");
+  const [workspaceProvisioned, setWorkspaceProvisioned] = useState(false);
   const router = useRouter();
 
-  const fetchPlans = useCallback(async (): Promise<Plan[]> => {
-    const response = await fetch("/api/billing/plans", {
+  const fetchPlans = useCallback(async (signal?: AbortSignal): Promise<Plan[]> => {
+    const response = await fetchWithTimeout("/api/billing/plans", {
       credentials: "include",
       cache: "no-store",
+      signal,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -84,53 +87,65 @@ export default function Onboarding() {
     return Array.isArray(data.plans) ? data.plans : [];
   }, [t]);
 
-  const loadPlans = useCallback(async () => {
+  const loadPlans = useCallback(async (signal?: AbortSignal) => {
     setPlansLoading(true);
     setPlansError("");
     try {
-      const nextPlans = await fetchPlans();
+      const nextPlans = await fetchPlans(signal);
       const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
+      if (signal?.aborted) return;
       setPlans(nextPlans);
+      // Hydrate existing workspace state from the onboarding contract: a
+      // returning operator sees their saved name and plan, and an already
+      // provisioned subscription reconciles instead of offering a second
+      // trial after a lost response (C060).
+      let existingPlanId = "";
+      let provisioned = false;
+      try {
+        const stateRes = await fetchWithTimeout("/api/onboarding", {
+          credentials: "include",
+          cache: "no-store",
+          signal,
+        });
+        if (stateRes.ok) {
+          const state = await stateRes.json();
+          if (signal?.aborted) return;
+          const tenantName = typeof state?.tenant?.name === "string" ? state.tenant.name : "";
+          if (tenantName) setName((current) => current || tenantName);
+          const subPlanId = typeof state?.subscription?.planId === "string" ? state.subscription.planId : "";
+          if (subPlanId && nextPlans.some((plan) => plan.id === subPlanId)) existingPlanId = subPlanId;
+          const subStatus = typeof state?.subscription?.status === "string" ? state.subscription.status : "";
+          provisioned = subStatus === "trialing" || subStatus === "active" || subStatus === "past_due";
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // State hydration is best-effort; plans remain selectable.
+      }
+      if (signal?.aborted) return;
+      setWorkspaceProvisioned(provisioned);
       setPlanId((current) => {
         if (current && nextPlans.some((plan) => plan.id === current)) return current;
+        if (existingPlanId) return existingPlanId;
         if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
         return nextPlans[0]?.id ?? "";
       });
     } catch (error) {
+      if (signal?.aborted) return;
       setPlans([]);
       setPlanId("");
       setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
     } finally {
-      setPlansLoading(false);
+      if (!signal?.aborted) setPlansLoading(false);
     }
   }, [fetchPlans, t]);
 
   useEffect(() => {
-    let cancelled = false;
-    const requestedPlanId = new URLSearchParams(window.location.search).get("plan") ?? "";
-    void fetchPlans()
-      .then((nextPlans) => {
-        if (cancelled) return;
-        setPlans(nextPlans);
-        setPlanId((current) => {
-          if (current && nextPlans.some((plan) => plan.id === current)) return current;
-          if (requestedPlanId && nextPlans.some((plan) => plan.id === requestedPlanId)) return requestedPlanId;
-          return nextPlans[0]?.id ?? "";
-        });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setPlans([]);
-        setPlanId("");
-        setPlansError(error instanceof Error ? error.message : t("onboarding.plansUnavailable"));
-      })
-      .finally(() => {
-        if (!cancelled) setPlansLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchPlans, t]);
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) void loadPlans(controller.signal);
+    });
+    return () => controller.abort();
+  }, [loadPlans]);
 
   async function submit(trial: boolean) {
     setErr("");
@@ -140,7 +155,7 @@ export default function Onboarding() {
     }
     setLoading(true);
     try {
-      const response = await fetch("/api/onboarding", {
+      const response = await fetchWithTimeout("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -148,13 +163,20 @@ export default function Onboarding() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "onboarding.failed"));
+        const code = typeof data.code === "string" ? data.code : undefined;
+        // An accepted-but-unobserved trial (lost response, double submit)
+        // reconciles against current state instead of offering the trial
+        // again as a generic conflict (C060).
+        if (response.status === 409) {
+          await loadPlans();
+        }
+        throw new Error(t(codeMessageKey(code) ?? "onboarding.failed"));
       }
       if (trial) {
         router.replace("/dashboard");
         return;
       }
-      const checkout = await fetch("/api/billing/checkout", {
+      const checkout = await fetchWithTimeout("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -244,7 +266,7 @@ export default function Onboarding() {
                 {plansLoading ? (
                   <div className="grid gap-3 md:grid-cols-2" role="status" aria-label={t("onboarding.loadingPlansAria")}>
                     {[0, 1].map((item) => (
-                      <div key={item} className="space-y-3 rounded-xl border border-edge bg-surface-2 p-4">
+                      <div key={item} className="space-y-3 rounded-md border border-edge bg-surface-2 p-4">
                         <Skeleton className="h-4 w-28" />
                         <Skeleton className="h-3 w-20" />
                         <Skeleton className="h-3 w-full" />
@@ -278,7 +300,7 @@ export default function Onboarding() {
                           aria-checked={selected}
                           disabled={loading}
                           onClick={() => setPlanId(plan.id)}
-                          className={`rounded-xl border p-4 text-start transition-[border-color,background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
+                          className={`rounded-md border p-4 text-start transition-[border-color,background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:shadow-[var(--focus-ring-shadow)] ${
                             selected
                               ? "border-brand bg-brand-subtle shadow-xs"
                               : "border-edge bg-surface hover:border-edge-strong hover:bg-surface-2"
@@ -322,6 +344,11 @@ export default function Onboarding() {
               {err && (
                 <Callout tone="bad" title={t("onboarding.setupFailedTitle")} icon={<AlertTriangle className="h-4 w-4" />}>
                   {err}
+                </Callout>
+              )}
+              {workspaceProvisioned && !err && (
+                <Callout tone="ok" title={t("onboarding.alreadySetupTitle")}>
+                  {t("onboarding.alreadySetupBody")}
                 </Callout>
               )}
             </div>

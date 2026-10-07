@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Shield, Search, RefreshCw, ChevronDown, ScrollText } from "lucide-react";
 import {
@@ -73,7 +74,7 @@ export default function PlatformAuditPage() {
     let ignore = false;
     async function load() {
       try {
-        const res = await fetch("/api/platform/audit?limit=150");
+        const res = await fetchWithTimeout("/api/platform/audit?limit=150");
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.audit.loadFailed"));
         const data = await res.json();
@@ -87,12 +88,21 @@ export default function PlatformAuditPage() {
 
   function handleRefresh() { setLoading(true); setReloadKey((k) => k + 1); }
 
+  // Actor scope, not actor kind, decides the bucket: a `user` row carrying a
+  // tenantId is tenant-scoped activity, not platform staff. Only platform
+  // actors (or users without tenant scope) count as staff (C061).
+  const inStaff = (tenantId: string | null, actorType: ActorType) =>
+    actorType === "platform" || (actorType === "user" && !tenantId);
+  const inTenant = (tenantId: string | null, actorType: ActorType) =>
+    !!tenantId || actorType === "system" || actorType === "odoo";
+  const inMachine = (actorType: ActorType) => actorType === "agent" || actorType === "desktop";
+
   const counts = useMemo(
     () => ({
       all: events.length,
-      platform: events.filter((e) => e.actorType === "platform" || e.actorType === "user").length,
-      tenant: events.filter((e) => e.actorType === "system" || e.actorType === "odoo").length,
-      machine: events.filter((e) => e.actorType === "agent" || e.actorType === "desktop").length,
+      platform: events.filter((e) => inStaff(e.tenantId, e.actorType)).length,
+      tenant: events.filter((e) => inTenant(e.tenantId, e.actorType)).length,
+      machine: events.filter((e) => inMachine(e.actorType)).length,
     }),
     [events],
   );
@@ -109,10 +119,10 @@ export default function PlatformAuditPage() {
       filter === "all"
         ? true
         : filter === "platform"
-          ? e.actorType === "platform" || e.actorType === "user"
+          ? inStaff(e.tenantId, e.actorType)
           : filter === "tenant"
-            ? e.actorType === "system" || e.actorType === "odoo"
-            : e.actorType === "agent" || e.actorType === "desktop";
+            ? inTenant(e.tenantId, e.actorType)
+            : inMachine(e.actorType);
     return matchesSearch && matchesFilter;
   });
 
@@ -208,7 +218,7 @@ export default function PlatformAuditPage() {
                   return (
                     <Fragment key={e.id}>
                       <tr>
-                        <td className="whitespace-nowrap font-mono text-2xs tabular text-ink-3">
+                        <td dir="ltr" className="whitespace-nowrap font-mono text-xs tabular text-ink-3 [unicode-bidi:plaintext]">
                           {formatDateTime(e.createdAt)}
                         </td>
                         <td>
@@ -217,16 +227,16 @@ export default function PlatformAuditPage() {
                         <td>
                           <div className="flex items-center gap-2">
                             <StatusBadge tone={ACTOR_TONE[e.actorType] ?? "neutral"} label={actorLabel(e.actorType, t)} size="sm" />
-                            <span className="max-w-[160px] truncate font-mono text-2xs text-ink-3" title={e.actorId ?? undefined}>
+                            <span dir="ltr" className="max-w-[180px] truncate font-mono text-xs text-ink-3 [unicode-bidi:plaintext]" title={e.actorId ?? undefined}>
                               {e.actorId || "—"}
                             </span>
                           </div>
                         </td>
                         <td>
                           <div className="text-sm font-[550] text-ink">{e.tenantName || e.tenantId || t("platform.audit.platformScope")}</div>
-                          <div className="mt-0.5 font-mono text-2xs text-ink-4">{e.tenantId ?? "—"}</div>
+                          <div dir="ltr" className="mt-0.5 font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{e.tenantId ?? "—"}</div>
                         </td>
-                        <td className="text-2xs text-ink-4">
+                        <td dir="ltr" className="font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">
                           {e.resourceType ? `${e.resourceType}: ${e.resourceId ?? "—"}` : "—"}
                         </td>
                         <td className="text-end">
@@ -236,7 +246,7 @@ export default function PlatformAuditPage() {
                               onClick={() => setExpanded(open ? null : e.id)}
                               aria-expanded={open}
                               aria-label={open ? t("platform.audit.hideMetadata") : t("platform.audit.showMetadata")}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-edge bg-surface text-ink-3 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-edge bg-surface text-ink-3 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
                             >
                               <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`} aria-hidden />
                             </button>
@@ -246,7 +256,7 @@ export default function PlatformAuditPage() {
                       {open && hasMetadata && (
                         <tr>
                           <td colSpan={6} className="bg-surface-2">
-                            <pre className="max-h-52 overflow-auto font-mono text-2xs leading-relaxed text-ink-2">
+                            <pre dir="ltr" className="max-h-56 overflow-auto rounded-sm bg-app p-3 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
                               {JSON.stringify(e.metadata, null, 2)}
                             </pre>
                           </td>

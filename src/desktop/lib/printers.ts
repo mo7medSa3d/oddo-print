@@ -20,6 +20,7 @@ import {
   deriveOutcome as deriveOutcomeImpl,
   jobDisplayLabel as jobDisplayLabelImpl,
   jobTone as jobToneImpl,
+  printerObservationFreshness,
   printerLabel as printerLabelImpl,
 } from "../../shared/job-vocabulary";
 import { DEFAULT_LOCALE, type Locale } from "../../i18n/config";
@@ -75,18 +76,33 @@ export function printerAgentView(
   locale: Locale = DEFAULT_LOCALE,
 ): { tone: Tone; label: string } {
   return agentLiveView(
-    { status: printer.agentStatus ?? null, lastSeenAt: printer.agentLastSeenAt ?? null },
+    {
+      status: printer.agentStatus ?? null,
+      lastSeenAt: printer.agentLastSeenAt ?? null,
+      staleThresholdSeconds: printer.agentStaleThresholdSeconds ?? null,
+    },
     nowMs,
     locale,
   );
 }
 
-export function printerIsStale(p: PrinterInfo | null | undefined): boolean {
-  return !!p && p.freshness === "stale";
+export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.now()): boolean {
+  if (!p) return false;
+  if (p.freshness === "stale") return true;
+  // The snapshot field above ages: recompute from the observation timestamp
+  // as the screen stays open so a printer cannot stay green after its
+  // observations go stale (C045).
+  if (p.lastSeenAt == null) return false;
+  const seen = Date.parse(String(p.lastSeenAt));
+  if (!Number.isFinite(seen)) return true;
+  return printerObservationFreshness(new Date(seen), nowMs) !== "fresh";
 }
 
 export function printerDisplayStatus(p: PrinterInfo): string {
-  return printerIsStale(p) && p.reportedStatus ? p.reportedStatus : p.status;
+  // `/api/printers` already exposes an evidence-based current status. The
+  // reportedStatus field is historical/diagnostic evidence only; using it
+  // when freshness is stale would resurrect an old Online/Offline claim.
+  return p.status || "unknown";
 }
 
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
@@ -308,6 +324,16 @@ export function jobTimestamp(
   const raw = j[key] ?? (key === "createdAt" ? j.created_at : j.updated_at);
   if (typeof raw === "string" || typeof raw === "number") return raw;
   return undefined;
+}
+
+/** Millis for newest-first ordering of bounded job snapshots. */
+export function jobTimeMs(j: Record<string, unknown>): number {
+  for (const key of ["updatedAt", "createdAt", "updated_at", "created_at"] as const) {
+    const raw = j[key];
+    const ms = typeof raw === "number" ? raw : Date.parse(String(raw ?? ""));
+    if (Number.isFinite(ms)) return ms;
+  }
+  return 0;
 }
 export function jobStatus(j: Record<string, unknown>): string {
   return String(j.status ?? "");

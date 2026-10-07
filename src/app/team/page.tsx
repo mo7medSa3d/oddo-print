@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
+import { roleLabel } from "../../lib/roles";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import type { MessageKey } from "../../i18n/messages/en";
 import { useRouter } from "next/navigation";
 import {
@@ -45,6 +47,7 @@ type Member = { userId: string; email: string; role: string };
 type Invitation = { id: string; email: string; role: string; expiresAt: string };
 
 const ROLE_VALUES = ["viewer", "operator", "admin", "integration_admin", "billing_admin"] as const;
+const TEAM_PAGE_SIZE = 50;
 
 /** Built per render so role names follow the active language. */
 function roleOptions(t: Translator) {
@@ -68,10 +71,6 @@ const ROLE_TONE: Record<string, "brand" | "info" | "ok" | "neutral" | "warn"> = 
 
 const ROLE_ORDER = [...ROLE_VALUES];
 
-function roleLabel(role: string) {
-  return role.replace(/_/g, " ");
-}
-
 function expiryLabel(expiresAt: string, t: Translator) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return "—";
@@ -87,7 +86,14 @@ export default function TeamPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const { t, tc, formatNumber } = useI18n();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [memberOffset, setMemberOffset] = useState(0);
+  const [memberHasMore, setMemberHasMore] = useState(false);
+  const [memberTotal, setMemberTotal] = useState(0);
+  const [invitationOffset, setInvitationOffset] = useState(0);
+  const [invitationHasMore, setInvitationHasMore] = useState(false);
+  const [invitationTotal, setInvitationTotal] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("viewer");
@@ -101,7 +107,13 @@ export default function TeamPage() {
     requestAnimationFrame(() => feedbackRef.current?.focus());
   }
 
-  const load = useCallback(async () => {
+  const loadGeneration = useRef(0);
+  const load = useCallback(async (requestedMemberOffset: number, requestedInvitationOffset: number) => {
+    // Generation guard: a slow initial load resolving after a mutation's
+    // reload must not publish an older snapshot over fresh state (C063).
+    const generation = ++loadGeneration.current;
+    const current = () => generation === loadGeneration.current;
+    setListLoading(true);
     // NOTE: no optimistic setLoadError(null) here — this function runs
     // inside the mount effect, where synchronous setState is a lint error
     // (cascading renders). Retry buttons clear the error in their own
@@ -109,17 +121,19 @@ export default function TeamPage() {
     try {
       const session = await ensureCustomerSession();
       if (!session.authenticated) { router.replace("/login?next=%2Fteam"); return; }
-      const probe = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+      const probe = await fetchWithTimeout("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (!probe.ok) throw new Error("Session unavailable");
       const principal = await probe.json();
       if (!principal.userId || !principal.permissions?.includes("users.read")) {
+        if (!current()) return;
         setLoadError(t("errors.forbidden"));
         return;
       }
       const [membersRes, invitationsRes] = await Promise.all([
-        fetch("/api/team/members", { credentials: "include", cache: "no-store" }),
-        fetch("/api/team/invitations", { credentials: "include", cache: "no-store" }),
+        fetchWithTimeout(`/api/team/members?limit=${TEAM_PAGE_SIZE}&offset=${requestedMemberOffset}`, { credentials: "include", cache: "no-store" }),
+        fetchWithTimeout(`/api/team/invitations?limit=${TEAM_PAGE_SIZE}&offset=${requestedInvitationOffset}`, { credentials: "include", cache: "no-store" }),
       ]);
+      if (!current()) return;
       if (!membersRes.ok || !invitationsRes.ok) {
         setLoadError(
           !membersRes.ok
@@ -128,13 +142,23 @@ export default function TeamPage() {
         );
         return;
       }
-      setMembers((await membersRes.json()).members ?? []);
-      setInvitations((await invitationsRes.json()).invitations ?? []);
+      const membersPayload = await membersRes.json();
+      const invitationsPayload = await invitationsRes.json();
+      setMembers(membersPayload.members ?? []);
+      setMemberHasMore(membersPayload.hasMore === true);
+      setMemberTotal(Number.isSafeInteger(membersPayload.total) ? membersPayload.total : 0);
+      setInvitations(invitationsPayload.invitations ?? []);
+      setInvitationHasMore(invitationsPayload.hasMore === true);
+      setInvitationTotal(Number.isSafeInteger(invitationsPayload.total) ? invitationsPayload.total : 0);
       setLoadError(null);
     } catch {
+      if (!current()) return;
       setLoadError(t("team.loadFailed"));
     } finally {
-      setLoaded(true);
+      if (current()) {
+        setLoaded(true);
+        setListLoading(false);
+      }
     }
   }, [t, router]);
 
@@ -145,19 +169,19 @@ export default function TeamPage() {
     // error (its state updates must run in a callback, as before).
     let active = true;
     void Promise.resolve().then(() => {
-      if (active) return load();
+      if (active) return load(memberOffset, invitationOffset);
     });
     return () => {
       active = false;
     };
-  }, [load]);
+  }, [load, memberOffset, invitationOffset]);
 
   async function invite(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/invitations", {
+      const response = await fetchWithTimeout("/api/team/invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -167,7 +191,11 @@ export default function TeamPage() {
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.invitationFailed"));
       setEmail("");
       showMessage(t("success.invitationSent"), "ok");
-      void load();
+      if (invitationOffset === 0) {
+        void load(memberOffset, 0);
+      } else {
+        setInvitationOffset(0);
+      }
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("team.invitationFailed"), "err");
     } finally {
@@ -179,7 +207,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/members", {
+      const response = await fetchWithTimeout("/api/team/members", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -188,7 +216,7 @@ export default function TeamPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.roleUpdateFailed"));
       showMessage(t("success.roleUpdated"), "ok");
-      await load();
+      await load(memberOffset, invitationOffset);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("team.roleUpdateFailed"), "err");
     } finally {
@@ -200,11 +228,15 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
+      const response = await fetchWithTimeout(`/api/team/invitations?id=${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.invitationRevocationFailed"));
       showMessage(t("success.invitationRevoked"), "ok");
-      await load();
+      if (invitations.length === 1 && invitationOffset > 0) {
+        setInvitationOffset(Math.max(0, invitationOffset - TEAM_PAGE_SIZE));
+      } else {
+        await load(memberOffset, invitationOffset);
+      }
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("team.invitationRevocationFailed"), "err");
     } finally {
@@ -217,11 +249,15 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
+      const response = await fetchWithTimeout(`/api/team/members?userId=${encodeURIComponent(userId)}`, { method: "DELETE", credentials: "include" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(t(codeMessageKey(typeof data.code === "string" ? data.code : undefined) ?? "team.memberRemovalFailed"));
       showMessage(t("success.memberRemoved"), "ok");
-      await load();
+      if (members.length === 1 && memberOffset > 0) {
+        setMemberOffset(Math.max(0, memberOffset - TEAM_PAGE_SIZE));
+      } else {
+        await load(memberOffset, invitationOffset);
+      }
     } catch (error) {
       showMessage(error instanceof Error ? error.message : t("team.memberRemovalFailed"), "err");
     } finally {
@@ -234,7 +270,7 @@ export default function TeamPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/team/ownership", {
+      const response = await fetchWithTimeout("/api/team/ownership", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -286,9 +322,9 @@ export default function TeamPage() {
         meta={
           loaded ? (
             <div className="flex items-center gap-2">
-              <StatusBadge tone="neutral" label={tc("team.memberCount", members.length, { count: formatNumber(members.length) })} />
-              {invitations.length > 0 && (
-                <StatusBadge tone="warn" label={tc("team.inviteCount", invitations.length, { count: formatNumber(invitations.length) })} />
+              <StatusBadge tone="neutral" label={tc("team.memberCount", memberTotal, { count: formatNumber(memberTotal) })} />
+              {invitationTotal > 0 && (
+                <StatusBadge tone="warn" label={tc("team.inviteCount", invitationTotal, { count: formatNumber(invitationTotal) })} />
               )}
             </div>
           ) : null
@@ -303,7 +339,7 @@ export default function TeamPage() {
                 ref={feedbackRef}
                 tabIndex={-1}
                 role={message.type === "ok" ? "status" : "alert"}
-                className={`flex items-start gap-2.5 rounded-sg border px-4 py-3 text-sm outline-none ${
+                className={`flex items-start gap-2.5 rounded-md border px-4 py-3 text-sm outline-none ${
                   message.type === "ok"
                     ? "border-ok-edge bg-ok-bg text-ok"
                     : "border-bad-edge bg-bad-bg text-bad"
@@ -344,7 +380,7 @@ export default function TeamPage() {
                     message={loadError}
                     retry={() => {
                       setLoadError(null);
-                      void load();
+                      void load(memberOffset, invitationOffset);
                     }}
                   />
                 </div>
@@ -398,11 +434,11 @@ export default function TeamPage() {
                                     disabled={busy}
                                     value={member.role}
                                     onChange={(e) => void updateRole(member.userId, e.target.value)}
-                                    className="h-8 w-[168px] text-sm"
+                                    className="w-[168px] text-sm"
                                   >
                                     {ROLE_ORDER.map((value) => (
                                       <option key={value} value={value}>
-                                        {roleLabel(value)}
+                                        {roleLabel(value, t)}
                                       </option>
                                     ))}
                                   </Select>
@@ -415,7 +451,7 @@ export default function TeamPage() {
                                   label={t("team.actionsFor", { name: member.email })}
                                   items={memberMenu(member)}
                                   trigger={
-                                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
                                       <MoreHorizontal className="h-4 w-4" aria-hidden />
                                     </span>
                                   }
@@ -443,7 +479,7 @@ export default function TeamPage() {
                           {member.role === "owner" ? (
                             <StatusBadge tone="brand" label={t("team.role.owner")} />
                           ) : (
-                            <StatusBadge tone={ROLE_TONE[member.role] ?? "neutral"} label={roleLabel(member.role)} />
+                            <StatusBadge tone={ROLE_TONE[member.role] ?? "neutral"} label={roleLabel(member.role, t)} />
                           )}
                         </div>
                         {member.role !== "owner" && (
@@ -457,7 +493,7 @@ export default function TeamPage() {
                             >
                               {ROLE_ORDER.map((value) => (
                                 <option key={value} value={value}>
-                                  {roleLabel(value)}
+                                  {roleLabel(value, t)}
                                 </option>
                               ))}
                             </Select>
@@ -476,6 +512,36 @@ export default function TeamPage() {
                       </li>
                     ))}
                   </ul>
+                  {(memberOffset > 0 || memberHasMore) && (
+                    <div className="flex items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3 sm:px-5">
+                      <span className="text-xs text-ink-3">
+                        {members.length === 0
+                          ? t("common.pageEmpty")
+                          : t("common.pageRange", {
+                              start: formatNumber(memberOffset + 1),
+                              end: formatNumber(memberOffset + members.length),
+                            })}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={listLoading || busy || memberOffset === 0}
+                          onClick={() => setMemberOffset((value) => Math.max(0, value - TEAM_PAGE_SIZE))}
+                        >
+                          {t("common.previousPage")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={listLoading || busy || !memberHasMore}
+                          onClick={() => setMemberOffset((value) => value + TEAM_PAGE_SIZE)}
+                        >
+                          {t("common.nextPage")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </Card>
@@ -492,6 +558,17 @@ export default function TeamPage() {
                     <span key={i} className="skeleton block h-3.5 w-56" aria-hidden />
                   ))}
                 </div>
+              ) : loadError ? (
+                <div className="px-5 py-5">
+                  <ErrorState
+                    title={t("team.unavailable")}
+                    message={loadError}
+                    retry={() => {
+                      setLoadError(null);
+                      void load(memberOffset, invitationOffset);
+                    }}
+                  />
+                </div>
               ) : invitations.length === 0 ? (
                 <EmptyState
                   size="sm"
@@ -500,27 +577,59 @@ export default function TeamPage() {
                   description={t("team.emptyInvites")}
                 />
               ) : (
-                <ul className="divide-y divide-edge-subtle">
-                  {invitations.map((invitation) => (
-                    <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-[550] text-ink">{invitation.email}</div>
-                        <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-3">
-                          <StatusBadge tone={ROLE_TONE[invitation.role] ?? "neutral"} label={roleLabel(invitation.role)} size="sm" />
-                          <span>{expiryLabel(invitation.expiresAt, t)}</span>
+                <>
+                  <ul className="divide-y divide-edge-subtle">
+                    {invitations.map((invitation) => (
+                      <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-[550] text-ink">{invitation.email}</div>
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-3">
+                            <StatusBadge tone={ROLE_TONE[invitation.role] ?? "neutral"} label={roleLabel(invitation.role, t)} size="sm" />
+                            <span>{expiryLabel(invitation.expiresAt, t)}</span>
+                          </div>
                         </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void revokeInvitation(invitation.id)}
+                        >
+                          {t("team.revoke")}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  {(invitationOffset > 0 || invitationHasMore) && (
+                    <div className="flex items-center justify-between gap-3 border-t border-edge-subtle px-4 py-3 sm:px-5">
+                      <span className="text-xs text-ink-3">
+                        {invitations.length === 0
+                          ? t("common.pageEmpty")
+                          : t("common.pageRange", {
+                              start: formatNumber(invitationOffset + 1),
+                              end: formatNumber(invitationOffset + invitations.length),
+                            })}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={listLoading || busy || invitationOffset === 0}
+                          onClick={() => setInvitationOffset((value) => Math.max(0, value - TEAM_PAGE_SIZE))}
+                        >
+                          {t("common.previousPage")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={listLoading || busy || !invitationHasMore}
+                          onClick={() => setInvitationOffset((value) => value + TEAM_PAGE_SIZE)}
+                        >
+                          {t("common.nextPage")}
+                        </Button>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => void revokeInvitation(invitation.id)}
-                      >
-                        {t("team.revoke")}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
           </div>

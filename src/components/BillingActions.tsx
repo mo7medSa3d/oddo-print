@@ -1,10 +1,12 @@
 "use client";
 
+import { fetchWithTimeout } from "../lib/fetch-timeout";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
 import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
 import { useI18n } from "../i18n/react";
+import { billingIntervalLabel } from "../lib/billing-labels";
 import type { MessageKey } from "../i18n/messages/en";
 import type { Translator } from "../i18n/translate";
 
@@ -18,7 +20,7 @@ type PlanOption = {
 
 
 async function post(path: string, body: Record<string, unknown> | undefined, t: Translator) {
-  const res = await fetch(path, {
+  const res = await fetchWithTimeout(path, {
     method: "POST",
     credentials: "include",
     cache: "no-store",
@@ -116,16 +118,16 @@ export function BillingActions({
     <>
       <div className="space-y-4">
         {selectedPlan && (
-          <section className="rounded-sg border border-edge-accent bg-brand-subtle px-4 py-4">
+          <section className="rounded-md border border-edge bg-surface-2 px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <div className="label-caps text-brand-subtle-text">{t("billingActions.selectedPlan")}</div>
+                <div className="label-caps text-ink-3">{t("billingActions.selectedPlan")}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="text-md font-[600] text-ink">{selectedPlan.name}</span>
                   <StatusBadge size="sm" tone="brand" label={hasSubscription ? t("billingActions.changePlan") : t("billingActions.newSubscription")} />
                 </div>
                 <div className="mt-1 text-sm text-ink-3">
-                  {t("billingActions.perInterval", { currency: selectedPlan.currency?.toUpperCase() ?? "USD", interval: selectedPlan.interval ?? "month" })}
+                  {t("billingActions.perInterval", { currency: selectedPlan.currency?.toUpperCase() ?? "USD", interval: billingIntervalLabel(selectedPlan.interval, t) })}
                 </div>
               </div>
               <Button

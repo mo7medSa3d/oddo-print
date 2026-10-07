@@ -1,17 +1,14 @@
 import { logError } from "../../lib/log";
-import { db } from "../../db";
-import { agents, printers, printJobs } from "../../db/schema";
-import { and, count, desc, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import DashboardClient from "./dashboard-client";
 import { JobCleanupButton } from "../../components/JobCleanupButton";
-import { isAgentAvailableForJob } from "../../lib/agent-availability";
 import { Activity, Database, LifeBuoy } from "lucide-react";
 import { Button, Callout, PageContainer, PageHeader, StatusBadge } from "../../components/ui";
 import { getServerLocale, makeT } from "../../i18n/server";
+import { loadDashboardStateForTenant } from "../../lib/dashboard-state";
 
 export const dynamic = "force-dynamic";
 
@@ -31,89 +28,11 @@ export default async function DashboardPage() {
     redirect(hasManagerPermission(claims, "billing.read") ? "/billing" : "/");
   }
 
-  let allAgents: Array<{
-    id: string;
-    name: string;
-    pairingCode: string | null;
-    pairingCodeExpiresAt?: Date | null;
-    status: string;
-    lifecycle: string;
-    metadata: unknown;
-    lastSeenAt: Date | null;
-    createdAt: Date;
-    printerCount: number;
-  }> = [];
-  let allPrinters: Array<typeof printers.$inferSelect> = [];
-  type JobMeta = Pick<typeof printJobs.$inferSelect,
-    | "id"
-    | "tenantId"
-    | "destination"
-    | "documentType"
-    | "agentId"
-    | "printerId"
-    | "status"
-    | "error"
-    | "requestedBy"
-    | "retries"
-    | "deliveryAttempts"
-    | "claimedAt"
-    | "deliveredAt"
-    | "ackedAt"
-    | "expiresAt"
-    | "createdAt"
-    | "updatedAt"
-  >;
-  let allJobs: JobMeta[] = [];
+  let dashboardState: Awaited<ReturnType<typeof loadDashboardStateForTenant>> | null = null;
   let databaseError: string | null = null;
 
   try {
-    allAgents = await db
-      .select({
-        id: agents.id,
-        name: agents.name,
-        pairingCode: sql<string | null>`NULL`,
-        pairingCodeExpiresAt: agents.pairingCodeExpiresAt,
-        status: agents.status,
-        lifecycle: agents.lifecycle,
-        metadata: agents.metadata,
-        lastSeenAt: agents.lastSeenAt,
-        createdAt: agents.createdAt,
-        printerCount: count(printers.id),
-      })
-      .from(agents)
-      .where(eq(agents.tenantId, claims.tenantId))
-      .leftJoin(printers, and(eq(printers.agentId, agents.id), eq(printers.tenantId, claims.tenantId)))
-      .groupBy(agents.id)
-      .orderBy(desc(agents.createdAt));
-    allPrinters = await db.select().from(printers).where(eq(printers.tenantId, claims.tenantId)).orderBy(desc(printers.createdAt));
-    // Metadata-only projection: `payload` (base64 document bytes, up to ~5 MB
-    // per job) must never ride along in the 50-row list. Full payloads are
-    // fetched per-job on demand by the inspector via GET /api/jobs/[id].
-    const jobColumns = {
-      id: printJobs.id,
-      tenantId: printJobs.tenantId,
-      destination: printJobs.destination,
-      documentType: printJobs.documentType,
-      agentId: printJobs.agentId,
-      printerId: printJobs.printerId,
-      status: printJobs.status,
-      error: printJobs.error,
-      requestedBy: printJobs.requestedBy,
-      retries: printJobs.retries,
-      deliveryAttempts: printJobs.deliveryAttempts,
-      claimedAt: printJobs.claimedAt,
-      deliveredAt: printJobs.deliveredAt,
-      ackedAt: printJobs.ackedAt,
-      expiresAt: printJobs.expiresAt,
-      createdAt: printJobs.createdAt,
-      updatedAt: printJobs.updatedAt,
-    } as const;
-    allJobs = await db
-      .select(jobColumns)
-      .from(printJobs)
-      .where(eq(printJobs.tenantId, claims.tenantId))
-      .orderBy(desc(printJobs.createdAt))
-      .limit(50);
+    dashboardState = await loadDashboardStateForTenant(claims.tenantId);
   } catch (error: unknown) {
     // Dotted event name (aggregation-safe) and a string message — a live
     // Error would serialize as {} and lose the failure reason.
@@ -121,8 +40,17 @@ export default async function DashboardPage() {
     databaseError = t("dashboard.page.databaseLoadFailedLog");
   }
 
-  const now = new Date();
-  const visibleAgents = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
+  // Effective permissions drive client controls: read-authorized roles must
+  // not be offered mutations that end in predictable 403s, and retired
+  // printers must not be offered reactivation the server rejects (C058).
+  // Server fences stay authoritative; this only shapes the UI.
+  const canMutate = {
+    printers: hasManagerPermission(claims, "printers.manage"),
+    printersTest: hasManagerPermission(claims, "printers.test"),
+    agentsLifecycle: hasManagerPermission(claims, "agents.disable") || hasManagerPermission(claims, "agents.retire"),
+    jobsCancel: hasManagerPermission(claims, "jobs.cancel"),
+    jobsRetry: hasManagerPermission(claims, "jobs.retry"),
+  };
 
   return (
     <>
@@ -135,8 +63,8 @@ export default async function DashboardPage() {
         meta={
           <StatusBadge
             tone={databaseError ? "bad" : "ok"}
-            pulse={!databaseError}
-            label={databaseError ? t("dashboard.page.dbUnavailableBadge") : t("dashboard.page.live")}
+            pulse={false}
+            label={databaseError ? t("dashboard.page.dbUnavailableBadge") : t("dashboard.page.snapshotLoaded")}
           />
         }
         actions={
@@ -144,7 +72,7 @@ export default async function DashboardPage() {
             <Button variant="ghost" size="sm" href="/system-health" icon={<LifeBuoy className="h-4 w-4" />}>
               {t("dashboard.page.systemHealth")}
             </Button>
-            {!databaseError ? <JobCleanupButton /> : null}
+            {!databaseError && canMutate.jobsCancel ? <JobCleanupButton /> : null}
           </>
         }
       />
@@ -165,10 +93,12 @@ export default async function DashboardPage() {
           </Callout>
         ) : (
           <DashboardClient
-            initialAgents={visibleAgents}
-            initialPrinters={allPrinters}
-            initialJobs={allJobs}
+            initialAgents={dashboardState!.agents}
+            initialPrinters={dashboardState!.printers}
+            initialJobs={dashboardState!.jobs}
+            initialFleet={dashboardState!.fleet}
             databaseError={null}
+            canMutate={canMutate}
           />
         )}
       </PageContainer>

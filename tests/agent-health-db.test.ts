@@ -69,27 +69,48 @@ suite("agent health (database-backed)", () => {
     expect(inferred!.lastOk).toBeNull();
   });
 
-  it("reports fleet availability using both printer and agent freshness", async () => {
+  it("separates printer physical evidence from Agent routability", async () => {
     const f = await seedFixture();
     await pool().query("UPDATE printers SET status = 'busy' WHERE id = $1", [f.printerId]);
     const metric = (text: string, name: string) => Number(text.match(new RegExp(`^${name} ([0-9]+)$`, "m"))?.[1]);
     let output = await renderPrometheusMetrics();
     expect(metric(output, "agents_online")).toBe(1);
-    expect(metric(output, "printers_online")).toBe(1);
+    expect(metric(output, "printers_online")).toBe(0);
+    expect(metric(output, "printers_busy")).toBe(1);
+    expect(metric(output, "printers_routable")).toBe(1);
     await pool().query("UPDATE agents SET last_seen_at = now() - interval '1 day' WHERE id = $1", [f.agentId]);
     output = await renderPrometheusMetrics();
     expect(metric(output, "agents_online")).toBe(0);
     expect(metric(output, "agents_stale")).toBe(1);
-    expect(metric(output, "printers_online")).toBe(0);
+    expect(metric(output, "printers_busy")).toBe(1);
+    expect(metric(output, "printers_routable")).toBe(0);
     await pool().query("UPDATE agents SET lifecycle = 'disabled', last_seen_at = now() WHERE id = $1", [f.agentId]);
     output = await renderPrometheusMetrics();
     expect(metric(output, "agents_online")).toBe(0);
     expect(metric(output, "agents_stale")).toBe(0);
-    expect(metric(output, "printers_online")).toBe(0);
+    expect(metric(output, "printers_busy")).toBe(1);
+    expect(metric(output, "printers_routable")).toBe(0);
   });
 
   it("returns null for an unknown agent id", async () => {
     const f = await seedFixture();
     expect(await getAgentHealth(f.tenantId, "agt_does_not_exist")).toBeNull();
+  });
+
+  it("excludes stale and non-active printers from the online count (C018)", async () => {
+    const f = await seedFixture();
+    // Fixture printer is active/fresh/online: counted.
+    let health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.onlinePrinterCount).toBe(1);
+    expect(health!.printerCount).toBe(1);
+    // Stale observation: present but not evidence of availability.
+    await pool().query("UPDATE printers SET last_seen_at = now() - interval '1 hour' WHERE id = $1", [f.printerId]);
+    health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.printerCount).toBe(1);
+    expect(health!.onlinePrinterCount).toBe(0);
+    // Disabled lifecycle with a fresh observation: still not capacity.
+    await pool().query("UPDATE printers SET lifecycle = 'disabled', last_seen_at = now() WHERE id = $1", [f.printerId]);
+    health = await getAgentHealth(f.tenantId, f.agentId);
+    expect(health!.onlinePrinterCount).toBe(0);
   });
 });

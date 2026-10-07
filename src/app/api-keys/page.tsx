@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
@@ -71,7 +72,7 @@ export default function ApiKeysPage() {
 
   const loadKeys = useCallback(async () => {
     if (!(await ensureCustomerSession()).authenticated) throw new Error(t("errors.sessionExpired"));
-    const r = await fetch("/api/odoo/keys", { cache: "no-store", credentials: "include" });
+    const r = await fetchWithTimeout("/api/odoo/keys", { cache: "no-store", credentials: "include" });
     if (!r.ok) throw new Error(t("apiKeys.loadFailed"));
     return (await r.json()) as ApiKey[];
   }, [t]);
@@ -101,7 +102,7 @@ export default function ApiKeysPage() {
   }, [loadKeys]);
 
   useEffect(() => {
-    fetch("/api/billing/status", { cache: "no-store", credentials: "include" })
+    fetchWithTimeout("/api/billing/status", { cache: "no-store", credentials: "include" })
       .then(async (r) => {
         if (!r.ok) return;
         const b = (await r.json()) as { hasSubscription?: boolean };
@@ -115,7 +116,7 @@ export default function ApiKeysPage() {
     setBusy(true); setError(null); setRawKey(null); setRawKeyId(null); setCopied(false);
     try {
       if (!(await ensureCustomerSession()).authenticated) throw new Error(t("errors.sessionExpired"));
-      const r = await fetch("/api/odoo/keys", {
+      const r = await fetchWithTimeout("/api/odoo/keys", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -137,7 +138,7 @@ export default function ApiKeysPage() {
     const cur = pending; setBusy(true); setError(null);
     try {
       if (!(await ensureCustomerSession()).authenticated) throw new Error(t("errors.sessionExpired"));
-      const r = await fetch("/api/odoo/keys", { method: "DELETE", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify(cur.kind === "revoke" ? { id: cur.id } : { id: cur.id, remove: true }) });
+      const r = await fetchWithTimeout("/api/odoo/keys", { method: "DELETE", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify(cur.kind === "revoke" ? { id: cur.id } : { id: cur.id, remove: true }) });
       const b = await r.json();
       if (!r.ok) throw new Error(b.error);
       setPending(null);
@@ -169,7 +170,7 @@ export default function ApiKeysPage() {
       />
 
       <PageContainer>
-        <div className="space-y-6">
+        <div className="space-y-5">
           {error && (
             <ErrorState
               title={t("apiKeys.operationFailed")}
@@ -402,7 +403,7 @@ export default function ApiKeysPage() {
 
             <aside className="space-y-5">
               <details className="card group overflow-hidden">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 outline-none transition-colors hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/35">
                   <span className="min-w-0">
                     <span className="block text-md font-[600] leading-snug text-ink">{t("apiKeys.howItWorks")}</span>
                     <span className="mt-0.5 block text-sm text-ink-3">{t("apiKeys.howItWorksSubtitle")}</span>

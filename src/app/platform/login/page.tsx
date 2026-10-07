@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldCheck } from "lucide-react";
@@ -20,14 +21,14 @@ export default function PlatformLoginPage() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
+    fetchWithTimeout("/api/platform/auth/me", { credentials: "include", cache: "no-store" })
       .then(async (res) => {
         if (cancelled) return;
         if (res.ok) {
           router.replace("/platform/dashboard");
           return;
         }
-        const refresh = await fetch("/api/platform/auth/refresh", {
+        const refresh = await fetchWithTimeout("/api/platform/auth/refresh", {
           method: "POST",
           credentials: "include",
           cache: "no-store",
@@ -50,7 +51,7 @@ export default function PlatformLoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/platform/auth/login", {
+      const res = await fetchWithTimeout("/api/platform/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -78,9 +79,9 @@ export default function PlatformLoginPage() {
         <div className="space-y-4" role="status" aria-label={t("platform.login.checkingSession")}>
           <Skeleton className="h-7 w-44" />
           <Skeleton className="h-4 w-60" />
-          <Skeleton className="mt-6 h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
+          <Skeleton className="mt-6 h-11 w-full" />
+          <Skeleton className="h-11 w-full" />
+          <Skeleton className="h-11 w-full" />
           <span className="sr-only">{t("platform.login.checkingSessionShort")}</span>
         </div>
       </AuthShell>
@@ -133,7 +134,7 @@ export default function PlatformLoginPage() {
           {loading ? t("auth.signIn.submitting") : t("common.continue")}
         </Button>
 
-        <div className="flex items-start gap-2.5 rounded-sg border border-edge-strong bg-surface px-3.5 py-3">
+        <div className="flex items-start gap-2.5 rounded-md border border-edge bg-surface-2 px-4 py-3.5">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
           <p className="text-sm leading-relaxed text-ink-3">
             {t("platform.login.restricted")}

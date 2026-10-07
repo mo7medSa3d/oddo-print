@@ -125,6 +125,14 @@ type SpoolerPrinter struct {
 	// successful submission. Each new attempt clears it first so a later
 	// document can never report an unrelated previous job ID.
 	lastJobID atomic.Uint64
+	// inflight counts print-session workers that have started but not yet
+	// delivered their result. A worker can outlive Print's return when the
+	// caller times out and the Win32 session stays active (see the
+	// post-cancel grace path): the counter lets backend replacement defer
+	// while a prior session may still own the physical queue, instead of
+	// installing a fresh backend (fresh mutex) that permits overlapping
+	// submissions to the same device.
+	inflight atomic.Int32
 }
 
 func NewSpooler(spoolerName, displayName string) *SpoolerPrinter {
@@ -276,7 +284,8 @@ var defaultSpoolerSyscalls = spoolerSyscalls{
 	},
 }
 
-// finishSpoolerDoc closes a Win32 document session honestly.
+// abortSpoolerDoc discards a Win32 document session that is not verifiably
+// complete.
 //
 // Per Microsoft's spooler contract
 // (https://learn.microsoft.com/en-us/windows/win32/printdocs/enddocprinter and
@@ -284,18 +293,16 @@ var defaultSpoolerSyscalls = spoolerSyscalls{
 // EndDocPrinter FINALIZES a job (releasing it to the printer) while
 // AbortPrinter DELETES the job's spool file. Every Win32 call reports success
 // through its BOOL return value; GetLastError is meaningful only after a
-// zero return. An incomplete document must therefore be aborted, never
-// finalized — calling EndDocPrinter on a partial RAW/ESC-POS stream releases
-// truncated output (a cut receipt, a half-printed label) that the caller is
-// about to report as failed.
-func finishSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName string, bytesWritten, bytesTotal uint32) error {
-	if bytesTotal > 0 && bytesWritten >= bytesTotal {
-		r, lastErr := sys.endDocPrinter(hPrinter)
-		if r == 0 {
-			return fmt.Errorf("EndDocPrinter(%q) failed: %w", spoolerName, lastErr)
-		}
-		return nil
-	}
+// zero return.
+//
+// Completion must be proven by the write loop (every byte genuinely
+// accepted), never inferred from byte counters: a faulty driver can
+// over-report, and failed/cancelled writes can still fold bytes into the
+// counter. An incomplete or uncertain document must therefore be aborted,
+// never finalized — calling EndDocPrinter on a partial RAW/ESC-POS stream
+// releases truncated output (a cut receipt, a half-printed label) that the
+// caller is about to report as failed or UNKNOWN.
+func abortSpoolerDoc(sys spoolerSyscalls, hPrinter syscall.Handle, spoolerName string, bytesWritten, bytesTotal uint32) error {
 	r, lastErr := sys.abortPrinter(hPrinter)
 	if r == 0 {
 		// AbortPrinter is best-effort: the spool file could not be deleted,
@@ -361,11 +368,13 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 		onJobID(jobID)
 	}
 	// Every path after StartDocPrinterW succeeded must close the document
-	// session: EndDocPrinter releases a COMPLETE document, AbortPrinter
-	// discards an incomplete one (see finishSpoolerDoc). The deferred call
-	// owns every early return (cancellation, StartPagePrinter failure,
-	// partial or failed writes); the success path finalizes explicitly so
-	// its verdict can be classified honestly instead of being swallowed.
+	// session. Only the explicit success path below may call EndDocPrinter
+	// (it releases a COMPLETE document). The deferred call owns every early
+	// return (cancellation, StartPagePrinter failure, partial/failed writes,
+	// over-report, uncertain wire state) and always aborts: completion is
+	// proven by the write loop, never inferred from byte counters, so a
+	// fabricated or over-reported counter can never finalize truncated
+	// output as a complete job.
 	totalBytes := uint32(len(data))
 	var written uint32
 	docCompleted := false
@@ -373,7 +382,7 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 		if docCompleted {
 			return
 		}
-		if err := finishSpoolerDoc(sys, hPrinter, spoolerName, written, totalBytes); err != nil {
+		if err := abortSpoolerDoc(sys, hPrinter, spoolerName, written, totalBytes); err != nil {
 			log.Printf("spooler cleanup warning for %s: %v", spoolerName, err)
 		}
 	}()
@@ -444,6 +453,19 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 				}
 			}
 			return spoolerTaskResult{written: written, jobID: jobID, err: fmt.Errorf("WritePrinter(%q) wrote 0 bytes", spoolerName)}
+		}
+		if bytesWritten > uint32(len(chunk)) {
+			// A driver that reports more bytes than the submitted chunk is
+			// faulty and the wire state is uncertain: report UNKNOWN with
+			// the honestly confirmed byte count (bytes accepted before this
+			// chunk). The counter is NOT advanced to the payload size — a
+			// fabricated total must never read as completion evidence, and
+			// the deferred cleanup aborts this session.
+			return spoolerTaskResult{
+				written: written,
+				jobID:   jobID,
+				err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) over-reported %d bytes for a %d-byte chunk after %d/%d confirmed bytes", spoolerName, bytesWritten, len(chunk), written, len(data)),
+			}
 		}
 		written += bytesWritten
 	}
@@ -776,7 +798,6 @@ func (p *SpoolerPrinter) endSession() {
 }
 
 func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
-	p.lastJobID.Store(0)
 	if len(data) == 0 {
 		return fmt.Errorf("refusing to print empty payload")
 	}
@@ -814,6 +835,13 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	// A new attempt must never inherit evidence from an earlier job — but it
+	// must also never erase a still-running attempt's evidence. Clear only
+	// AFTER acquiring the session (mirroring the PDF path): an attempt that
+	// merely times out waiting behind a running worker returns without
+	// touching the first attempt's StartDocPrinterW identity.
+	p.lastJobID.Store(0)
+
 	// Ownership of sessionMu is transferred to the worker. Win32 WritePrinter
 	// is not cancellable; if the caller times out while the worker is still
 	// inside the spooler RPC, releasing the mutex here would allow a second
@@ -824,6 +852,8 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	cancelNotice := make(chan struct{})
 
 	go func() {
+		p.inflight.Add(1)
+		defer p.inflight.Add(-1)
 		defer p.endSession()
 		resultCh <- currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice, func(jobID uintptr) {
 			if jobID != 0 {
@@ -853,8 +883,9 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	case res := <-resultCh:
 		// Record the Windows job identity as soon as this attempt reports one,
 		// even when a later WritePrinter/EndDoc failure makes the outcome
-		// unsuccessful or ambiguous. New attempts clear lastJobID before work,
-		// so this cannot leak a previous job's evidence.
+		// unsuccessful or ambiguous. The identity is cleared under session
+		// ownership at the start of each new attempt, so this cannot leak a
+		// previous job's evidence.
 		if res.jobID != 0 {
 			p.lastJobID.Store(uint64(res.jobID))
 		}
@@ -868,9 +899,19 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	}
 }
 
+// SessionMayBeLive implements LiveSessionReporter: true while a print
+// session worker has started but not delivered its result. After the caller
+// gives up waiting (post-cancel grace expiry), the Win32 session can still
+// own the physical queue — the counter stays raised until that exact worker
+// returns.
+func (p *SpoolerPrinter) SessionMayBeLive() bool {
+	return p.inflight.Load() > 0
+}
+
 // LastSpoolerJobID implements SpoolerJobIDReporter: the StartDocPrinterW/StartDocW
 // identity allocated for the current attempt, including an attempt whose later
-// outcome failed or became unknown. It is cleared before every new attempt.
+// outcome failed or became unknown. It is cleared under session ownership
+// before every new attempt.
 func (p *SpoolerPrinter) LastSpoolerJobID() string {
 	if id := p.lastJobID.Load(); id != 0 {
 		return strconv.FormatUint(id, 10)
@@ -1271,6 +1312,8 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 type queueDetails struct {
 	portName   string
 	driverName string
+	serverName string
+	shareName  string
 	status     uint32
 	attributes uint32
 }
@@ -1305,9 +1348,12 @@ type printerInfo4 struct {
 // printerQueueRef is a decoded queue identity. Names are copied out of the
 // spooler buffer as Go strings, so no caller can outlive the enumeration
 // buffer (the previous struct-copy approach could, in principle, leave
-// pointers into a collected buffer).
+// pointers into a collected buffer). server carries PRINTER_INFO_4
+// pServerName: empty for machine-local queues, set for connections, so
+// cross-server queue identity retains its provenance.
 type printerQueueRef struct {
 	name       string
+	server     string
 	attributes uint32
 	scope      string // machine_local or user_connection (EnumPrinters source)
 }
@@ -1354,7 +1400,13 @@ func enumPrinterQueuesPass(flags uintptr, scope string) ([]printerQueueRef, erro
 		)
 		if ret != 0 {
 			if structSize > 0 && uintptr(returned)*structSize > uintptr(len(buf)) {
-				returned = uint32(uintptr(len(buf)) / structSize)
+				// Malformed count: the spooler reported more entries than
+				// fit the buffer it sized. A truncated inventory must never
+				// stay authoritative (reconciliation could prune omitted
+				// queues), so re-run the sizing loop instead of silently
+				// clamping. Exhaustion below surfaces a hard
+				// incomplete-source error.
+				continue
 			}
 			queues := make([]printerQueueRef, 0, returned)
 			for i := uint32(0); i < returned; i++ {
@@ -1362,6 +1414,7 @@ func enumPrinterQueuesPass(flags uintptr, scope string) ([]printerQueueRef, erro
 				pi := (*printerInfo4)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[0])) + offset))
 				queues = append(queues, printerQueueRef{
 					name:       utf16PtrToString(pi.pPrinterName),
+					server:     utf16PtrToString(pi.pServerName),
 					attributes: pi.Attributes,
 					scope:      scope,
 				})
@@ -1497,6 +1550,8 @@ func queueDetail(name string) (queueDetails, error) {
 		detail := queueDetails{
 			portName:   utf16PtrToString(pi.pPortName),
 			driverName: utf16PtrToString(pi.pDriverName),
+			serverName: utf16PtrToString(pi.pServerName),
+			shareName:  utf16PtrToString(pi.pShareName),
 			status:     pi.Status,
 			attributes: pi.Attributes,
 		}
@@ -1629,9 +1684,9 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 		}
 
 		var (
-			portName, driverName string
-			status, attributes   uint32
-			statusText           string
+			portName, driverName, serverName, shareName string
+			status, attributes                          uint32
+			statusText                                  string
 		)
 		switch {
 		case !time.Now().Before(deadline):
@@ -1639,6 +1694,7 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 			// proved (its name and attributes) instead of dropping it.
 			unreadable++
 			attributes = q.attributes
+			serverName = q.server
 			statusText = "unknown"
 		default:
 			detail, derr := queueDetail(name)
@@ -1646,9 +1702,14 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 				unreadable++
 				log.Printf("[discovery] queue detail unreadable for %q: %v", name, derr)
 				attributes = q.attributes
+				serverName = q.server
 				statusText = "unknown"
 			} else {
 				portName, driverName = detail.portName, detail.driverName
+				serverName, shareName = detail.serverName, detail.shareName
+				if serverName == "" {
+					serverName = q.server
+				}
 				status, attributes = detail.status, detail.attributes
 				statusText = mapWindowsStatus(status, attributes)
 			}
@@ -1658,7 +1719,7 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
 			continue
 		}
-		info := spoolerDeviceInfo(name, portName, driverName, statusText, attributes)
+		info := spoolerQueueDeviceInfo(name, portName, driverName, serverName, shareName, statusText, attributes)
 		info.Capabilities["spooler_scope"] = q.scope
 		out = append(out, info)
 	}
@@ -1674,6 +1735,17 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 // registry rename reconciliation consume the top-level fields; capabilities
 // alone are informational and must not be the identity source of truth.
 func spoolerDeviceInfo(name, portName, driverName, statusText string, attributes uint32) DeviceInfo {
+	return spoolerQueueDeviceInfo(name, portName, driverName, "", "", statusText, attributes)
+}
+
+// spoolerQueueDeviceInfo keeps queue transport identity in first-class
+// DeviceInfo fields as well as the legacy capability bag. Stable-ID
+// generation and registry rename reconciliation consume the top-level
+// fields; capabilities alone are informational and must not be the identity
+// source of truth. serverName/shareName come from PRINTER_INFO_2 (with the
+// PRINTER_INFO_4 server as fallback) so separate queues on the same
+// port/driver keep distinct identities.
+func spoolerQueueDeviceInfo(name, portName, driverName, serverName, shareName, statusText string, attributes uint32) DeviceInfo {
 	printerType, connectionType := classifySpoolerPrinter(portName, driverName, name)
 	return DeviceInfo{
 		Name:           name,
@@ -1684,11 +1756,15 @@ func spoolerDeviceInfo(name, portName, driverName, statusText string, attributes
 		SpoolerName:    name,
 		SpoolerPort:    portName,
 		SpoolerDriver:  driverName,
+		SpoolerServer:  serverName,
+		SpoolerShare:   shareName,
 		Status:         statusText,
 		Capabilities: map[string]interface{}{
 			"discovered_via":     SourceSpooler,
 			"port_name":          portName,
 			"driver_name":        driverName,
+			"server_name":        serverName,
+			"share_name":         shareName,
 			"spooler_attributes": attributes,
 		},
 	}

@@ -18,12 +18,16 @@ def test_generated_odoo_api_key_responses_are_not_cacheable():
         assert "apiKey:" in source
 
 
-def test_go_service_recovery_does_not_resolve_sc_from_path():
-    source = read("agent/cmd/agent/main.go")
-    assert 'exec.LookPath("sc.exe")' not in source
-    assert 'os.Getenv("SystemRoot")' in source
-    assert '"System32", "sc.exe"' in source
-    assert 'exec.Command(sc, "failure", serviceName' in source
+def test_go_service_recovery_uses_native_scm_api_not_environment_resolved_sc():
+    main = read("agent/cmd/agent/main.go")
+    source = read("agent/cmd/agent/service_install_windows.go")
+    assert 'exec.LookPath("sc.exe")' not in main
+    assert 'os.Getenv("SystemRoot")' not in main
+    assert 'exec.Command(sc, "failure", serviceName' not in main
+    assert "func configureServiceRecovery(serviceName string)" in source
+    assert "existing.SetRecoveryActions(actions, 24*60*60)" in source
+    assert "mgr.ServiceRestart" in source
+    assert "serviceBinaryMatchesExact(cfg.BinaryPathName, expected)" in source
 
 
 def test_windows_system_utilities_are_not_path_resolved():
@@ -38,18 +42,24 @@ def test_windows_system_utilities_are_not_path_resolved():
     for fn_name, tool in (
         ("sc_query", "sc"),
         ("is_process_running", "tasklist"),
-        ("run_net", "net"),
         ("taskkill_pid", "taskkill"),
     ):
         body = function_body(fn_name)
         assert f'Command::new("{tool}")' not in body
+
+    # Service start/stop no longer shells to net.exe at all: the Manager runs
+    # the bundled Agent's ownership-fenced `-service` control path instead.
+    assert "fn run_net" not in source
+    assert "fn run_agent_service_command" in source
 
     assert 'OpenSCManagerW' in source
     assert 'OpenServiceW' in source
     assert 'QueryServiceStatusEx' in source
     assert 'if error == 1060 { Ok(None) }' in source
     assert 'AGENT_CONTROL.lock()' in source
-    assert 'system32_exe("net.exe")' in source
+    assert "run_net(" not in source
+    assert "run_agent_service_command" in source
+    assert "verify_installed_service_ownership" in source
     assert 'system32_exe("tasklist.exe")' in source
     assert 'system32_exe("taskkill.exe")' in source
 

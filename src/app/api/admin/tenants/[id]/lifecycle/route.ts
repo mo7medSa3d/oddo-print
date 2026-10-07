@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateManager } from "../../../../../../lib/manager-auth";
-import { hasManagerPermission } from "../../../../../../lib/authorization";
+import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../../lib/platform-auth";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { runtimeSecret } from "../../../../../../lib/runtime-secret";
@@ -8,36 +7,31 @@ import { runtimeSecret } from "../../../../../../lib/runtime-secret";
 /**
  * Platform-admin endpoint for managing tenant lifecycle transitions.
  *
- * Authorization: the caller must be an authenticated manager whose tenant
- * is the platform tenant (PLATFORM_TENANT_ID). This prevents non-platform
- * tenants from suspending or deleting other tenants.
+ * Authorization: the platform owner session/identity only. The legacy
+ * platform-tenant membership gate (any tenant role, including viewer, via a
+ * customer/manager session) is retired: tenant-scoped principals must never
+ * suspend or delete other tenants through this route.
  *
  * PATCH /api/admin/tenants/[id]/lifecycle
  * Body: { lifecycle: "suspended" | "active" | "deleted", reason: string }
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  // Bypass the normal tenant lifecycle gate for platform admin operations:
-  // the platform tenant is never suspended. We validate session integrity
-  // but the lifecycle guard in validateManagerClaims only blocks non-active
-  // tenants, and the platform tenant is always active.
-  const claims = await validateManager(req);
-  if (!claims || !claims.userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let claims;
+  try {
+    claims = await requirePlatformOwner(req);
+  } catch (error) {
+    if (error instanceof PlatformUnauthorizedError) {
+      return NextResponse.json({ error: "Platform Owner authentication required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
   const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim() ?? "";
-  if (!platformTenantId || claims.tenantId !== platformTenantId) {
-    return NextResponse.json({ error: "Forbidden: platform admin access required" }, { status: 403 });
-  }
-  if (!hasManagerPermission(claims, "tenant.update")) {
-    return NextResponse.json({ error: "Forbidden: insufficient role" }, { status: 403 });
-  }
-
   const { id: tenantId } = await params;
   if (!tenantId || typeof tenantId !== "string") {
     return NextResponse.json({ error: "Tenant ID is required" }, { status: 400 });
   }
-  if (platformTenantId === tenantId) {
+  if (platformTenantId && platformTenantId === tenantId) {
     return NextResponse.json({ error: "The platform tenant cannot be suspended or deleted.", code: "PLATFORM_TENANT_PROTECTED" }, { status: 409 });
   }
 

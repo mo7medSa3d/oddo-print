@@ -8,6 +8,7 @@ import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
 import { getTenantEntitlementLimit, isTenantBillingError, TenantEntitlementError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -312,6 +313,27 @@ export async function POST(req: Request) {
       // inventory transitions from absent -> present, not only when a brand-new
       // database ID is inserted. Otherwise a tombstoned stable ID can reappear
       // after a replacement consumes its slot and silently exceed max_printers.
+      //
+      // Cross-agent identity: local stable IDs derive from local coordinates,
+      // so two agents in one tenant can report the same ID for distinct
+      // physical devices. The row owner keeps the bare ID; colliding
+      // reporters move to their deterministic per-agent alias BEFORE any
+      // inventory read, so every check below operates on stored identities
+      // and existing unambiguous mappings never change.
+      const reportedLocalIds = [...new Set(sanitizedPrinters.map(p => p.id))];
+      const localRows = reportedLocalIds.length ? await tx.query.printers.findMany({
+        where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, reportedLocalIds)),
+      }) : [];
+      const localById = new Map(localRows.map(p => [p.id, p]));
+      const printerIdAliases: Record<string, string> = {};
+      for (const p of sanitizedPrinters) {
+        const existing = localById.get(p.id);
+        if (existing && existing.agentId !== agent.id) {
+          const alias = aliasPrinterIdForAgent(p.id, agent.id);
+          printerIdAliases[p.id] = alias;
+          p.id = alias;
+        }
+      }
       const inventoryIds = [...new Set(sanitizedPrinters.map(p => p.id))];
       const inventoryRows = inventoryIds.length ? await tx.query.printers.findMany({
         where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, inventoryIds)),
@@ -512,6 +534,7 @@ export async function POST(req: Request) {
       return {
         kind: "ok" as const,
         skippedPrinters: skipped,
+        printerIdAliases,
         desiredState: desiredRows,
         isFinalPage: isFinalHeartbeatPage,
       };
@@ -529,6 +552,9 @@ export async function POST(req: Request) {
       success: true,
       skippedPrinters: result.skippedPrinters,
     };
+    if (Object.keys(result.printerIdAliases).length > 0) {
+      response.printerIdAliases = result.printerIdAliases;
+    }
     if (result.isFinalPage) {
       response.desiredState = result.desiredState.map((row) => ({
         id: row.id,

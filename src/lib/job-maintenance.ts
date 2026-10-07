@@ -3,7 +3,7 @@ import { inArray, sql } from "drizzle-orm";
 import { printJobs, printJobReceipts } from "../db/schema";
 import { incrementMetric } from "./metrics";
 import { idempotencyDigest } from "./print-job-service";
-import { PRINT_JOB_RETENTION_HOURS } from "../shared/job-retention";
+import { PRINT_JOB_RETENTION_HOURS, RECEIPT_MATERIALIZE_BATCH_ROWS } from "../shared/job-retention";
 import { agentStaleThresholdSeconds } from "./stale-threshold";
 
 // Claim-lease staleness historically hardcoded at 90s. It now follows the same
@@ -36,6 +36,10 @@ export async function cleanupTerminalPrintJobs(scope: { agentId?: string } = {})
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('print_jobs:retention:v1'))`);
+    // IDs only: selecting full rows (payloads up to 5 MiB each) for the whole
+    // outer limit would materialize gigabytes. Full rows are fetched in small
+    // inner batches below, so peak memory stays bounded while the outer row
+    // limit keeps each tick fair and resumable.
     const candidates = await tx.execute(sql`
       SELECT id
       FROM print_jobs
@@ -50,36 +54,41 @@ export async function cleanupTerminalPrintJobs(scope: { agentId?: string } = {})
     const ids = candidates.rows.map((row) => String((row as { id: unknown }).id));
     if (ids.length === 0) return 0;
 
-    const rows = await tx.select().from(printJobs).where(inArray(printJobs.id, ids));
-    if (rows.length === 0) return 0;
+    let count = 0;
+    for (let offset = 0; offset < ids.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
+      const batchIds = ids.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS);
+      const rows = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds));
+      if (rows.length === 0) continue;
 
-    await tx.insert(printJobReceipts).values(rows.map((row) => ({
-      id: row.id,
-      tenantId: row.tenantId,
-      idempotencyKey: row.idempotencyKey,
-      fingerprint: idempotencyDigest({
+      await tx.insert(printJobReceipts).values(rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenantId,
+        idempotencyKey: row.idempotencyKey,
+        fingerprint: idempotencyDigest({
+          printerId: row.printerId,
+          documentType: row.documentType,
+          destination: row.destination,
+          payload: row.payload,
+        }),
         printerId: row.printerId,
-        documentType: row.documentType,
+        agentId: row.agentId,
+        apiKeyId: row.apiKeyId,
         destination: row.destination,
-        payload: row.payload,
-      }),
-      printerId: row.printerId,
-      agentId: row.agentId,
-      apiKeyId: row.apiKeyId,
-      destination: row.destination,
-      documentType: row.documentType,
-      requestedBy: row.requestedBy,
-      status: row.status,
-      error: row.error,
-      closedClaimTokenHash: row.closedClaimTokenHash,
-      deliveredAt: row.deliveredAt,
-      ackedAt: row.ackedAt,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    }))).onConflictDoNothing();
+        documentType: row.documentType,
+        requestedBy: row.requestedBy,
+        status: row.status,
+        error: row.error,
+        closedClaimTokenHash: row.closedClaimTokenHash,
+        deliveredAt: row.deliveredAt,
+        ackedAt: row.ackedAt,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }))).onConflictDoNothing();
 
-    const deleted = await tx.delete(printJobs).where(inArray(printJobs.id, ids));
-    const count = deleted.rowCount ?? 0;
+      const deleted = await tx.delete(printJobs).where(inArray(printJobs.id, batchIds));
+      const batchCount = deleted.rowCount ?? 0;
+      count += batchCount;
+    }
     if (count > 0) incrementMetric("print_jobs_retention_deleted_total", count);
     return count;
   });
