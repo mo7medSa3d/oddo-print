@@ -37,7 +37,7 @@
     "i18n:odoo:check": "python3 scripts/check-odoo-translations.py"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/api": "^2.12.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.41.0",
