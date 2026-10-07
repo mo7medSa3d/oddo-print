@@ -290,7 +290,7 @@ export default function App() {
       setJobsError(
         status === 401 || status === 403
           ? t("desktop.app.gatewayJobAccessUnavailable")
-          : friendlyGatewayError(errMsg(e), locale)
+          : friendlyGatewayError(e, locale)
       );
     } finally {
       if (current()) setJobsLoading(false);
@@ -308,7 +308,7 @@ export default function App() {
       setHealthCheckedAt(Date.now());
       const gatewayError = (h as { error?: unknown })?.error;
       if (gatewayError) {
-        setHealthError(friendlyGatewayError(errMsg(gatewayError), locale));
+        setHealthError(friendlyGatewayError(gatewayError, locale));
         return false;
       }
       setHealthError(null);
@@ -318,7 +318,7 @@ export default function App() {
       setHealth(null);
       setCheckedGatewayUrl(targetUrl);
       setHealthCheckedAt(Date.now());
-      setHealthError(friendlyGatewayError(errMsg(e), locale));
+      setHealthError(friendlyGatewayError(e, locale));
       return false;
     }
   }, [locale]);
@@ -337,7 +337,7 @@ export default function App() {
     try {
       target = normalizeGatewayUrl(raw);
     } catch (e) {
-      setGatewayDraftError(errMsg(e));
+      setGatewayDraftError(friendlyGatewayError(e, locale));
       return;
     }
 
@@ -400,7 +400,7 @@ export default function App() {
       // failures are reconciled above before reaching this point. Keep the
       // draft visible for correction/retry while operational flows continue
       // using savedGatewayUrl.
-      const presented = friendlyGatewayError(errMsg(e), locale);
+      const presented = friendlyGatewayError(e, locale);
       if (!candidateObserved && savedOriginRef.current === target) {
         // An explicit re-check of the active saved origin is fresh negative
         // evidence and must immediately clear an older positive observation.

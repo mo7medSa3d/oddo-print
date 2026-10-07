@@ -4,7 +4,7 @@ import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, Status
 import { SettingsSection } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { friendlyAgentError, friendlyGatewayError, friendlyPrinterError, labelPrinter } from "../lib/printers";
+import { friendlyAgentError, friendlyPrinterError, labelPrinter } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
@@ -44,7 +44,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           </div>
           {gatewayDraftPending && <p className="text-xs text-warn">{t("desktop.settings.draftNotSavedBody")}</p>}
           <div className="flex justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} >{t("desktop.settings.checkConnection")}</Button></div>
-          {gatewayDisplayError && <ErrorState title={t("desktop.settings.checkFailed")} message={friendlyGatewayError(gatewayDisplayError, locale)} retry={s.checkHealth} />}
+          {gatewayDisplayError && <ErrorState title={t("desktop.settings.checkFailed")} message={gatewayDisplayError} retry={s.checkHealth} />}
         </SettingsSection>
 
         <SettingsSection title={t("desktop.settings.localAgentSection")} description={t("desktop.settings.localAgentSectionBody")} icon={<Server className="h-4 w-4" />}>
@@ -123,7 +123,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div className="max-h-64 overflow-y-auto divide-y divide-edge-subtle rounded-md border border-edge-subtle bg-surface-2/35 px-3 text-sm">
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.agentService")}</span><span className={s.isOnline ? "font-semibold text-ok" : "font-semibold text-bad"}>{s.isOnline ? t("desktop.settings.running") : t("desktop.settings.stopped")}</span></div>
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.gatewaySection")}</span><span className={s.gatewayConnected ? "font-semibold text-ok" : s.gatewayUrl ? "font-semibold text-bad" : "font-semibold text-warn"}>{s.gatewayConnected ? t("desktop.settings.reachable") : s.gatewayUrl ? t("desktop.settings.failedCheck") : t("desktop.settings.notConfigured")}</span></div>
-            {s.healthError && <div className="rounded-sm border border-bad-edge bg-bad-bg px-3 py-2 text-sm leading-relaxed text-bad">{friendlyGatewayError(s.healthError, locale)}</div>}
+            {s.healthError && <div className="rounded-sm border border-bad-edge bg-bad-bg px-3 py-2 text-sm leading-relaxed text-bad">{s.healthError}</div>}
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.devices")}</span><span className="font-semibold text-ink tabular-nums">{s.printers.length}</span></div>
             {s.printers.map((p) => (<div key={p.id} className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="truncate text-ink-2">{p.name}</span><span className={`text-xs font-semibold ${p.status === "online" ? "text-ok" : p.status === "offline" || p.status === "error" ? "text-bad" : "text-warn"}`}>{labelPrinter(p.status, locale)}</span></div>))}
             {s.printers.length === 0 && <p className="py-3 text-sm text-ink-3">{t("desktop.settings.noDevices")}</p>}

@@ -479,7 +479,7 @@ async fn read_response_body_limited(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| format!("read Gateway response: {e}"))?
+        .map_err(|e| format!("read Gateway response: {}", gateway_http_error_detail(e)))?
     {
         if chunk.len() > max_bytes.saturating_sub(body.len()) {
             return Err(format!("Gateway response exceeds {} byte limit", max_bytes));
@@ -510,21 +510,64 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         return Err("Gateway probe must stay on the candidate origin".into());
     }
 
+    let started = std::time::Instant::now();
+    logging::info(&format!("Gateway probe started origin={base}"));
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|e| format!("build HTTP client: {e}"))?;
+        .map_err(|e| log_gateway_probe_error(&base, started, gateway_http_error_detail(e)))?;
     let response = client
         .get(target)
         .header("Origin", "tauri://localhost")
         .send()
         .await
-        .map_err(|e| format!("Gateway probe failed: {e}"))?;
+        .map_err(|e| log_gateway_probe_error(&base, started, gateway_http_error_detail(e)))?;
     let status = response.status().as_u16();
-    let body = read_response_body_limited(response, 1024 * 1024).await?;
+    // Correlate a server response without logging bodies, cookies or headers.
+    let request_id = gateway_request_id(response.headers().get("x-request-id").and_then(|v| v.to_str().ok()));
+    let body = read_response_body_limited(response, 1024 * 1024)
+        .await
+        .map_err(|e| log_gateway_probe_error(&base, started, e))?;
+    let confirmed = (200..300).contains(&status)
+        && serde_json::from_str::<serde_json::Value>(&body).ok().is_some_and(|value| {
+            value.get("ok").and_then(|v| v.as_bool()) == Some(true)
+                && value.get("service").and_then(|v| v.as_str()) == Some("yaseir-print-gateway")
+        });
+    let summary = format!(
+        "Gateway probe completed origin={base} status={status} confirmed={confirmed} elapsed_ms={} request_id={request_id}",
+        started.elapsed().as_millis(),
+    );
+    if confirmed { logging::info(&summary); } else { logging::warn(&summary); }
     Ok(GatewayResponse { status, body })
+}
+
+fn gateway_request_id(value: Option<&str>) -> String {
+    value.unwrap_or("none").chars().filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | ':')).take(128).collect()
+}
+
+fn gateway_http_error_detail(error: reqwest::Error) -> String {
+    // reqwest's Display omits DNS/TLS/socket causes. Keep a bounded cause chain
+    // and remove the request URL (other Gateway calls can contain queries).
+    let category = if error.is_timeout() { "timeout" }
+        else if error.is_connect() { "connect" }
+        else { "transport" };
+    let error = error.without_url();
+    let mut detail = format!("{category}: {error}");
+    let mut cause = std::error::Error::source(&error);
+    for _ in 0..8 {
+        let Some(current) = cause else { break; };
+        detail.push_str(&format!(": {current}"));
+        cause = current.source();
+    }
+    detail.chars().filter(|c| !c.is_control()).take(2048).collect()
+}
+
+fn log_gateway_probe_error(base: &str, started: std::time::Instant, detail: String) -> String {
+    let message = format!("Gateway probe failed: {detail}");
+    logging::error(&format!("{message} origin={base} elapsed_ms={}", started.elapsed().as_millis()));
+    message
 }
 
 fn configured_gateway_origin() -> Result<url::Url, String> {
@@ -647,7 +690,11 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Gateway request failed: {e}"))?;
+        .map_err(|e| {
+            let detail = gateway_http_error_detail(e);
+            logging::error(&format!("Gateway request failed path={base_path} error={detail}"));
+            format!("Gateway request failed: {detail}")
+        })?;
     let status = response.status().as_u16();
     let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
 
@@ -1898,9 +1945,16 @@ mod agent_console_path_tests {
 #[cfg(test)]
 mod security_tests {
     use super::{
-        is_public_gateway_path, is_valid_code, normalize_gateway_url,
+        gateway_request_id, is_public_gateway_path, is_valid_code, normalize_gateway_url,
         uses_manager_refresh_credential,
     };
+
+    #[test]
+    fn probe_correlation_is_bounded_and_cannot_inject_log_lines() {
+        assert_eq!(gateway_request_id(None), "none");
+        assert_eq!(gateway_request_id(Some("req-1\r\nERROR: injected")), "req-1ERROR:injected");
+        assert_eq!(gateway_request_id(Some(&"a".repeat(200))).len(), 128);
+    }
 
     #[test]
     fn only_probe_health_and_manager_login_are_public_gateway_paths() {
