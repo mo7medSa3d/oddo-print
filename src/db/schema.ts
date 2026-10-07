@@ -101,6 +101,7 @@ export const tenantUsers = pgTable("tenant_users", {
   // discovered_devices in migration 0074).
   pk: uniqueIndex("tenant_users_pk").on(table.userId, table.tenantId),
   tenantIdx: index("tenant_users_tenant_idx").on(table.tenantId),
+  tenantCreatedUserIdx: index("tenant_users_tenant_created_user_idx").on(table.tenantId, table.createdAt, table.userId),
   ownerUnique: uniqueIndex("tenant_users_single_owner_idx").on(table.tenantId).where(sql`${table.role} = 'owner'`),
   roleCheck: check("tenant_users_role_check", sql`${table.role} in ('owner','admin','operator','viewer','integration_admin','billing_admin')`),
 }));
@@ -130,6 +131,7 @@ export const agents = pgTable("agents", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdUnique: unique("agents_tenant_id_unique").on(table.tenantId, table.id),
+  tenantCreatedIdx: index("agents_tenant_created_idx").on(table.tenantId, table.createdAt),
   lastSeenIdx: index("agents_last_seen_idx").on(table.lastSeenAt),
   // 0032: only one agent may hold a pending (non-consumed) pairing code at
   // a time. Register looks codes up globally (no tenant is provable before
@@ -174,6 +176,7 @@ export const printers = pgTable("printers", {
   tenantIdUnique: unique("printers_tenant_id_unique").on(table.tenantId, table.id),
   agentFk: foreignKey({ name: "printers_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   agentIdx: index("printers_agent_id_idx").on(table.agentId),
+  tenantCreatedIdx: index("printers_tenant_created_idx").on(table.tenantId, table.createdAt),
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
   statusIdx: index("printers_status_idx").on(table.status),
   managementSourceCheck: check("printers_management_source_check", sql`${table.managementSource} in ('agent','manager')`),
@@ -261,6 +264,7 @@ export const tenantInvitations = pgTable("tenant_invitations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdx: index("tenant_invitations_tenant_idx").on(table.tenantId),
+  tenantCreatedIdIdx: index("tenant_invitations_tenant_created_id_idx").on(table.tenantId, table.createdAt, table.id),
   emailIdx: index("tenant_invitations_email_idx").on(table.email),
   expiresIdx: index("tenant_invitations_expires_idx").on(table.expiresAt),
   roleCheck: check("tenant_invitations_role_check", sql`${table.role} in ('admin','operator','viewer','integration_admin','billing_admin')`),
@@ -399,6 +403,7 @@ export const printJobs = pgTable("print_jobs", {
   tenantIdUnique: unique("print_jobs_tenant_id_unique").on(table.tenantId, table.id),
   tenantStatusIdx: index("print_jobs_tenant_status_idx").on(table.tenantId, table.status),
   tenantCreatedIdx: index("print_jobs_tenant_created_idx").on(table.tenantId, table.createdAt),
+  createdAtIdx: index("print_jobs_created_at_idx").on(table.createdAt),
   tenantAgentStatusExpiryIdx: index("print_jobs_tenant_agent_status_expiry_idx").on(table.tenantId, table.agentId, table.status, table.expiresAt),
   agentStatusIdx: index("print_jobs_agent_status_idx").on(table.agentId, table.status),
   printerStatusIdx: index("print_jobs_printer_status_idx").on(table.printerId, table.status),
@@ -491,6 +496,7 @@ export const auditEvents = pgTable("audit_events", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantCreatedIdx: index("audit_events_tenant_created_idx").on(table.tenantId, table.createdAt),
+  createdAtIdx: index("audit_events_created_at_idx").on(table.createdAt),
   actorIdx: index("audit_events_actor_idx").on(table.actorType, table.actorId),
   resourceIdx: index("audit_events_resource_idx").on(table.resourceType, table.resourceId),
   actionCheck: check("audit_events_actor_type_check", sql`${table.actorType} in ('user','odoo','agent','desktop','system','platform')`),

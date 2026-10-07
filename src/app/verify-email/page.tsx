@@ -100,7 +100,7 @@ function VerifyEmailContent() {
     setResending(true);
     setResendMsg("");
     try {
-      const response = await fetch("/api/auth/resend-verification", {
+      const response = await fetchWithTimeout("/api/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resendEmail, planId }),

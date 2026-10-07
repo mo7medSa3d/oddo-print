@@ -22,9 +22,7 @@ The Go agent and Tauri manager must survive crashes, restarts, and host reboots.
 Windows printer connections are not a machine-global inventory. `PRINTER_ENUM_LOCAL` covers queues available in the Agent process context; `PRINTER_ENUM_CONNECTIONS` covers connections for that context, not arbitrary signed-in desktop users. A LocalSystem service running in Session 0 must therefore **not** assume it sees the same connected queues or network credentials as an interactive user. The Agent marks interactive-user connected queues as discovery-only when they cannot be proved executable from Session 0. For production, install/share the queue for the service account or use a dedicated service account that has the required printer/network permissions. An `OpenPrinterW` access failure is reported as queue/access **unknown**, not proof that the physical printer is Offline.
 
 ## Failure Actions (SCM)
-Configure via `sc failure` or API. The Go agent applies this automatically on
-`YaseirAgent.exe -service install` (see `configureServiceRecovery` in
-`agent/cmd/agent/main.go`):
+The Go Agent applies these recovery actions automatically through the native Windows SCM API on `YaseirAgent.exe -service install` (see `configureServiceRecovery` in `agent/cmd/agent/service_install_windows.go`). The commands below are operator diagnostics/examples only:
 ```
 sc failure YaseirAgent reset= 86400 actions= restart/60000/restart/60000/restart/60000
 sc failureflag YaseirAgent 1
@@ -51,13 +49,12 @@ Expose via `/api/agents/health` and Tauri manager UI:
   handle. `program.Start/Stop` implement the service interface.
 - Handle `Stop`/`Shutdown` controls via the kardianos `service.Service` contract
 - On stop, graceful shutdown is bounded by the Agent's `shutdownGrace = 25s`; it cancels the runtime, drains/joins owned work, closes the local queue, and returns control to the service manager.
-- Recovery actions are applied automatically on install via `configureServiceRecovery`
-  (shells to `sc.exe`, warn-only)
+- Recovery actions are applied automatically on install via `configureServiceRecovery` and `mgr.Service.SetRecoveryActions` after verifying the service `BinaryPathName` belongs to this installation. No inherited `SystemRoot`, `WINDIR`, or `PATH` lookup is used for this privileged mutation; recovery-policy update failure remains warn-only after a valid service installation.
 - No separate heartbeat file / external watchdog exists; liveness is the Gateway
   heartbeat (`POST /api/agent/heartbeat`) plus SCM state.
 
 ## Implementation in Tauri (Desktop Manager)
-- Tauri exposes `get_agent_status` for local service/process state and `control_service` for install/uninstall/start/stop/restart operations.
+- Tauri exposes `get_agent_status` for local service/process state and `control_service` for install/uninstall/start/stop/restart operations. Start/stop/status service control is delegated to the bundled Agent CLI, which verifies the SCM `BinaryPathName` belongs to the current install before mutating or presenting that registration as owned.
 - `start_agent` / `stop_agent` / `restart_agent` run through the Tauri blocking pool so process and service control does not block the WebView UI thread.
 - Background process ownership is recorded by PID plus process creation time and canonical image path; stop refuses to kill an unowned or identity-mismatched PID.
 
@@ -91,9 +88,13 @@ Invoke-RestMethod "http://localhost:3000/api/agents/health?agentId=xxx"
 - Dashboard: System Health page shows service state per agent
 
 ## BLOCKED Handling
-In sandbox (no Windows SCM), this is BLOCKED by design. Code is hardened with `system32_exe` path validation, `run_bounded_command` budget, background PID meta creation_time+image. Real Windows service testing requires Windows host.
+In sandbox (no Windows SCM), this is BLOCKED by design. Code is hardened with SCM binary-path ownership verification, bounded helper execution, trusted OS system-directory resolution for the remaining native utilities, and background PID metadata (`creation_time` + canonical image). Real Windows service testing requires a Windows host.
 
 ## Future: Tauri Updater Signed
 - Use Tauri updater with signed artifacts (see DESKTOP_UPDATER.md)
 - Windows service update requires stopping service, replacing binary, starting service
 - MSI installer should configure SCM failure actions during install
+
+### Agent-health collection pagination
+
+`GET /api/agents/health` remains an array response for compatibility, but the collection form is bounded. It accepts `limit` (default 100, maximum 200) and `offset` (default 0, maximum 100000). Responses include `x-has-more` and, when another page exists, `x-next-offset`. Supplying `agentId` continues to return a single Agent health object and does not use collection pagination.

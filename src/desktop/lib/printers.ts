@@ -75,7 +75,11 @@ export function printerAgentView(
   locale: Locale = DEFAULT_LOCALE,
 ): { tone: Tone; label: string } {
   return agentLiveView(
-    { status: printer.agentStatus ?? null, lastSeenAt: printer.agentLastSeenAt ?? null },
+    {
+      status: printer.agentStatus ?? null,
+      lastSeenAt: printer.agentLastSeenAt ?? null,
+      staleThresholdSeconds: printer.agentStaleThresholdSeconds ?? null,
+    },
     nowMs,
     locale,
   );
@@ -94,7 +98,10 @@ export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.n
 }
 
 export function printerDisplayStatus(p: PrinterInfo): string {
-  return printerIsStale(p) && p.reportedStatus ? p.reportedStatus : p.status;
+  // `/api/printers` already exposes an evidence-based current status. The
+  // reportedStatus field is historical/diagnostic evidence only; using it
+  // when freshness is stale would resurrect an old Online/Offline claim.
+  return p.status || "unknown";
 }
 
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {

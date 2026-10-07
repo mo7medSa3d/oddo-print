@@ -7,13 +7,17 @@ import vm from 'node:vm';
 
 async function actual(file, globals={}, select=s=>s) {
   const source=select(await readFile(file,'utf8'));
-  const context=vm.createContext({ console, Date, Set, Map, WeakMap, Promise, Response, Request, URL, ...globals });
+  const context=vm.createContext({ console, Date, Set, Map, WeakMap, Promise, Response, Request, URL, AbortController, setTimeout, clearTimeout, ...globals });
   const loadedModule=new vm.SourceTextModule(stripTypeScriptTypes(source,{mode:'transform'}),{context});
   await loadedModule.link(()=>{throw new Error('Unexpected external dependency');});
   await loadedModule.evaluate();
   return loadedModule.namespace;
 }
 const sessionFile='src/lib/session-config.ts';
+const retentionSource = await readFile('src/shared/job-retention.ts', 'utf8');
+const receiptBatchMatch = retentionSource.match(/RECEIPT_MATERIALIZE_BATCH_ROWS\s*=\s*(\d+)/);
+if (!receiptBatchMatch) throw new Error('Could not read RECEIPT_MATERIALIZE_BATCH_ROWS from source');
+const RECEIPT_MATERIALIZE_BATCH_ROWS = Number(receiptBatchMatch[1]);
 function response(status,body) {return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}});}
 
 test('workspace admission refreshes the Manager path and shares concurrent checks',async()=>{
@@ -63,7 +67,7 @@ function fixture() {
     requireManagerPermission:()=>{if(claims?.role==='viewer')throw Object.assign(new Error('denied'),{status:403,code:'FORBIDDEN'});},
     requireActiveTenantInTransaction:async()=>{},getServerLocale:async()=> 'en',makeT:()=>key=>key,
     isTerminal:status=>['success','failed','expired'].includes(status),idempotencyDigest:input=>createHash('sha256').update(JSON.stringify(input)).digest('hex'),
-    revalidatePath:()=>{},writeAuditEvent:async event=>events.push(event),logError:()=>{},ActionError,
+    revalidatePath:()=>{},writeAuditEvent:async event=>events.push(event),logError:()=>{},ActionError,RECEIPT_MATERIALIZE_BATCH_ROWS,
     NextResponse:{json:(body,opts)=>response(opts?.status??200,body)},
   };
   return {rows,events,locks,globals,setClaims:value=>{claims=value;}};

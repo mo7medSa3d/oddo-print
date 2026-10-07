@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -49,8 +50,8 @@ type Stats = {
     attention: number;
   };
   users: { total: number; verified: number };
-  agents: { total: number; online: number; offline: number };
-  printers: { total: number; online: number; offline: number };
+  agents: { total: number; active: number; online: number; offline: number; unknown: number; inactive: number };
+  printers: { total: number; active: number; online: number; busy: number; offline: number; error: number; unknown: number; inactive: number };
   jobs24h: { total: number; success: number; failed: number; queued: number; inFlight: number; expired: number };
   jobs24hHourly: OverviewHourlyPoint[];
 };
@@ -120,9 +121,9 @@ export default function PlatformDashboardPage() {
     async function load() {
       try {
         const [statsRes, tenantsRes, subsRes] = await Promise.all([
-          fetch("/api/platform/stats", { cache: "no-store" }),
-          fetch("/api/platform/tenants?limit=10", { cache: "no-store" }),
-          fetch("/api/platform/subscriptions?limit=10", { cache: "no-store" }),
+          fetchWithTimeout("/api/platform/stats", { cache: "no-store" }),
+          fetchWithTimeout("/api/platform/tenants?limit=10", { cache: "no-store" }),
+          fetchWithTimeout("/api/platform/subscriptions?limit=10", { cache: "no-store" }),
         ]);
 
         if (ignore) return;
@@ -193,7 +194,7 @@ export default function PlatformDashboardPage() {
     };
   }, [stats]);
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         variant="inline"
         title={t("platform.dashboard.title")}
@@ -252,8 +253,13 @@ export default function PlatformDashboardPage() {
               queued: stats?.jobs24h.queued ?? 0,
               inFlight: stats?.jobs24h.inFlight ?? 0,
             }}
-            agents={{ offline: stats?.agents.offline ?? 0 }}
-            printers={{ offline: stats?.printers.offline ?? 0 }}
+            agents={{ attention: (stats?.agents.offline ?? 0) + (stats?.agents.unknown ?? 0) }}
+            printers={{
+              attention:
+                (stats?.printers.offline ?? 0) +
+                (stats?.printers.error ?? 0) +
+                (stats?.printers.unknown ?? 0),
+            }}
             pastDue={stats?.subscriptions.attention ?? stats?.subscriptions.pastDue ?? 0}
           />
 
@@ -284,7 +290,7 @@ export default function PlatformDashboardPage() {
                 <PrintThroughputChart data={stats?.jobs24hHourly ?? []} />
               ) : (
                 <EmptyState
-                  className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2"
+                  className="mt-4 rounded-md border border-dashed border-edge-strong bg-surface-2"
                   icon={<Activity className="h-5 w-5" />}
                   title={t("platform.dashboard.noActivity")}
                   description={t("platform.dashboard.noActivityBody")}
@@ -336,14 +342,12 @@ export default function PlatformDashboardPage() {
               <FleetHealthChart
                 fleet={{
                   agents: {
-                    total: stats?.agents.total ?? 0,
-                    online: stats?.agents.online ?? 0,
-                    offline: stats?.agents.offline ?? 0,
+                    active: stats?.agents.active ?? 0,
+                    healthy: stats?.agents.online ?? 0,
                   },
                   printers: {
-                    total: stats?.printers.total ?? 0,
-                    online: stats?.printers.online ?? 0,
-                    offline: stats?.printers.offline ?? 0,
+                    active: stats?.printers.active ?? 0,
+                    healthy: (stats?.printers.online ?? 0) + (stats?.printers.busy ?? 0),
                   },
                 }}
               />
@@ -374,7 +378,7 @@ export default function PlatformDashboardPage() {
                 </div>
                 <Link
                   href="/platform/subscriptions"
-                  className="inline-flex shrink-0 items-center gap-1 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
+                  className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-sm px-1 text-sm font-[600] text-brand transition-colors hover:text-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
                 >
                   {t("platform.dashboard.manage")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
                 </Link>
@@ -402,8 +406,8 @@ export default function PlatformDashboardPage() {
                 title={t("platform.dashboard.footprint")}
                 icon={<Building2 className="h-4 w-4" />}
               />
-              <div className="grid gap-3 px-5 py-5 sm:grid-cols-3">
-                <div className="inset-panel p-4">
+              <div className="grid gap-px overflow-hidden border-t border-edge-subtle bg-edge-subtle sm:grid-cols-3">
+                <div className="bg-surface px-5 py-4">
                   <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <Building2 className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.tenantsLabel")}
@@ -411,7 +415,7 @@ export default function PlatformDashboardPage() {
                   <div className="mt-2 text-2xl font-[640] tabular text-ink">{formatNumber(stats?.tenants.total ?? 0)}</div>
                   <div className="mt-0.5 text-xs text-ink-3">{t("platform.dashboard.tenantsCount", { count: formatNumber(stats?.tenants.active ?? 0) })}</div>
                 </div>
-                <div className="inset-panel p-4">
+                <div className="bg-surface px-5 py-4">
                   <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <Users className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.usersLabel")}
@@ -421,7 +425,7 @@ export default function PlatformDashboardPage() {
                     {t("platform.dashboard.usersVerified", { percent: formatNumber(percent(stats?.users.verified ?? 0, stats?.users.total ?? 0) ?? 0) })}
                   </div>
                 </div>
-                <div className="inset-panel p-4">
+                <div className="bg-surface px-5 py-4">
                   <div className="flex items-center gap-2 text-xs font-[550] text-ink-3">
                     <CreditCard className="h-3.5 w-3.5" aria-hidden />
                     {t("platform.dashboard.subscriptionsLabel")}
@@ -472,7 +476,7 @@ export default function PlatformDashboardPage() {
                           <tr key={tenant.id}>
                             <td>
                               <div className="text-sm font-[550] text-ink">{tenant.name}</div>
-                              <div className="mt-0.5 font-mono text-2xs text-ink-4">{tenant.id}</div>
+                              <div dir="ltr" className="mt-0.5 font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{tenant.id}</div>
                             </td>
                             <td>
                               <StatusBadge tone={meta.tone} label={t(meta.key)} size="sm" />
@@ -528,7 +532,7 @@ export default function PlatformDashboardPage() {
                           <tr key={subscription.tenantId}>
                             <td>
                               <div className="text-sm font-[550] text-ink">{subscription.tenantName}</div>
-                              <div className="mt-0.5 font-mono text-2xs text-ink-4">
+                              <div dir="ltr" className="mt-0.5 font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">
                                 {subscription.stripeSubscriptionId
                                   ? `${subscription.stripeSubscriptionId.slice(0, 16)}…`
                                   : t("platform.dashboard.noStripeSubscription")}

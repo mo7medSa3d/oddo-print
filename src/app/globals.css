@@ -46,12 +46,12 @@
   --brand-ring: rgba(37, 99, 235, 0.22);
 
   /* ---------- Neutral surfaces ---------- */
-  --bg: #f6f7f9;
-  --bg-subtle: #fbfbfc;
+  --bg: #f8f9fb;
+  --bg-subtle: #fcfcfd;
   --surface: #ffffff;
-  --surface-2: #f6f7f9;
-  --surface-3: #eceef2;
-  --surface-hover: #f3f4f7;
+  --surface-2: #f4f5f7;
+  --surface-3: #eaecf0;
+  --surface-hover: #f1f3f5;
   --surface-accent: #f2f6ff;
   --surface-accent-2: #e7efff;
   --surface-elevated: #ffffff;
@@ -76,7 +76,7 @@
      (page, card, raised panel, brand tint) — measured 5.2:1 and 4.6:1 on the
      darkest light surface (--surface-3). */
   --text-3: #5d636c;
-  --text-4: #666c74;
+  --text-4: #626870;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
   --text-display: #101216;
@@ -114,14 +114,14 @@
   --overlay: rgba(15, 18, 26, 0.4);
   --overlay-soft: rgba(15, 18, 26, 0.16);
 
-  /* ---------- Radius scale (6 · 8 · 10 · 12 · 14 · 16 · pill) ---------- */
-  --r-xs: 6px;
-  --r-sm: 8px;
-  --r-md: 10px;
-  --r-lg: 12px;
-  --r-xl: 14px;
-  --r-2xl: 16px;
-  --r-3xl: 20px;
+  /* ---------- Radius scale — restrained operational geometry ---------- */
+  --r-xs: 5px;
+  --r-sm: 7px;
+  --r-md: 9px;
+  --r-lg: 11px;
+  --r-xl: 12px;
+  --r-2xl: 13px;
+  --r-3xl: 16px;
   --r-pill: 9999px;
 
   /* ---------- Elevation: layered and low-contrast ---------- */
@@ -131,15 +131,15 @@
   --shadow-lg: 0 4px 8px rgba(16, 24, 40, 0.05), 0 16px 32px rgba(16, 24, 40, 0.09);
   --shadow-xl: 0 8px 16px rgba(16, 24, 40, 0.06), 0 28px 56px rgba(16, 24, 40, 0.12);
   --shadow-2xl: 0 12px 24px rgba(16, 24, 40, 0.08), 0 40px 80px rgba(16, 24, 40, 0.16);
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.05);
-  --shadow-card-hover: 0 2px 4px rgba(16, 24, 40, 0.05), 0 12px 26px rgba(16, 24, 40, 0.09);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.035);
+  --shadow-card-hover: 0 2px 6px rgba(16, 24, 40, 0.07);
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
   /* ---------- Type scale ---------- */
   --fs-2xs: 12px;
   --fs-xs: 13px;
   --fs-sm: 14px;
-  --fs-body: 15px;
+  --fs-body: 16px;
   --fs-md: 16px;
   --fs-lg: 17px;
   --fs-title: 18px;
@@ -179,12 +179,12 @@
   --page-py: 28px;
 
   /* ---------- Control geometry ---------- */
-  --control-h-sm: 32px;
-  --control-h-md: 36px;
-  --control-h-lg: 42px;
+  --control-h-sm: 36px;
+  --control-h-md: 40px;
+  --control-h-lg: 44px;
 
   /* ---------- Platform (control plane) accent ---------- */
-  --platform-accent: #6d5efc;
+  --platform-accent: #2563eb;
   --platform-bg: #0b1018;
   --platform-surface: #111824;
   --platform-border: #202b3a;
@@ -287,7 +287,7 @@
   --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.4), 0 14px 30px rgba(0, 0, 0, 0.36);
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
-  --platform-accent: #8b7cff;
+  --platform-accent: #5d99ff;
   --platform-bg: #08090c;
   --platform-surface: #121417;
   --platform-border: #24272e;
@@ -361,8 +361,8 @@
   --color-info-bg: var(--info-bg);
   --color-info-edge: var(--info-border);
 
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
-    Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Segoe UI Variable Text", "SF Pro Text", "Noto Sans Arabic", Tahoma,
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
 
@@ -615,14 +615,14 @@
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--r-2xl);
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow-card);
   }
 
   .card-elevated {
     background: var(--surface-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--r-2xl);
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow-sm);
   }
 
@@ -631,7 +631,7 @@
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--r-xl);
+    border-radius: var(--r-lg);
   }
 
   .billing-premium {
@@ -639,14 +639,14 @@
     overflow: hidden;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--r-2xl);
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow-card);
   }
 
   .balance-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--r-2xl);
+    border-radius: var(--r-lg);
     box-shadow: var(--shadow-card);
   }
 
@@ -708,10 +708,8 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background:
-      radial-gradient(900px 420px at 12% -8%, var(--brand-ring), transparent 70%),
-      radial-gradient(700px 380px at 96% 4%, var(--surface-accent-2), transparent 72%);
-    opacity: 0.5;
+    background: linear-gradient(180deg, var(--surface-accent) 0, transparent 28%);
+    opacity: 0.32;
   }
 
   .glass-chrome {
@@ -761,10 +759,10 @@
   /* ---------- Typography helpers ---------- */
   .label-caps {
     color: var(--text-3);
-    font-size: var(--fs-2xs);
+    font-size: var(--fs-xs);
     font-weight: 600;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    letter-spacing: 0;
+    text-transform: none;
   }
 
   .text-display {
@@ -779,8 +777,8 @@
     color: var(--text-3);
     font-size: var(--fs-xs);
     font-weight: 600;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    letter-spacing: 0;
+    text-transform: none;
   }
 
   .text-meta {
@@ -935,7 +933,7 @@
     align-items: center;
     gap: 10px;
     border-radius: var(--r-md);
-    padding: 7px 10px;
+    padding: 9px 10px;
     font-size: var(--fs-sm);
     font-weight: 500;
     color: var(--text-2);

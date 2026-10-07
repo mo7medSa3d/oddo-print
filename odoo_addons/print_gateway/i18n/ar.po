@@ -54,7 +54,7 @@ msgstr "لا يمكن لربط الطباعة أن يستخدم نفسه كوج�
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
 msgid "A Print Gateway configuration is required for this Odoo Company."
-msgstr "يلزم إعداد بوابة الطباعة لشركة Odoo هذه."
+msgstr "يلزم إعداد Print Gateway لشركة Odoo هذه."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -201,7 +201,7 @@ msgstr "أمر طابعة متقدم"
 #: code:addons/print_gateway/models/binding.py:0
 #: code:addons/print_gateway/models/runtime_assignment.py:0
 msgid "Agent"
-msgstr "وكيل الطباعة"
+msgstr "Agent طباعة"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -255,7 +255,7 @@ msgstr "مؤرشف"
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_pair_agent_wizard
 msgid "Assign Runtime Agent Wizard"
-msgstr "معالج تعيين وكيل الطباعة"
+msgstr "معالج تعيين Agent طباعة"
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_intent__attempts
@@ -319,7 +319,7 @@ msgstr "قاعدة احتياطية"
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_gateway_config__runtime_agent_id
 msgid "Backward-compatible opaque Gateway runtime-agent reference from the earlier configuration model. New branch bindings do not use this field as their source of truth."
-msgstr "مرجع معرّف وكيل البوابة للتوافق مع نموذج الإعداد السابق. لا تعتمد قواعد الفروع الجديدة على هذا الحقل لتحديد الوكيل."
+msgstr "مرجع معرّف Agent الـ Gateway للتوافق مع نموذج الإعداد السابق. لا تعتمد قواعد الفروع الجديدة على هذا الحقل لتحديد الـ Agent."
 
 #. module: print_gateway
 #. odoo-javascript
@@ -423,7 +423,7 @@ msgstr "اختر مكان طباعة كل مستند."
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_runtime_assignment_form
 msgid "Choose which Print Agent serves this branch. A branch can use more than one agent."
-msgstr "اختر وكيل الطباعة الذي يخدم هذا الفرع. يمكن للفرع استخدام أكثر من وكيل."
+msgstr "اختر Agent طباعة الذي يخدم هذا الفرع. يمكن للفرع استخدام أكثر من Agent."
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_intent__claim_token
@@ -710,7 +710,7 @@ msgstr "مرشّح النطاق"
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_policy.py:0
 msgid "Domain filter must evaluate to a list of criteria."
-msgstr "يجب أن تُفرز عامل تصفية النطاق قائمة من المعايير."
+msgstr "يجب أن يُقيَّم مرشّح النطاق إلى قائمة من المعايير."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_policy.py:0
@@ -823,7 +823,7 @@ msgstr "مفتاح API للـ Gateway غير مُعدّ."
 #: model:ir.actions.act_window,name:print_gateway.action_print_gateway_config
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_pair_agent_wizard__config_id
 msgid "Gateway Configuration"
-msgstr "إعداد البوابة"
+msgstr "إعداد الـ Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -850,7 +850,7 @@ msgstr "مطبخ الـ Gateway"
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
 msgid "Gateway Kitchen / Preparation follows Odoo 19 Preparation Printers and their Printed Product Categories. Select the Odoo Preparation Printer here; the Gateway Runtime Printer remains the physical target. Existing POS Shop-only bindings remain a compatibility fallback."
-msgstr "تتبع طباعة المطبخ / التحضير عبر البوابة طابعات التحضير وفئات المنتجات المطبوعة في Odoo 19. اختر طابعة التحضير هنا؛ وتظل طابعة البوابة هدف الطباعة الفعلي. تُحفظ قواعد متجر نقطة البيع القديمة للتوافق."
+msgstr "تتبع طباعة المطبخ / التحضير عبر الـ Gateway طابعات التحضير وفئات المنتجات المطبوعة في Odoo 19. اختر طابعة التحضير هنا؛ وتظل طابعة الـ Gateway هدف الطباعة الفعلي. تُحفظ قواعد متجر نقطة البيع القديمة للتوافق."
 
 #. module: print_gateway
 #. odoo-javascript
@@ -862,22 +862,22 @@ msgstr "توجيه مطبخ الـ Gateway غير مكتمل لطابعة تحض
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__runtime_agent_id
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_runtime_agent_assignment__runtime_agent_id
 msgid "Gateway Runtime Agent"
-msgstr "وكيل البوابة"
+msgstr "Agent الـ Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
 msgid "Gateway Runtime Agent '%s' is not assigned to the current Odoo Branch."
-msgstr "الـ Agent '%s' غير مُعيَّن لفرع Odoo الحالي."
+msgstr "Agent الـ Gateway '%s' غير مُعيَّن لفرع Odoo الحالي."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
 msgid "Gateway Runtime Agent '%s' is not explicitly assigned to '%s'. Assign the Agent to this exact Odoo scope before creating the binding."
-msgstr "الـ Agent '%s' غير مُعيَّن صراحةً إلى '%s'. عيّن الـ Agent على نطاق Odoo هذا تحديدًا قبل إنشاء الربط."
+msgstr "Agent الـ Gateway '%s' غير مُعيَّن صراحةً إلى '%s'. عيّن الـ Agent على نطاق Odoo هذا تحديدًا قبل إنشاء الربط."
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__printer_id
 msgid "Gateway Runtime Printer"
-msgstr "طابعة البوابة"
+msgstr "طابعة الـ Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -887,12 +887,12 @@ msgstr "طابعة الـ Gateway لا تتبع الـ Agent المحدَّد."
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_gateway_config__gateway_sync_state
 msgid "Gateway Status"
-msgstr "حالة البوابة"
+msgstr "حالة الـ Gateway"
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_gateway_config__gateway_url
 msgid "Gateway URL"
-msgstr "عنوان البوابة"
+msgstr "عنوان الـ Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -974,7 +974,7 @@ msgstr "الوصول إلى فوترة الـ Gateway غير متاح مؤقتً
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__gateway_config_id
 msgid "Gateway config id"
-msgstr "معرّف إعداد البوابة"
+msgstr "معرّف إعداد الـ Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
@@ -1049,7 +1049,7 @@ msgstr "النجاح المتأخر من الـ Gateway صالح فقط لمهم
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "Gateway late success requires the original reconcilable remote operation."
-msgstr "يتطلب تأكيد النجاح المتأخر من البوابة العملية الأصلية القابلة لمطابقة حالتها."
+msgstr "يتطلب تأكيد النجاح المتأخر من الـ Gateway العملية الأصلية القابلة لمطابقة حالتها."
 
 #. module: print_gateway
 #. odoo-javascript
@@ -1138,7 +1138,7 @@ msgstr "أعاد الـ Gateway استجابة صحة غير صالحة."
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 msgid "Gateway returned an invalid kitchen-routing configuration."
-msgstr "أعادت البوابة إعدادًا غير صالح لتوجيه طباعة المطبخ."
+msgstr "أعادت الـ Gateway إعدادًا غير صالح لتوجيه طباعة المطبخ."
 
 #. module: print_gateway
 #: code:addons/print_gateway/controllers/runtime_printers.py:0
@@ -1183,7 +1183,7 @@ msgstr "وضع نبضة فتح درج النقد."
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_binding__printer_protocol
 msgid "Hardware control language the printer ACTUALLY understands. There is deliberately no default: declaring the protocol is an explicit operator statement. 'unknown' keeps byte-stream jobs unroutable (raw/zpl/tspl/escpos all require an exact match); document (PDF/image) jobs additionally require the Gateway printer itself to be a document transport. Byte protocols never wildcard: a 'raw' printer does not accept zpl/tspl/escpos jobs."
-msgstr "لغة التحكم التي تفهمها الطابعة فعليًا. لا توجد قيمة افتراضية؛ تحديد البروتوكول إقرار صريح من المشغّل. تمنع القيمة «unknown» إرسال مهام الأوامر؛ إذ تتطلب raw/zpl/tspl/escpos تطابقًا تامًا. وتتطلب مهام PDF والصور وسيلة نقل مستندات في طابعة البوابة. لا يُستخدم بروتوكول البايتات كبديل عام؛ فطابعة raw لا تقبل مهام zpl/tspl/escpos."
+msgstr "لغة التحكم التي تفهمها الطابعة فعليًا. لا توجد قيمة افتراضية؛ تحديد البروتوكول إقرار صريح من المشغّل. تمنع القيمة «unknown» إرسال مهام الأوامر؛ إذ تتطلب raw/zpl/tspl/escpos تطابقًا تامًا. وتتطلب مهام PDF والصور وسيلة نقل مستندات في طابعة الـ Gateway. لا يُستخدم بروتوكول البايتات كبديل عام؛ فطابعة raw لا تقبل مهام zpl/tspl/escpos."
 
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_binding__cutter_mode
@@ -1213,7 +1213,7 @@ msgstr "مفتاح منع التكرار"
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_pair_agent_wizard__agent_id
 msgid "Identifier of an active Agent registered with the Central Gateway."
-msgstr "معرّف وكيل نشط مسجّل لدى البوابة المركزية."
+msgstr "معرّف Agent نشط مسجّل لدى الـ Gateway المركزية."
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_intent_search
@@ -1224,7 +1224,7 @@ msgstr "قيد التنفيذ"
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_gateway_config__gateway_api_key
 msgid "Installation key from your Yaseir Print Gateway account. Stored securely and excluded from exports."
-msgstr "مفتاح التثبيت من حسابك في بوابة ياسير للطباعة. يُخزّن بأمان ويُستبعد من التصدير."
+msgstr "مفتاح التثبيت من حسابك في Yaseir Print Gateway. يُخزّن بأمان ويُستبعد من التصدير."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_intent.py:0
@@ -1329,7 +1329,7 @@ msgstr "آخر خطأ"
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_gateway_config__last_enabled_sync_revision
 msgid "Last Gateway Sync Revision"
-msgstr "آخر إصدار مزامنة مع البوابة"
+msgstr "آخر إصدار مزامنة مع الـ Gateway"
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_gateway_config__last_enabled_sync_at
@@ -1369,7 +1369,7 @@ msgstr "آخر خطأ في الاختبار"
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_gateway_config__runtime_agent_id
 msgid "Legacy Runtime Agent Reference"
-msgstr "مرجع وكيل الطباعة القديم"
+msgstr "مرجع Agent طباعة القديم"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -1396,7 +1396,7 @@ msgstr "الموقع:"
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_binding__destination_pos_config_id
 msgid "Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below."
-msgstr "الوجهة المنطقية لنقطة البيع. تُختار الطابعة الفعلية من حقل طابعة البوابة أدناه."
+msgstr "الوجهة المنطقية لنقطة البيع. تُختار الطابعة الفعلية من حقل طابعة الـ Gateway أدناه."
 
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_policy__priority
@@ -1432,7 +1432,7 @@ msgstr "محتوى الأوامر الأصلية"
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_binding__destination_pos_printer_id
 msgid "Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives."
-msgstr "معرّف طابعة التحضير الأصلية في Odoo 19. تحدد فئات منتجاتها أسطر المطبخ التي تستقبلها قاعدة البوابة هذه."
+msgstr "معرّف طابعة التحضير الأصلية في Odoo 19. تحدد فئات منتجاتها أسطر المطبخ التي تستقبلها قاعدة الـ Gateway هذه."
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_print_job__payload_type__raw_cmd
@@ -1711,7 +1711,7 @@ msgstr "يمكن للإجراءات المجدولة (المسؤول) فقط ت�
 #. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_binding__runtime_agent_id
 msgid "Opaque Gateway runtime-agent ID. Runtime ownership remains in the Gateway."
-msgstr "معرّف وكيل البوابة. تحتفظ البوابة بملكية الوكيل أثناء التشغيل."
+msgstr "معرّف Agent الـ Gateway. تحتفظ الـ Gateway بملكية الـ Agent أثناء التشغيل."
 
 #. module: print_gateway
 #. odoo-javascript
@@ -2039,42 +2039,42 @@ msgstr "تفاصيل الطباعة"
 #. module: print_gateway
 #: model:ir.actions.act_window,name:print_gateway.action_print_gateway_binding
 msgid "Print Gateway Bindings"
-msgstr "قواعد بوابة الطباعة"
+msgstr "قواعد Print Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_print_router
 msgid "Print Gateway Central Router"
-msgstr "موجّه بوابة الطباعة المركزي"
+msgstr "موجّه Print Gateway المركزي"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_gateway_config
 msgid "Print Gateway Configuration"
-msgstr "إعداد بوابة الطباعة"
+msgstr "إعداد Print Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_intent
 msgid "Print Gateway Dispatch Intent"
-msgstr "طلب إرسال عبر بوابة الطباعة"
+msgstr "طلب إرسال عبر Print Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_policy
 msgid "Print Gateway Dispatch Policy"
-msgstr "سياسة إرسال عبر بوابة الطباعة"
+msgstr "سياسة إرسال عبر Print Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_print_job
 msgid "Print Gateway Job"
-msgstr "مهمة بوابة الطباعة"
+msgstr "مهمة Print Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_binding
 msgid "Print Gateway Print Binding"
-msgstr "قاعدة طباعة البوابة"
+msgstr "قاعدة طباعة الـ Gateway"
 
 #. module: print_gateway
 #: model:ir.model,name:print_gateway.model_print_gateway_runtime_agent_assignment
 msgid "Print Gateway Runtime Agent Assignment"
-msgstr "تعيين وكيل بوابة الطباعة"
+msgstr "تعيين Agent Print Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
@@ -2085,7 +2085,7 @@ msgstr "طباعة الـ Gateway معطَّلة للشركة %s."
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 msgid "Print Gateway returned an invalid Sale Details response."
-msgstr "أعادت بوابة الطباعة استجابة غير صالحة لتفاصيل المبيعات."
+msgstr "أعادت Print Gateway استجابة غير صالحة لتفاصيل المبيعات."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
@@ -2178,7 +2178,7 @@ msgstr "يجب إنشاء عمليات الطباعة في شركة Odoo الن�
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "Print payload exceeds the 5 MiB Gateway/Agent safety limit."
-msgstr "حمولة الطباعة تتجاوز حد الأمان البالغ 5 MiB لبوابة الطباعة والوكيل."
+msgstr "حمولة الطباعة تتجاوز حد الأمان البالغ 5 MiB لPrint Gateway والـ Agent."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
@@ -2470,7 +2470,7 @@ msgstr "استعادة المزامنة المتوقفة"
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_config_form
 msgid "Recover synchronization state only after checking the previous Gateway endpoint."
-msgstr "استعد حالة المزامنة فقط بعد فحص عنوان البوابة السابق."
+msgstr "استعد حالة المزامنة فقط بعد فحص عنوان الـ Gateway السابق."
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_job_search
@@ -2597,7 +2597,7 @@ msgstr "اسم القاعدة"
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_pair_agent_wizard__agent_id
 msgid "Runtime Agent ID"
-msgstr "معرّف وكيل الطباعة"
+msgstr "معرّف Agent طباعة"
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
@@ -2676,12 +2676,12 @@ msgstr "اختر Agent طباعة متصلًا"
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_pair_agent_wizard_form
 msgid "Select the branch and choose an available Print Agent. A branch can use more than one agent."
-msgstr "حدّد الفرع واختر وكيل طباعة متاحًا. يمكن للفرع استخدام أكثر من وكيل."
+msgstr "حدّد الفرع واختر Agent طباعة متاحًا. يمكن للفرع استخدام أكثر من Agent."
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
-msgid "Select the branch, destination, and Gateway physical printer for this rule. POS Receipt and POS Kitchen / Preparation do not require an Odoo printer or PDF report."
-msgstr "حدّد الفرع والوجهة وطابعة البوابة الفعلية لهذه القاعدة. لا تتطلب إيصالات نقطة البيع أو طباعة المطبخ / التحضير طابعة Odoo أو تقرير PDF."
+msgid "Select the branch, destination, and Gateway physical printer for this rule. POS Receipt does not require an Odoo printer or PDF report. POS Kitchen / Preparation uses the selected Odoo Preparation Printer for category routing; the Gateway printer remains the physical destination."
+msgstr "حدّد الفرع والوجهة وطابعة الـ Gateway الفعلية لهذه القاعدة. لا يتطلب POS Receipt طابعة Odoo أو تقرير PDF. تستخدم POS Kitchen / Preparation طابعة Odoo Preparation Printer المحددة لتوجيه الفئات، بينما تظل طابعة الـ Gateway هي الوجهة الفعلية للطباعة."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
@@ -2947,7 +2947,7 @@ msgstr "تم بلوغ حد خطة الـ Gateway."
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "The Gateway rejected authentication. The job was safely re-queued; check the API key and integration state, then it will retry automatically."
-msgstr "رفضت البوابة المصادقة. أُعيدت المهمة إلى قائمة الانتظار بأمان؛ تحقّق من مفتاح API وحالة التكامل، ثم ستُعاد المحاولة تلقائيًا."
+msgstr "رفضت الـ Gateway المصادقة. أُعيدت المهمة إلى قائمة الانتظار بأمان؛ تحقّق من مفتاح API وحالة التكامل، ثم ستُعاد المحاولة تلقائيًا."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -3182,12 +3182,12 @@ msgstr "التقرير المطلوب غير متاح."
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
 msgid "The selected Gateway Runtime Agent is not assigned to the current Odoo Branch."
-msgstr "الـ Agent المحدَّد غير مُعيَّن لفرع Odoo الحالي."
+msgstr "Agent الـ Gateway المحدَّد غير مُعيَّن لفرع Odoo الحالي."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
 msgid "The selected Gateway Runtime Agent is not found."
-msgstr "الـ Agent المحدَّد غير موجود."
+msgstr "Agent الـ Gateway المحدَّد غير موجود."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -3330,7 +3330,7 @@ msgstr "رقِّ خطتك لمتابعة الطباعة."
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
 msgid "Used: %s"
-msgstr "المستخدم: %s"
+msgstr "المستخدَم: %s"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
@@ -3387,7 +3387,7 @@ msgstr "تاريخ التعديل"
 #: model:ir.ui.menu,name:print_gateway.menu_print_gateway_main
 #: model_terms:ir.ui.view,arch_db:print_gateway.diagnostic_report
 msgid "Yaseir Print Gateway"
-msgstr "بوابة ياسير للطباعة"
+msgstr "منصة Yaseir Print Gateway"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -3493,6 +3493,7 @@ msgstr "لا شيء"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "offline"
 msgstr "غير متصل"
 
@@ -3550,3 +3551,101 @@ msgstr "هذه الطابعة مضبوطة للطباعة المستندية ع�
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "stale"
 msgstr "بيانات قديمة"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/language_switcher.js:0
+msgid "Changing language timed out. Reload the page before trying again."
+msgstr "انتهت مهلة تغيير اللغة. أعد تحميل الصفحة قبل المحاولة مرة أخرى."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/language_switcher.js:0
+msgid "Loading languages timed out."
+msgstr "انتهت مهلة تحميل اللغات."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "Order synchronization timed out."
+msgstr "انتهت مهلة مزامنة الطلب."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "Printing service request timed out."
+msgstr "انتهت مهلة طلب خدمة الطباعة."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "Printing service update timed out."
+msgstr "انتهت مهلة تحديث خدمة الطباعة."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "Receipt rendering timed out."
+msgstr "انتهت مهلة تجهيز صورة الإيصال."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "The printing service did not confirm the result in time. The receipt may already have been accepted; retry will reuse the same operation to prevent a duplicate."
+msgstr "لم تؤكد خدمة الطباعة النتيجة في الوقت المحدد. ربما تم قبول الإيصال بالفعل؛ ستعيد المحاولة استخدام العملية نفسها لمنع طباعة مكررة."
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "busy"
+msgstr "مشغولة"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "error"
+msgstr "خطأ"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "inkjet"
+msgstr "نافثة للحبر"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "label"
+msgstr "ملصقات"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "laser"
+msgstr "ليزر"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "online"
+msgstr "متصل"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "other"
+msgstr "أخرى"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "thermal"
+msgstr "حرارية"
+
+#. module: print_gateway
+#. odoo-javascript
+#: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
+#: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
+msgid "unknown"
+msgstr "غير معروف"

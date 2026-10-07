@@ -62,7 +62,7 @@ export function AdminPrivilegeDialog({
     >
       <div className="space-y-4 text-base leading-relaxed text-ink-2">
         <div
-          className="flex items-start gap-3 rounded-sg border border-warn-edge bg-warn-bg p-3.5 text-warn"
+          className="flex items-start gap-3 rounded-md border border-warn-edge bg-warn-bg p-4 text-warn"
           role="alert"
         >
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
@@ -76,7 +76,7 @@ export function AdminPrivilegeDialog({
           {t("desktop.admin.intro")}
         </p>
 
-        <div className="rounded-sg border border-edge bg-surface-2 p-3.5 text-sm text-ink-3">
+        <div className="rounded-md border border-edge bg-surface-2 p-4 text-sm text-ink-3">
           <div className="font-medium text-ink mb-1.5">{t("desktop.admin.howTo")}</div>
           <ol className="list-decimal ps-5 space-y-1">
             <li>{t("desktop.admin.step1")}</li>

@@ -71,7 +71,7 @@ export default function SettingsPage() {
     setBusy(true);
     setMessage(null);
     try {
-      const r = await fetch("/api/settings", {
+      const r = await fetchWithTimeout("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -100,8 +100,8 @@ export default function SettingsPage() {
       <PageContainer width="narrow">
         {loading ? (
           <div className="space-y-5" role="status" aria-label={t("settings.loadingAria")}>
-            <Skeleton className="h-[240px] rounded-2xl" />
-            <Skeleton className="h-[160px] rounded-2xl" />
+            <Skeleton className="h-[240px] rounded-lg" />
+            <Skeleton className="h-[160px] rounded-lg" />
             <span className="sr-only">{t("settings.loadingShort")}</span>
           </div>
         ) : (
@@ -165,7 +165,7 @@ export default function SettingsPage() {
                     },
                   ]}
                 />
-                <div className="mt-3 flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+                <div className="mt-3 flex items-start gap-2.5 rounded-md border border-edge-subtle bg-surface-2 px-3.5 py-3">
                   <Shield className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                   <p className="text-sm leading-relaxed text-ink-3">
                     {t("settings.roleChangesImmediate")}
@@ -181,7 +181,7 @@ export default function SettingsPage() {
                 icon={<AlertTriangle className="h-4 w-4" />}
               />
               <div className="px-5 py-4">
-                <div className="flex items-start gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5">
+                <div className="flex items-start gap-3 rounded-md border border-bad-edge bg-bad-bg px-4 py-3.5">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden />
                   <div className="min-w-0">
                     <h3 className="text-sm font-[600] text-bad">{t("settings.deleteWorkspaceTitle")}</h3>

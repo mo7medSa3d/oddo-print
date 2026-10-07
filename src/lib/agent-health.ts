@@ -11,7 +11,7 @@
 
 import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
-import { eq, and, count, sql } from "drizzle-orm";
+import { eq, and, count, sql, asc } from "drizzle-orm";
 import { logWarn } from "./log";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
@@ -241,10 +241,18 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   };
 }
 
-export async function getAllAgentsHealth(tenantId: string): Promise<AgentHealth[]> {
-  // `db.select().from(agents)` is already typed; the cast only disabled checking.
+export async function getAllAgentsHealth(tenantId: string, limit = 100, offset = 0): Promise<AgentHealth[]> {
+  const boundedLimit = Math.max(1, Math.min(201, Math.trunc(limit)));
+  const boundedOffset = Math.max(0, Math.min(100_000, Math.trunc(offset)));
+  // Bound tenant cardinality before the per-Agent fan-out. Stable ID ordering
+  // keeps offset pagination deterministic for this diagnostic endpoint while
+  // preserving the historical array response contract at the route boundary.
   const allAgents = await queryWithTimeout(
-    () => db.select().from(agents).where(eq(agents.tenantId, tenantId)),
+    () => db.select().from(agents)
+      .where(eq(agents.tenantId, tenantId))
+      .orderBy(asc(agents.id))
+      .limit(boundedLimit)
+      .offset(boundedOffset),
     3000,
     "getAllAgentsHealth"
   );

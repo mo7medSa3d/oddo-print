@@ -372,6 +372,11 @@ export function restartAgent(): Promise<string> {
   return invoke<string>("restart_agent");
 }
 
+export function setTrayLocale(locale: "en" | "ar"): Promise<void> {
+  if (!isTauri) return Promise.resolve();
+  return invoke<void>("set_tray_locale", { locale });
+}
+
 export function pairAgent(code: string, gatewayUrl: string): Promise<string> {
   return invoke<string>("pair_agent", {
     args: { code, gateway_url: gatewayUrl },
@@ -461,6 +466,7 @@ export interface PrinterInfo {
   agentFreshness?: "fresh" | "stale" | "missing";
   agentLifecycle?: string | null;
   agentLastSeenAt?: string | null;
+  agentStaleThresholdSeconds?: number | null;
   configurationConverged?: boolean;
 }
 
@@ -468,7 +474,7 @@ export interface PrinterInfo {
 
 export async function fetchGatewayAgents(
   gatewayUrl: string,
-): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>> {
+): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>> {
   const base = normalizeGatewayUrl(gatewayUrl);
   // No extra auth headers: the browser sends the manager session cookie
   // automatically (credentials: "include"), and the Tauri shell injects the
@@ -477,7 +483,7 @@ export async function fetchGatewayAgents(
   if (status < 200 || status >= 300) {
     throw gatewayHttpError(status, body, "agents fetch failed (" + status + ")");
   }
-  return JSON.parse(body) as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null }>;
+  return JSON.parse(body) as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>;
 }
 
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
@@ -742,6 +748,34 @@ export function onGatewayConfigChanged(
  * handshake would leave the UI "busy" forever (the browser default has no
  * upper bound for fetch).
  */
+/** Probe an arbitrary validated Gateway candidate without persisting it.
+ * The packaged app performs this in Rust so CSP stays narrow and no Manager
+ * credential is sent to an untrusted draft origin. */
+export async function probeGatewayHealth(
+  gatewayUrl: string
+): Promise<Record<string, unknown>> {
+  const base = normalizeGatewayUrl(gatewayUrl);
+  let response: GatewayResponse;
+  if (isTauri) {
+    response = await invoke<GatewayResponse>("probe_gateway_health", { url: base });
+  } else {
+    const browserResponse = await fetchWithTimeout(`${base}/api/health`, {
+      method: "GET",
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+    });
+    response = { status: browserResponse.status, body: await browserResponse.text() };
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw gatewayHttpError(response.status, response.body, `Gateway health failed (${response.status})`);
+  }
+  try {
+    return JSON.parse(response.body) as Record<string, unknown>;
+  } catch {
+    throw new Error("Gateway health response was not valid JSON");
+  }
+}
+
 export async function fetchGatewayHealth(
   gatewayUrl: string
 ): Promise<Record<string, unknown>> {

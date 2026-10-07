@@ -26,8 +26,8 @@ export const DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS = 90;
 export const MIN_AGENT_STALE_THRESHOLD_SECONDS = 90;
 export const MAX_AGENT_STALE_THRESHOLD_SECONDS = 3600;
 
-export function agentStaleThresholdSeconds(): number {
-  const raw = Number(process.env.STALE_AGENT_THRESHOLD_SECONDS ?? DEFAULT_AGENT_STALE_THRESHOLD_SECONDS);
+export function resolveAgentStaleThresholdSeconds(value: unknown): number {
+  const raw = Number(value ?? DEFAULT_AGENT_STALE_THRESHOLD_SECONDS);
   if (
     !Number.isFinite(raw) ||
     raw < MIN_AGENT_STALE_THRESHOLD_SECONDS ||
@@ -36,6 +36,18 @@ export function agentStaleThresholdSeconds(): number {
     return DEFAULT_AGENT_STALE_THRESHOLD_SECONDS;
   }
   return Math.floor(raw);
+}
+
+export function agentStaleThresholdSeconds(): number {
+  // This module is deliberately imported by browser/Tauri bundles. Vite does
+  // not provide Node's `process` global to application source, so only consult
+  // the server environment when it actually exists. Client consumers receive
+  // the authoritative configured threshold through Gateway response fields and
+  // pass it to resolveAgentStaleThresholdSeconds().
+  const configured = typeof process !== "undefined"
+    ? process.env.STALE_AGENT_THRESHOLD_SECONDS
+    : undefined;
+  return resolveAgentStaleThresholdSeconds(configured);
 }
 
 export function printerStaleThresholdSeconds(): number {

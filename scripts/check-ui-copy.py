@@ -261,6 +261,50 @@ def looks_like_english(snippet: str) -> bool:
     return len(words) >= 3
 
 
+def strip_jsx_expressions(text: str) -> str:
+    """Blank balanced JSX `{...}` expressions, including nested JSX/objects.
+
+    A regex such as ``[{][^{}]*[}]`` stops at the first nested prop expression:
+    ``{condition ? <Badge label={t("key")} /> : null}``.  The leftover code
+    then looks like English copy (for example ``p, nowMs``).  This scanner is
+    deliberately small but quote-aware so braces inside JS string/template
+    literals do not terminate the outer expression early.
+    """
+    out = list(text)
+    i = 0
+    while i < len(text):
+        if text[i] != "{":
+            i += 1
+            continue
+        start = i
+        depth = 1
+        i += 1
+        quote: str | None = None
+        escaped = False
+        while i < len(text) and depth:
+            ch = text[i]
+            if quote is not None:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote:
+                    quote = None
+            else:
+                if ch in ("'", '"', "`"):
+                    quote = ch
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+            i += 1
+        end = i if depth == 0 else len(text)
+        for pos in range(start, end):
+            if out[pos] != "\n":
+                out[pos] = " "
+    return "".join(out)
+
+
 def check_hardcoded_copy() -> None:
     for path in sorted(SRC.rglob("*.tsx")):
         text = strip_comments(path.read_text(encoding="utf-8"))
@@ -284,7 +328,7 @@ def check_hardcoded_copy() -> None:
             # line-based pass, so strip the interpolations and inspect only the
             # characters that sit between a `>` and the next `<` on that line.
             if not line_text.strip().startswith(("//", "*", "/*")):
-                without_expr = INTERPOLATION.sub(" ", line_text)
+                without_expr = strip_jsx_expressions(line_text)
                 for span in re.findall(r">([^<>]*)<", without_expr):
                     for run in WORD_RUN.finditer(span):
                         phrase = run.group(0)
@@ -301,7 +345,7 @@ def check_hardcoded_copy() -> None:
                 for raw_span in re.findall(r">([^<>]*)<", line_text):
                     if "{" not in raw_span:
                         continue
-                    leftover = INTERPOLATION.sub(" ", raw_span).strip()
+                    leftover = strip_jsx_expressions(raw_span).strip()
                     if not WORD_BESIDE_EXPR.match(leftover):
                         continue
                     words = [w for w in re.findall(r"[A-Za-z][A-Za-z'’-]{1,}", leftover)
@@ -320,7 +364,7 @@ def check_hardcoded_copy() -> None:
                 and not any(ch in line_text for ch in ";()=<>")
                 and not stripped_line.startswith(CODE_STATEMENT_HEADS)
             ):
-                for run in WORD_RUN.finditer(INTERPOLATION.sub(" ", line_text)):
+                for run in WORD_RUN.finditer(strip_jsx_expressions(line_text)):
                     phrase = run.group(0)
                     if phrase.startswith(BRAND_LITERALS + CODE_LEADERS) or UTILITY_TOKEN.match(phrase.split()[0]):
                         continue

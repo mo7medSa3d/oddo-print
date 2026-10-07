@@ -297,10 +297,10 @@ def test_gateway_pos_receipt_keeps_nb_print_in_sync():
     end = source.index("    getOrderData(", start)
     method = source[start:end]
 
-    assert 'const writeResult = await this.data.silentCall(' in method
+    assert 'const writeResult = await gatewaySilentCall(' in method
     assert 'if (writeResult !== false)' in method
     assert 'currentOrder.nb_print = count;' in method
-    assert method.index("await this.data.silentCall") < method.index("currentOrder.nb_print = count;")
+    assert method.index("await gatewaySilentCall") < method.index("currentOrder.nb_print = count;")
 
 
 
@@ -385,9 +385,9 @@ def test_gateway_kitchen_preserves_odoo19_post_print_sync():
     # Odoo 19's native sendOrderInPreparation() synchronizes the changed order
     # after printing unless a preparation display already owns synchronization.
     assert 'if (!this.models["pos.prep.display"]?.length)' in method
-    assert 'await this.syncAllOrders({ orders: [order] });' in method
+    assert 'await gatewaySync(this, { orders: [order] });' in method
     assert method.index("this.syncingOrders.delete(order.uuid)") < method.index(
-        'await this.syncAllOrders({ orders: [order] });'
+        'await gatewaySync(this, { orders: [order] });'
     )
 
 

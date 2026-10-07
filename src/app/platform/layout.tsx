@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
@@ -54,7 +55,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
       if (flight) return flight;
       flight = (async () => {
         try {
-          const refresh = await fetch("/api/platform/auth/refresh", {
+          const refresh = await fetchWithTimeout("/api/platform/auth/refresh", {
             method: "POST",
             credentials: "include",
             cache: "no-store",
@@ -97,7 +98,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
     async function initialCheck() {
       try {
-        const res = await fetch("/api/platform/auth/me", { credentials: "include", cache: "no-store" });
+        const res = await fetchWithTimeout("/api/platform/auth/me", { credentials: "include", cache: "no-store" });
         if (cancelled) return;
         if (res.ok) {
           const data = await res.json().catch(() => null) as { exp?: unknown } | null;
@@ -150,7 +151,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     setLoggingOut(true);
     setLogoutError(null);
     try {
-      const res = await fetch("/api/platform/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
+      const res = await fetchWithTimeout("/api/platform/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
       if (!res.ok) throw new Error(t("platform.session.logoutFailed"));
     } catch {
       // Finite visible failure: stay signed in with an explanation instead
@@ -207,7 +208,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           <Callout tone="bad" title={logoutError}>
             <button
               type="button"
-              className="font-[600] text-brand hover:text-brand-hover hover:underline"
+              className="inline-flex min-h-9 items-center rounded-sm px-2 font-[600] text-brand transition-colors hover:text-brand-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
               onClick={() => setLogoutError(null)}
             >
               {t("common.dismiss")}

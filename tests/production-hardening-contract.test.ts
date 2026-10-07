@@ -255,6 +255,7 @@ describe("production hardening contracts", () => {
     const lifecycleAction = actions.slice(lifecycleStart, lifecycleEnd);
     expect(lifecycleAction).not.toContain("writeAuditEvent");
     expect(lifecycleAction).toContain("transitionAgentLifecycle");
+    expect(lifecycleAction).toContain('lifecycle === "retired" ? "agents.retire" : "agents.disable"');
 
     const selectTenant = read("src/app/api/auth/select-tenant/route.ts");
     expect(selectTenant).toContain("onConflictDoNothing");

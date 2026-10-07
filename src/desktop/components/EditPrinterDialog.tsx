@@ -229,7 +229,7 @@ export function EditPrinterDialog({
               <option value="ipps">IPPS</option>
             </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("desktop.edit.protocol")} htmlFor="edit-printer-protocol">
               <Select id="edit-printer-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)}>
                 {protocolOptions(connectionType, t).map((item) => (
@@ -249,12 +249,12 @@ export function EditPrinterDialog({
             </Field>
           </div>
           {connectionType === "network" && (
-            <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+            <div className="grid gap-4 sm:grid-cols-[1.6fr_1fr]">
               <Field label={t("desktop.edit.host")} htmlFor="edit-printer-host">
-                <Input id="edit-printer-host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
+                <Input id="edit-printer-host" dir="ltr" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
               </Field>
               <Field label={t("desktop.edit.port")} htmlFor="edit-printer-port">
-                <Input id="edit-printer-port" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
+                <Input id="edit-printer-port" dir="ltr" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
               </Field>
             </div>
           )}
@@ -284,16 +284,16 @@ export function EditPrinterDialog({
           {connectionType === "usb" && (
             <div className="space-y-4">
               {protocol === "spooler" ? <Field label={t("desktop.edit.windowsPrinterName")} htmlFor="edit-usb-spooler"><Input id="edit-usb-spooler" value={spoolerName} onChange={e => setSpoolerName(e.target.value)} /></Field> : <>
-                <Field label={t("desktop.edit.usbVid")} htmlFor="edit-usb-vid"><Input id="edit-usb-vid" value={usbVid} onChange={e => setUsbVid(e.target.value)} placeholder="0x04b8" /></Field>
-                <Field label={t("desktop.edit.usbPid")} htmlFor="edit-usb-pid"><Input id="edit-usb-pid" value={usbPid} onChange={e => setUsbPid(e.target.value)} placeholder="0x0202" /></Field>
-                <Field label={t("desktop.edit.usbPath")} htmlFor="edit-usb-path"><Input id="edit-usb-path" value={address} onChange={e => setAddress(e.target.value)} /></Field>
+                <Field label={t("desktop.edit.usbVid")} htmlFor="edit-usb-vid"><Input id="edit-usb-vid" dir="ltr" value={usbVid} onChange={e => setUsbVid(e.target.value)} placeholder="0x04b8" /></Field>
+                <Field label={t("desktop.edit.usbPid")} htmlFor="edit-usb-pid"><Input id="edit-usb-pid" dir="ltr" value={usbPid} onChange={e => setUsbPid(e.target.value)} placeholder="0x0202" /></Field>
+                <Field label={t("desktop.edit.usbPath")} htmlFor="edit-usb-path"><Input id="edit-usb-path" dir="ltr" value={address} onChange={e => setAddress(e.target.value)} /></Field>
               </>}
-              <Field label={t("desktop.edit.usbSerial")} htmlFor="edit-usb-serial"><Input id="edit-usb-serial" value={usbSerial} onChange={e => setUsbSerial(e.target.value)} /></Field>
+              <Field label={t("desktop.edit.usbSerial")} htmlFor="edit-usb-serial"><Input id="edit-usb-serial" dir="ltr" value={usbSerial} onChange={e => setUsbSerial(e.target.value)} /></Field>
             </div>
           )}
           {(connectionType === "ipp" || connectionType === "ipps") && (
             <Field label={t("desktop.edit.printerUrl")} htmlFor="edit-printer-address">
-              <Input id="edit-printer-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ipp://192.168.1.50/ipp/print" />
+              <Input id="edit-printer-address" dir="ltr" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ipp://192.168.1.50/ipp/print" />
             </Field>
           )}
         </div>

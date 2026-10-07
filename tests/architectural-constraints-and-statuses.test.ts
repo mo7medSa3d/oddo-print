@@ -44,14 +44,15 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
     expect(ctrlPy).toContain("'selectedAgentId': selected");
   });
 
-  it("dynamically computes live agent status using isAgentAvailableForJob", () => {
+  it("dynamically computes truthful current agent status from fresh evidence", () => {
     const agentRoute = read("src/app/api/odoo/agents/route.ts");
-    expect(agentRoute).toContain("isAgentAvailableForJob");
-    expect(agentRoute).toContain("isAgentAvailableForJob(agent, now) ? \"online\" : \"offline\"");
+    expect(agentRoute).toContain("getEffectiveAgentStatus");
+    expect(agentRoute).toContain("reportedStatus: agent.status");
+    expect(agentRoute).toContain("freshness: getAgentHeartbeatFreshness");
 
     const agentFieldJs = read("odoo_addons/print_gateway/static/src/components/runtime_agent_field.js");
-    expect(agentFieldJs).toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/>");
-    expect(agentFieldJs).not.toContain("<t t-esc=\"agent.name\"/> — <t t-esc=\"agent.id\"/> — <t t-esc=\"agent.status\"/>");
+    expect(agentFieldJs).toContain('const raw = agent?.status || "unknown"');
+    expect(agentFieldJs).not.toContain("agent?.reportedStatus || agent?.status");
   });
 
   it("uses the paired Agent identity for the Desktop Gateway console without Manager login UI", () => {

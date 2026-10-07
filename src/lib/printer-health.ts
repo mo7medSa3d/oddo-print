@@ -195,13 +195,16 @@ export function buildPrinterCapabilityMatrix(p: typeof printers.$inferSelect, ag
     driverMessage = `Driver error: ${driverError} (OBSERVED from capabilities.driver_error)`;
     driverEvidence = `capabilities.driver_error present: ${driverError.slice(0, 100)}`;
   } else if (driverName) {
-    // Only report OK if we have explicit driver name AND fresh evidence
+    // A recently reported driver *identity* is not a driver-health probe. The
+    // Agent currently publishes driver_name metadata but no affirmative
+    // driver_status/driver_health signal, so health must stay UNKNOWN until a
+    // dedicated probe exists. Freshness only tells us when the identity was
+    // observed; it does not make the driver healthy.
+    driverHealth = "unknown";
     if (statusInfo.freshness.fresh) {
-      driverHealth = "ok";
-      driverMessage = `Driver ${driverName} reported (OBSERVED, fresh)`;
-      driverEvidence = `capabilities.driver_name=${driverName} + fresh lastSeen`;
+      driverMessage = `Driver ${driverName} identity reported recently; driver health was not probed`;
+      driverEvidence = `capabilities.driver_name=${driverName} (identity evidence only; no ACTUAL DRIVER STATUS)`;
     } else {
-      driverHealth = "unknown";
       driverMessage = `Driver ${driverName} reported but freshness stale (DATABASE STATUS only)`;
       driverEvidence = `driver_name present but lastSeen stale ${Math.round((statusInfo.freshness.ageMs ?? 0) / 1000)}s ago`;
     }

@@ -7,6 +7,7 @@ import {
   DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
   DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS,
   agentStaleThresholdSeconds,
+  resolveAgentStaleThresholdSeconds,
   printerStaleThresholdSeconds,
 } from "./stale-threshold";
 
@@ -14,6 +15,7 @@ export {
   DEFAULT_AGENT_STALE_THRESHOLD_SECONDS,
   DEFAULT_PRINTER_STALE_THRESHOLD_SECONDS,
   agentStaleThresholdSeconds,
+  resolveAgentStaleThresholdSeconds,
   printerStaleThresholdSeconds,
 };
 
@@ -80,6 +82,29 @@ export function getAgentAvailability(
     return { available: false, reason: "stale" };
   }
   return { available: true, reason: "active-online-fresh" };
+}
+
+export type EffectiveAgentStatus = "online" | "offline" | "disabled" | "retired" | "unknown";
+
+/**
+ * Customer-facing Agent state derived from affirmative evidence only.
+ * Availability is a routing predicate; presentation status must preserve
+ * uncertainty rather than rewriting stale/missing evidence to Offline.
+ */
+export function getEffectiveAgentStatus(
+  agent: { lifecycle?: string | null; status?: string | null; lastSeenAt?: Date | string | null },
+  now = gatewayNow(),
+): EffectiveAgentStatus {
+  if (agent.lifecycle === "disabled") return "disabled";
+  if (agent.lifecycle === "retired") return "retired";
+  if (agent.lifecycle !== "active") return "unknown";
+
+  const freshness = getAgentHeartbeatFreshness(agent.lastSeenAt, now);
+  if (freshness !== "fresh") return "unknown";
+
+  const raw = (agent.status ?? "").trim().toLowerCase();
+  if (raw === "online" || raw === "offline") return raw;
+  return "unknown";
 }
 
 export function isAgentAvailableForJob(

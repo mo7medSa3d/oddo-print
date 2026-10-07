@@ -196,6 +196,7 @@ fn main() {
             commands::pair_agent,
             commands::get_gateway_config,
             commands::set_gateway_config,
+            commands::probe_gateway_health,
             commands::gateway_request,
             commands::gateway_agent_request,
             commands::clear_manager_session,
@@ -209,7 +210,8 @@ fn main() {
             commands::register_printer,
             commands::get_autostart,
             commands::set_autostart,
-            commands::is_running_as_admin
+            commands::is_running_as_admin,
+            tray::set_tray_locale
         ])
         .build(tauri::generate_context!());
 

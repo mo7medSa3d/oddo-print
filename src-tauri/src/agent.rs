@@ -165,7 +165,7 @@ fn current_exe_dir() -> Option<PathBuf> {
 #[cfg(windows)]
 fn system32_exe(name: &str) -> Result<PathBuf, String> {
     // Never resolve privileged executables from inherited environment
-    // variables: SystemRoot/WINDIR can be spoofed to redirect net.exe /
+    // variables: SystemRoot/WINDIR can be spoofed to redirect
     // taskkill.exe execution to an attacker-controlled file. Share the
     // OS-resolved system-directory helper (GetSystemDirectoryW).
     crate::paths::windows_system32_exe(name).map_err(|e| e.to_string())
@@ -282,32 +282,49 @@ fn is_process_running(_app: &tauri::AppHandle) -> bool {
     false
 }
 
-#[cfg(windows)]
-fn run_net(action: &str) -> Result<String, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let net = system32_exe("net.exe")?;
-    let mut cmd = Command::new(net);
-    cmd.args([action, SERVICE_NAME])
-        .creation_flags(CREATE_NO_WINDOW);
+fn run_agent_service_command(
+    app: &tauri::AppHandle,
+    action: &str,
+    timeout: std::time::Duration,
+) -> Result<String, String> {
+    let path = agent_path(app)?;
+    let config = paths::agent_config_path();
+    let _ = paths::ensure_agent_data_root()
+        .map_err(|e| format!("create agent data dir: {e}"))?;
+    let mut service_cmd = Command::new(&path);
+    service_cmd
+        .args(["-service", action, "-config"])
+        .arg(&config)
+        .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        service_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     let out = run_bounded_command(
-        cmd,
-        std::time::Duration::from_secs(30),
-        64 * 1024,
-        64 * 1024,
+        service_cmd,
+        timeout,
+        MAX_COMMAND_OUTPUT_BYTES,
+        MAX_COMMAND_OUTPUT_BYTES,
     )?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     if !out.status.success() {
+        let message = if stderr.is_empty() { stdout } else { stderr };
         return Err(format!(
-            "net {action} {SERVICE_NAME} failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+            "service action {action} failed (administrator may be required): {message}"
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    Ok(if stdout.is_empty() {
+        format!("service action {action} completed")
+    } else {
+        stdout
+    })
 }
 
-#[cfg(not(windows))]
-fn run_net(action: &str) -> Result<String, String> {
-    Err(format!("net {action} is only supported on Windows"))
+fn verify_installed_service_ownership(app: &tauri::AppHandle) -> Result<(), String> {
+    run_agent_service_command(app, "status", COMMAND_TIMEOUT).map(|_| ())
 }
 
 #[cfg(windows)]
@@ -773,13 +790,35 @@ pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
     match sc_query()? {
-        Some(4) => Ok(()),
-        Some(2) => wait_service_state(4),
-        Some(3) => { wait_service_state(1)?; run_net("start")?; wait_service_state(4) }
-        Some(1) => { if is_process_running(app) { stop_inner(app)?; } run_net("start")?; wait_service_state(4) }
-        Some(state) => Err(format!("installed service is in state {state}; fix the service before starting another Agent")),
+        Some(state) => {
+            // A well-known service name is not ownership evidence. The
+            // bundled Agent validates the SCM BinaryPathName against its own
+            // executable before status/start/stop/restart operations.
+            verify_installed_service_ownership(app)?;
+            match state {
+                4 => Ok(()),
+                2 => wait_service_state(4),
+                3 => {
+                    wait_service_state(1)?;
+                    run_agent_service_command(app, "start", COMMAND_TIMEOUT)?;
+                    wait_service_state(4)
+                }
+                1 => {
+                    if is_process_running(app) {
+                        stop_inner(app)?;
+                    }
+                    run_agent_service_command(app, "start", COMMAND_TIMEOUT)?;
+                    wait_service_state(4)
+                }
+                other => Err(format!(
+                    "installed service is in state {other}; fix the service before starting another Agent"
+                )),
+            }
+        }
         None => {
-            if is_process_running(app) { return Ok(()); }
+            if is_process_running(app) {
+                return Ok(());
+            }
             spawn_background(app).map(|_| ())
         }
     }
@@ -792,9 +831,22 @@ pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn stop_inner(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(state) = sc_query()? {
-        if state == 2 { wait_service_state(4)?; }
-        if state == 3 { wait_service_state(1)?; }
-        else if state != 1 { run_net("stop")?; wait_service_state(1)?; }
+        verify_installed_service_ownership(app)?;
+        match state {
+            1 => {}
+            2 => {
+                wait_service_state(4)?;
+                run_agent_service_command(app, "stop", COMMAND_TIMEOUT)?;
+                wait_service_state(1)?;
+            }
+            3 => {
+                wait_service_state(1)?;
+            }
+            _ => {
+                run_agent_service_command(app, "stop", COMMAND_TIMEOUT)?;
+                wait_service_state(1)?;
+            }
+        }
     }
     #[cfg(windows)]
     if is_process_running(app) {
@@ -860,19 +912,38 @@ pub fn restart(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
-    let service_state = sc_query();
-    let service_running = matches!(service_state, Ok(Some(4)));
     let process_running = is_process_running(app);
-    let note = if let Err(error) = service_state {
-        format!("service state unavailable: {error}; background fallback is blocked")
-    } else if service_running {
-        format!("Windows service {SERVICE_NAME} is running")
-    } else if process_running {
-        format!("background process YaseirAgent.exe is running (service not detected)")
-    } else {
-        format!("agent is not running; service/process not detected")
-    };
-    (service_running || process_running, service_running, note)
+    match sc_query() {
+        Err(error) => (
+            process_running,
+            false,
+            format!("service state unavailable: {error}; background fallback is {}", if process_running { "running" } else { "not running" }),
+        ),
+        Ok(None) => {
+            if process_running {
+                (true, false, "background process YaseirAgent.exe is running (service not detected)".to_string())
+            } else {
+                (false, false, "agent is not running; service/process not detected".to_string())
+            }
+        }
+        Ok(Some(state)) => {
+            if let Err(error) = verify_installed_service_ownership(app) {
+                let note = format!(
+                    "service registration is not owned by this Yaseir installation: {error}"
+                );
+                return (process_running, false, note);
+            }
+            let service_running = state == 4;
+            let note = if service_running {
+                format!("Windows service {SERVICE_NAME} is running")
+            } else if process_running {
+                format!("Windows service {SERVICE_NAME} is owned but stopped/transitioning; owned background Agent is running")
+            } else {
+                format!("Windows service {SERVICE_NAME} is owned but not running")
+            };
+            (service_running || process_running, service_running, note)
+        }
+    }
 }
 
 pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, String> {
@@ -888,21 +959,6 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             {
                 stop_inner(app)?;
             }
-            let path = agent_path(app)?;
-            let config = paths::agent_config_path();
-            let _ = paths::ensure_agent_data_root()
-                .map_err(|e| format!("create agent data dir: {e}"))?;
-            let mut service_cmd = Command::new(&path);
-            service_cmd
-                .args(["-service", action, "-config"])
-                .arg(&config)
-                .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                service_cmd.creation_flags(CREATE_NO_WINDOW);
-            }
             let timeout = if action == "uninstall" {
                 // Purging WebView/cache/log/runtime data across Windows user
                 // profiles can legitimately take longer than a simple SCM
@@ -911,33 +967,15 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             } else {
                 COMMAND_TIMEOUT
             };
-            let out = run_bounded_command(
-                service_cmd,
-                timeout,
-                MAX_COMMAND_OUTPUT_BYTES,
-                MAX_COMMAND_OUTPUT_BYTES,
-            )?;
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if !out.status.success() {
-                let msg = if stderr.is_empty() {
-                    stdout.clone()
-                } else {
-                    stderr.clone()
-                };
-                return Err(format!(
-                    "service action {action} failed (administrator may be required): {msg}"
-                ));
+            let message = run_agent_service_command(app, action, timeout)?;
+            if matches!(action, "start" | "restart") {
+                wait_service_state(4)?;
             }
-            if matches!(action, "start" | "restart") { wait_service_state(4)?; }
-            if action == "stop" { wait_service_state(1)?; }
-            let msg = if !stdout.is_empty() {
-                stdout
-            } else {
-                format!("service action {action} completed")
-            };
-            logging::info(&format!("service control {action}: {msg}"));
-            return Ok(msg);
+            if action == "stop" {
+                wait_service_state(1)?;
+            }
+            logging::info(&format!("service control {action}: {message}"));
+            return Ok(message);
         }
         _ => Err(format!("invalid service action {:?}", action)),
     }
@@ -1063,7 +1101,7 @@ mod tests {
 
     #[test]
     fn system_commands_are_resolved_from_system32() {
-        for name in ["sc.exe", "net.exe", "tasklist.exe", "taskkill.exe"] {
+        for name in ["tasklist.exe", "taskkill.exe"] {
             let path = system32_exe(name).expect("Windows system executable must exist");
             assert!(path.ends_with(["System32", name].iter().collect::<std::path::PathBuf>()));
         }
@@ -1082,7 +1120,7 @@ mod tests {
             std::env::set_var("SystemRoot", &spoof);
             std::env::set_var("WINDIR", &spoof);
         }
-        let resolved = system32_exe("net.exe");
+        let resolved = system32_exe("taskkill.exe");
         match prior_root {
             Some(root) => unsafe { std::env::set_var("SystemRoot", root) },
             None => unsafe { std::env::remove_var("SystemRoot") },
@@ -1097,7 +1135,7 @@ mod tests {
             "privileged executable resolved under spoofed directory: {}",
             path.display()
         );
-        assert!(path.ends_with(["System32", "net.exe"].iter().collect::<std::path::PathBuf>()));
+        assert!(path.ends_with(["System32", "taskkill.exe"].iter().collect::<std::path::PathBuf>()));
     }
 }
 

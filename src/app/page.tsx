@@ -337,7 +337,7 @@ function PublicHeader({ t }: { t: Translator }) {
           <Anchor href="#security">{t("home.navSecurity")}</Anchor>
           <Link
             href="/pricing"
-            className="inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+            className="inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
           >
             {t("home.navPricing")}
           </Link>
@@ -389,9 +389,9 @@ function PublicFooter({ t }: { t: Translator }) {
           </p>
         </div>
         <nav aria-label={t("home.footerAria")} className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-[550] text-ink-2">
-          <Link href="/pricing" className="transition-colors hover:text-ink">{t("home.navPricing")}</Link>
-          <Link href="/login" className="transition-colors hover:text-ink">{t("auth.signIn.submit")}</Link>
-          <Link href="/signup" className="transition-colors hover:text-ink">{t("auth.signup.submit")}</Link>
+          <Link href="/pricing" className="rounded-xs transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2">{t("home.navPricing")}</Link>
+          <Link href="/login" className="rounded-xs transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2">{t("auth.signIn.submit")}</Link>
+          <Link href="/signup" className="rounded-xs transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2">{t("auth.signup.submit")}</Link>
           <span className="text-ink-3">Odoo 19</span>
         </nav>
       </div>
@@ -406,7 +406,7 @@ function Anchor({ href, children, block = false }: { href: string; children: Rea
       className={
         block
           ? "menu-item"
-          : "inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+          : "inline-flex h-9 items-center rounded-sm px-3 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
       }
     >
       {children}

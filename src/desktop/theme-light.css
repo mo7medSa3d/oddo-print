@@ -21,12 +21,12 @@ textarea {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-2xl);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-card);
 }
 
 .card-hover:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: var(--shadow-card-hover);
   border-color: var(--border-strong);
 }
@@ -34,7 +34,7 @@ textarea {
 .inset-panel {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--r-xl);
+  border-radius: var(--r-lg);
 }
 
 .table-head {

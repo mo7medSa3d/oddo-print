@@ -33,12 +33,14 @@ to the printing service without opening the browser print dialog.
     ],
     'assets': {
         'point_of_sale._assets_pos': [
+            'print_gateway/static/src/js/async_control.js',
             'print_gateway/static/src/js/gateway_limit_dialog.js',
             'print_gateway/static/src/js/pos_print_router.js',
             'print_gateway/static/src/js/pos_sale_details_router.js',
         ],
         'web.assets_backend': [
             'print_gateway/static/src/scss/print_gateway_tokens.scss',
+            'print_gateway/static/src/js/async_control.js',
             'print_gateway/static/src/scss/print_gateway_backend.scss',
             'print_gateway/static/src/components/runtime_agent_field.js',
             'print_gateway/static/src/components/runtime_printer_field.js',

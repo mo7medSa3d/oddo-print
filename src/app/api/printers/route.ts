@@ -3,13 +3,13 @@ import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { clampListLimit } from "../../../lib/request-limits";
 import { nanoid } from "../../../lib/nanoid";
 import { parsePrinterInput, validateConnectionConfig, validatePrinterTransportProtocol } from "../../../lib/printer-model";
 import { writeAuditEvent } from "../../../lib/audit";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../lib/entitlements";
-import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObservationFreshness, isAgentAvailableForJob } from "../../../lib/agent-availability";
+import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 import { logError } from "../../../lib/log";
 
@@ -27,43 +27,79 @@ export async function GET(req: Request) {
     try { requireManagerPermission(auth.claims, "printers.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
   }
 
-  // Hard ceiling so cadence/abuse cannot force an unbounded scan. Entitlements
-  // cap the row count per tenant (max_printers); 1000 is purely defensive.
+  // Per-request transport bound, not a product cardinality cap. Plans may
+  // explicitly allow unlimited printers; callers must paginate rather than infer a fleet limit.
   const { searchParams } = new URL(req.url);
   const limit = clampListLimit(searchParams.get("limit"), 1000, MAX_PRINTERS_LIST);
   const offsetRaw = parseInt(searchParams.get("offset") ?? "0", 10);
   const offset = Number.isNaN(offsetRaw) ? 0 : Math.max(0, offsetRaw);
   if (offset > MAX_PRINTERS_OFFSET) {
-    return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}` }, { status: 400 });
+    return NextResponse.json({ error: `offset must be <= ${MAX_PRINTERS_OFFSET}; use beforeCreatedAt + beforeId keyset pagination for deeper fleets` }, { status: 400 });
+  }
+  const beforeCreatedAtRaw = searchParams.get("beforeCreatedAt");
+  const beforeId = searchParams.get("beforeId");
+  if ((beforeCreatedAtRaw == null) !== (beforeId == null)) {
+    return NextResponse.json({ error: "beforeCreatedAt and beforeId must be provided together" }, { status: 400 });
+  }
+  if (beforeId != null && (beforeId.length < 1 || beforeId.length > 512)) {
+    return NextResponse.json({ error: "beforeId must be between 1 and 512 characters" }, { status: 400 });
+  }
+  const beforeCreatedAt = beforeCreatedAtRaw == null ? null : new Date(beforeCreatedAtRaw);
+  if (beforeCreatedAt && Number.isNaN(beforeCreatedAt.getTime())) {
+    return NextResponse.json({ error: "beforeCreatedAt must be a valid timestamp" }, { status: 400 });
+  }
+  if (beforeCreatedAt && offset !== 0) {
+    return NextResponse.json({ error: "offset cannot be combined with keyset pagination" }, { status: 400 });
   }
 
   await refreshClockSkew();
   const now = gatewayNow();
+  const agentFreshnessThresholdSeconds = agentStaleThresholdSeconds();
+  const ownershipWhere = agentId
+    ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))
+    : eq(printers.tenantId, tenantId);
+  const cursorWhere = beforeCreatedAt && beforeId
+    ? or(lt(printers.createdAt, beforeCreatedAt), and(eq(printers.createdAt, beforeCreatedAt), lt(printers.id, beforeId)))
+    : undefined;
+  const where = cursorWhere ? and(ownershipWhere, cursorWhere) : ownershipWhere;
   const rows = await db.select({ printer: printers, agent: agents })
     .from(printers)
     .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
-    .where(agentId ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId)) : eq(printers.tenantId, tenantId))
-    .orderBy(desc(printers.createdAt))
-    .limit(limit)
-    .offset(offset);
-  return NextResponse.json(rows.map(({ printer, agent }) => ({
+    .where(where)
+    .orderBy(desc(printers.createdAt), desc(printers.id))
+    .limit(limit + 1)
+    .offset(beforeCreatedAt ? 0 : offset);
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const responseRows = pageRows.map(({ printer, agent }) => ({
     ...printer,
     reportedStatus: printer.status,
     freshness: getPrinterObservationFreshness(printer.lastSeenAt, now),
     status: getEffectivePrinterStatus(printer, agent, now),
     agentName: agent?.name ?? null,
-    // Must match the canonical presence gate (lifecycle + status + freshness),
-    // not just lifecycle + status, or a stale agent renders online here while
-    // every claim gate and health view reports offline.
+    // Presentation must preserve freshness uncertainty. Routing has its own
+    // availability gate; a stale/missing Agent is unknown here, not Offline.
     agentReportedStatus: agent?.status ?? null,
     agentFreshness: getAgentHeartbeatFreshness(agent?.lastSeenAt ?? null, now),
-    agentStatus: agent && isAgentAvailableForJob(agent, now) ? "online" : "offline",
+    agentStatus: agent ? getEffectiveAgentStatus(agent, now) : "unknown",
     agentLifecycle: agent?.lifecycle ?? null,
     agentLastSeenAt: agent?.lastSeenAt ?? null,
+    agentStaleThresholdSeconds: agentFreshnessThresholdSeconds,
     configurationConverged: printer.managementSource === "manager"
       ? printer.appliedDesiredRevision >= printer.desiredRevision && printer.observedDesiredRevision >= printer.desiredRevision
       : true,
-  })));
+  }));
+  const last = pageRows[pageRows.length - 1]?.printer;
+  return NextResponse.json(responseRows, {
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Has-More": hasMore ? "true" : "false",
+      ...(hasMore && last ? {
+        "X-Next-Before-Created-At": last.createdAt.toISOString(),
+        "X-Next-Before-Id": last.id,
+      } : {}),
+    },
+  });
 }
 
 export async function POST(req: Request) {

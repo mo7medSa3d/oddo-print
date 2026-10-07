@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { Suspense, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -25,7 +26,7 @@ function InviteContent() {
     setNeedsAccount(false);
     setSucceeded(false);
     try {
-      const response = await fetch("/api/team/invitations/accept", {
+      const response = await fetchWithTimeout("/api/team/invitations/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, email }),

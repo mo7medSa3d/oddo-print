@@ -3,7 +3,7 @@ import { logError } from "../lib/log";
 
 import { db } from "../db";
 import { agents, printers, printJobs, printJobReceipts, discoverySessions, discoveredDevices } from "../db/schema";
-import { eq, count, or, and, inArray, sql, desc } from "drizzle-orm";
+import { eq, or, and, inArray, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { lifecycleLabel } from "../lib/lifecycle-labels";
 import { cookies } from "next/headers";
@@ -28,9 +28,13 @@ import { requireManagerPermission } from "../lib/authorization";
 import { entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
-import { isAgentAvailableForJob } from "../lib/agent-availability";
-import { gatewayNow } from "../lib/database-clock";
 import { createAgentForManager } from "../lib/agent-control";
+import {
+  DASHBOARD_FLEET_SEARCH_MAX_LENGTH,
+  DASHBOARD_PRINTER_FILTER_STATUSES,
+  loadDashboardStateForTenant,
+  type DashboardFleetOptions,
+} from "../lib/dashboard-state";
 
 async function requireManager() {
   const t = makeT(await getServerLocale());
@@ -266,7 +270,10 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
 export async function setAgentLifecycle(id: string, lifecycle: "active" | "disabled" | "retired") {
   const t = makeT(await getServerLocale());
   const manager = await requireManager();
-  requireManagerPermission(manager, "agents.disable");
+  // Keep the Server Action authorization contract identical to the HTTP API:
+  // retirement is the destructive/history-gating transition and requires the
+  // dedicated retire permission; disable/re-enable uses agents.disable.
+  requireManagerPermission(manager, lifecycle === "retired" ? "agents.retire" : "agents.disable");
   try {
     const result = await transitionAgentLifecycle(id, lifecycle, manager.tenantId, {
       type: manager.userId ? "user" : "system",
@@ -283,63 +290,37 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
   }
 }
 
-export async function getDashboardState() {
+export async function getDashboardState(options: DashboardFleetOptions = {}) {
+  const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "agents.read");
   requireManagerPermission(manager, "printers.read");
   requireManagerPermission(manager, "jobs.read");
-  const allAgents = await db
-    .select({
-      id: agents.id,
-      name: agents.name,
-      pairingCode: sql<string | null>`NULL`,
-      pairingCodeExpiresAt: agents.pairingCodeExpiresAt,
-      status: agents.status,
-      lifecycle: agents.lifecycle,
-      metadata: agents.metadata,
-      lastSeenAt: agents.lastSeenAt,
-      createdAt: agents.createdAt,
-      printerCount: count(printers.id),
-    })
-    .from(agents)
-    .leftJoin(printers, and(eq(printers.agentId, agents.id), eq(printers.tenantId, manager.tenantId)))
-    .where(eq(agents.tenantId, manager.tenantId))
-    .groupBy(agents.id)
-    .orderBy(desc(agents.createdAt));
 
-  const allPrinters = await db.select().from(printers).where(eq(printers.tenantId, manager.tenantId)).orderBy(desc(printers.createdAt));
-  // Metadata-only projection (same contract as the dashboard page): the
-  // 50-row list must not carry multi-MB base64 payload blobs into the
-  // browser on every poll; the inspector fetches payloads per job.
-  const allJobs = await db
-    .select({
-      id: printJobs.id,
-      tenantId: printJobs.tenantId,
-      destination: printJobs.destination,
-      documentType: printJobs.documentType,
-      agentId: printJobs.agentId,
-      printerId: printJobs.printerId,
-      status: printJobs.status,
-      error: printJobs.error,
-      requestedBy: printJobs.requestedBy,
-      retries: printJobs.retries,
-      deliveryAttempts: printJobs.deliveryAttempts,
-      claimedAt: printJobs.claimedAt,
-      deliveredAt: printJobs.deliveredAt,
-      ackedAt: printJobs.ackedAt,
-      expiresAt: printJobs.expiresAt,
-      createdAt: printJobs.createdAt,
-      updatedAt: printJobs.updatedAt,
-    })
-    .from(printJobs)
-    .where(eq(printJobs.tenantId, manager.tenantId))
-    .orderBy(desc(printJobs.createdAt))
-    .limit(50);
+  for (const offset of [options.agentOffset, options.printerOffset]) {
+    if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) {
+      throw new ActionError(t("errors.invalidPaginationOffset"), 400);
+    }
+  }
+  const search = options.printerSearch?.trim() ?? "";
+  if (search && (search.length < 2 || search.length > DASHBOARD_FLEET_SEARCH_MAX_LENGTH)) {
+    throw new ActionError(t("errors.invalidPrinterSearchLength"), 400);
+  }
+  const status = options.printerStatus?.trim().toLowerCase();
+  if (status && !(DASHBOARD_PRINTER_FILTER_STATUSES as readonly string[]).includes(status)) {
+    throw new ActionError(t("errors.invalidStatusFilter"), 400);
+  }
 
-  const now = gatewayNow();
-  const agentsForClient = allAgents.map((agent) => ({ ...agent, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" }));
-  return { agents: agentsForClient, printers: allPrinters, jobs: allJobs };
+  return loadDashboardStateForTenant(manager.tenantId, {
+    agentOffset: options.agentOffset,
+    printerOffset: options.printerOffset,
+    printerSearch: search,
+    printerStatus: status,
+  });
 }
+
+const DASHBOARD_JOBS_MAX_OFFSET = 10_000;
+const DASHBOARD_JOBS_MAX_SEARCH_LENGTH = 64;
 
 export async function getDashboardJobs(options?: {
   status?: string;
@@ -352,8 +333,18 @@ export async function getDashboardJobs(options?: {
   requireManagerPermission(manager, "jobs.read");
   const statusParam = options?.status?.trim().toLowerCase();
   const searchParam = options?.search?.trim();
-  const limit = Math.min(Math.max(options?.limit ?? 50, 1), 200);
-  const offset = Math.max(options?.offset ?? 0, 0);
+  const requestedLimit = options?.limit ?? 50;
+  const requestedOffset = options?.offset ?? 0;
+  const limit = Number.isSafeInteger(requestedLimit)
+    ? Math.min(Math.max(requestedLimit, 1), 200)
+    : 50;
+  if (!Number.isSafeInteger(requestedOffset) || requestedOffset < 0 || requestedOffset > DASHBOARD_JOBS_MAX_OFFSET) {
+    throw new ActionError(t("errors.invalidPaginationOffset"), 400);
+  }
+  const offset = requestedOffset;
+  if (searchParam && (searchParam.length < 2 || searchParam.length > DASHBOARD_JOBS_MAX_SEARCH_LENGTH)) {
+    throw new ActionError(t("errors.invalidJobSearchLength"), 400);
+  }
 
   if (statusParam && !isJobFilterStatus(statusParam)) {
     throw new ActionError(t("errors.invalidStatusFilter"), 400);
@@ -417,7 +408,9 @@ export async function getDashboardJobs(options?: {
       destination: printJobs.destination,
       documentType: printJobs.documentType,
       agentId: printJobs.agentId,
+      agentName: agents.name,
       printerId: printJobs.printerId,
+      printerName: printers.name,
       status: printJobs.status,
       error: printJobs.error,
       requestedBy: printJobs.requestedBy,
@@ -431,6 +424,8 @@ export async function getDashboardJobs(options?: {
       updatedAt: printJobs.updatedAt,
     })
     .from(printJobs)
+    .leftJoin(agents, and(eq(agents.id, printJobs.agentId), eq(agents.tenantId, manager.tenantId)))
+    .leftJoin(printers, and(eq(printers.id, printJobs.printerId), eq(printers.tenantId, manager.tenantId)))
     .where(conditions.length ? and(...conditions)! : undefined)
     .orderBy(desc(printJobs.createdAt))
     .limit(limit)
@@ -453,7 +448,7 @@ async function dashboardResult<T>(operation: () => Promise<T>) {
     return { ok: false as const, error: status < 500 && error instanceof ActionError ? error.message : null, status, code };
   }
 }
-export async function getDashboardStateResult() { return dashboardResult(getDashboardState); }
+export async function getDashboardStateResult(options?: Parameters<typeof getDashboardState>[0]) { return dashboardResult(() => getDashboardState(options)); }
 export async function getDashboardJobsResult(options?: Parameters<typeof getDashboardJobs>[0]) { return dashboardResult(() => getDashboardJobs(options)); }
 export async function deleteAgentResult(id: string) { return dashboardResult(() => deleteAgent(id)); }
 export async function setPrinterLifecycleResult(id: string, lifecycle: "active" | "disabled" | "retired") { return dashboardResult(() => setPrinterLifecycle(id, lifecycle)); }

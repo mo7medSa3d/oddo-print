@@ -40,6 +40,7 @@ import { AgentsPage } from "./pages/Agents";
 import { SettingsPage } from "./pages/Settings";
 import {
   fetchGatewayHealth,
+  probeGatewayHealth,
   fetchGatewayJobs,
   getAgentStatus,
   getAppVersion,
@@ -64,6 +65,7 @@ import {
   discoverPrinters,
   testGatewayPrinter,
   setAutostart,
+  setTrayLocale,
   type PrinterInfo,
 } from "./lib/ipc";
 import {
@@ -133,6 +135,11 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 export default function App() {
   const { t, locale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    void setTrayLocale(locale).catch((error) => {
+      console.warn("Could not synchronize tray locale:", error);
+    });
+  }, [locale]);
   const [page, navigate] = useHashPage("dashboard");
   const [version, setVersion] = useState("");
   const [gatewayUrl, setGw] = useState("");
@@ -149,6 +156,10 @@ export default function App() {
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  // Errors from checking the editable Settings draft are separate from the
+  // health observation for the persisted Gateway. A bad draft must not make
+  // a previously observed saved Gateway appear offline.
+  const [gatewayDraftError, setGatewayDraftError] = useState<string | null>(null);
   // When the last Gateway probe completed: connectivity is an observation
   // with an age, not a latch. Past the freshness window the Gateway reads
   // as unreachable until the next successful probe (C046).
@@ -311,14 +322,12 @@ export default function App() {
   }, [locale]);
 
   const checkHealth = useCallback(async () => {
-    // Check the operator's current draft, not the last persisted origin.
-    // The candidate is persisted immediately before probing so the Tauri
-    // request uses exactly this normalized URL, with rollback on failure.
+    // Probe the operator's draft without mutating the persisted Gateway.
+    // Persisting first used to invalidate the Manager session even when the
+    // candidate was unreachable (C050).
     const raw = gatewayUrl.trim();
     if (!raw) {
-      setHealth(null);
-      setCheckedGatewayUrl("");
-      setHealthError(t("desktop.app.gatewayUrlMissing"));
+      setGatewayDraftError(t("desktop.app.gatewayUrlMissing"));
       return;
     }
 
@@ -326,58 +335,85 @@ export default function App() {
     try {
       target = normalizeGatewayUrl(raw);
     } catch (e) {
-      setHealth(null);
-      setCheckedGatewayUrl("");
-      setHealthError(errMsg(e));
+      setGatewayDraftError(errMsg(e));
       return;
     }
 
     if (configurationFlight.current) return;
     configurationFlight.current = true;
     setGatewayChecking(true);
-    setHealthError(null);
+    setGatewayDraftError(null);
 
-    // gateway_request is intentionally pinned to the persisted Gateway origin.
-    // Persist the candidate before probing so the health request tests exactly
-    // the URL the operator entered, then restore the previous origin on failure.
-    // /api/health is public, so this pre-authentication check sends no manager
-    // credential.
-    const previousGatewayUrl = savedGatewayUrl;
+    let candidateObserved = false;
     try {
-      await setGatewayUrl(target);
-      setGw(target);
+      const candidateHealth = await probeGatewayHealth(target);
+      const candidateError = (candidateHealth as { error?: unknown }).error;
+      if (candidateError) throw new Error(errMsg(candidateError));
+      if ((candidateHealth as { ok?: unknown }).ok !== true) {
+        throw new Error(t("desktop.app.gatewayHealthNotReady"));
+      }
+      candidateObserved = true;
+
+      let saveWarning: string | null = null;
+      try {
+        await setGatewayUrl(target);
+      } catch (saveError) {
+        // set_gateway_config writes before emitting its notification. If the
+        // emit fails, the command reports an error even though disk already
+        // contains the new origin. Re-read the durable source of truth before
+        // deciding whether the save failed or merely returned ambiguously.
+        let durable: string;
+        try {
+          durable = await getGatewayUrl();
+        } catch (reconcileError) {
+          throw new Error(t("desktop.app.gatewayReconcileFailed", {
+            save: errMsg(saveError),
+            reconcile: errMsg(reconcileError),
+          }));
+        }
+        savedOriginRef.current = durable;
+        setSavedGatewayUrl(durable);
+        let normalizedDurable = "";
+        try { normalizedDurable = normalizeGatewayUrl(durable); } catch { /* invalid durable state stays non-matching */ }
+        if (normalizedDurable !== target) throw saveError;
+        saveWarning = t("desktop.app.gatewaySavedAfterReconcile");
+      }
+
+      // The candidate is now both positively observed and durably selected.
+      // Update the renderer even if the native config-change event was lost.
       savedOriginRef.current = target;
       setSavedGatewayUrl(target);
-
-      const reachable = await probeGateway(target);
-      if (!reachable) {
-        if (previousGatewayUrl && previousGatewayUrl !== target) {
-          await setGatewayUrl(previousGatewayUrl);
-          setGw(previousGatewayUrl);
-          savedOriginRef.current = previousGatewayUrl;
-          setSavedGatewayUrl(previousGatewayUrl);
-        }
-        return;
-      }
-
-      setMsg({ text: t("desktop.app.connectionVerified"), type: "success" });
+      setGw(target);
+      setHealth(candidateHealth);
+      setCheckedGatewayUrl(target);
+      setHealthCheckedAt(Date.now());
+      setHealthError(null);
+      setGatewayDraftError(null);
+      setMsg({
+        text: saveWarning ?? t("desktop.app.connectionVerified"),
+        type: saveWarning ? "info" : "success",
+      });
     } catch (e) {
-      try {
-        if (previousGatewayUrl && previousGatewayUrl !== target) {
-          await setGatewayUrl(previousGatewayUrl);
-          setGw(previousGatewayUrl);
-          savedOriginRef.current = previousGatewayUrl;
-          setSavedGatewayUrl(previousGatewayUrl);
-        }
-      } catch {
-        // Preserve the primary connection error if restoration also fails.
+      // Candidate probe failures do not touch durable configuration. Save
+      // failures are reconciled above before reaching this point. Keep the
+      // draft visible for correction/retry while operational flows continue
+      // using savedGatewayUrl.
+      const presented = friendlyGatewayError(errMsg(e), locale);
+      if (!candidateObserved && savedOriginRef.current === target) {
+        // An explicit re-check of the active saved origin is fresh negative
+        // evidence and must immediately clear an older positive observation.
+        setHealth(null);
+        setCheckedGatewayUrl(target);
+        setHealthCheckedAt(Date.now());
+        setHealthError(presented);
       }
-      setMsg({ text: friendlyGatewayError(errMsg(e), locale), type: "error" });
+      setGatewayDraftError(presented);
+      setMsg({ text: presented, type: "error" });
     } finally {
       configurationFlight.current = false;
       setGatewayChecking(false);
     }
-  }, [gatewayUrl, probeGateway, savedGatewayUrl, t, locale]);
+  }, [gatewayUrl, t, locale]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -557,6 +593,7 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
+        savedOriginRef.current = v;
         setGw(v);
         setSavedGatewayUrl(v);
       })
@@ -596,9 +633,8 @@ export default function App() {
       return;
     }
 
-    // Auto-probe only the already-persisted Gateway. A newly edited URL must
-    // go through the explicit Check connection action, which persists the
-    // candidate before the transport probe.
+    // Auto-probe only the already-persisted Gateway. A newly edited URL is
+    // checked through the explicit non-mutating candidate probe first.
     if (target !== savedGatewayUrl) return;
 
     const timer = window.setTimeout(() => {
@@ -711,6 +747,15 @@ export default function App() {
       checkedGatewayUrl === normalizedGatewayUrl &&
       healthOk
   );
+  let normalizedGatewayDraft = "";
+  try {
+    normalizedGatewayDraft = normalizeGatewayUrl(gatewayUrl);
+  } catch {
+    // Invalid/partial drafts are intentionally distinct from saved config.
+  }
+  const gatewayDraftMatchesSaved = gatewayUrl.trim().length === 0
+    ? normalizedGatewayUrl.length === 0
+    : normalizedGatewayDraft.length > 0 && normalizedGatewayDraft === normalizedGatewayUrl;
   const gatewaySubLabel = !savedGatewayUrl
     ? t("desktop.app.setGatewayUrlInSettings")
     : gatewayConnected
@@ -872,8 +917,12 @@ export default function App() {
     startAgent,
     requestStopAgent: () => setConfirmStop(true),
     restartAgent,
-    gatewayUrl,
-    setGw,
+    gatewayUrl: savedGatewayUrl,
+    gatewayDraftUrl: gatewayUrl,
+    setGatewayDraftUrl: (value: string) => { setGw(value); setGatewayDraftError(null); },
+    checkedGatewayUrl,
+    gatewayDraftMatchesSaved,
+    gatewayDraftError,
     health,
     healthError,
     gatewayConnected,
@@ -946,7 +995,7 @@ export default function App() {
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         gatewayConnected={gatewayConnected}
-        gatewayUrl={gatewayUrl}
+        gatewayUrl={savedGatewayUrl}
         isOnline={isOnline}
         version={version}
         lastStatusCheck={lastStatusCheck}
@@ -970,7 +1019,7 @@ export default function App() {
                 setCollapsed(false);
                 setSidebarOpen(true);
               }}
-              className="rounded-md border border-edge bg-surface p-2.5 text-ink-2 shadow-xs transition hover:bg-surface-2 lg:hidden"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
               aria-label={t("desktop.app.openNavigation")}
             >
               <Menu className="h-5 w-5" />
@@ -990,7 +1039,7 @@ export default function App() {
                       onClick={() => {
                         refreshStatus();
                         refreshPrinters();
-                        if (gatewayUrl) refreshJobs();
+                        if (savedGatewayUrl) refreshJobs();
                       }}
                       icon={<RefreshCw className="h-[18px] w-[18px]" />}
                       aria-label={t("desktop.app.refreshAll")}
@@ -1008,7 +1057,7 @@ export default function App() {
 
         {isAdmin === false && adminDismissed && (
           <div
-            className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-xs text-warn lg:px-8"
+            className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn lg:px-8"
             role="status"
           >
             <div className="flex items-center gap-2">
@@ -1019,7 +1068,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setAdminDismissed(false)}
-              className="font-medium underline hover:text-warn/80 cursor-pointer"
+              className="min-h-9 rounded-sm px-2 font-medium underline transition hover:text-warn/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn/35 cursor-pointer"
             >
               {t("desktop.app.viewDetails")}
             </button>
@@ -1090,7 +1139,7 @@ export default function App() {
       >
         {selectedPrinter && (
           <div className="space-y-6">
-            <div className="flex items-center gap-3 rounded-xl border border-edge-accent bg-surface-accent px-5 py-4">
+            <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2 px-4 py-4">
               <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter))} />
               <span className="text-lg font-semibold text-ink">
                 {labelPrinter(printerDisplayStatus(selectedPrinter), locale)}
@@ -1225,7 +1274,7 @@ export default function App() {
               </MetaRow>
             </div>
             {selectedJob.error ? (
-              <div className={`rounded-xl border p-5 ${jobStatus(selectedJob) === "success" ? "border-info-edge bg-info-bg" : "border-bad-edge bg-bad-bg"}`}>
+              <div className={`rounded-md border p-4 ${jobStatus(selectedJob) === "success" ? "border-info-edge bg-info-bg" : "border-bad-edge bg-bad-bg"}`}>
                 {(() => {
                   const outcome = deriveOutcome(jobStatus(selectedJob), String(selectedJob.error));
                   const succeeded = jobStatus(selectedJob) === "success";
@@ -1257,7 +1306,7 @@ export default function App() {
                 })()}
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-xl border border-info-edge bg-info-bg px-5 py-4 text-base text-info">
+              <div className="flex items-center gap-2 rounded-md border border-info-edge bg-info-bg px-4 py-4 text-base text-info">
                 <Info className="h-5 w-5 flex-shrink-0" aria-hidden />
                 {jobGuidance(jobStatus(selectedJob), deriveOutcome(jobStatus(selectedJob), null), locale) ||
                   t("desktop.drawer.noErrorRecorded")}

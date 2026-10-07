@@ -20,7 +20,7 @@ export function SectionHeader({ title, subtitle, icon, actions, className = "" }
     <div className={`flex items-start justify-between gap-4 ${className}`}>
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-md font-[600] leading-tight tracking-[-0.012em] text-ink">{icon}{title}</h2>
-        {subtitle && <p className="mt-1 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-sm leading-relaxed text-ink-3">{subtitle}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
@@ -67,7 +67,7 @@ export function StatusNotice({ tone = "warn", icon, title, children, action, cla
   return (
     <div role="status" className={`flex flex-col gap-3 rounded-sg border p-4 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
       <span className={`mt-0.5 shrink-0 ${noticeIconStyles[tone]}`}>{icon}</span>
-      <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-xs leading-relaxed text-ink-2">{children}</div>}</div>
+      <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-sm leading-relaxed text-ink-2">{children}</div>}</div>
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
   );
@@ -81,7 +81,7 @@ export function PrinterAvatar({ name, size = "md", tone = "brand" }: { name: str
 }
 
 export function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-sg border border-edge bg-surface p-3.5 shadow-xs"><div className="flex flex-col gap-3 lg:flex-row lg:items-center">{children}</div></div>;
+  return <div className="rounded-sg border border-edge bg-surface p-3.5"><div className="flex flex-col gap-3 lg:flex-row lg:items-center">{children}</div></div>;
 }
 
 export function SettingsSection({ title, description, icon, children, className = "" }: { title: string; description?: string; icon: React.ReactNode; children: React.ReactNode; className?: string; }) {
@@ -90,7 +90,7 @@ export function SettingsSection({ title, description, icon, children, className 
       <div className="border-b border-edge bg-surface-2/60 px-5 py-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-brand">{icon}</span>
-          <div className="min-w-0"><h2 className="text-base font-semibold leading-tight tracking-[-0.015em] text-ink">{title}</h2>{description && <p className="mt-1 text-xs leading-relaxed text-ink-3">{description}</p>}</div>
+          <div className="min-w-0"><h2 className="text-base font-semibold leading-tight tracking-[-0.015em] text-ink">{title}</h2>{description && <p className="mt-1 text-sm leading-relaxed text-ink-3">{description}</p>}</div>
         </div>
       </div>
       <div className="space-y-5 px-5 py-5">{children}</div>
@@ -108,5 +108,5 @@ export function DetailList({ rows, className = "" }: { rows: { label: string; va
 }
 
 export function ViewAllButton({ label, onClick }: { label: string; onClick: () => void; }) {
-  return <button onClick={onClick} className="inline-flex w-full items-center justify-center gap-1.5 rounded-sm py-2.5 text-xs font-semibold text-ink-3 transition hover:bg-surface-2 hover:text-brand">{label}<ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden /></button>;
+  return <button type="button" onClick={onClick} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-sm px-2 py-2.5 text-sm font-semibold text-ink-3 transition hover:bg-surface-2 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{label}<ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden /></button>;
 }

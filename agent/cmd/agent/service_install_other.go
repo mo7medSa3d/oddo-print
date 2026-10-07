@@ -8,9 +8,15 @@ import (
 	"github.com/kardianos/service"
 )
 
+func verifyCurrentAgentServiceOwnershipIfPresent() error {
+	return nil
+}
+
 func updateInstalledService(_ *service.Config) error {
 	return fmt.Errorf("existing service upgrades are only supported on Windows")
 }
+
+func configureServiceRecovery(_ string) {}
 
 func purgeLegacyAgentServices() error {
 	return nil

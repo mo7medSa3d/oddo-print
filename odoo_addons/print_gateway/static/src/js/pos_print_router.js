@@ -3,6 +3,7 @@
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { gatewayServerMessage, showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
+import { isGatewayTimeoutError, withGatewayDeadline } from "./async_control";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
@@ -11,6 +12,44 @@ import { toCanvas as htmlToImageToCanvas } from "@point_of_sale/app/utils/html-t
 import { waitImages } from "@point_of_sale/utils";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
+
+
+const POS_RPC_TIMEOUT_MS = 20000;
+const POS_RENDER_TIMEOUT_MS = 15000;
+const POS_SYNC_TIMEOUT_MS = 20000;
+
+function gatewayDataCall(store, model, method, args, kwargs = {}, silent = true, { ambiguous = false } = {}) {
+    return withGatewayDeadline(
+        () => store.data.call(model, method, args, kwargs, silent),
+        POS_RPC_TIMEOUT_MS,
+        _t("Printing service request timed out."),
+        { ambiguous },
+    );
+}
+
+function gatewaySilentCall(store, model, method, args, kwargs = {}) {
+    return withGatewayDeadline(
+        () => store.data.silentCall(model, method, args, kwargs),
+        POS_RPC_TIMEOUT_MS,
+        _t("Printing service update timed out."),
+    );
+}
+
+function gatewaySync(store, options) {
+    return withGatewayDeadline(
+        () => store.syncAllOrders(options),
+        POS_SYNC_TIMEOUT_MS,
+        _t("Order synchronization timed out."),
+    );
+}
+
+function gatewayRender(factory) {
+    return withGatewayDeadline(
+        factory,
+        POS_RENDER_TIMEOUT_MS,
+        _t("Receipt rendering timed out."),
+    );
+}
 
 // crypto.randomUUID() is undefined in non-secure contexts (plain-HTTP LAN,
 // which this integration otherwise tolerates). Fall back to a v4 UUID so
@@ -150,7 +189,7 @@ patch(PosStore.prototype, {
         try {
             const sessionId = this.session?.id;
             const gatewayEnabled = sessionId
-                ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+                ? await gatewayDataCall(this, "pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
                 : false;
 
             if (gatewayEnabled !== true) {
@@ -161,7 +200,7 @@ patch(PosStore.prototype, {
             // before rendering/submitting so the print request has a durable Odoo record.
             if (!currentOrder.isSynced) {
                 try {
-                    await this.syncAllOrders({ orders: [currentOrder], force: false, throw: false });
+                    await gatewaySync(this, { orders: [currentOrder], force: false, throw: false });
                 } catch (syncErr) {
                     console.warn("Background order synchronization skipped or pending:", syncErr);
                 }
@@ -174,7 +213,7 @@ patch(PosStore.prototype, {
                 return false;
             }
 
-            const image = await renderReceiptImage(this, currentOrder, basic);
+            const image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic));
             // One operation identity per user click, with a bounded reuse
             // window for uncertain outcomes: a lost response retried with the
             // same id is deduplicated server-side, while a deliberate later
@@ -197,12 +236,14 @@ patch(PosStore.prototype, {
             let result;
             try {
                 try {
-                    result = await this.data.call(
+                    result = await gatewayDataCall(
+                        this,
                         "pos.order",
                         "action_print_gateway_receipt",
                         [[orderId]],
                         { image, operation_id: operationId },
-                        true
+                        true,
+                        { ambiguous: true },
                     );
                 } catch (rpcError) {
                     // Transport failure: the server may or may not have
@@ -259,7 +300,8 @@ patch(PosStore.prototype, {
             if (!printBillActionTriggered && recordPrintAttempt) {
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {
-                    const writeResult = await this.data.silentCall(
+                    const writeResult = await gatewaySilentCall(
+                        this,
                         "pos.order",
                         "write",
                         [[orderId], { nb_print: count }],
@@ -283,6 +325,13 @@ patch(PosStore.prototype, {
             // Read the server-side message (error.data.message), not the
             // generic RPC title (error.message is "Odoo Server Error" for
             // every deterministic printer failure).
+            if (isGatewayTimeoutError(error) && error.gatewayAmbiguous) {
+                this.notification.add(
+                    _t("The printing service did not confirm the result in time. The receipt may already have been accepted; retry will reuse the same operation to prevent a duplicate."),
+                    { type: "warning", sticky: true },
+                );
+                return false;
+            }
             this.notification.add(gatewayServerMessage(error) || _t("Receipt printing failed."), { type: "danger" });
             return false;
         }
@@ -330,7 +379,7 @@ patch(PosStore.prototype, {
         let gatewayEnabled;
         try {
             gatewayEnabled = sessionId
-                ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+                ? await gatewayDataCall(this, "pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
                 : false;
         } catch (error) {
             this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
@@ -402,7 +451,7 @@ patch(PosStore.prototype, {
         // Without this, another POS device can observe the same change and
         // submit the kitchen ticket again.
         if (!this.models["pos.prep.display"]?.length) {
-            await this.syncAllOrders({ orders: [order] });
+            await gatewaySync(this, { orders: [order] });
         }
 
         return isPrinted;
@@ -418,7 +467,7 @@ patch(PosStore.prototype, {
         let gatewayEnabled;
         try {
             gatewayEnabled = sessionId
-                ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+                ? await gatewayDataCall(this, "pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
                 : false;
         } catch (error) {
             this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
@@ -430,7 +479,7 @@ patch(PosStore.prototype, {
 
         try {
             if (!order?.isSynced || !Number.isInteger(order?.id)) {
-                await this.syncAllOrders({ orders: [order], force: false, throw: true });
+                await gatewaySync(this, { orders: [order], force: false, throw: true });
             }
         } catch (error) {
             this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
@@ -444,12 +493,13 @@ patch(PosStore.prototype, {
         }
 
         try {
-            const kitchenRoutes = await this.data.call(
+            const kitchenRoutes = await gatewayDataCall(
+                this,
                 "pos.order",
                 "get_gateway_kitchen_routes",
                 [[orderId]],
                 {},
-                true
+                true,
             );
             if (!kitchenRoutes || !Array.isArray(kitchenRoutes.routes)) {
                 this.notification.add(
@@ -648,7 +698,7 @@ patch(PosStore.prototype, {
         let gatewayEnabled;
         try {
             gatewayEnabled = sessionId
-                ? await this.data.call("pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
+                ? await gatewayDataCall(this, "pos.session", "is_gateway_printing_enabled", [[sessionId]], {}, true)
                 : false;
         } catch (error) {
             this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
@@ -669,8 +719,9 @@ patch(PosStore.prototype, {
 
         try {
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
-            const image = await elementToJpeg(receipt);
-            const result = await this.data.call(
+            const image = await gatewayRender(() => elementToJpeg(receipt));
+            const result = await gatewayDataCall(
+                this,
                 "pos.order",
                 "action_print_gateway_kitchen",
                 [[orderId]],
@@ -680,7 +731,8 @@ patch(PosStore.prototype, {
                     operation_id: requestOperationId,
                     pos_printer_id: posPrinterId || undefined,
                 },
-                true
+                true,
+                { ambiguous: true },
             );
             const status = result?.status;
             if (["unknown", "partial"].includes(status)) {

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "src" / "db" / "schema.ts"
 MIGRATIONS = ROOT / "drizzle"
 DATABASE_DOC = ROOT / "docs" / "DATABASE.md"
+ARCHITECTURE_DOC = ROOT / "ARCHITECTURE.md"
 
 CREATE_RE = re.compile(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([A-Za-z0-9_]+)"?', re.I)
 DROP_RE = re.compile(r'DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?([A-Za-z0-9_]+)"?', re.I)
@@ -70,6 +71,21 @@ def main() -> int:
                 problems.append(f"{table}: missing from docs/DATABASE.md")
     else:
         problems.append("docs/DATABASE.md is missing")
+
+    if ARCHITECTURE_DOC.is_file():
+        architecture = ARCHITECTURE_DOC.read_text()
+        schema_line = f"**Schema**: {len(schema_tables)} tables defined in `src/db/schema.ts`"
+        migration_files = sorted(MIGRATIONS.glob("*.sql"))
+        if schema_line not in architecture:
+            problems.append(f"ARCHITECTURE.md: expected schema count line: {schema_line}")
+        if migration_files:
+            first = migration_files[0].stem.split("_", 1)[0]
+            last = migration_files[-1].stem.split("_", 1)[0]
+            migration_line = f"**Migrations**: {len(migration_files)} forward-only migrations (`{first}`–`{last}`) in `drizzle/`"
+            if migration_line not in architecture:
+                problems.append(f"ARCHITECTURE.md: expected migration count/range line: {migration_line}")
+    else:
+        problems.append("ARCHITECTURE.md is missing")
 
     print(f"schema.ts tables     : {len(schema_tables)}")
     print(f"migration files      : {len(list(MIGRATIONS.glob('*.sql')))}")

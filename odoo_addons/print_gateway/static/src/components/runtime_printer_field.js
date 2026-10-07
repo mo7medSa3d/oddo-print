@@ -1,9 +1,12 @@
 /** @odoo-module */
 
-import { Component, onWillStart, useEffect, useState, xml } from "@odoo/owl";
+import { Component, onWillUnmount, useEffect, useState, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 import { _t } from "@web/core/l10n/translation";
+import { startRpcWithDeadline } from "../js/async_control";
+
+let runtimePrinterFieldInstance = 0;
 
 function relationalId(value) {
     if (!value) return false;
@@ -21,18 +24,18 @@ export class RuntimePrinterField extends Component {
                 <span t-esc="props.record.data[props.name] || ''"/>
             </t>
             <t t-else="">
-                <select class="o_input" t-att-aria-label="labels.printer" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.agentId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_printer_error' : undefined" t-on-change="onChange">
+                <select class="o_input" t-att-aria-label="labels.printer" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.agentId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? errorId : undefined" t-on-change="onChange">
                     <option value=""><t t-esc="placeholderText"/></option>
                     <option t-if="configuredPrinterMissing" t-att-value="props.record.data[props.name]" selected="selected">
-                        <t t-esc="props.record.data[props.name]"/> (<t t-esc="labels.savedUnavailable"/>)
+                        <t t-esc="isolateIdentifier(props.record.data[props.name])"/> (<t t-esc="labels.savedUnavailable"/>)
                     </option>
                     <option t-foreach="filteredPrinters" t-as="printer" t-key="printer.id" t-att-value="printer.id" t-att-selected="printer.id === props.record.data[props.name]">
-                        <t t-esc="printer.name"/> [<t t-esc="printer.deviceClass || labels.genericClass"/>] — <t t-esc="printer.freshness === 'stale' ? (printer.reportedStatus || printer.status) : printer.status"/><t t-if="printer.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
+                        <t t-esc="printer.name"/> [<t t-esc="deviceClassLabel(printer.deviceClass)"/>] — <t t-esc="statusLabel(printer)"/><t t-if="printer.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.agentId &amp;&amp; !filteredPrinters.length &amp;&amp; !configuredPrinterMissing" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
                 <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
-                    <small id="o_pg_printer_error" class="text-danger"><t t-esc="labels.loadError"/></small>
+                    <small t-att-id="errorId" class="text-danger"><t t-esc="labels.loadError"/></small>
                     <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"><t t-esc="labels.retry"/></button>
                 </div>
             </t>
@@ -40,7 +43,9 @@ export class RuntimePrinterField extends Component {
 
     setup() {
         this.rpc = rpc;
+        this.errorId = `o_pg_printer_error_${++runtimePrinterFieldInstance}`;
         this.currentRequestId = 0;
+        this.activeRequest = null;
         this.loadedScopeKey = null;
         this.loadedAgentId = null;
         this.state = useState({ loading: false, printers: [], agentId: false, destinationType: false, enabled: true, error: null });
@@ -56,6 +61,17 @@ export class RuntimePrinterField extends Component {
             retry: _t("Retry"),
             savedUnavailable: _t("saved / currently unavailable"),
             genericClass: _t("generic"),
+            classThermal: _t("thermal"),
+            classLaser: _t("laser"),
+            classInkjet: _t("inkjet"),
+            classLabel: _t("label"),
+            classOther: _t("other"),
+            classUnknown: _t("unknown"),
+            statusOnline: _t("online"),
+            statusOffline: _t("offline"),
+            statusBusy: _t("busy"),
+            statusError: _t("error"),
+            statusUnknown: _t("unknown"),
             stale: _t("stale"),
         };
 
@@ -70,7 +86,11 @@ export class RuntimePrinterField extends Component {
             },
             () => [this.companyId, this.branchId, this.agentId, this.destinationType, this.reportId, this.documentType],
         );
-        onWillStart(() => this.load());
+        onWillUnmount(() => {
+            this.currentRequestId += 1;
+            this.activeRequest?.cancel();
+            this.activeRequest = null;
+        });
     }
 
     get companyId() {
@@ -138,6 +158,34 @@ export class RuntimePrinterField extends Component {
         return !this.filteredPrinters.some((p) => p.id === val);
     }
 
+    isolateIdentifier(value) {
+        return `\u2068${String(value ?? "")}\u2069`;
+    }
+
+    statusLabel(printer) {
+        const raw = printer?.status || "unknown";
+        const key = String(raw).trim().toLowerCase();
+        return {
+            online: this.labels.statusOnline,
+            offline: this.labels.statusOffline,
+            busy: this.labels.statusBusy,
+            error: this.labels.statusError,
+            unknown: this.labels.statusUnknown,
+        }[key] || this.labels.statusUnknown;
+    }
+
+    deviceClassLabel(deviceClass) {
+        const key = String(deviceClass || "unknown").trim().toLowerCase();
+        return {
+            thermal: this.labels.classThermal,
+            laser: this.labels.classLaser,
+            inkjet: this.labels.classInkjet,
+            label: this.labels.classLabel,
+            other: this.labels.classOther,
+            unknown: this.labels.classUnknown,
+        }[key] || this.labels.genericClass;
+    }
+
     scopeKey(companyId, branchId, agentId) {
         return `${companyId || ""}|${branchId || ""}|${agentId || ""}|${this.destinationType}|${this.reportId}|${this.documentType}`;
     }
@@ -174,11 +222,14 @@ export class RuntimePrinterField extends Component {
 
         this.state.loading = true;
         try {
-            const result = await this.rpc("/print_gateway/runtime-printers", {
+            this.activeRequest?.cancel();
+            const request = startRpcWithDeadline(this.rpc, "/print_gateway/runtime-printers", {
                 company_id: companyId,
                 branch_id: branchId,
                 agent_id: agentId,
-            });
+            }, { timeoutMessage: this.labels.loadError });
+            this.activeRequest = request;
+            const result = await request.promise;
             if (reqId !== this.currentRequestId) return;
             this.state.enabled = result?.enabled !== false;
             this.state.printers = Array.isArray(result?.printers) ? result.printers : [];
@@ -188,6 +239,7 @@ export class RuntimePrinterField extends Component {
         } finally {
             if (reqId === this.currentRequestId) {
                 this.state.loading = false;
+                this.activeRequest = null;
             }
         }
     }

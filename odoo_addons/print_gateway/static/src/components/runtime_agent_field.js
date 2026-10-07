@@ -1,9 +1,12 @@
 /** @odoo-module */
 
-import { Component, onWillStart, useEffect, useState, xml } from "@odoo/owl";
+import { Component, onWillUnmount, useEffect, useState, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 import { _t } from "@web/core/l10n/translation";
+import { startRpcWithDeadline } from "../js/async_control";
+
+let runtimeAgentFieldInstance = 0;
 
 function relationalId(value) {
     if (!value) return false;
@@ -21,19 +24,19 @@ export class RuntimeAgentField extends Component {
                 <t t-set="selectedAgent" t-value="this.selectedAgent"/>
                 <span>
                     <t t-esc="selectedAgent?.name || props.record.data[props.name] || ''"/>
-                    <t t-if="selectedAgent"> — <t t-esc="selectedAgent.freshness === 'stale' ? (selectedAgent.reportedStatus || selectedAgent.status || labels.statusOffline) : (selectedAgent.status || labels.statusOffline)"/><t t-if="selectedAgent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t></t>
+                    <t t-if="selectedAgent"> — <t t-esc="statusLabel(selectedAgent)"/><t t-if="selectedAgent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t></t>
                 </span>
             </t>
             <t t-else="">
-                <select class="o_input" t-att-aria-label="labels.printAgent" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.companyId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? 'o_pg_agent_error' : undefined" t-on-change="onChange">
+                <select class="o_input" t-att-aria-label="labels.printAgent" t-att-value="props.record.data[props.name] || ''" t-att-disabled="state.loading || !state.companyId" t-att-aria-invalid="state.error ? 'true' : undefined" t-att-aria-describedby="state.error ? errorId : undefined" t-on-change="onChange">
                     <option value=""><t t-esc="placeholderText"/></option>
                     <option t-foreach="state.agents" t-as="agent" t-key="agent.id" t-att-value="agent.id" t-att-selected="agent.id === props.record.data[props.name]">
-                        <t t-esc="agent.name"/> — <t t-esc="agent.id"/> · <t t-esc="agent.freshness === 'stale' ? (agent.reportedStatus || agent.status || labels.statusOffline) : (agent.status || labels.statusOffline)"/><t t-if="agent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
+                        <t t-esc="agent.name"/> — <t t-esc="isolateIdentifier(agent.id)"/> · <t t-esc="statusLabel(agent)"/><t t-if="agent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t>
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.companyId &amp;&amp; !state.agents.length" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
                 <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
-                    <small id="o_pg_agent_error" class="text-danger"><t t-esc="labels.loadError"/></small>
+                    <small t-att-id="errorId" class="text-danger"><t t-esc="labels.loadError"/></small>
                     <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"><t t-esc="labels.retry"/></button>
                 </div>
             </t>
@@ -41,7 +44,9 @@ export class RuntimeAgentField extends Component {
 
     setup() {
         this.rpc = rpc;
+        this.errorId = `o_pg_agent_error_${++runtimeAgentFieldInstance}`;
         this.currentRequestId = 0;
+        this.activeRequest = null;
         this.loadedScopeKey = null;
         this.state = useState({ loading: false, agents: [], companyId: false, branchId: false, enabled: true, error: null });
         // Inline `xml` templates are not scanned for translations (Odoo only
@@ -54,7 +59,9 @@ export class RuntimeAgentField extends Component {
             selectPrintAgent: _t("Select Print Agent"),
             loadError: _t("Could not load connected Print Agents. Check the printing service connection, then retry."),
             retry: _t("Retry"),
+            statusOnline: _t("online"),
             statusOffline: _t("offline"),
+            statusUnknown: _t("unknown"),
             stale: _t("stale"),
         };
 
@@ -72,9 +79,11 @@ export class RuntimeAgentField extends Component {
             },
             () => [this.companyId, this.branchId, this.assignmentOnly],
         );
-        // First load happens before the first paint so the select never flashes
-        // "Select a company first" while the record already carries a company.
-        onWillStart(() => this.load());
+        onWillUnmount(() => {
+            this.currentRequestId += 1;
+            this.activeRequest?.cancel();
+            this.activeRequest = null;
+        });
     }
 
     get companyId() {
@@ -98,6 +107,19 @@ export class RuntimeAgentField extends Component {
     get selectedAgent() {
         const agentId = this.props.record?.data?.[this.props.name];
         return this.state.agents.find((agent) => agent.id === agentId) || null;
+    }
+
+    isolateIdentifier(value) {
+        return `\u2068${String(value ?? "")}\u2069`;
+    }
+
+    statusLabel(agent) {
+        const raw = agent?.status || "unknown";
+        return String(raw).toLowerCase() === "online"
+            ? this.labels.statusOnline
+            : String(raw).toLowerCase() === "offline"
+                ? this.labels.statusOffline
+                : this.labels.statusUnknown;
     }
 
     get emptyMessage() {
@@ -145,11 +167,14 @@ export class RuntimeAgentField extends Component {
 
         this.state.loading = true;
         try {
-            const result = await this.rpc("/print_gateway/runtime-agents", {
+            this.activeRequest?.cancel();
+            const request = startRpcWithDeadline(this.rpc, "/print_gateway/runtime-agents", {
                 company_id: companyId,
                 branch_id: branchId,
                 assignment_only: Boolean(props.assignmentOnly),
-            });
+            }, { timeoutMessage: this.labels.loadError });
+            this.activeRequest = request;
+            const result = await request.promise;
             if (reqId !== this.currentRequestId) return;
             this.state.enabled = result?.enabled !== false;
             this.state.agents = Array.isArray(result?.agents) ? result.agents : [];
@@ -164,6 +189,7 @@ export class RuntimeAgentField extends Component {
         } finally {
             if (reqId === this.currentRequestId) {
                 this.state.loading = false;
+                this.activeRequest = null;
             }
         }
     }

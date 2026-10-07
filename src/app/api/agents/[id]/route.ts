@@ -8,7 +8,7 @@ import { eq, count, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { transitionAgentLifecycle, LifecycleConflict } from "../../../../lib/agent-lifecycle";
 import { logError } from "../../../../lib/log";
-import { getEffectivePrinterStatus, isAgentAvailableForJob } from "../../../../lib/agent-availability";
+import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { isTenantBillingError } from "../../../../lib/entitlements";
 
@@ -29,7 +29,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const agentPrinters = await db.query.printers.findMany({ where: and(eq(printers.agentId, id), eq(printers.tenantId, claims.tenantId)), orderBy: [desc(printers.createdAt)] });
   const [jobs] = await db.select({ c: count() }).from(printJobs).where(and(eq(printJobs.agentId, id), eq(printJobs.tenantId, claims.tenantId)));
   const { secret: _secret, pairingCodeHash: _pch, pairingCode: _pc, pairingCodeExpiresAt: _exp, ...safe } = agent as Record<string, unknown>;
-  const safeAgent = { ...safe, status: isAgentAvailableForJob(agent, now) ? "online" : "offline" };
+  const safeAgent = {
+    ...safe,
+    reportedStatus: agent.status,
+    freshness: getAgentHeartbeatFreshness(agent.lastSeenAt, now),
+    status: getEffectiveAgentStatus(agent, now),
+    staleThresholdSeconds: agentStaleThresholdSeconds(),
+  };
   const effectivePrinters = agentPrinters.map((printer) => ({ ...printer, status: getEffectivePrinterStatus(printer, agent, now) }));
   return NextResponse.json({ agent: safeAgent, printers: effectivePrinters, jobCount: jobs?.c ?? 0 });
 }

@@ -82,7 +82,7 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
 
   return (
     <div
-      className="rounded-xl border border-edge-accent bg-surface-accent px-5 py-4"
+      className="rounded-md border border-edge bg-surface-2 px-4 py-4"
       role="group"
       aria-label={t("desktop.timeline.aria", { summary: srSummary })}
     >

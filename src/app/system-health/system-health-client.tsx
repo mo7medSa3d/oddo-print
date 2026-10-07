@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useState } from "react";
@@ -117,7 +118,7 @@ export default function SystemHealthClient() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      const res = await fetch("/api/system/health", { cache: "no-store", signal: controller.signal });
+      const res = await fetchWithTimeout("/api/system/health", { cache: "no-store", signal: controller.signal });
       if (!res.ok) throw new Error(t(statusMessageKey(res.status) ?? "errors.gatewayUnavailable"));
       const data = (await res.json()) as SystemHealth;
       setHealth(data);
@@ -172,31 +173,16 @@ export default function SystemHealthClient() {
     <div className="space-y-5">
       <section
         aria-label={t("health.overall")}
-        className={`card overflow-hidden border-s-[3px] ${
-          health.overall === "ok"
-            ? "border-s-ok-solid"
-            : health.overall === "warn"
-              ? "border-s-warn-solid"
-              : health.overall === "error"
-                ? "border-s-bad-solid"
-                : "border-s-edge-strong"
-        }`}
+        className="card overflow-hidden"
       >
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3.5">
-            <span
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-sg border ${
-                health.overall === "ok"
-                  ? "border-ok-edge bg-ok-bg text-ok"
-                  : health.overall === "warn"
-                    ? "border-warn-edge bg-warn-bg text-warn"
-                    : health.overall === "error"
-                      ? "border-bad-edge bg-bad-bg text-bad"
-                      : "border-edge bg-surface-2 text-ink-3"
+            <StateIcon
+              state={health.overall}
+              className={`mt-0.5 h-5 w-5 shrink-0 ${
+                health.overall === "ok" ? "text-ok" : health.overall === "warn" ? "text-warn" : health.overall === "error" ? "text-bad" : "text-ink-3"
               }`}
-            >
-              <StateIcon state={health.overall} className="h-5 w-5" />
-            </span>
+            />
             <div className="min-w-0">
               <h2 className="flex flex-wrap items-center gap-2 text-md font-[620] tracking-[-0.015em] text-ink">
                 {health.overall === "ok" ? t("health.allCriticalHealthy") : stateLabel(health.overall, t)}
@@ -275,7 +261,7 @@ export default function SystemHealthClient() {
                     <summary className="cursor-pointer select-none text-xs font-[550] text-brand transition-colors hover:text-brand-hover">
                       {t("health.technicalDetails")}
                     </summary>
-                    <pre className="mt-2 max-h-44 overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-2.5 font-mono text-2xs leading-relaxed text-ink-2">
+                    <pre dir="ltr" className="mt-2 max-h-44 overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-2.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
                       {JSON.stringify(check.details, null, 2)}
                     </pre>
                   </details>
@@ -309,10 +295,10 @@ export default function SystemHealthClient() {
             <code className="font-mono text-xs">X-Request-Id</code>{" "}
             {t("health.tracingIdsOutro")}
           </p>
-          <pre className="overflow-x-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+          <pre dir="ltr" className="overflow-x-auto rounded-md border border-edge-subtle bg-surface-2 p-3.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
 {`{"ts":"…","level":"info","event":"print.job.success","requestId":"req_…","jobId":"job_…","tenantId":"…","agentId":"…","printerId":"…","attemptId":"attempt_…","claimId":"…","spoolerJobId":"…"}`}
           </pre>
-          <div className="flex items-start gap-2.5 rounded-sg border border-edge-subtle bg-surface-2 px-3.5 py-3">
+          <div className="flex items-start gap-2.5 rounded-md border border-edge-subtle bg-surface-2 px-3.5 py-3">
             <Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
             <p className="text-sm leading-relaxed text-ink-3">
               {t("health.unverifiedIntro")}{" "}

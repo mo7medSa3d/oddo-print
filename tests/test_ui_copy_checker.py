@@ -79,3 +79,23 @@ def test_real_catalogs_agree_between_new_and_legacy_parsing():
     assert len(checker.read_catalog(ROOT / "src/i18n/messages/en.ts")) == len(
         checker.read_catalog(ROOT / "src/i18n/messages/ar.ts")
     )
+
+
+def test_balanced_jsx_expression_stripping_ignores_nested_prop_code():
+    checker = load_checker()
+    line = (
+        '<div>{p.agentName} • '
+        '{printerIsStale(p, nowMs) ? <Badge label={t("status.stale")} /> : null}'
+        '{printerAgentView(p, nowMs, locale).label}</div>'
+    )
+    stripped = checker.strip_jsx_expressions(line)
+    assert "p, nowMs" not in stripped
+    assert "printerAgentView" not in stripped
+    assert " • " in stripped
+
+
+def test_balanced_jsx_expression_stripping_preserves_literal_copy():
+    checker = load_checker()
+    stripped = checker.strip_jsx_expressions('<div>Sampled {time}</div>')
+    assert "Sampled" in stripped
+    assert "time" not in stripped

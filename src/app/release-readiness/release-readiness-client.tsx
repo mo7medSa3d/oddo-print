@@ -8,13 +8,13 @@ import {
   CardHeader,
   Callout,
   ErrorState,
-  PageSkeleton,
   SegmentedControl,
   StatusBadge,
   type Tone,
 } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 import type { MessageKey } from "../../i18n/messages/en";
+import { fetchWithTimeout } from "../../lib/fetch-timeout";
 
 type Status = "PASS" | "FAIL" | "BLOCKED" | "NOT APPLICABLE" | "UNVERIFIED";
 
@@ -38,9 +38,11 @@ const COMPLIANCE_NOTES = [
   statusKey: MessageKey;
   tone: Tone;
 }>;
+type SourceEvidence = "DOCUMENTED" | "MISSING";
+
 type Row = {
   area: string;
-  implemented: Status;
+  sourceEvidence: SourceEvidence;
   runtimeVerified: Status;
   status: Status;
   evidence: string;
@@ -72,48 +74,71 @@ export default function ReleaseReadinessClient() {
     BLOCKED: t("release.status.blocked"),
     "NOT APPLICABLE": t("release.status.na"),
   };
+  const SOURCE_EVIDENCE_LABEL: Record<SourceEvidence, string> = {
+    DOCUMENTED: t("release.sourceEvidence.documented"),
+    MISSING: t("release.sourceEvidence.missing"),
+  };
   const rows: Row[] = [
-    { area: t("release.area.certification"), evidence: t("release.evidence.certification"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.capabilities"), evidence: t("release.evidence.capabilities"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.agentHealth"), evidence: t("release.evidence.agentHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.serviceRecovery"), evidence: t("release.evidence.serviceRecovery"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.queueHealth"), evidence: t("release.evidence.queueHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.timeline"), evidence: t("release.evidence.timeline"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.trace"), evidence: t("release.evidence.trace"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.systemHealth"), evidence: t("release.evidence.systemHealth"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.tenantIsolation"), evidence: t("release.evidence.tenantIsolation"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.claimPrivacy"), evidence: t("release.evidence.claimPrivacy"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.ipp"), evidence: t("release.evidence.ipp"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.updater"), evidence: t("release.evidence.updater"), implemented: "FAIL", runtimeVerified: "UNVERIFIED", status: "BLOCKED" },
-    { area: t("release.area.physical"), evidence: t("release.evidence.physical"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.odoo"), evidence: t("release.evidence.odoo"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.postgres"), evidence: t("release.evidence.postgres"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
-    { area: t("release.area.goRace"), evidence: t("release.evidence.goRace"), implemented: "PASS", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.certification"), evidence: t("release.evidence.certification"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.capabilities"), evidence: t("release.evidence.capabilities"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.agentHealth"), evidence: t("release.evidence.agentHealth"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.serviceRecovery"), evidence: t("release.evidence.serviceRecovery"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.queueHealth"), evidence: t("release.evidence.queueHealth"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.timeline"), evidence: t("release.evidence.timeline"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.trace"), evidence: t("release.evidence.trace"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.systemHealth"), evidence: t("release.evidence.systemHealth"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.tenantIsolation"), evidence: t("release.evidence.tenantIsolation"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.claimPrivacy"), evidence: t("release.evidence.claimPrivacy"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.ipp"), evidence: t("release.evidence.ipp"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.updater"), evidence: t("release.evidence.updater"), sourceEvidence: "MISSING", runtimeVerified: "UNVERIFIED", status: "BLOCKED" },
+    { area: t("release.area.physical"), evidence: t("release.evidence.physical"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.odoo"), evidence: t("release.evidence.odoo"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.postgres"), evidence: t("release.evidence.postgres"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
+    { area: t("release.area.goRace"), evidence: t("release.evidence.goRace"), sourceEvidence: "DOCUMENTED", runtimeVerified: "UNVERIFIED", status: "UNVERIFIED" },
   ];
 
   const [systemHealth, setSystemHealth] = useState<SystemHealthPayload | null>(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(true);
+  const [systemHealthError, setSystemHealthError] = useState<string | null>(null);
+  const [healthReloadKey, setHealthReloadKey] = useState(0);
   const [showRawHealth, setShowRawHealth] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/system/health", { credentials: "include", cache: "no-store" })
+    const controller = new AbortController();
+    setSystemHealthLoading(true);
+    setSystemHealthError(null);
+    void fetchWithTimeout(
+      "/api/system/health",
+      { credentials: "include", cache: "no-store", signal: controller.signal },
+      10_000,
+    )
       .then((r) => {
-        if (!r.ok) throw new Error(t("errors.serviceUnavailable"));
+        if (!r.ok) throw new Error(t("release.liveHealthError"));
         return r.json() as Promise<SystemHealthPayload>;
       })
       .then((data) => {
-        if (!cancelled) setSystemHealth(data);
+        if (!cancelled) {
+          setSystemHealth(data);
+          setSystemHealthError(null);
+        }
       })
       .catch(() => {
-        // A failed health fetch (session expired, forbidden, gateway down)
-        // must not be rendered as health data. Leave the live section hidden.
+        if (!cancelled) {
+          setSystemHealth(null);
+          setSystemHealthError(t("release.liveHealthError"));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSystemHealthLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [t]);
+  }, [healthReloadKey, t]);
 
   const overall: Status = rows.some((r) => r.status === "FAIL")
     ? "FAIL"
@@ -138,11 +163,7 @@ export default function ReleaseReadinessClient() {
 
   return (
     <div className="space-y-5">
-      <Card
-        className={`border-s-[3px] ${
-          tone === "bad" ? "border-s-bad-solid" : tone === "warn" ? "border-s-warn-solid" : "border-s-ok-solid"
-        }`}
-      >
+      <Card>
         <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -155,7 +176,7 @@ export default function ReleaseReadinessClient() {
               {t("release.summaryBody")}
             </p>
           </div>
-          <div className="grid shrink-0 grid-cols-4 gap-px overflow-hidden rounded-sg border border-edge bg-edge-subtle">
+          <div className="grid shrink-0 grid-cols-4 gap-px overflow-hidden rounded-md border border-edge bg-edge-subtle">
             {[
               { label: t("release.count.pass"), value: counts.pass, tone: "text-ok" },
               { label: t("release.count.blocked"), value: counts.blocked, tone: "text-warn" },
@@ -209,8 +230,8 @@ export default function ReleaseReadinessClient() {
                       <div className="text-sm font-[600] leading-snug text-ink">{row.area}</div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
                         <span>
-                          {t("release.implemented")}{" "}
-                          <span className="font-[550] text-ink-2">{STATUS_LABEL[row.implemented]}</span>
+                          {t("release.sourceEvidence")}{" "}
+                          <span className="font-[550] text-ink-2">{SOURCE_EVIDENCE_LABEL[row.sourceEvidence]}</span>
                         </span>
                         <span aria-hidden>·</span>
                         <span>
@@ -229,7 +250,7 @@ export default function ReleaseReadinessClient() {
                       type="button"
                       onClick={() => setExpanded(open ? null : row.area)}
                       aria-expanded={open}
-                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink"
+                      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-sm border border-edge px-2.5 text-sm font-[550] text-ink-2 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-2"
                     >
                       {t("release.evidence")}
                       <ChevronDown
@@ -255,7 +276,22 @@ export default function ReleaseReadinessClient() {
         )}
       </Card>
 
-      {systemHealth && (
+      {systemHealthLoading && (
+        <Card>
+          <CardHeader title={t("release.liveHealth")} subtitle={t("release.liveHealthLoading")} />
+        </Card>
+      )}
+
+      {!systemHealthLoading && systemHealthError && (
+        <ErrorState
+          tone="warn"
+          title={t("release.liveHealthUnavailable")}
+          message={systemHealthError}
+          retry={() => setHealthReloadKey((value) => value + 1)}
+        />
+      )}
+
+      {!systemHealthLoading && !systemHealthError && systemHealth && (
         <Card>
           <CardHeader
             title={t("release.liveHealth")}
@@ -267,7 +303,7 @@ export default function ReleaseReadinessClient() {
             }
           />
           {showRawHealth && (
-            <pre className="mx-5 my-4 max-h-64 overflow-auto rounded-sg border border-edge-subtle bg-surface-2 p-3.5 font-mono text-2xs leading-relaxed text-ink-2">
+            <pre dir="ltr" className="mx-5 my-4 max-h-64 overflow-auto rounded-md border border-edge-subtle bg-surface-2 p-3.5 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
               {JSON.stringify(systemHealth, null, 2)}
             </pre>
           )}
@@ -289,7 +325,7 @@ export default function ReleaseReadinessClient() {
                   <summary className="cursor-pointer text-xs font-[550] text-brand">
                     {t("release.technicalDetail")}
                   </summary>
-                  <p className="mt-1.5 font-mono text-2xs leading-relaxed text-ink-2">{t(note.detailKey)}</p>
+                  <p className="mt-1.5 font-mono text-xs leading-relaxed text-ink-2">{t(note.detailKey)}</p>
                 </details>
               </div>
               <StatusBadge tone={note.tone} label={t(note.statusKey)} className="shrink-0" />

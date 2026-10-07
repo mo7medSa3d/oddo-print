@@ -35,8 +35,15 @@ export interface DesktopState {
   restartAgent: () => void;
 
   /* gateway */
+  /** Persisted Gateway origin used by operational requests. */
   gatewayUrl: string;
-  setGw: (v: string) => void;
+  /** Editable Settings draft; never drives operational requests until verified and saved. */
+  gatewayDraftUrl: string;
+  setGatewayDraftUrl: (v: string) => void;
+  /** Origin associated with the latest saved-Gateway health observation. */
+  checkedGatewayUrl: string;
+  gatewayDraftMatchesSaved: boolean;
+  gatewayDraftError: string | null;
   health: Record<string, unknown> | null;
   healthError: string | null;
   gatewayConnected: boolean;

@@ -3,7 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { agents } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
-import { getAgentHeartbeatFreshness, isAgentAvailableForJob } from "../../../../lib/agent-availability";
+import { getAgentHeartbeatFreshness, getEffectiveAgentStatus } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
@@ -49,10 +49,10 @@ export async function GET(req: Request) {
   const sanitized = rows.map((agent) => ({
     id: agent.id,
     name: agent.name,
-    // Keep the historical effective online/offline field for compatibility,
-    // while preserving the Agent-reported status and heartbeat freshness as
-    // separate facts for Odoo UI/diagnostics.
-    status: isAgentAvailableForJob(agent, now) ? "online" : "offline",
+    // Current presentation state is evidence-based: stale/missing heartbeat
+    // becomes unknown, while the last Agent-reported value remains available
+    // separately for diagnostics.
+    status: getEffectiveAgentStatus(agent, now),
     reportedStatus: agent.status,
     freshness: getAgentHeartbeatFreshness(agent.lastSeenAt, now),
     lifecycle: agent.lifecycle,

@@ -13,8 +13,10 @@ describe("windows-service-recovery", () => {
     // registers the service, or sc query/qfailure instructions fail on a
     // real Windows host.
     const mainGo = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
+    const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
     expect(mainGo).toContain('Name:         "YaseirAgent"');
-    expect(mainGo).toContain('"actions= restart/60000/restart/60000/restart/60000"');
+    expect(windowsInstall).toContain("existing.SetRecoveryActions(actions, 24*60*60)");
+    expect(windowsInstall.match(/mgr.ServiceRestart/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
 
@@ -39,7 +41,7 @@ describe("windows-service-recovery", () => {
     expect(tray).toContain('"quit" => app.exit(0)');
   });
 
-  it("Windows uninstall removes service, product processes, and runtime data", () => {
+  it("Windows uninstall removes services and runtime data without image-wide process kills", () => {
     const nsis = fs.readFileSync("src-tauri/installer_hooks.nsh", "utf8");
     const agentMain = fs.readFileSync("agent/cmd/agent/main.go", "utf8");
     const windowsInstall = fs.readFileSync("agent/cmd/agent/service_install_windows.go", "utf8");
@@ -48,14 +50,15 @@ describe("windows-service-recovery", () => {
     expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'net (stop|start)/);
     expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'sc (stop|start|delete|query)/);
     expect(nsis).not.toMatch(/nsExec::Exec[^'\n]*'taskkill /);
-    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM yaseir-manager.exe');
-    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM "Yaseir Print Manager.exe"');
-    expect(nsis).toContain('$SYSDIR\\taskkill.exe" /F /T /IM YaseirAgent.exe');
-    // Verified stop precedes process termination and binary replacement.
+    // Never terminate by image name: a matching filename does not prove the
+    // process belongs to this installation. Exact-PID ownership fencing lives
+    // in the Manager runtime instead.
+    expect(nsis).not.toContain("taskkill.exe");
+    expect(nsis).not.toMatch(/\/IM\s+/i);
+    // Verified SCM stop precedes service purge and binary removal.
     expect(nsis).toContain("STOPPED");
-    expect(nsis).toContain("YASEIR_STOP_SERVICE_VERIFY");
-    expect(nsis).toContain("YASEIR_UN_STOP_SERVICE_VERIFY");
-    expect(nsis.indexOf("YASEIR_UN_STOP_SERVICE_VERIFY")).toBeLessThan(nsis.indexOf("$SYSDIR\\taskkill.exe"));
+    expect(nsis).toContain("YASEIR_STOP_OWNED_SERVICE_VERIFY");
+    expect(nsis).toContain("BINARY_PATH_NAME");
     expect(nsis).toContain("-service purge");
     expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
 
@@ -63,8 +66,9 @@ describe("windows-service-recovery", () => {
     expect(tauriConf.bundle.targets).toEqual(["nsis"]);
     expect(tauriConf.bundle.windows.wix).toBeUndefined();
     expect(nsis).toContain("NSIS_HOOK_PREUNINSTALL");
-    expect(nsis).toContain('sc.exe" delete YasserAgent');
-    expect(nsis).toContain('sc.exe" delete OdooPrintAgent');
+    expect(nsis).not.toContain('sc.exe" delete YasserAgent');
+    expect(nsis).not.toContain('sc.exe" delete OdooPrintAgent');
+    expect(nsis).toContain("-service purge");
 
     expect(agentMain).toContain('case "uninstall":');
     expect(agentMain).toContain('case "purge":');
@@ -110,8 +114,9 @@ describe("windows-service-recovery", () => {
     const source = fs.readFileSync("src-tauri/src/agent.rs", "utf8");
     const start = source.slice(source.indexOf("fn start_inner"), source.indexOf("pub fn stop("));
     expect(start).toContain("match sc_query()?");
-    expect(start).toContain("Some(4) => Ok(())");
-    expect(start).toContain("Some(1) => { if is_process_running(app) { stop_inner(app)?; } run_net(\"start\")?");
+    expect(start).toContain("verify_installed_service_ownership(app)?");
+    expect(start).toContain('run_agent_service_command(app, "start", COMMAND_TIMEOUT)?');
+    expect(start).not.toContain("run_net(");
     expect(start).toContain("None =>");
     expect(start).toContain("spawn_background(app)");
     expect(start.indexOf("spawn_background(app)")).toBeGreaterThan(start.indexOf("None =>"));

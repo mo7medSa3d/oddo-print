@@ -404,6 +404,43 @@ async fn read_response_body_limited(
     String::from_utf8(body).map_err(|e| format!("Gateway response was not valid UTF-8: {e}"))
 }
 
+/// Probe a candidate Gateway health endpoint without changing the persisted
+/// Gateway origin or touching the Manager session. Settings uses this before
+/// committing a new origin so an unreachable typo cannot revoke a valid
+/// authenticated session for the currently configured Gateway.
+#[tauri::command]
+pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String> {
+    let base = normalize_gateway_url(&url)?;
+    let origin = base
+        .parse::<url::Url>()
+        .map_err(|e| format!("invalid Gateway URL: {e}"))?;
+    let target = origin
+        .join("api/health")
+        .map_err(|e| format!("invalid Gateway health URL: {e}"))?;
+    if target.scheme() != origin.scheme()
+        || target.host_str() != origin.host_str()
+        || target.port_or_known_default() != origin.port_or_known_default()
+    {
+        return Err("Gateway health probe must stay on the candidate origin".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("build HTTP client: {e}"))?;
+    let response = client
+        .get(target)
+        .header("Origin", "tauri://localhost")
+        .send()
+        .await
+        .map_err(|e| format!("Gateway health probe failed: {e}"))?;
+    let status = response.status().as_u16();
+    let body = read_response_body_limited(response, 1024 * 1024).await?;
+    Ok(GatewayResponse { status, body })
+}
+
 fn configured_gateway_origin() -> Result<url::Url, String> {
     let cfg = get_gateway_config()?;
     if cfg.url.is_empty() {

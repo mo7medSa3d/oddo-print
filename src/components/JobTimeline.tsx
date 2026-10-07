@@ -1,8 +1,9 @@
 "use client";
 
+import { fetchWithTimeout } from "../lib/fetch-timeout";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, MinusCircle, RefreshCw } from "lucide-react";
-import { Mono, Skeleton, StatusBadge, type Tone } from "./ui";
+import { Button, Mono, Skeleton, StatusBadge, type Tone } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 import type { MessageKey } from "../i18n/messages/en";
@@ -116,7 +117,7 @@ function TimelineSession({ jobId }: { jobId: string }) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       try {
-        const res = await fetch(`/api/jobs/${jobId}/timeline`, {
+        const res = await fetchWithTimeout(`/api/jobs/${jobId}/timeline`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -156,26 +157,27 @@ function TimelineSession({ jobId }: { jobId: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="flex flex-col gap-3 rounded-sg border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+      <div role="alert" className="flex flex-col gap-3 rounded-md border border-bad-edge bg-bad-bg px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-2.5 text-sm text-bad">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>{t("timeline.unavailable")}</span>
         </div>
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="secondary"
           onClick={retry}
-          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-sm border border-bad-edge bg-surface px-3 text-sm font-[550] text-bad transition-colors duration-150 hover:bg-bad-bg sm:self-auto"
+          className="self-start sm:self-auto"
+          icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}
         >
-          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           {t("timeline.retry")}
-        </button>
+        </Button>
       </div>
     );
   }
 
   if (!events || events.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-5 py-8 text-center">
+      <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-edge-strong bg-surface-2 px-5 py-8 text-center">
         <Clock className="h-5 w-5 text-ink-4" aria-hidden />
         <p className="text-base font-[550] text-ink">{t("timeline.empty")}</p>
         <p className="max-w-sm text-sm leading-relaxed text-ink-3">
@@ -192,7 +194,7 @@ function TimelineSession({ jobId }: { jobId: string }) {
   return (
     <div className="space-y-4">
       {correlated.length > 0 && (
-        <dl className="rounded-sg border border-edge bg-surface-2 px-3.5 py-3">
+        <dl className="rounded-md border border-edge bg-surface-2 px-3.5 py-3">
           <div className="label-caps">{t("timeline.correlationIds")}</div>
           <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
             {correlated.map(([key, value]) => (
@@ -274,7 +276,7 @@ function TimelineSession({ jobId }: { jobId: string }) {
                   <summary className="cursor-pointer list-none text-xs font-[550] text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
                     {t("timeline.technicalDetails")}
                   </summary>
-                  <pre className="mt-1.5 max-h-40 overflow-auto rounded-sm border border-edge bg-surface-2 p-2.5 text-xs leading-relaxed text-ink-2">
+                  <pre dir="ltr" className="mt-1.5 max-h-40 overflow-auto rounded-sm border border-edge bg-surface-2 p-3 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
                     {JSON.stringify(ev.metadata, null, 2)}
                   </pre>
                 </details>

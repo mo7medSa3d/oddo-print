@@ -547,6 +547,20 @@
       "when": 1790644201217,
       "tag": "0077_agent_inventory_snapshots",
       "breakpoints": false
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1790644202217,
+      "tag": "0078_hot_path_query_indexes",
+      "breakpoints": false
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1790644202218,
+      "tag": "0079_team_collection_pagination_indexes",
+      "breakpoints": false
     }
   ]
 }

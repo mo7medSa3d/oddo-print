@@ -307,9 +307,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   </div>
 
                   {entitlements.length > 0 ? (
-                    <ul className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                    <ul className="mt-4 grid gap-px overflow-hidden rounded-md border border-edge-subtle bg-edge-subtle sm:grid-cols-2 lg:grid-cols-4">
                       {entitlements.map((entry) => (
-                        <li key={entry.label} className="rounded-sg border border-edge bg-surface-2 px-4 py-3.5">
+                        <li key={entry.label} className="bg-surface-2 px-4 py-3.5">
                           <div className="flex items-start gap-2">
                             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-xs bg-ok-bg text-ok" aria-hidden>
                               <Check className="h-3 w-3" />
@@ -323,7 +323,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-4 rounded-sg border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
+                    <p className="mt-4 rounded-md border border-dashed border-edge-strong bg-surface-2 px-4 py-5 text-sm text-ink-3">
                       {t("billing.capacityManagedBody")}
                     </p>
                   )}

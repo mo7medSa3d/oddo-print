@@ -176,8 +176,8 @@ claimed → queued (fenced rejection / lease timeout)
 
 ### PostgreSQL + Drizzle ORM
 
-**Schema**: 24 tables defined in `src/db/schema.ts`
-**Migrations**: 76 forward-only migrations (`0000`–`0075`) in `drizzle/`
+**Schema**: 25 tables defined in `src/db/schema.ts`
+**Migrations**: 80 forward-only migrations (`0000`–`0079`) in `drizzle/`
 **Driver**: `pg` 8.23.0 with connection pool
 
 ### Key Design Patterns

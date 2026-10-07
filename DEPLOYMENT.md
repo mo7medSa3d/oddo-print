@@ -133,3 +133,57 @@ The Gateway handles `SIGTERM` and `SIGINT`:
 2. Stops accepting new requests
 3. Drains in-flight requests (10s timeout)
 4. Closes database pool
+
+## Backup and Disaster Recovery
+
+The Gateway's durable runtime truth is PostgreSQL. Agent SQLite and the Odoo
+outbox protect their respective execution edges, but they are **not** a
+replacement for a PostgreSQL backup. Production deployments must place backup
+artifacts on storage independent from the database host/volume.
+
+The repository provides logical backup/restore helpers for PostgreSQL 16+:
+
+```bash
+# Use standard libpq connection variables. Prefer a mounted secret file rather
+# than putting a password or DATABASE_URL on a command line.
+export PGHOST=db.example.internal PGPORT=5432 PGDATABASE=print_gateway PGUSER=backup
+export PGPASSWORD_FILE=/run/secrets/postgres_password
+export BACKUP_DIR=/mnt/independent-backups/yaseir
+scripts/postgres-backup.sh
+```
+
+The backup helper creates PostgreSQL custom-format archives, makes
+`pg_restore --list` parse the completed archive before publication, and writes
+a SHA-256 sidecar. Custom-format archives are intentionally used because
+PostgreSQL supports inspection and selective/full restore through `pg_restore`.
+
+Restore into an empty recovery database first whenever possible:
+
+```bash
+export PGHOST=recovery-db.example.internal PGPORT=5432 PGDATABASE=print_gateway_restore PGUSER=restore
+export PGPASSWORD_FILE=/run/secrets/postgres_password
+export RESTORE_CONFIRM=print_gateway_restore
+scripts/postgres-restore.sh /mnt/independent-backups/yaseir/print_gateway-YYYYMMDDTHHMMSSZ.dump
+```
+
+The restore helper requires the matching checksum, validates the archive table
+of contents, requires `RESTORE_CONFIRM` to exactly match `PGDATABASE`, and uses
+`pg_restore --single-transaction` so a restore error rolls back the restore
+transaction. A non-empty target is rejected by default. Deliberate destructive
+replacement additionally requires `RESTORE_ALLOW_NONEMPTY=1`.
+
+After every restore, before enabling traffic:
+
+1. run `npm run db:migrate` using the restored database;
+2. run `python3 scripts/check-db-docs.py` and the PostgreSQL integration gates;
+3. verify `/api/health`, authenticated `/api/system/health`, Agent reconnects,
+   and a controlled non-production print path;
+4. keep the pre-restore database/volume isolated until reconciliation is complete.
+
+**RPO/RTO are deployment properties, not values the application can truthfully
+promise.** Define an RPO from the business's acceptable data-loss window, run
+backups at least that often (or use provider PITR/WAL archiving for a tighter
+RPO), and rehearse restores to measure the real RTO. A backup that has never
+been restored in a recovery environment is not considered verified. Do not
+restore archives from untrusted PostgreSQL superusers: restore executes archive
+contents with database privileges.

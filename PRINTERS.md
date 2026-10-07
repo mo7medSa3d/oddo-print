@@ -104,7 +104,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Protocol | Raw byte stream over TCP on canonical port 9100 (JetDirect/AppSocket). No document model, no acknowledgement |
 | Document kinds | `raw` ✅ · `escpos` ✅ · `image` ✅ only for `escpos` protocol · `pdf` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw`, `escpos`, `zpl`, or `tspl` |
-| Capability reporting | Heartbeat reports `supported_protocols: [raw, escpos]` unless the operator pinned a list |
+| Capability reporting | Without an explicit override the heartbeat derives only the configured language: `raw` → `[raw]`, `escpos` → `[escpos, image]`, `zpl` → `[zpl]`, `tspl` → `[tspl]`. An explicit supported-protocol list remains authoritative for this direct byte transport. |
 | Error handling | `DialContext` with a 5 s dial timeout, deadline from the job context (else 15 s), short-write loop, refuses empty and > 5 MiB payloads. Dial/write errors are returned verbatim to the gateway |
 | Status probe | 2 s TCP dial → `online` / `offline` (a successful handshake, not paper) |
 | Platform limits | None — identical on Windows/Linux/macOS |
@@ -150,7 +150,7 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 | Error handling | Non-2xx HTTP and IPP client/server error classes (`0x04xx`/`0x05xx`) become job errors with decoded status text; the complete `0x00xx` success class is accepted. Responses shorter than the IPP header are rejected. The client timeout is 15 s, shortened to the job deadline when smaller |
 | Status probe | `Get-Printer-Attributes` (5 s): idle/processing → `online`/`busy`; explicit `offline`/`shutdown` reasons → `offline`; stopped/paused/admission/media/cover/toner/jam faults → `error`; probe/auth/protocol/transport failure → `unknown`. `printer-state-reasons` is retained as diagnostic detail |
 | Platform limits | None |
-| Discovery | TCP 631 scan (`ipp_discovery.go`); the mDNS helper is a stub that returns nothing |
+| Discovery | Bounded mDNS/DNS-SD browse for `_ipp._tcp`, `_ipps._tcp`, and `_printer._tcp`, merged with the TCP 631 scan in `ipp_discovery.go`; partial mDNS failures do not discard successful candidates. |
 | Physical verification | **NOT VERIFIED** against a real IPP printer. Request construction and status parsing are **VERIFIED** with `httptest` (`ipp_test.go`) |
 
 ### 5.6 Direct USB — `USBPrinter` (`usb_windows.go`)
@@ -158,9 +158,9 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 | Aspect | Detail |
 |---|---|
 | Protocol | `CreateFile` on the discovered `\\?\usb#…` device interface path + `WriteFile` loop |
-| Document kinds | `raw` ✅ only when protocol=`raw`; `escpos` ✅ only when protocol=`escpos`; `pdf` ❌ → `CAPABILITY_MISMATCH` (there is no driver renderer; install the device as a Windows printer and route to the spooler queue) |
-| Configuration | `type: usb` with a real USBPRINT device path and an **explicit** `raw` or `escpos` protocol. `usb_vid`/`usb_pid`/`usb_serial` identify the device but do not prove its printer language. When `spooler_name` is present the factory builds a **spooler** backend instead — that is the recommended document-printing setup |
-| Capability reporting | Derives only the explicitly declared byte language (`[raw]` or `[escpos]`); it never assumes that a USB/thermal printer is ESC/POS |
+| Document kinds | Top-level `raw` ✅ when the configured protocol is `raw`, `zpl`, or `tspl` and the payload declares that matching protocol; top-level `escpos` ✅ only when protocol=`escpos`; `pdf`/`image` ❌ → `CAPABILITY_MISMATCH` (there is no driver renderer; install the device as a Windows printer and route to the spooler queue) |
+| Configuration | `type: usb` with a real USBPRINT device path and an **explicit** `raw`, `escpos`, `zpl`, or `tspl` protocol. `usb_vid`/`usb_pid`/`usb_serial` identify the device but do not prove its printer language. When `spooler_name` is present the factory builds a **spooler** backend instead — that is the recommended document-printing setup |
+| Capability reporting | Derives only the explicitly declared byte language (`[raw]`, `[escpos]`, `[zpl]`, or `[tspl]`); it never assumes that a USB/thermal printer is ESC/POS, ZPL, or TSPL |
 | Error handling | Without a device path or explicit byte protocol the backend fails closed with a diagnostic. `CreateFile`/`WriteFile` errors are wrapped with the device identity |
 | Status probe | USBPRINT interface presence/openability does not prove paper/device readiness; both successful open and access/sharing failures remain physical `unknown` unless stronger device evidence exists |
 | Identity | `Identify()` prefers serial → USB location → `VID:PID` |
@@ -178,12 +178,14 @@ for a job; the only ESC/POS the gateway produces itself is the test-print payloa
 
 ## 6. Printer identity
 
-Stable ids are derived deterministically (`stable_id.go`), never from the current IP alone:
+Stable ids are derived deterministically (`stable_id.go`), preferring identity that survives queue renames or address changes:
 
-* spooler: `spooler:<normalised name>` → `printer_spooler_<hex>`
-* USB: `usb-sn:<serial>` → `usb-loc:<location>` → `usb-vidpid:<vid>:<pid>` → `printer_usb_<hex>`
-* network/IPP: `net:<host>:<port>` (URLs parsed) → `printer_net_<hex>`; fallback
-  `endpoint:<string>` → `printer_ep_<hex>`
+* cross-source hardware identity: printer UUID → serial + manufacturer/model → MAC (IPP identities also include the queue resource path so distinct queues on one device remain distinct)
+* Windows spooler identity: server + port + driver + share when available; the normalized queue-name hash is a backwards-compatible fallback for older rows
+* direct USB: serial scoped to VID/PID when available; VID/PID/location and legacy fallbacks preserve compatibility where stronger identity is absent
+* network/IPP fallbacks: normalized host/port or endpoint; IPP uses its resource path so a host address change does not collapse separate queues
+
+Registry reconciliation preserves an already persisted printer ID when the stronger physical identity proves that a renamed/re-addressed observation is the same device/queue.
 
 Repeated discovery updates the existing record (`registry.go: UpsertRegistry`, `seen` map in
 `discovery.go`) — discovery is idempotent. The heartbeat upsert is scoped to the reporting
@@ -261,7 +263,7 @@ implemented.
 - **Idempotency:** one persisted Odoo `print_gateway.print_job` is one logical print operation. Its `idempotency_key` is generated once, persisted before the Gateway HTTP call, and reused for transport/worker retries. A new manual print creates a new operation and therefore a new key. Physical delivery remains potentially at-least-once.
 - **Agent availability:** routing requires `lifecycle=active`, `status=online`, and a fresh `lastSeenAt`. The default stale threshold is 90 seconds and is configurable with `STALE_AGENT_THRESHOLD_SECONDS` (90–3600 seconds). Values outside that range fall back to the default rather than being clamped. The 90s floor is a cross-system invariant, not a tuning convenience: the Agent hardcodes a 90s `staleClaimSafetyWindow` and uses it to prove, after a failed `claimed → printing` report, that no reclaim could have completed. A Gateway threshold below 90 would let the Gateway requeue and reassign a job the Agent still believes it owns, producing a duplicate physical print. Lower the floor only together with the Agent's constant; `tests/stale-threshold.test.ts` parses the Go source and enforces the relationship. Administrative lifecycle and runtime availability are separate concepts.
 - **Routing precedence:** exact `documentType` bindings always outrank generic bindings. Within each class, lower `priority` wins and `id ASC` breaks ties. Unavailable agents/printers are skipped for fallback; cross-branch inconsistencies fail closed.
-- **Payloads:** canonical runtime payload types are `pdf`, `raw`, and `escpos`. PDF bytes must carry `%PDF-`; PDF is never relabeled as RAW/ESC/POS. **PCL is not supported end-to-end** and existing PCL configuration blocks migration until explicitly remediated.
+- **Payloads:** canonical runtime payload types are `raw`, `escpos`, `pdf`, and `image`. ZPL and TSPL remain printer protocols carried by the `raw` wire kind. PDF bytes must carry `%PDF-`; PDF is never relabeled as RAW/ESC/POS, and `image` currently requires JPEG bytes. **PCL is not supported end-to-end** and existing PCL configuration blocks migration until explicitly remediated.
 - **Ownership:** `Branch → Agent → Printer`; Gateway printers have no independent branch ownership.
 - **Lifecycle:** `active ↔ disabled`, `active/disabled → retired`; `retired` is terminal.
 - **Database:** PostgreSQL integration tests are a required CI gate; unit tests and integration tests are separate commands.

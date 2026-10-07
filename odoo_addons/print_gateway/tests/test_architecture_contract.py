@@ -335,7 +335,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("'reportedStatus': reported_status", controller)
         self.assertIn("'freshness': freshness", controller)
         self.assertIn("agent.freshness === 'stale'", widget)
-        self.assertIn("agent.reportedStatus || agent.status", widget)
+        self.assertIn('const raw = agent?.status || "unknown"', widget)
+        self.assertNotIn("agent?.reportedStatus || agent?.status", widget)
 
     def test_runtime_printer_picker_preserves_stale_evidence_separately(self):
         controller = (CONTROLLERS / "runtime_printers.py").read_text(encoding="utf-8")
@@ -343,7 +344,8 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("'reportedStatus':", controller)
         self.assertIn("'freshness':", controller)
         self.assertIn("printer.freshness === 'stale'", widget)
-        self.assertIn("printer.reportedStatus || printer.status", widget)
+        self.assertIn('const raw = printer?.status || "unknown"', widget)
+        self.assertNotIn("printer?.reportedStatus || printer?.status", widget)
 
     def test_kitchen_gateway_supports_both_odoo_19_printer_relations(self):
         source = (ADDON / "models/pos_order.py").read_text(encoding="utf-8")

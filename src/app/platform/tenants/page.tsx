@@ -22,6 +22,7 @@ import {
 } from "../../../components/ui";
 import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
+import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 
 type Tenant = {
   id: string;
@@ -68,9 +69,13 @@ export default function PlatformTenantsPage() {
 
   useEffect(() => {
     let ignore = false;
+    const controller = new AbortController();
     async function load() {
       try {
-        const res = await fetch(`/api/platform/tenants?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}`, { cache: "no-store" });
+        const res = await fetchWithTimeout(
+          `/api/platform/tenants?limit=100&offset=${offset}&search=${encodeURIComponent(search.trim())}`,
+          { cache: "no-store", signal: controller.signal },
+        );
         if (ignore) return;
         if (!res.ok) throw new Error(t("platform.tenants.loadFailed"));
         const data = await res.json();
@@ -80,7 +85,7 @@ export default function PlatformTenantsPage() {
       } finally { if (!ignore) setCompletedQuery(queryKey); }
     }
     void load();
-    return () => { ignore = true; };
+    return () => { ignore = true; controller.abort(); };
   }, [reloadKey, t, offset, search, queryKey]);
 
   function closeDialog() {
@@ -104,7 +109,7 @@ export default function PlatformTenantsPage() {
       const endpoint = dialogMode === "suspend" ? `/api/platform/tenants/${selectedTenant.id}/suspend` : `/api/platform/tenants/${selectedTenant.id}/reactivate`;
       const options: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" } };
       if (dialogMode === "suspend") options.body = JSON.stringify({ reason });
-      const res = await fetch(endpoint, options);
+      const res = await fetchWithTimeout(endpoint, options);
       if (!res.ok) throw new Error(t("platform.tenants.actionFailedBody"));
       const tenantName = selectedTenant.name;
       setSelectedTenant(null); setSuspendReason(""); setActionError(null);
@@ -244,7 +249,7 @@ export default function PlatformTenantsPage() {
                     <tr key={tenant.id}>
                       <td>
                         <div className="text-sm font-[550] text-ink">{tenant.name}</div>
-                        <div className="mt-0.5 font-mono text-2xs text-ink-4">{tenant.id}</div>
+                        <div dir="ltr" className="mt-0.5 font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{tenant.id}</div>
                       </td>
                       <td>
                         <div className="max-w-[220px]">
@@ -273,7 +278,7 @@ export default function PlatformTenantsPage() {
                             label={t("platform.tenants.actionsFor", { name: tenant.name })}
                             items={items}
                             trigger={
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
+                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2">
                                 <MoreHorizontal className="h-4 w-4" aria-hidden />
                               </span>
                             }
@@ -312,9 +317,9 @@ export default function PlatformTenantsPage() {
       >
         {selectedTenant && (
           <div className="space-y-4">
-            <div className="rounded-sg border border-edge bg-surface-2 px-4 py-3">
+            <div className="rounded-md border border-edge bg-surface-2 px-4 py-3">
               <div className="text-sm font-[600] text-ink">{selectedTenant.name}</div>
-              <div className="mt-1 font-mono text-2xs text-ink-3">{selectedTenant.id}</div>
+              <div dir="ltr" className="mt-1 font-mono text-xs text-ink-3 [unicode-bidi:plaintext]">{selectedTenant.id}</div>
             </div>
 
             {dialogMode === "suspend" ? (
