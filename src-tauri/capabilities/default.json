@@ -28,6 +28,8 @@
     "allow-register-printer",
     "allow-get-autostart",
     "allow-set-autostart",
-    "allow-is-running-as-admin"
+    "allow-is-running-as-admin",
+    "allow-relaunch-as-admin",
+    "allow-set-tray-locale"
   ]
 }

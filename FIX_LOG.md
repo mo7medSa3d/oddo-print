@@ -1,4 +1,4 @@
-RESUME HERE: PHASE 1 — COMPLETE REPOSITORY AUDIT | Agent/Windows, Gateway/auth/job lifecycle, database schema/migrations, Odoo bindings/Test Print/POS/security audited; DEP-001 fixed | audit Desktop/Tauri, billing/entitlements and web UI/i18n | audit observability/deployment/CI/docs/performance, then adversarial pass | GitHub Contents API writes fail; using Git tree commits; local clone unavailable because container DNS cannot resolve github.com
+RESUME HERE: PHASE 1 — COMPLETE REPOSITORY AUDIT | Agent/Windows, Gateway/job lifecycle, DB, Odoo audited; DEP-001 fixed; DESK-001/DESK-002 confirmed and repaired | finish Desktop/Tauri, billing/entitlements and web UI/i18n audit | audit observability/deployment/CI/docs/performance, then adversarial pass | GitHub Contents API writes fail; using Git tree commits; local clone unavailable because container DNS cannot resolve github.com
 
 # FIX LOG
 
@@ -12,9 +12,7 @@ Policy: evidence-driven production audit; no verification claim without an execu
 - [x] Repository/build/dependency topology
 - [x] Shared contracts / serialization / enums / canonical identities
 - [x] Agent core lifecycle / config / auth / reconnect / cancellation
-- [x] Windows discovery: Winspool / ports / Registry / SetupAPI / USB / WMI-PowerShell fallbacks
-- [x] Network discovery: IPP/IPPS / mDNS-DNS-SD / SNMP / WSD / RAW / LPR
-- [x] Windows print execution: driver-rendered / RAW / spooler lifecycle / status
+- [x] Windows discovery / network discovery / Windows print execution
 - [x] Agent → Gateway inventory synchronization / ordering / stale deletion / idempotency
 - [x] Gateway API / validation / authorization / tenant isolation
 - [x] WebSocket / dispatch / queues / retries / fencing / reconciliation
@@ -22,7 +20,7 @@ Policy: evidence-driven production audit; no verification claim without an execu
 - [x] Print job lifecycle / idempotency / payload limits / cleanup
 - [x] Odoo 19 integration / bindings / Test Print / POS / reports / security
 - [ ] Gateway web UI / dashboard / job/printer state / i18n / RTL
-- [ ] Desktop/Tauri IPC / config / privileged operations / updater
+- [ ] Desktop/Tauri IPC / config / privileged operations / updater — IPC/origin/credential boundary reviewed; capability repair applied; remaining service/path checks pending.
 - [ ] Billing / entitlements / limits / auditability
 - [ ] Observability / logging / secrets / operational failure recovery
 - [ ] Deployment / Docker / reverse proxy / CI / release workflows / DR
@@ -30,25 +28,23 @@ Policy: evidence-driven production audit; no verification claim without an execu
 - [ ] Performance / scalability / N+1 / unbounded work / cache correctness
 - [ ] Security sweep / injection / unsafe defaults / cross-tenant access
 
-## Odoo/DB audit checkpoint
+## Desktop capability repair
 
-Odoo explicit binding is validated in place by `resolve_explicit`; the router does not select a different binding when one is explicitly supplied. The diagnostic Test Print path carries the exact binding through `route_test_page`, renders a real PDF for spooler/IPP/IPPS, emits language-valid byte tickets for ESC/POS/ZPL/TSPL/RAW, and rejects unsupported/unknown protocols. Report access is rechecked before custom rendering; normal internal users have read-only binding/job ACLs while physical test dispatch is system-admin gated. POS receipt/kitchen flows use operation identities and uncertain-outcome reuse to prevent duplicate physical prints.
+- DESK-001 / P1 fixed: main-window capability did not grant `relaunch_as_admin`, although the UI invokes it from the Administrator privilege dialog and Rust registers it. Tauri runtime authority denies commands absent from the active capability, making the primary service-elevation recovery action unusable.
+- DESK-002 / P3 fixed: main-window capability did not grant `set_tray_locale`, so native tray localization was denied even though the command is registered and invoked on every locale change.
+- Added only the two required command grants; no broader shell/filesystem permission was introduced.
 
-Database migration runner uses a transaction, DB/schema advisory lock, content-hash journal and forward-only repair identities. Tenant-scoped printer identity migration removes unsafe global identity; inventory snapshots and current hot-path/team indexes are represented by migrations 0077-0079. Migration integrity tests require 1:1 journal/SQL parity and a newest Drizzle snapshot matching schema tables.
+## Prior repair
 
-No new Odoo/DB P0/P1/P2 finding confirmed.
+- DEP-001 / P1 fixed: Next.js 16.3.6 → 16.3.8 with matching Dependabot lockfile.
 
-## Repair checkpoint
+## Verification baseline
 
-- DEP-001 / P1 fixed in commit `88e8ab2bf1508bf4a5757ae375cf2dff475a85c3`: Next.js 16.3.6 → 16.3.8 with matching Dependabot lockfile.
-
-## Current main verification baseline
-
-CI PASS; Docker PASS; Security and Resilience Gates PASS; Windows Installer PASS; Secret Scan PASS. Static Security Gates requires a fresh CodeQL run because the main run failed on GitHub incremental-analysis cache infrastructure after SARIF generation.
+Main: CI PASS; Docker PASS; Security and Resilience Gates PASS; Windows Installer PASS; Secret Scan PASS. Static Security Gates requires a fresh CodeQL run because the main run failed on GitHub incremental-analysis cache infrastructure after SARIF generation.
 
 ## Phase 2 — Repair
 
-DEP-001 fixed. No additional repair queued so far.
+DEP-001, DESK-001 and DESK-002 fixed. Further repair queue depends on remaining audit.
 
 ## Phase 3 — Verification
 
