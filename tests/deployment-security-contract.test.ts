@@ -54,8 +54,9 @@ describe("deployment security contracts", () => {
     expect(nsisHooks).toContain("YASEIR_STOP_OWNED_SERVICE_VERIFY");
     expect(nsisHooks).toContain("BINARY_PATH_NAME");
     expect(agentMain).toContain("verifyCurrentAgentServiceOwnershipIfPresent");
-    expect(agentMain).toContain('errors.Is(err, service.ErrNotInstalled)');
-    expect(agentMain).toContain('errors.Is(statusErr, service.ErrNotInstalled)');
+    expect(agentMain).toContain("serviceRemovalAlreadyComplete(err)");
+    expect(agentMain).toContain("serviceRemovalAlreadyComplete(statusErr)");
+    expect(readFileSync("agent/cmd/agent/service_install_windows.go", "utf8")).toContain("windows.ERROR_SERVICE_MARKED_FOR_DELETE");
     expect(agentMain).toContain('YaseirAgent service is already uninstalled');
     expect(windowsWorkflow).toContain('NSIS did not install the YaseirAgent Windows service');
     expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
