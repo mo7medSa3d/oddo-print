@@ -389,7 +389,13 @@ async function insertQueuedJobAtomically({
     const counts = await tx.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now())::int AS agent_queued,
-        COALESCE(SUM(pg_column_size(payload)) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now()), 0)::bigint AS agent_queued_payload_bytes,
+        -- pg_column_size() measures TOAST-compressed STORAGE bytes and can
+        -- undercount a 5 MiB repetitive/base64 print payload by 100x+. The
+        -- 128 MiB queue ceiling is a LOGICAL decoded-from-DB/HTTP memory
+        -- budget: use uncompressed JSON text bytes for existing rows, just
+        -- as we use JSON.stringify bytes for the incoming row. The agent
+        -- lock above serializes admission, so the aggregate is atomic.
+        COALESCE(SUM(octet_length(payload::text)) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now()), 0)::bigint AS agent_queued_payload_bytes,
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status IN ('claimed', 'printing') AND expires_at > now())::int AS agent_in_flight
       FROM print_jobs WHERE tenant_id = ${tenantId} AND agent_id = ${agentId}
     `);
