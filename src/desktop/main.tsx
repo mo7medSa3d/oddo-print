@@ -107,13 +107,17 @@ import type {
 import "../app/globals.css";
 import { I18nProvider, useI18n } from "../i18n/react";
 import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "../i18n/config";
+import {
+  emptyGatewayConnectivityEvidence,
+  noteGatewayConnectivityFailure,
+  noteGatewayConnectivitySuccess,
+  type GatewayConnectivityEvidence,
+} from "./lib/gateway-connectivity";
 /* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
 const PAGES: Page[] = ["dashboard", "printers", "jobs", "agents", "settings"];
 const GATEWAY_AUTO_PROBE_INTERVAL_MS = 10_000;
-const GATEWAY_CONNECTIVITY_FRESH_MS = 45_000;
-const GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE = 3;
 const LOCAL_AGENT_STATUS_INTERVAL_MS = 10_000;
 
 function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
@@ -157,8 +161,7 @@ export default function App() {
   const jobsGeneration = useRef(0);
   const healthGeneration = useRef(0);
   const gatewayProbeFlightRef = useRef<string | null>(null);
-  const gatewayProbeFailuresRef = useRef<{ url: string; count: number }>({ url: "", count: 0 });
-  const gatewayLastSuccessRef = useRef<{ url: string; at: number }>({ url: "", at: 0 });
+  const gatewayConnectivityRef = useRef<GatewayConnectivityEvidence>(emptyGatewayConnectivityEvidence());
   const configurationFlight = useRef(false);
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
@@ -167,9 +170,10 @@ export default function App() {
   // health observation for the persisted Gateway. A bad draft must not make
   // a previously observed saved Gateway appear offline.
   const [gatewayDraftError, setGatewayDraftError] = useState<string | null>(null);
-  // When the last Gateway probe completed: connectivity is an observation
-  // with an age, not a latch. Past the freshness window the Gateway reads
-  // as unreachable until the next successful probe (C046).
+  // Timestamp of the last published Gateway observation. Connectivity itself
+  // is controlled by the evidence state machine: positive evidence wins
+  // immediately; an established connection is declared down only after a
+  // confirmed outage, never because a single timer/probe became stale.
   const [healthCheckedAt, setHealthCheckedAt] = useState(0);
   const [agentStatus, setAgentStatus] = useState<AgentStatusView | null>(null);
   const [runtimePaths, setRuntimePaths] = useState<DesktopState["runtimePaths"]>(null);
@@ -215,6 +219,71 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [jobPrinterFilter, setJobPrinterFilter] = useState<string | null>(null);
 
+  const savedOriginMatches = useCallback((targetUrl: string): boolean => {
+    try {
+      return normalizeGatewayUrl(savedOriginRef.current) === normalizeGatewayUrl(targetUrl);
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const observeGatewaySuccess = useCallback((
+    targetUrl: string,
+    observation?: Record<string, unknown>,
+  ): boolean => {
+    let canonical: string;
+    try {
+      canonical = normalizeGatewayUrl(targetUrl);
+    } catch {
+      return false;
+    }
+    if (!savedOriginMatches(canonical)) return false;
+
+    const observedAt = Date.now();
+    gatewayConnectivityRef.current = noteGatewayConnectivitySuccess(
+      gatewayConnectivityRef.current,
+      canonical,
+      observedAt,
+    );
+    setHealth((previous) => observation ?? previous ?? {
+      ok: true,
+      service: "yaseir-print-gateway",
+      evidence: "authenticated-api",
+    });
+    setCheckedGatewayUrl(canonical);
+    setHealthCheckedAt(observedAt);
+    setHealthError(null);
+    return true;
+  }, [savedOriginMatches]);
+
+  const observeGatewayFailure = useCallback((
+    targetUrl: string,
+    presentedError: string,
+  ): boolean => {
+    let canonical: string;
+    try {
+      canonical = normalizeGatewayUrl(targetUrl);
+    } catch {
+      return false;
+    }
+    if (!savedOriginMatches(canonical)) return false;
+
+    const observedAt = Date.now();
+    const outcome = noteGatewayConnectivityFailure(
+      gatewayConnectivityRef.current,
+      canonical,
+      observedAt,
+    );
+    gatewayConnectivityRef.current = outcome.evidence;
+    if (!outcome.confirmedOffline) return false;
+
+    setHealth(null);
+    setCheckedGatewayUrl(canonical);
+    setHealthCheckedAt(observedAt);
+    setHealthError(presentedError);
+    return true;
+  }, [savedOriginMatches]);
+
   const refreshStatus = useCallback(async () => {
     if (!isTauri) return;
     try {
@@ -253,6 +322,7 @@ export default function App() {
     try {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
       if (!current()) return false;
+      observeGatewaySuccess(savedGatewayUrl);
       setPrinters(list.filter(isProductionPrinter));
       return true;
     } catch (e) {
@@ -262,7 +332,7 @@ export default function App() {
     } finally {
       if (current()) setPrintersLoading(false);
     }
-  }, [savedGatewayUrl, t, locale]);
+  }, [savedGatewayUrl, t, locale, observeGatewaySuccess]);
 
   const refreshJobs = useCallback(async (options?: { status?: string; search?: string; limit?: number; printerId?: string; merge?: boolean }) => {
     if (!savedGatewayUrl) return;
@@ -272,6 +342,7 @@ export default function App() {
     try {
       const data = await fetchGatewayJobs(savedGatewayUrl, options);
       if (!current()) return;
+      observeGatewaySuccess(savedGatewayUrl);
       const rows = Array.isArray(data) ? data : [];
       if (options?.merge) {
         // Filtered fetch supplements the snapshot instead of replacing it:
@@ -301,7 +372,7 @@ export default function App() {
     } finally {
       if (current()) setJobsLoading(false);
     }
-  }, [savedGatewayUrl, t, locale]);
+  }, [savedGatewayUrl, t, locale, observeGatewaySuccess]);
 
   const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
     // Keep the periodic checker single-flight. A slow network probe must not
@@ -324,43 +395,17 @@ export default function App() {
       // readiness belongs to /api/health and must not make connectivity flap.
       const h = await probeGatewayHealth(targetUrl);
       if (!current()) return false;
-      const observedAt = Date.now();
-      gatewayProbeFailuresRef.current = { url: targetUrl, count: 0 };
-      gatewayLastSuccessRef.current = { url: targetUrl, at: observedAt };
-      setHealth(h);
-      setCheckedGatewayUrl(targetUrl);
-      setHealthCheckedAt(observedAt);
-      setHealthError(null);
-      return true;
+      return observeGatewaySuccess(targetUrl, h);
     } catch (e) {
       if (!current()) return false;
-      const now = Date.now();
-      const previous = gatewayProbeFailuresRef.current;
-      const failureCount = previous.url === targetUrl ? previous.count + 1 : 1;
-      gatewayProbeFailuresRef.current = { url: targetUrl, count: failureCount };
-
-      const lastSuccess = gatewayLastSuccessRef.current;
-      const recentSuccess =
-        lastSuccess.url === targetUrl &&
-        now - lastSuccess.at >= 0 &&
-        now - lastSuccess.at <= GATEWAY_CONNECTIVITY_FRESH_MS;
-
-      // Suppress momentary Wi-Fi/proxy/TLS hiccups after a recent success.
-      // Three consecutive failures (~30s) are required before a previously
-      // healthy Gateway is published as unreachable.
-      if (!recentSuccess || failureCount >= GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE) {
-        setHealth(null);
-        setCheckedGatewayUrl(targetUrl);
-        setHealthCheckedAt(now);
-        setHealthError(friendlyGatewayError(e, locale));
-      }
+      observeGatewayFailure(targetUrl, friendlyGatewayError(e, locale));
       return false;
     } finally {
       if (gatewayProbeFlightRef.current === targetUrl) {
         gatewayProbeFlightRef.current = null;
       }
     }
-  }, [locale]);
+  }, [locale, observeGatewayFailure, observeGatewaySuccess]);
 
   const checkHealth = useCallback(async () => {
     // Probe the operator's draft without mutating the persisted Gateway.
@@ -425,13 +470,7 @@ export default function App() {
       savedOriginRef.current = target;
       setSavedGatewayUrl(target);
       setGw(target);
-      const observedAt = Date.now();
-      gatewayProbeFailuresRef.current = { url: target, count: 0 };
-      gatewayLastSuccessRef.current = { url: target, at: observedAt };
-      setHealth(candidateHealth);
-      setCheckedGatewayUrl(target);
-      setHealthCheckedAt(observedAt);
-      setHealthError(null);
+      observeGatewaySuccess(target, candidateHealth);
       setGatewayDraftError(null);
       setMsg({
         text: saveWarning ?? t("desktop.app.connectionVerified"),
@@ -443,13 +482,11 @@ export default function App() {
       // draft visible for correction/retry while operational flows continue
       // using savedGatewayUrl.
       const presented = friendlyGatewayError(e, locale);
-      if (!candidateObserved && savedOriginRef.current === target) {
-        // An explicit re-check of the active saved origin is fresh negative
-        // evidence and must immediately clear an older positive observation.
-        setHealth(null);
-        setCheckedGatewayUrl(target);
-        setHealthCheckedAt(Date.now());
-        setHealthError(presented);
+      if (!candidateObserved && savedOriginMatches(target)) {
+        // Manual checks use the same outage confirmation as background probes.
+        // A user clicking "Check connection" during one DNS/TLS hiccup must
+        // not tear down a connection that the Agent/other API calls still prove.
+        observeGatewayFailure(target, presented);
       }
       setGatewayDraftError(presented);
       setMsg({ text: presented, type: "error" });
@@ -457,7 +494,7 @@ export default function App() {
       configurationFlight.current = false;
       setGatewayChecking(false);
     }
-  }, [gatewayUrl, t, locale]);
+  }, [gatewayUrl, t, locale, observeGatewayFailure, observeGatewaySuccess, savedOriginMatches]);
 
   const handleDiscover = useCallback(async () => {
     if (!isTauri) return;
@@ -656,6 +693,7 @@ export default function App() {
         let canonical = v;
         try { canonical = normalizeGatewayUrl(v); } catch { /* keep invalid persisted value visible for repair */ }
         savedOriginRef.current = canonical;
+        gatewayConnectivityRef.current = emptyGatewayConnectivityEvidence(canonical);
         setGw(canonical);
         setSavedGatewayUrl(canonical);
       })
@@ -779,6 +817,7 @@ export default function App() {
       // drop it (and stale per-gateway caches) before probing the new URL.
       void clearManagerSession();
       savedOriginRef.current = canonicalUrl;
+      gatewayConnectivityRef.current = emptyGatewayConnectivityEvidence(canonicalUrl);
       ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
       setPrintersLoading(false); setJobsLoading(false);
       setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); void refreshLocalPrinters();
@@ -810,9 +849,9 @@ export default function App() {
   // Affirmative observations only: an empty/missing health object, an agent
   // status without running:true, or a probe older than the freshness window
   // must read as unavailable — never as healthy/online (C046).
-  // Gateway connectivity now refreshes every 10s with a 45s freshness window;
-  // the clock still needs to advance while the screen stays open so a laptop
-  // that sleeps or loses timers cannot display an indefinitely stale success.
+  // Gateway connectivity refreshes every 10s, but presentation is not tied to
+  // a short freshness expiry. Confirmed negative evidence drives disconnect;
+  // focus/online events force immediate probes after sleep or network changes.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 15000);
@@ -834,8 +873,7 @@ export default function App() {
     if (agentServiceNeedsAdmin) setAdminDismissed(false);
   }, [agentServiceNeedsAdmin, agentStatus?.note_code]);
 
-  const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= GATEWAY_CONNECTIVITY_FRESH_MS;
-  const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError && healthFresh);
+  const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError);
   let normalizedGatewayUrl = "";
   try {
     normalizedGatewayUrl = normalizeGatewayUrl(savedGatewayUrl);

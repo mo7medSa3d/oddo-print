@@ -129,13 +129,15 @@ test("saved Gateway connectivity auto-refreshes with the public identity probe a
   const probe = slice(source, "const probeGateway = useCallback", "const checkHealth = useCallback");
   assert.match(probe, /await probeGatewayHealth\(targetUrl\)/);
   assert.doesNotMatch(probe, /fetchGatewayHealth/);
-  assert.match(probe, /GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE/);
-  assert.match(probe, /GATEWAY_CONNECTIVITY_FRESH_MS/);
+  assert.match(probe, /observeGatewayFailure/);
+  assert.match(source, /noteGatewayConnectivityFailure/);
+  assert.match(source, /noteGatewayConnectivitySuccess/);
   assert.match(source, /window\.setInterval\(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS\)/);
   assert.match(source, /window\.addEventListener\("online", runProbe\)/);
   assert.match(source, /window\.addEventListener\("focus", runProbe\)/);
   assert.match(source, /document\.addEventListener\("visibilitychange", onVisible\)/);
   assert.doesNotMatch(source, /target !== savedGatewayUrl/);
+  assert.doesNotMatch(source, /healthFresh/);
 });
 
 test("legacy trailing-slash Gateway values are canonicalized before connectivity comparison", async () => {
@@ -143,4 +145,16 @@ test("legacy trailing-slash Gateway values are canonicalized before connectivity
   assert.match(source, /canonical = normalizeGatewayUrl\(v\)/);
   const probe = slice(source, "const probeGateway = useCallback", "const checkHealth = useCallback");
   assert.match(probe, /normalizeGatewayUrl\(savedOriginRef\.current\) === targetUrl/);
+});
+
+
+test("desktop reuses one native HTTP client for probe and authenticated Gateway requests", async () => {
+  const source = await readFile("src-tauri/src/commands.rs", "utf8");
+  assert.match(source, /static GATEWAY_HTTP_CLIENT: OnceLock<reqwest::Client>/);
+  assert.match(source, /fn gateway_http_client\(\)/);
+  assert.equal((source.match(/reqwest::Client::builder\(\)/g) ?? []).length, 1);
+  const probe = slice(source, "pub async fn probe_gateway_health", "fn gateway_request_id");
+  assert.match(probe, /gateway_http_client\(\)/);
+  const request = slice(source, "pub async fn gateway_request", "#\[tauri::command\]");
+  assert.match(request, /gateway_http_client\(\)/);
 });

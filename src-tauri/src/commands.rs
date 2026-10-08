@@ -461,6 +461,28 @@ fn method_from_str(value: &str) -> Result<reqwest::Method, String> {
 /// Read a Gateway response incrementally. Buffering the complete body before
 /// checking its size would make the advertised limit ineffective for chunked
 /// responses, so the 8 MiB boundary is enforced while reading.
+static GATEWAY_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn gateway_http_client() -> Result<&'static reqwest::Client, String> {
+    if let Some(client) = GATEWAY_HTTP_CLIENT.get() {
+        return Ok(client);
+    }
+
+    // reqwest::Client owns a connection pool and is explicitly intended to be
+    // reused. Rebuilding it for every 10s probe forced fresh DNS/TLS/socket
+    // work and made short resolver/proxy hiccups look like Gateway outages.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("build Gateway HTTP client: {e}"))?;
+    let _ = GATEWAY_HTTP_CLIENT.set(client);
+    GATEWAY_HTTP_CLIENT
+        .get()
+        .ok_or_else(|| "Gateway HTTP client initialization failed".to_string())
+}
+
 async fn read_response_body_limited(
     mut response: reqwest::Response,
     max_bytes: usize,
@@ -512,12 +534,8 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
 
     let started = std::time::Instant::now();
     logging::info(&format!("Gateway probe started origin={base}"));
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| log_gateway_probe_error(&base, started, gateway_http_error_detail(e)))?;
+    let client = gateway_http_client()
+        .map_err(|e| log_gateway_probe_error(&base, started, e))?;
     let response = client
         .get(target)
         .header("Origin", "tauri://localhost")
@@ -662,12 +680,7 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
     }
 
     let method = method_from_str(&args.method)?;
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("build HTTP client: {e}"))?;
+    let client = gateway_http_client()?;
     let mut request = client.request(method, target);
     request = request.header("Origin", "tauri://localhost");
     // Restricted headers (host/cookie/authorization/...) already return Err
@@ -1945,9 +1958,16 @@ mod agent_console_path_tests {
 #[cfg(test)]
 mod security_tests {
     use super::{
-        gateway_request_id, is_public_gateway_path, is_valid_code, normalize_gateway_url,
-        uses_manager_refresh_credential,
+        gateway_http_client, gateway_request_id, is_public_gateway_path, is_valid_code,
+        normalize_gateway_url, uses_manager_refresh_credential,
     };
+
+    #[test]
+    fn gateway_http_client_is_process_reused() {
+        let first = gateway_http_client().expect("first client") as *const reqwest::Client;
+        let second = gateway_http_client().expect("second client") as *const reqwest::Client;
+        assert_eq!(first, second);
+    }
 
     #[test]
     fn probe_correlation_is_bounded_and_cannot_inject_log_lines() {

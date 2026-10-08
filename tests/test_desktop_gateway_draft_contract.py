@@ -80,9 +80,19 @@ def test_saved_gateway_auto_refresh_is_canonical_periodic_and_uses_identity_prob
     assert "await probeGatewayHealth(targetUrl)" in probe
     assert "fetchGatewayHealth" not in probe
     assert "normalizeGatewayUrl(savedOriginRef.current) === targetUrl" in probe
-    assert "GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE" in probe
+    assert "observeGatewayFailure" in probe
+    assert "noteGatewayConnectivityFailure" in main
+    assert "noteGatewayConnectivitySuccess" in main
     assert "window.setInterval(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS)" in main
     assert 'window.addEventListener("online", runProbe)' in main
     assert 'window.addEventListener("focus", runProbe)' in main
     assert 'document.addEventListener("visibilitychange", onVisible)' in main
     assert "target !== savedGatewayUrl" not in main
+
+
+def test_gateway_connection_does_not_expire_from_clock_freshness_alone():
+    main = text("src/desktop/main.tsx")
+    assert "healthFresh" not in main
+    assert "GATEWAY_CONNECTIVITY_FRESH_MS" not in main
+    assert "observeGatewaySuccess(savedGatewayUrl)" in main
+    assert "observeGatewayFailure(target, presented)" in main
