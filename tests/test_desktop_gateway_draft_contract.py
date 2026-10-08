@@ -72,3 +72,17 @@ def test_gateway_draft_copy_exists_in_both_catalogs():
     ):
         assert f'"{key}"' in en
         assert f'"{key}"' in ar
+
+
+def test_saved_gateway_auto_refresh_is_canonical_periodic_and_uses_identity_probe():
+    main = text("src/desktop/main.tsx")
+    probe = function_slice(main, "const probeGateway = useCallback", "const checkHealth = useCallback")
+    assert "await probeGatewayHealth(targetUrl)" in probe
+    assert "fetchGatewayHealth" not in probe
+    assert "normalizeGatewayUrl(savedOriginRef.current) === targetUrl" in probe
+    assert "GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE" in probe
+    assert "window.setInterval(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS)" in main
+    assert 'window.addEventListener("online", runProbe)' in main
+    assert 'window.addEventListener("focus", runProbe)' in main
+    assert 'document.addEventListener("visibilitychange", onVisible)' in main
+    assert "target !== savedGatewayUrl" not in main

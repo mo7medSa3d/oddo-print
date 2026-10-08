@@ -122,3 +122,25 @@ test("native probe records bounded diagnostics without response bodies or creden
   assert.match(probe, /take\(2048\)/);
   assert.doesNotMatch(probe, /logging::\w+\([^;]*(?:\{body\}|bearer_auth|cookie)/);
 });
+
+
+test("saved Gateway connectivity auto-refreshes with the public identity probe and transient-failure hysteresis", async () => {
+  const source = await readFile("src/desktop/main.tsx", "utf8");
+  const probe = slice(source, "const probeGateway = useCallback", "const checkHealth = useCallback");
+  assert.match(probe, /await probeGatewayHealth\(targetUrl\)/);
+  assert.doesNotMatch(probe, /fetchGatewayHealth/);
+  assert.match(probe, /GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE/);
+  assert.match(probe, /GATEWAY_CONNECTIVITY_FRESH_MS/);
+  assert.match(source, /window\.setInterval\(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS\)/);
+  assert.match(source, /window\.addEventListener\("online", runProbe\)/);
+  assert.match(source, /window\.addEventListener\("focus", runProbe\)/);
+  assert.match(source, /document\.addEventListener\("visibilitychange", onVisible\)/);
+  assert.doesNotMatch(source, /target !== savedGatewayUrl/);
+});
+
+test("legacy trailing-slash Gateway values are canonicalized before connectivity comparison", async () => {
+  const source = await readFile("src/desktop/main.tsx", "utf8");
+  assert.match(source, /canonical = normalizeGatewayUrl\(v\)/);
+  const probe = slice(source, "const probeGateway = useCallback", "const checkHealth = useCallback");
+  assert.match(probe, /normalizeGatewayUrl\(savedOriginRef\.current\) === targetUrl/);
+});

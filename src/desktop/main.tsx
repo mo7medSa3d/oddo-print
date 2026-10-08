@@ -39,7 +39,6 @@ import { JobsPage } from "./pages/Jobs";
 import { AgentsPage } from "./pages/Agents";
 import { SettingsPage } from "./pages/Settings";
 import {
-  fetchGatewayHealth,
   probeGatewayHealth,
   fetchGatewayJobs,
   getAgentStatus,
@@ -112,6 +111,10 @@ import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "
 import "./theme-light.css";
 
 const PAGES: Page[] = ["dashboard", "printers", "jobs", "agents", "settings"];
+const GATEWAY_AUTO_PROBE_INTERVAL_MS = 10_000;
+const GATEWAY_CONNECTIVITY_FRESH_MS = 45_000;
+const GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE = 3;
+const LOCAL_AGENT_STATUS_INTERVAL_MS = 10_000;
 
 function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
   const getHash = (): Page => {
@@ -153,6 +156,9 @@ export default function App() {
   const localPrintersGeneration = useRef(0);
   const jobsGeneration = useRef(0);
   const healthGeneration = useRef(0);
+  const gatewayProbeFlightRef = useRef<string | null>(null);
+  const gatewayProbeFailuresRef = useRef<{ url: string; count: number }>({ url: "", count: 0 });
+  const gatewayLastSuccessRef = useRef<{ url: string; at: number }>({ url: "", at: 0 });
   const configurationFlight = useRef(false);
   const [pairCode, setPairCode] = useState("");
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
@@ -298,28 +304,61 @@ export default function App() {
   }, [savedGatewayUrl, t, locale]);
 
   const probeGateway = useCallback(async (targetUrl: string): Promise<boolean> => {
+    // Keep the periodic checker single-flight. A slow network probe must not
+    // accumulate concurrent 10-second requests behind the timer.
+    if (gatewayProbeFlightRef.current === targetUrl) return false;
+    gatewayProbeFlightRef.current = targetUrl;
     const generation = ++healthGeneration.current;
-    const current = () => generation === healthGeneration.current && savedOriginRef.current === targetUrl;
-    try {
-      const h = await fetchGatewayHealth(targetUrl);
-      if (!current()) return false;
-      setHealth(h);
-      setCheckedGatewayUrl(targetUrl);
-      setHealthCheckedAt(Date.now());
-      const gatewayError = (h as { error?: unknown })?.error;
-      if (gatewayError) {
-        setHealthError(friendlyGatewayError(gatewayError, locale));
+    const current = () => {
+      if (generation !== healthGeneration.current) return false;
+      try {
+        return normalizeGatewayUrl(savedOriginRef.current) === targetUrl;
+      } catch {
         return false;
       }
+    };
+
+    try {
+      // The connection card answers "can this Manager reach the Yaseir
+      // Gateway?", so use the public identity/liveness endpoint. Database
+      // readiness belongs to /api/health and must not make connectivity flap.
+      const h = await probeGatewayHealth(targetUrl);
+      if (!current()) return false;
+      const observedAt = Date.now();
+      gatewayProbeFailuresRef.current = { url: targetUrl, count: 0 };
+      gatewayLastSuccessRef.current = { url: targetUrl, at: observedAt };
+      setHealth(h);
+      setCheckedGatewayUrl(targetUrl);
+      setHealthCheckedAt(observedAt);
       setHealthError(null);
       return true;
     } catch (e) {
       if (!current()) return false;
-      setHealth(null);
-      setCheckedGatewayUrl(targetUrl);
-      setHealthCheckedAt(Date.now());
-      setHealthError(friendlyGatewayError(e, locale));
+      const now = Date.now();
+      const previous = gatewayProbeFailuresRef.current;
+      const failureCount = previous.url === targetUrl ? previous.count + 1 : 1;
+      gatewayProbeFailuresRef.current = { url: targetUrl, count: failureCount };
+
+      const lastSuccess = gatewayLastSuccessRef.current;
+      const recentSuccess =
+        lastSuccess.url === targetUrl &&
+        now - lastSuccess.at >= 0 &&
+        now - lastSuccess.at <= GATEWAY_CONNECTIVITY_FRESH_MS;
+
+      // Suppress momentary Wi-Fi/proxy/TLS hiccups after a recent success.
+      // Three consecutive failures (~30s) are required before a previously
+      // healthy Gateway is published as unreachable.
+      if (!recentSuccess || failureCount >= GATEWAY_PROBE_FAILURES_BEFORE_OFFLINE) {
+        setHealth(null);
+        setCheckedGatewayUrl(targetUrl);
+        setHealthCheckedAt(now);
+        setHealthError(friendlyGatewayError(e, locale));
+      }
       return false;
+    } finally {
+      if (gatewayProbeFlightRef.current === targetUrl) {
+        gatewayProbeFlightRef.current = null;
+      }
     }
   }, [locale]);
 
@@ -386,9 +425,12 @@ export default function App() {
       savedOriginRef.current = target;
       setSavedGatewayUrl(target);
       setGw(target);
+      const observedAt = Date.now();
+      gatewayProbeFailuresRef.current = { url: target, count: 0 };
+      gatewayLastSuccessRef.current = { url: target, at: observedAt };
       setHealth(candidateHealth);
       setCheckedGatewayUrl(target);
-      setHealthCheckedAt(Date.now());
+      setHealthCheckedAt(observedAt);
       setHealthError(null);
       setGatewayDraftError(null);
       setMsg({
@@ -611,9 +653,11 @@ export default function App() {
       .catch(() => {});
     getGatewayUrl()
       .then((v) => {
-        savedOriginRef.current = v;
-        setGw(v);
-        setSavedGatewayUrl(v);
+        let canonical = v;
+        try { canonical = normalizeGatewayUrl(v); } catch { /* keep invalid persisted value visible for repair */ }
+        savedOriginRef.current = canonical;
+        setGw(canonical);
+        setSavedGatewayUrl(canonical);
       })
       .catch(() => {
         setMsg({ text: t("desktop.app.gatewaySettingsReadFailed"), type: "error" });
@@ -626,8 +670,17 @@ export default function App() {
       .catch(() => {});
     refreshStatus();
     void refreshLocalPrinters();
-    const id = setInterval(refreshStatus, 30000);
-    return () => clearInterval(id);
+    const id = setInterval(refreshStatus, LOCAL_AGENT_STATUS_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshStatus();
+    };
+    window.addEventListener("focus", refreshStatus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", refreshStatus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refreshStatus, refreshLocalPrinters, t]);
 
   useEffect(() => {
@@ -653,13 +706,31 @@ export default function App() {
 
     // Auto-probe only the already-persisted Gateway. A newly edited URL is
     // checked through the explicit non-mutating candidate probe first.
-    if (target !== savedGatewayUrl) return;
+    // Older releases may have persisted the same origin with a trailing slash,
+    // so the canonical target above is the comparison/transport identity.
+    let disposed = false;
+    const runProbe = () => {
+      if (!disposed) void probeGateway(target);
+    };
+    const timer = window.setTimeout(runProbe, 250);
+    const interval = window.setInterval(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") runProbe();
+    };
+    window.addEventListener("online", runProbe);
+    window.addEventListener("focus", runProbe);
+    document.addEventListener("visibilitychange", onVisible);
 
-    const timer = window.setTimeout(() => {
-      void probeGateway(target);
-    }, 450);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener("online", runProbe);
+      window.removeEventListener("focus", runProbe);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [savedGatewayUrl, probeGateway]);
 
-    return () => window.clearTimeout(timer);
   }, [savedGatewayUrl, probeGateway]);
 
   useEffect(() => {
@@ -703,20 +774,22 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     let disposed = false;
     onGatewayConfigChanged((url) => {
+      let canonicalUrl = url;
+      try { canonicalUrl = normalizeGatewayUrl(url); } catch { /* preserve invalid value for visible repair */ }
       // The manager session is a bearer credential for ONE gateway origin.
       // Switching gateways must not send the old JWT to the new origin:
       // drop it (and stale per-gateway caches) before probing the new URL.
       void clearManagerSession();
-      savedOriginRef.current = url;
+      savedOriginRef.current = canonicalUrl;
       ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
       setPrintersLoading(false); setJobsLoading(false);
       setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); void refreshLocalPrinters();
-      setSavedGatewayUrl(url);
-      setGw(url);
+      setSavedGatewayUrl(canonicalUrl);
+      setGw(canonicalUrl);
       setJobs([]);
       setPrinters([]);
-      if (url) {
-        void probeGateway(url);
+      if (canonicalUrl) {
+        void probeGateway(canonicalUrl);
       } else {
         setHealth(null);
         setCheckedGatewayUrl("");
@@ -763,7 +836,7 @@ export default function App() {
     if (agentServiceNeedsAdmin) setAdminDismissed(false);
   }, [agentServiceNeedsAdmin, agentStatus?.note_code]);
 
-  const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= 90 * 1000;
+  const healthFresh = healthCheckedAt > 0 && nowMs - healthCheckedAt >= 0 && nowMs - healthCheckedAt <= GATEWAY_CONNECTIVITY_FRESH_MS;
   const healthOk = Boolean(health && (health as { ok?: boolean }).ok === true && !healthError && healthFresh);
   let normalizedGatewayUrl = "";
   try {
