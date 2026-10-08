@@ -649,7 +649,14 @@ class PrintGatewayBinding(models.Model):
         normalized = (document_type or "").strip().lower()
         if not binding.enabled:
             raise ValidationError(_("The explicitly selected print binding is disabled."))
-        branch_matches = binding.branch_id == branch or (branch and not binding.branch_id)
+        # Empty Odoo recordsets are not equal to Python False. A root-company
+        # rule with no branch must match the root scope, while a branch-scoped
+        # rule must never leak into the root or another branch.
+        branch_matches = (
+            not binding.branch_id
+            if not branch
+            else not binding.branch_id or binding.branch_id == branch
+        )
         if binding.company_id != company or not branch_matches:
             raise ValidationError(_("The explicitly selected print binding is not scoped to the current company and branch."))
         if binding.destination_ref != destination or binding.document_type != normalized:

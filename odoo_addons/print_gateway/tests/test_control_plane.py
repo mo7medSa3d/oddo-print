@@ -412,7 +412,7 @@ class TestControlPlane(TransactionCase):
         )
         self.assertEqual(route["binding"].printer_protocol, "tspl")
         self.assertEqual(route["binding"].printer_id, "printer-tspl-label")
-        with self.assertRaisesRegex(ValidationError, "No enabled Print Rule matches"):
+        with self.assertRaisesRegex(ValidationError, r"No Print Rule matches .* printer protocol 'raw'"):
             router.resolve_binding(
                 record=picking, company=self.company, document_type="label",
                 protocol="raw", payload_type="raw_cmd",
