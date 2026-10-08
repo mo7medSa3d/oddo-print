@@ -22,8 +22,8 @@ type SpoolerPrinter struct {
 	ReceiptRasterDots int
 	ReceiptDPI        int
 	PDFPrint          PDFPrintFunc
-	ProbeFunc   func(spoolerName string) string
-	Timeout     time.Duration
+	ProbeFunc         func(spoolerName string) string
+	Timeout           time.Duration
 }
 
 func simulatedTransportAllowed() bool {

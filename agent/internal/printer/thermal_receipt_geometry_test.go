@@ -75,7 +75,7 @@ func TestThermalReceiptPDFUsesActualPhysicalPaper(t *testing.T) {
 			if imgW+imgX > pageW+0.01 || imgX < 1 || imgY <= 0 {
 				t.Fatalf("image outside printable page: media=%gx%g image=%gx%g offset=%g,%g", pageW, pageH, imgW, imgH, imgX, imgY)
 			}
-			if math.Abs(imgH/imgW - 900.0/512) > .01 {
+			if math.Abs(imgH/imgW-900.0/512) > .01 {
 				t.Fatalf("aspect ratio was stretched: %g", imgH/imgW)
 			}
 			if !(pageH > imgH+imgY) {
