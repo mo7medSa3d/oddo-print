@@ -134,6 +134,15 @@ patch(PosStore.prototype, {
             return false;
         }
 
+        // Acquire the guard before ANY await (activation, synchronization,
+        // metadata or rendering). Otherwise two slow renders can both finish
+        // after the other's submit guard was released and print twice.
+        const pendingReceipts = (this.gatewayReceiptPending ||= new Set());
+        const pendingKey = currentOrder.uuid || currentOrder.id || currentOrder;
+        if (pendingReceipts.has(pendingKey)) {
+            return false;
+        }
+        pendingReceipts.add(pendingKey);
         try {
             const sessionId = this.session?.id;
             const gatewayEnabled = sessionId
@@ -161,8 +170,6 @@ patch(PosStore.prototype, {
                 return false;
             }
 
-            const rasterWidth = await gatewayReceiptRasterWidth(this, orderId);
-            const image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic, rasterWidth));
             // One operation identity per user click, with a bounded reuse
             // window for uncertain outcomes: a lost response retried with the
             // same id is deduplicated server-side, while a deliberate later
@@ -173,46 +180,47 @@ patch(PosStore.prototype, {
             // an accepted or definitively failed outcome the next click is a
             // new deliberate operation, matching native print semantics.
             const receiptOps = (this.gatewayReceiptOperations ||= new Map());
-            const pendingReceipts = (this.gatewayReceiptPending ||= new Set());
-            if (pendingReceipts.has(orderId)) {
-                return false;
+            for (const [key, op] of receiptOps) {
+                if (Date.now() - op.at >= 5 * 60 * 1000) receiptOps.delete(key);
             }
             const lastOp = receiptOps.get(orderId);
             const reuseUncertain = lastOp && lastOp.terminal === false
                 && (Date.now() - lastOp.at < 5 * 60 * 1000);
             const operationId = reuseUncertain ? lastOp.id : gatewayUuid();
-            pendingReceipts.add(orderId);
+            // Idempotency binds the key to the EXACT submitted bytes. A
+            // fresh render can differ after order/CSS/printer changes and
+            // would conflict with an already accepted but unconfirmed job.
+            let image = reuseUncertain ? lastOp.image : undefined;
+            if (!reuseUncertain) {
+                const rasterWidth = await gatewayReceiptRasterWidth(this, orderId);
+                image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic, rasterWidth));
+            }
             let result;
             try {
-                try {
-                    result = await gatewayDataCall(
-                        this,
-                        "pos.order",
-                        "action_print_gateway_receipt",
-                        [[orderId]],
-                        { image, operation_id: operationId },
-                        true,
-                        { ambiguous: true },
-                    );
-                } catch (rpcError) {
-                    // Transport failure: the server may or may not have
-                    // accepted the job. Keep the operation uncertain so a
-                    // retry reuses this id instead of printing twice.
-                    receiptOps.set(orderId, { id: operationId, at: Date.now(), terminal: false });
-                    throw rpcError;
-                }
-            } finally {
-                pendingReceipts.delete(orderId);
+                result = await gatewayDataCall(
+                    this,
+                    "pos.order",
+                    "action_print_gateway_receipt",
+                    [[orderId]],
+                    { image, operation_id: operationId },
+                    true,
+                    { ambiguous: true },
+                );
+            } catch (rpcError) {
+                receiptOps.set(orderId, { id: operationId, image, at: Date.now(), terminal: false });
+                throw rpcError;
             }
             // Resolve the operation: definitive outcomes (accepted for
             // printing, or definitively rejected) close the reuse window;
             // uncertain statuses keep it for a retry. Transport failures are
             // recorded uncertain by the inner catch above.
+            const terminal = ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
             receiptOps.set(orderId, {
                 id: operationId,
+                // Do not retain large images for completed operations.
+                image: terminal ? undefined : image,
                 at: Date.now(),
-                terminal: result && !["unknown", "partial"].includes(result.status)
-                    && ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status),
+                terminal,
             });
 
             // Truthful feedback: "submitted" means QUEUED for the agent, not
@@ -283,6 +291,8 @@ patch(PosStore.prototype, {
             }
             this.notification.add(gatewayServerMessage(error) || _t("Receipt printing failed."), { type: "danger" });
             return false;
+        } finally {
+            pendingReceipts.delete(pendingKey);
         }
     },
 
@@ -562,7 +572,7 @@ patch(PosStore.prototype, {
                             data,
                             printer,
                             route.pos_printer_id || null,
-                            retryAttempt
+                            route.raster_width
                         );
                         if (!reprint) attempts[attemptKey] = result;
 
@@ -637,12 +647,11 @@ patch(PosStore.prototype, {
             return false;
         }
     },
-    async printOrderChanges(data, printer, posPrinterId = null, isRetry = false) {
+    async printOrderChanges(data, printer, posPrinterId = null, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
         const orderId = data?.orderData?.__gateway_order_id;
         const sessionId = data?.orderData?.__gateway_session_id;
         const reprint = Boolean(data?.orderData?.__gateway_reprint);
         const operationId = data?.orderData?.__gateway_print_id;
-        const requestOperationId = operationId;
 
         let gatewayEnabled;
         try {
@@ -666,11 +675,13 @@ patch(PosStore.prototype, {
             };
         }
 
+        let submissionStarted = false;
         try {
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
             const image = await gatewayRender(() =>
-                elementToJpeg(receipt, this.env.services.renderer, route.raster_width)
+                elementToJpeg(receipt, this.env.services.renderer, rasterWidth)
             );
+            submissionStarted = true;
             const result = await gatewayDataCall(
                 this,
                 "pos.order",
@@ -679,7 +690,7 @@ patch(PosStore.prototype, {
                 {
                     image,
                     reprint,
-                    operation_id: requestOperationId,
+                    operation_id: operationId,
                     pos_printer_id: posPrinterId || undefined,
                 },
                 true,
@@ -713,12 +724,16 @@ patch(PosStore.prototype, {
                     message: { title: _t("Printing Service"), body: _t("The Gateway plan limit has been reached.") },
                 };
             }
-            const message = gatewayServerMessage(error) || _t("Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled.");
-            this.notification.add(message, { type: "warning", sticky: true });
+            // Local rendering/geometry errors cannot have printed anything.
+            // Only an attempted submission can have an ambiguous outcome.
+            const message = gatewayServerMessage(error) || (submissionStarted
+                ? _t("Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled.")
+                : _t("Kitchen / Preparation printing failed."));
+            this.notification.add(message, { type: submissionStarted ? "warning" : "danger", sticky: true });
             return {
                 successful: false,
-                gatewayOutcome: "unknown",
-                canRetry: false,
+                gatewayOutcome: submissionStarted ? "unknown" : "failed",
+                canRetry: !submissionStarted,
                 message: { title: _t("Printing Service"), body: message },
             };
         }
