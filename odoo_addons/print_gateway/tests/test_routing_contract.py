@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import uuid
 
 import requests
@@ -54,6 +54,25 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             cr.commit()
         finally:
             cr.close()
+
+    def test_receipt_raster_uses_authorized_runtime_geometry(self):
+        """The POS capture width is linked to the selected physical device."""
+        router = self.env["print_gateway.print_router"]
+        target = Mock()
+        target._validate_runtime_target.return_value = {"printableWidthDots": 384}
+        self.assertEqual(router._receipt_width_for_route({"binding": target}), 384)
+        target._validate_runtime_target.assert_called_once_with(
+            enforce_destination_compatibility=True,
+        )
+        target._validate_runtime_target.return_value = {"printableWidthDots": 576}
+        self.assertEqual(router._receipt_width_for_route({"binding": target}), 576)
+        for bad in (-50, 9999, "384", True, None):
+            target._validate_runtime_target.return_value = {"printableWidthDots": bad}
+            self.assertEqual(
+                router._receipt_width_for_route({"binding": target}), 512,
+                "Unknown/invalid hardware width must use Odoo's 512px fallback",
+            )
+        self.assertEqual(router._receipt_width_for_route({"native": True}), 512)
 
     def _make_config(self, enabled=True):
         self.config.write({"enabled": enabled})
