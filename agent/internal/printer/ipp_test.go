@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"log"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,9 @@ import (
 func replyIPPFormatQuery(w http.ResponseWriter, r *http.Request) bool {
 	data := readAll(r.Body)
 	if len(data) < 4 || data[2] != 0 || data[3] != 0x0B {
+		// Preserve the Print-Job body for the calling test handler.
+		// Reading it here otherwise discards the actual PDF payload.
+		r.Body = io.NopCloser(bytes.NewReader(data))
 		return false
 	}
 	var resp bytes.Buffer
