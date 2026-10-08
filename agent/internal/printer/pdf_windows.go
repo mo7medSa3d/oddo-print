@@ -128,8 +128,8 @@ func getPDFiumPool() (pdfium.Pool, error) {
 			// os.Stderr; wazero then fails to instantiate its WASM worker
 			// with GetFileType /dev/stdout: The handle is invalid.
 			// PDFium results/errors use the API, never a process console.
-			Stdout:        io.Discard,
-			Stderr:        io.Discard,
+			Stdout: io.Discard,
+			Stderr: io.Discard,
 		})
 	})
 	return pdfiumPool, pdfiumErr
