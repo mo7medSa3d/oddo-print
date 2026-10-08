@@ -16,12 +16,12 @@ import (
 // sets ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1 (development/diagnostic
 // mode); by default nothing pretends to have printed.
 type SpoolerPrinter struct {
-	Name        string
-	SpoolerName string
-	ReceiptPaperMM int
+	Name              string
+	SpoolerName       string
+	ReceiptPaperMM    int
 	ReceiptRasterDots int
-	ReceiptDPI int
-	PDFPrint    PDFPrintFunc
+	ReceiptDPI        int
+	PDFPrint          PDFPrintFunc
 	ProbeFunc   func(spoolerName string) string
 	Timeout     time.Duration
 }

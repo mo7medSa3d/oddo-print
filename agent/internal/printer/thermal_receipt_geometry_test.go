@@ -40,7 +40,9 @@ func pdfImageGeometry(t *testing.T, pdf []byte) (pageW, pageH, imgW, imgH, imgX,
 	}
 	parse := func(raw []byte) float64 {
 		v, err := strconv.ParseFloat(string(raw), 64)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		return v
 	}
 	return parse(m[1]), parse(m[2]), parse(x[1]), parse(x[2]), parse(x[3]), parse(x[4])
@@ -49,7 +51,7 @@ func pdfImageGeometry(t *testing.T, pdf []byte) (pageW, pageH, imgW, imgH, imgX,
 func TestThermalReceiptPDFUsesActualPhysicalPaper(t *testing.T) {
 	jpegBytes := testReceiptJPEG(t, 512, 900)
 	for _, tc := range []struct {
-		name string
+		name          string
 		mm, dots, dpi int
 	}{
 		{"58mm_203dpi", 58, 384, 203},
@@ -59,8 +61,12 @@ func TestThermalReceiptPDFUsesActualPhysicalPaper(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pdf, err := JPEGToPDFReceipt(jpegBytes, tc.mm, tc.dots, tc.dpi)
-			if err != nil { t.Fatal(err) }
-			if err := ValidatePDF(pdf); err != nil { t.Fatal(err) }
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidatePDF(pdf); err != nil {
+				t.Fatal(err)
+			}
 			pageW, pageH, imgW, imgH, imgX, imgY := pdfImageGeometry(t, pdf)
 			wantPoints := float64(tc.mm) * 72 / 25.4
 			if math.Abs(pageW-wantPoints) > 0.1 {
@@ -92,7 +98,7 @@ func TestThermalReceiptRejectsUnknownOrUnsafeProfile(t *testing.T) {
 
 func TestSpoolerProfilePrefersExplicitDotsAndDPI(t *testing.T) {
 	for _, tc := range []struct {
-		caps map[string]interface{}
+		caps          map[string]interface{}
 		mm, dots, dpi int
 	}{
 		{map[string]interface{}{"max_paper_width": 512, "print_dpi": 180}, 80, 512, 180},
@@ -103,12 +109,12 @@ func TestSpoolerProfilePrefersExplicitDotsAndDPI(t *testing.T) {
 		pc := config.PrinterConfig{PaperWidthMM: tc.mm, Capabilities: tc.caps}
 		mm, dots, dpi := receiptPaperProfile(pc)
 		if mm != tc.mm || dots != tc.dots || dpi != tc.dpi {
-			t.Errorf("profile=%+v -> %d/%d/%d, want %d/%d/%d", tc.caps, mm,dots,dpi,tc.mm,tc.dots,tc.dpi)
+			t.Errorf("profile=%+v -> %d/%d/%d, want %d/%d/%d", tc.caps, mm, dots, dpi, tc.mm, tc.dots, tc.dpi)
 		}
 	}
 	// Never claim an A4 or unknown printer is an 80mm receipt printer.
 	pc := config.PrinterConfig{PaperWidthMM: 210}
 	if mm, dots, dpi := receiptPaperProfile(pc); mm != 0 || dots != 0 || dpi != 0 {
-		t.Fatal(fmt.Sprintf("generic paper leaked into thermal override: %d %d %d", mm,dots,dpi))
+		t.Fatal(fmt.Sprintf("generic paper leaked into thermal override: %d %d %d", mm, dots, dpi))
 	}
 }

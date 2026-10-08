@@ -100,12 +100,12 @@ type docInfo1 struct {
 // session — never other printers'. Cross-printer burst protection comes from
 // the agent's job executor cap, which the spooler routinely absorbs.
 type SpoolerPrinter struct {
-	Name        string
-	SpoolerName string
-	ReceiptPaperMM int
+	Name              string
+	SpoolerName       string
+	ReceiptPaperMM    int
 	ReceiptRasterDots int
-	ReceiptDPI int
-	PDFPrint    PDFPrintFunc
+	ReceiptDPI        int
+	PDFPrint          PDFPrintFunc
 	// PDFPrintResult is an injectable result-bearing seam used by the Windows
 	// GDI/PDF path to propagate StartDocW job identity. Tests may override it.
 	PDFPrintResult PDFPrintResultFunc
