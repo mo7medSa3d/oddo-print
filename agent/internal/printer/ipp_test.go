@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,25 @@ import (
 
 	"github.com/yaseir-agent/agent/internal/config"
 )
+
+// Handle the harmless Get-Printer-Attributes preflight in print-job tests.
+// Tests then exercise the actual Print-Job response independently.
+func replyIPPFormatQuery(w http.ResponseWriter, r *http.Request) bool {
+	data := readAll(r.Body)
+	if len(data) < 4 || data[2] != 0 || data[3] != 0x0B {
+		// Preserve the Print-Job body for the calling test handler.
+		// Reading it here otherwise discards the actual PDF payload.
+		r.Body = io.NopCloser(bytes.NewReader(data))
+		return false
+	}
+	var resp bytes.Buffer
+	resp.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+	writeIPPAttribute(&resp, 0x49, "document-format-supported", "application/pdf")
+	resp.WriteByte(3)
+	w.Header().Set("Content-Type", "application/ipp")
+	_, _ = w.Write(resp.Bytes())
+	return true
+}
 
 func TestIPPURLNormalization(t *testing.T) {
 	cases := []struct {
@@ -99,6 +119,15 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contentType = r.Header.Get("Content-Type")
 		body := readAll(r.Body)
+		if len(body) >= 4 && body[2] == 0 && body[3] == 0x0B {
+			var resp bytes.Buffer
+			resp.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+			writeIPPAttribute(&resp, 0x49, "document-format-supported", "application/pdf")
+			resp.WriteByte(3)
+			w.Header().Set("Content-Type", "application/ipp")
+			_, _ = w.Write(resp.Bytes())
+			return
+		}
 		received = body
 		resp := []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03}
 		w.Header().Set("Content-Type", "application/ipp")
@@ -125,6 +154,9 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 
 func TestIPPPrintAcceptsSuccessStatusClass(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if replyIPPFormatQuery(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/ipp")
 		_, _ = w.Write([]byte{0x02, 0x00, 0x00, 0x01, 0, 0, 0, 1, 0x03})
 	}))
@@ -141,7 +173,12 @@ func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
 		"truncated": {0x02, 0x00, 0x00},
 	} {
 		t.Run(name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(response) }))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if replyIPPFormatQuery(w, r) {
+					return
+				}
+				_, _ = w.Write(response)
+			}))
 			defer server.Close()
 			p, _ := NewIPPPrinter(server.URL, "Test")
 			err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
@@ -157,6 +194,9 @@ func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
 
 func TestIPPPrintErrorOnBadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if replyIPPFormatQuery(w, r) {
+			return
+		}
 		resp := []byte{0x02, 0x00, 0x04, 0x04, 0x00, 0x00, 0x00, 0x01, 0x03}
 		w.Header().Set("Content-Type", "application/ipp")
 		w.Write(resp)
@@ -376,8 +416,8 @@ func TestIPPStatusProbeFailureIsUnknownNotOffline(t *testing.T) {
 	if got := p.Status(); got != "unknown" {
 		t.Fatalf("probe failure status=%q want unknown", got)
 	}
-	if got := p.StatusDetail(); got != "probe_failed" {
-		t.Fatalf("probe failure detail=%q want probe_failed", got)
+	if got := p.StatusDetail(); got != "network_unavailable" {
+		t.Fatalf("probe failure detail=%q want network_unavailable", got)
 	}
 }
 
@@ -564,14 +604,14 @@ func TestIPPRequestedAttributesUseAdditionalValues(t *testing.T) {
 	if count := bytes.Count(packet, []byte("requested-attributes")); count != 1 {
 		t.Fatalf("attribute name appeared %d times, want one", count)
 	}
-	for _, value := range []string{"printer-state-reasons", "printer-is-accepting-jobs"} {
+	for _, value := range []string{"printer-state-reasons", "printer-is-accepting-jobs", "document-format-supported"} {
 		var expected bytes.Buffer
 		writeIPPAttribute(&expected, 0x44, "", value)
 		if !bytes.Contains(packet, expected.Bytes()) {
 			t.Fatalf("missing zero-name additional value %q", value)
 		}
 	}
-	if got := parseIPPAttributes(packet)["requested-attributes"]; got != "printer-state,printer-state-reasons,printer-is-accepting-jobs" {
+	if got := parseIPPAttributes(packet)["requested-attributes"]; got != "printer-state,printer-state-reasons,printer-is-accepting-jobs,document-format-supported" {
 		t.Fatalf("requested attribute values = %q", got)
 	}
 }
@@ -602,5 +642,74 @@ func TestInterpretIPPPrinterStatusSharesDiscoveryAndRuntimeMapping(t *testing.T)
 				t.Fatal("detail must always describe the evidence behind the status")
 			}
 		})
+	}
+}
+
+func TestIPPFormatPreflightBlocksNonPDFPrintersWithoutPrintJob(t *testing.T) {
+	var printCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := readAll(r.Body)
+		if len(data) >= 4 && data[3] == 0x0B {
+			var response bytes.Buffer
+			response.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+			writeIPPAttribute(&response, 0x49, "document-format-supported", "image/pwg-raster")
+			response.WriteByte(3)
+			_, _ = w.Write(response.Bytes())
+			return
+		}
+		printCalls++
+		_, _ = w.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 3})
+	}))
+	defer server.Close()
+	p, err := NewIPPPrinter(server.URL, "IPP raster only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
+	if err == nil || !strings.Contains(err.Error(), "document-format-supported") {
+		t.Fatalf("PDF must be rejected before submission, got %v", err)
+	}
+	if printCalls != 0 {
+		t.Fatalf("unexpected IPP Print-Job requests: %d", printCalls)
+	}
+}
+
+func TestIPPProbeFailureExposesAuthenticationReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	p, err := NewIPPPrinter(server.URL, "IPP auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Status(); got != "unknown" {
+		t.Fatalf("status: %s", got)
+	}
+	if got := p.StatusDetail(); got != "authentication_required" {
+		t.Fatalf("status detail: %s", got)
+	}
+}
+
+func TestIPPTestBuildsRealPDFThroughNormalDispatch(t *testing.T) {
+	var printed []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if replyIPPFormatQuery(w, r) {
+			return
+		}
+		data := readAll(r.Body)
+		printed = data
+		_, _ = w.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 3})
+	}))
+	defer server.Close()
+	p, err := NewIPPPrinter(server.URL, "IPP test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Test(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(printed, []byte("%PDF-1.4")) || !bytes.Contains(printed, []byte("%%EOF")) {
+		t.Fatalf("local test page was not a PDF document")
 	}
 }

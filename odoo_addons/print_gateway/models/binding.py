@@ -271,7 +271,9 @@ class PrintGatewayBinding(models.Model):
                 record.destination_picking_type_id = False
             if record.destination_type != "report":
                 record.destination_report_id = False
-            if record.destination_type in ("pos", "pos_printer"):
+            if record.destination_type in ("pos", "pos_printer", "picking_type"):
+                # Switching to Operation Type starts in raw-label mode; the
+                # operator can still select a Stock Picking PDF report later.
                 record.report_id = False
             elif record.destination_type == "report":
                 record.destination_report_id = record.report_id or record.destination_report_id
@@ -417,7 +419,7 @@ class PrintGatewayBinding(models.Model):
                 _("The selected Gateway Runtime Agent is not assigned to the current Odoo Branch.")
             )
         try:
-            response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), headers=config._gateway_headers(), timeout=10, allow_redirects=False)
+            response = requests.get("%s/api/odoo/agents" % config._gateway_base(for_request=True), params={"agent_id": self.runtime_agent_id}, headers=config._gateway_headers(), timeout=5, allow_redirects=False)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway agent discovery failed (HTTP %s).") % response.status_code)
             body = response.json()
@@ -435,7 +437,7 @@ class PrintGatewayBinding(models.Model):
                 % (agent_match.get("name") or self.runtime_agent_id, agent_match.get("lifecycle"))
             )
         try:
-            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), params={"agent_id": self.runtime_agent_id}, headers=config._gateway_headers(), timeout=10, allow_redirects=False)
+            response = requests.get("%s/api/odoo/printers" % config._gateway_base(for_request=True), params={"agent_id": self.runtime_agent_id, "printer_id": self.printer_id}, headers=config._gateway_headers(), timeout=5, allow_redirects=False)
             if response.status_code != 200:
                 raise ValidationError(_("Gateway printer discovery failed (HTTP %s).") % response.status_code)
             body = response.json()
@@ -499,7 +501,16 @@ class PrintGatewayBinding(models.Model):
                     % (record.runtime_agent_id.strip(), scope_label)
                 )
 
-    @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "company_id", "branch_id", "effective_company_id")
+    @api.constrains("destination_type", "drawer_kick_mode", "cutter_mode", "buzzer_mode")
+    def _check_peripheral_transport_support(self):
+        for record in self:
+            if record.destination_type in ("pos", "pos_printer") and record.get_peripheral_payload():
+                raise ValidationError(_(
+                    "Standard POS receipt/kitchen images do not carry ESC/POS drawer/cutter/buzzer commands. "
+                    "Disable these options for POS image Print Rules. Native ESC/POS command rules support them."
+                ))
+
+    @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "printer_protocol", "company_id", "branch_id", "effective_company_id")
     def _check_binding(self):
         for record in self:
             destination = record.destination_ref
@@ -542,6 +553,17 @@ class PrintGatewayBinding(models.Model):
                     raise ValidationError(_("A Report must be selected for this Destination Type."))
                 if record.destination_report_id and record.destination_report_id != record.report_id:
                     raise ValidationError(_("Report destination and report document must be the same record."))
+            elif record.destination_type == "picking_type":
+                # This destination is dual-mode: reportless native label bytes
+                # versus a QWeb stock.picking PDF delivery slip. Do not infer
+                # PDF handling from an unrelated hardware language.
+                if record.report_id:
+                    if record.report_id.model != "stock.picking":
+                        raise ValidationError(_("Operation Type PDF printing requires a Stock Picking report."))
+                    if record.printer_protocol not in ("spooler", "ipp", "ipps"):
+                        raise ValidationError(_("PDF delivery slips require a spooler/IPP/IPPS document printer. Clear Report for ZPL/TSPL/ESC-POS labels."))
+                elif record.printer_protocol not in ("zpl", "tspl", "escpos", "raw"):
+                    raise ValidationError(_("Raw stock labels require an exact ZPL, TSPL, ESC/POS or RAW printer protocol, with no PDF Report."))
             elif not record.report_id:
                 raise ValidationError(_("A real Odoo report must be selected for this Destination Type."))
             if record.report_id and record.report_id.model == "pos.order" and record.destination_type not in ("pos", "report"):
@@ -627,7 +649,14 @@ class PrintGatewayBinding(models.Model):
         normalized = (document_type or "").strip().lower()
         if not binding.enabled:
             raise ValidationError(_("The explicitly selected print binding is disabled."))
-        branch_matches = binding.branch_id == branch or (branch and not binding.branch_id)
+        # Empty Odoo recordsets are not equal to Python False. A root-company
+        # rule with no branch must match the root scope, while a branch-scoped
+        # rule must never leak into the root or another branch.
+        branch_matches = (
+            not binding.branch_id
+            if not branch
+            else not binding.branch_id or binding.branch_id == branch
+        )
         if binding.company_id != company or not branch_matches:
             raise ValidationError(_("The explicitly selected print binding is not scoped to the current company and branch."))
         if binding.destination_ref != destination or binding.document_type != normalized:
@@ -651,7 +680,7 @@ class PrintGatewayBinding(models.Model):
         return binding
 
     @api.model
-    def find_for(self, company, document_type, report=None, record=None, explicit_destination=None, branch=None):
+    def find_for(self, company, document_type, report=None, record=None, explicit_destination=None, branch=None, protocol=None):
         normalized = (document_type or "").strip().lower()
         if not normalized:
             raise ValidationError(_("Print document type is required."))
@@ -660,11 +689,14 @@ class PrintGatewayBinding(models.Model):
         destination_company = getattr(destination, "company_id", False)
         if destination_company and destination_company != expected_company:
             raise ValidationError(_("Print destination belongs to another Odoo company/branch context."))
+        # Resolve physical printer language *before* priority. RAW is not a
+        # wildcard for ZPL, TSPL or ESC/POS.
+        protocol_domain = [("printer_protocol", "=", str(protocol).strip().lower())] if protocol else []
         domain = [
             ("company_id", "=", company.id), ("enabled", "=", True),
             ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
             ("document_type", "=", normalized), ("branch_id", "=", branch.id if branch else False),
-        ]
+        ] + protocol_domain
         binding = self.search(domain, order="priority asc, id asc", limit=1)
         if binding or not branch:
             return binding
@@ -679,7 +711,7 @@ class PrintGatewayBinding(models.Model):
             ("company_id", "=", company.id), ("branch_id", "=", False), ("enabled", "=", True),
             ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
             ("document_type", "=", normalized),
-        ], order="priority asc, id asc", limit=1)
+        ] + protocol_domain, order="priority asc, id asc", limit=1)
 
     @api.model
     def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None, operation_id=None):

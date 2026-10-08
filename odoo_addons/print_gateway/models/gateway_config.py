@@ -2154,6 +2154,7 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
         try:
             response = requests.get(
                 "%s/api/odoo/agents" % config._gateway_base(for_request=True),
+                params={"agent_id": target},
                 headers=config._gateway_headers(),
                 timeout=10,
                 allow_redirects=False,
@@ -2168,9 +2169,20 @@ class PrintGatewayPairAgentWizard(models.TransientModel):
             body = response.json() if response.content else {}
             agents_list = body.get("agents") if isinstance(body, dict) else []
             matched = next(
-                (a for a in agents_list if isinstance(a, dict) and (a.get("id") == target or a.get("name") == target)),
+                (a for a in agents_list if isinstance(a, dict) and a.get("id") == target),
                 None,
             )
+            if not matched:
+                name_response = requests.get(
+                    "%s/api/odoo/agents" % config._gateway_base(for_request=True),
+                    params={"name": target}, headers=config._gateway_headers(),
+                    timeout=10, allow_redirects=False,
+                )
+                if name_response.status_code != 200:
+                    raise ValidationError(_("Gateway agent-name lookup failed (HTTP %s).") % name_response.status_code)
+                name_body = name_response.json()
+                candidates = name_body.get("agents", []) if isinstance(name_body, dict) else []
+                matched = next((a for a in candidates if isinstance(a, dict) and a.get("name") == target), None)
             if not matched:
                 available = [a.get("id") for a in agents_list if isinstance(a, dict) and a.get("id")]
                 raise ValidationError(

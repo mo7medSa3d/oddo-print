@@ -2,6 +2,7 @@
 """Print Policy engine for event-driven automated print dispatch."""
 
 import logging
+import string
 
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
@@ -111,6 +112,10 @@ class PrintGatewayPolicy(models.Model):
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
     )
     priority = fields.Integer(default=10, help="Lower numbers execute first.")
+    allow_additional_pos_output = fields.Boolean(
+        default=False, string="Allow additional POS ticket",
+        help="Explicitly allow a second print to the normal POS receipt/preparation destination. This may print an additional physical ticket.",
+    )
 
     @api.model
     def _sanitize_template_field(self, field_name, conversion=None):
@@ -119,7 +124,7 @@ class PrintGatewayPolicy(models.Model):
         # Only bare allow-listed scalar names may appear: no attribute
         # chains, no subscripts, no dunders (record.env, record._fields,
         # __class__ traversal are all impossible by construction).
-        if "." in field_name or "[" in field_name or "__" in field_name:
+        if not field_name.isidentifier() or "__" in field_name:
             raise ValueError("Attribute and index access are strictly forbidden in raw print templates.")
         # Conversions (!r/!s/!a) run AFTER value sanitization during
         # str.format, so {name!r} would re-add quotes that sanitize_raw_value
@@ -128,83 +133,56 @@ class PrintGatewayPolicy(models.Model):
         if conversion:
             raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
 
-    def render_raw_template(self, record, protocol=None):
-        """Deterministically render a raw template while keeping field values inert.
+    # Native labels are small command streams, not a generic Python formatting
+    # engine. Limits apply BEFORE formatting and after UTF-8 expansion.
+    MAX_RAW_TEMPLATE_BYTES = 64 * 1024
+    MAX_RENDERED_LABEL_BYTES = 512 * 1024
 
-        The template itself may contain protocol commands by design, but values
-        coming from Odoo records are untrusted relative to the printer command
-        stream. Sanitize substituted values according to the declared protocol
-        so an order/customer/company field cannot inject a second command.
-        """
+    def render_raw_template(self, record, protocol=None):
+        """Read only referenced fields; never evaluate attributes or format specs."""
         self.ensure_one()
         template = self.raw_template or ""
         if not template:
             raise ValidationError(_("Raw template is empty for policy %s.") % self.name)
+        if len(template.encode("utf-8")) > self.MAX_RAW_TEMPLATE_BYTES:
+            raise ValidationError(_("Raw template exceeds the 64 KiB size limit."))
 
         protocol = (protocol or self.raw_protocol or "").strip().lower()
-        values = {}
-        for field_name, field in record._fields.items():
-            if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
-                val = getattr(record, field_name)
-                values[field_name] = sanitize_raw_value(val, protocol)
-            elif field.type == "many2one":
-                rel = getattr(record, field_name)
-                values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
-                values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
+        fields_needed = set()
         try:
-            import string  # noqa: F401  (imported for clarity; Formatter used below)
-            formatter = string.Formatter()
-            for literal_text, field_name, format_spec, conversion in formatter.parse(template):
+            for _literal, field_name, format_spec, conversion in string.Formatter().parse(template):
+                if field_name is None:
+                    continue
                 self._sanitize_template_field(field_name, conversion)
-                # str.format evaluates NESTED replacement fields inside a
-                # format spec (e.g. {x:{a.__class__}}) - the classic escape
-                # from a field-name-only sandbox. Format specs must stay
-                # literal constants; any nested field inside one is rejected.
+                # Width/precision can expand 1 character to millions of bytes,
+                # and nested replacement fields can escape a field-only parser.
+                # Printer languages provide their own formatting commands.
                 if format_spec:
-                    for _lit, nested_field, nested_spec, _conv in formatter.parse(format_spec):
-                        if nested_field is not None:
-                            raise ValueError("Nested replacement fields inside format specifications are forbidden.")
-                        if _conv:
-                            raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
-                        if not nested_spec:
-                            continue
-                        # recurse for the rare double-nested case
-                        stack = [nested_spec]
-                        while stack:
-                            spec = stack.pop()
-                            for _l, nf, ns, _c in formatter.parse(spec):
-                                if nf is not None:
-                                    raise ValueError("Nested replacement fields inside format specifications are forbidden.")
-                                if _c:
-                                    raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
-                                if ns:
-                                    stack.append(ns)
-            rendered = template.format(**values)
-            return rendered
-        except KeyError as exc:
-            # The by-far most common failure: the template asks for a field the
-            # document does not have. Say which placeholder, so the fix is
-            # obvious without reading a Python traceback.
-            raise ValidationError(
-                _("The raw template for rule '%s' uses the placeholder {%s}, but this document does not provide it. Remove the placeholder or replace it with a field this record has.")
-                % (self.name, exc.args[0] if exc.args else "?")
-            ) from exc
+                    raise ValueError("Format specifications are forbidden in raw print templates.")
+                fields_needed.add(field_name)
         except ValueError as exc:
-            # The template sanitizer rejected a forbidden construct
-            # (attribute/index access, nested replacement fields). Surface
-            # the reason to the operator instead of the generic build
-            # failure below: a template that *cannot* render must be told
-            # apart from one that merely references a missing field.
-            raise ValidationError(
-                _("The raw template for rule '%s' uses a forbidden construct: %s")
-                % (self.name, exc)
-            ) from exc
-        except Exception as exc:
-            _logger.debug("raw template render failed for rule '%s'", self.name, exc_info=True)
-            raise ValidationError(
-                _("Could not build the raw payload for rule '%s'. Check that the template only uses placeholders this document provides.")
-                % self.name
-            ) from exc
+            raise ValidationError(_("The raw template for rule '%s' uses a forbidden construct: %s") % (self.name, exc)) from exc
+
+        values = {}
+        for requested in fields_needed:
+            # A many2one's ID is a deliberately separate, allow-listed suffix.
+            id_reference = requested.endswith("_id") and requested[:-3] in record._fields and record._fields[requested[:-3]].type == "many2one"
+            field_name = requested[:-3] if id_reference else requested
+            field = record._fields.get(field_name)
+            if not field or field.type not in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection", "many2one"):
+                raise ValidationError(_("The raw template for rule '%s' uses the placeholder {%s}, but this document does not provide it. Remove the placeholder or replace it with a field this record has.") % (self.name, requested))
+            value = getattr(record, field_name)
+            if field.type == "many2one":
+                value = (value.id if value else "") if id_reference else (value.display_name if value else "")
+            values[requested] = sanitize_raw_value(value, protocol)
+
+        try:
+            rendered = template.format_map(values)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise ValidationError(_("Could not build raw template for rule '%s': %s") % (self.name, exc)) from exc
+        if len(rendered.encode("utf-8")) > self.MAX_RENDERED_LABEL_BYTES:
+            raise ValidationError(_("Rendered raw label exceeds the 512 KiB size limit."))
+        return rendered
 
     @api.depends("company_id", "branch_id")
     def _compute_effective_company_id(self):
@@ -266,7 +244,7 @@ class PrintGatewayPolicy(models.Model):
         # Keep this compatibility constraint as a single delegation point.
         self._check_hierarchy()
 
-    @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
+    @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id", "allow_additional_pos_output")
     def _check_action_configuration(self):
         for policy in self:
             # 1. Model and event validation
@@ -276,6 +254,17 @@ class PrintGatewayPolicy(models.Model):
                     _("Invalid trigger event '%s' for model '%s'. Allowed: %s")
                     % (policy.event_type, policy.model_name, ", ".join(sorted(allowed_events or [])))
                 )
+
+            # Prevent accidental double receipts from a standard POS path
+            # plus a second POS Paid automation targeting the same output.
+            # An extra ticket is permitted only by an explicit operator choice.
+            if (policy.model_name == "pos.order" and policy.event_type == "pos_order_paid"
+                    and policy.binding_id and policy.binding_id.destination_type in ("pos", "pos_printer")
+                    and not policy.allow_additional_pos_output):
+                raise ValidationError(_(
+                    "POS Paid automation to the normal POS receipt/preparation printer may produce a second physical ticket. "
+                    "Select a separate destination, or explicitly enable 'Allow additional POS ticket'."
+                ))
 
             # 2. Action type constraints and mutual exclusivity
             if policy.action_type == "report":
@@ -361,18 +350,51 @@ class PrintGatewayPolicy(models.Model):
         scheduled = 0
         failures = 0
         for policy in policies:
+            matched = False
+            target_key = None
             try:
                 with self.env.cr.savepoint():
                     if not policy.matches_record(record):
                         continue
+                    matched = True
                     target_key = policy.effective_target_key(record)
+                    # An omitted explicit Binding is not a bypass of the
+                    # second-ticket guard. Validate the *resolved* target too:
+                    # the normal POS receipt/preparation route can be chosen
+                    # implicitly by the router's priority lookup.
+                    if (event_type == "pos_order_paid" and record._name == "pos.order"
+                            and not policy.allow_additional_pos_output
+                            and target_key and target_key[0]):
+                        selected = self.env["print_gateway.binding"].browse(target_key[0]).exists()
+                        if selected and selected.destination_type in ("pos", "pos_printer"):
+                            raise ValidationError(_(
+                                "POS Paid automation resolved to the normal POS receipt/preparation printer. "
+                                "Choose a separate output destination or explicitly enable 'Allow additional POS ticket'."
+                            ))
                     if target_key in executed_targets:
                         continue
-                    intent_model.create_and_route(policy, record, event_type)
+                    event_identity = self.env.context.get("print_gateway_event_identity")
+                    if event_identity is None:
+                        intent_model.create_and_route(policy, record, event_type)
+                    else:
+                        intent_model.create_and_route(policy, record, event_type, event_identity=event_identity)
                 executed_targets.add(target_key)
                 scheduled += 1
             except Exception as exc:
                 failures += 1
+                # Resolution happens before intent creation. Preserve a durable,
+                # retryable attempt even when a printer/rule is misconfigured.
+                # The original savepoint has rolled back; this one can commit
+                # atomically with the business event, not as an orphan log.
+                if matched:
+                    try:
+                        with self.env.cr.savepoint():
+                            intent_model.record_preflight_failure(
+                                policy, record, event_type, exc,
+                                event_identity=self.env.context.get("print_gateway_event_identity"),
+                            )
+                    except Exception:
+                        _logger.exception("Could not persist failed automatic print intent")
                 _logger.error(
                     "Failed to schedule automated print policy '%s' for %s(%s): %s",
                     policy.name,

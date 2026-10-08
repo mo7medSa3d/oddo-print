@@ -29,6 +29,21 @@ export async function GET(req: Request) {
     throw error;
   }
 
+  const params = new URL(req.url).searchParams;
+  const agentId = params.get("agent_id")?.trim();
+  const agentName = params.get("name")?.trim();
+  const limitValue = params.get("limit") ?? "200";
+  const offsetValue = params.get("offset") ?? "0";
+  const limit = Number(limitValue);
+  const offset = Number(offsetValue);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 ||
+      !Number.isSafeInteger(offset) || offset < 0 || offset > 10000) {
+    return NextResponse.json({ error: "limit must be 1-200 and offset must be 0-10000" }, { status: 400 });
+  }
+  const conditions = [eq(agents.lifecycle, "active"), eq(agents.tenantId, apiKey.tenantId)];
+  if (agentId) conditions.push(eq(agents.id, agentId));
+  if (agentName) conditions.push(eq(agents.name, agentName));
+
   // Agent heartbeat timestamps are still rendered using the calibrated Gateway
   // clock because availability is a host-side presentation calculation.
   await refreshClockSkew();
@@ -42,11 +57,14 @@ export async function GET(req: Request) {
       lastSeenAt: agents.lastSeenAt,
     })
     .from(agents)
-    .where(and(eq(agents.lifecycle, "active"), eq(agents.tenantId, apiKey.tenantId)))
-    .orderBy(asc(agents.name));
+    .where(and(...conditions))
+    .orderBy(asc(agents.name), asc(agents.id))
+    .limit(limit + 1)
+    .offset(offset);
 
   const now = gatewayNow();
-  const sanitized = rows.map((agent) => ({
+  const hasMore = rows.length > limit;
+  const sanitized = rows.slice(0, limit).map((agent) => ({
     id: agent.id,
     name: agent.name,
     // Current presentation state is evidence-based: stale/missing heartbeat
@@ -59,7 +77,11 @@ export async function GET(req: Request) {
     lastSeenAt: agent.lastSeenAt,
   }));
 
-  return NextResponse.json({ agents: sanitized }, {
+  return NextResponse.json({
+    agents: sanitized,
+    hasMore,
+    nextOffset: hasMore ? offset + limit : null,
+  }, {
     status: 200,
     headers: { "Cache-Control": "no-store" },
   });

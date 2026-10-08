@@ -86,6 +86,9 @@ class PrintGatewayJob(models.Model):
     attempts = fields.Integer(default=0, readonly=True)
     reprint_attempt_count = fields.Integer(string="Reprint Attempts", default=0, readonly=True)
     next_retry_at = fields.Datetime(index=True, readonly=True)
+    # Independent reconciliation cursor: do NOT reuse submission retry dates.
+    # Odoo manages the indexed column on addon upgrade.
+    status_sync_attempted_at = fields.Datetime(index=True, readonly=True, copy=False)
     last_error = fields.Text(readonly=True)
     source_model = fields.Char(readonly=True)
     source_record_id = fields.Integer(readonly=True)
@@ -2200,12 +2203,22 @@ class PrintGatewayJob(models.Model):
                     AND last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME:%%'
                     AND (next_retry_at IS NULL OR next_retry_at <= now())
                )
-             ORDER BY id ASC
+             ORDER BY status_sync_attempted_at ASC NULLS FIRST, id ASC
              LIMIT 100
+             FOR UPDATE SKIP LOCKED
         """)
         job_ids = [row[0] for row in self.env.cr.fetchall()]
         if not job_ids:
             return 0
+        # Advance the fairness cursor even when every HTTP request fails.
+        # Otherwise the same first 100 rows permanently starve newer jobs.
+        # Commit before network I/O to release selection locks promptly.
+        self.env.cr.execute("""
+            UPDATE print_gateway_print_job
+            SET status_sync_attempted_at = %s
+            WHERE id = ANY(%s)
+        """, (db_now_utc(self.env.cr), job_ids))
+        self.env["ir.cron"]._commit_progress(0)
         jobs = self.browse(job_ids)
 
         config_jobs = {}

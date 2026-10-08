@@ -303,6 +303,166 @@ class TestControlPlane(TransactionCase):
             self.assertEqual(job.protocol, "zpl")
             self.assertEqual(job.raw_payload, zpl_sample)
 
+    def test_02b_stock_picking_raw_label_automation_creates_job_without_pdf(self):
+        """Validate policy -> label binding -> native command outbox payload."""
+        from types import SimpleNamespace
+        import base64
+
+        picking_type = self.env["stock.picking.type"].search(
+            [("company_id", "=", self.company.id)], limit=1
+        )
+        self.assertTrue(picking_type)
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-cp-01",
+            "enabled": True,
+        })
+        binding = self.env["print_gateway.binding"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "destination_type": "picking_type",
+            "destination_picking_type_id": picking_type.id,
+            "report_id": False,
+            "runtime_agent_id": "agent-cp-01",
+            "printer_id": "printer-raw-label",
+            "printer_protocol": "zpl",
+            "enabled": True,
+            "priority": 101,
+        })
+        self.assertEqual(binding.document_type, "label")
+        self.assertFalse(binding.report_id)
+
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy = self.env["print_gateway.policy"].create({
+            "name": "ZPL picking label automation",
+            "company_id": self.company.id,
+            "branch_id": False,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_protocol": "zpl",
+            "raw_template": "^XA^FO50,50^FD{name}^FS^XZ",
+            "binding_id": binding.id,
+            "active": True,
+        })
+        picking = SimpleNamespace(
+            _name="stock.picking",
+            id=90401,
+            name="TEST-PICKING-90401",
+            company_id=self.company,
+            picking_type_id=picking_type,
+            write_date=False,
+            _fields={"name": SimpleNamespace(type="char")},
+        )
+        intent = SimpleNamespace(policy_id=policy, intent_key="raw-label-picking-contract")
+        router = self.env["print_gateway.print_router"].with_company(self.company)
+        RouterClass = type(router)
+        with patch.object(RouterClass, "_persist_durable_job", side_effect=self._fake_persist_job), \
+             patch.object(RouterClass, "_submit_durable_job", return_value="submitted"):
+            result = router.route_intent(intent, picking)
+
+        job = self.env["print_gateway.print_job"].browse(result["job_id"])
+        self.assertEqual(result["status"], "dispatched")
+        self.assertEqual(job.document_type, "label")
+        self.assertEqual(job.payload_type, "raw_cmd")
+        self.assertEqual(job.protocol, "zpl")
+        self.assertEqual(job.printer_id, "printer-raw-label")
+        self.assertFalse(job.report_id)
+        payload = json.loads(job.payload)
+        self.assertEqual(payload["type"], "raw")
+        self.assertEqual(payload["protocol"], "zpl")
+        self.assertIn(b"TEST-PICKING-90401", base64.b64decode(payload["data"]))
+
+    def test_02c_implicit_raw_routing_finds_tspl_before_zpl_priority(self):
+        """Two label languages sharing an operation must never shadow one another."""
+        from types import SimpleNamespace
+
+        picking_type = self.env["stock.picking.type"].search(
+            [("company_id", "=", self.company.id)], limit=1
+        )
+        self.assertTrue(picking_type)
+        self.env["print_gateway.runtime_agent_assignment"].create({
+            "company_id": self.company.id,
+            "branch_id": False,
+            "runtime_agent_id": "agent-cp-01",
+            "enabled": True,
+        })
+        for protocol, priority in (("zpl", 110), ("tspl", 111)):
+            self.env["print_gateway.binding"].create({
+                "company_id": self.company.id,
+                "branch_id": False,
+                "destination_type": "picking_type",
+                "destination_picking_type_id": picking_type.id,
+                "report_id": False,
+                "runtime_agent_id": "agent-cp-01",
+                "printer_id": "printer-%s-label" % protocol,
+                "printer_protocol": protocol,
+                "enabled": True,
+                "priority": priority,
+            })
+        picking = SimpleNamespace(
+            _name="stock.picking", id=90402,
+            company_id=self.company, picking_type_id=picking_type,
+        )
+        router = self.env["print_gateway.print_router"].with_company(self.company)
+        route = router.resolve_binding(
+            record=picking, company=self.company, document_type="label",
+            protocol="tspl", payload_type="raw_cmd",
+        )
+        self.assertEqual(route["binding"].printer_protocol, "tspl")
+        self.assertEqual(route["binding"].printer_id, "printer-tspl-label")
+        with self.assertRaisesRegex(ValidationError, r"No Print Rule matches .* printer protocol 'raw'"):
+            router.resolve_binding(
+                record=picking, company=self.company, document_type="label",
+                protocol="raw", payload_type="raw_cmd",
+            )
+
+    def test_02d_automation_routing_error_creates_durable_failed_intent(self):
+        """No silent loss when the rule cannot resolve a compatible printer."""
+        from types import SimpleNamespace
+
+        model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy = self.env["print_gateway.policy"].create({
+            "name": "Failed routing audit",
+            "company_id": self.company.id,
+            "branch_id": self.branch.id,
+            "model_id": model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_protocol": "zpl",
+            "raw_template": "^XA^FD{name}^FS^XZ",
+            "binding_id": self.zpl_binding.id,
+            "active": True,
+        })
+        picking = SimpleNamespace(_name="stock.picking", id=90403, company_id=self.branch)
+        PolicyClass = type(policy)
+        with patch.object(PolicyClass, "resolve_for_record", return_value=policy), \
+             patch.object(PolicyClass, "matches_record", return_value=True), \
+             patch.object(PolicyClass, "effective_target_key", side_effect=ValidationError("No printer in branch")):
+            result = self.env["print_gateway.policy"].with_context(
+                print_gateway_event_identity="validation-90403"
+            ).dispatch_for_record(picking, "picking_validated")
+        self.assertEqual(result, {"scheduled": 0, "failed": 1})
+        key = self.env["print_gateway.intent"].compute_intent_key(
+            policy, picking, "picking_validated", "validation-90403"
+        )
+        intent = self.env["print_gateway.intent"].search([("intent_key", "=", key)])
+        self.assertEqual(len(intent), 1)
+        self.assertEqual(intent.status, "failed")
+        self.assertIn("No printer in branch", intent.last_error)
+        self.assertFalse(intent.print_job_id)
+
+    def test_02e_business_transition_intent_key_deduplicates_retries_not_reposts(self):
+        from types import SimpleNamespace
+        intent_model = self.env["print_gateway.intent"]
+        record = SimpleNamespace(_name="account.move", id=90001)
+        key_first = intent_model.compute_intent_key(self.zpl_binding, record, "invoice_posted", "post-1")
+        key_retry = intent_model.compute_intent_key(self.zpl_binding, record, "invoice_posted", "post-1")
+        key_repost = intent_model.compute_intent_key(self.zpl_binding, record, "invoice_posted", "post-2")
+        self.assertEqual(key_first, key_retry)
+        self.assertNotEqual(key_first, key_repost)
+
     def test_03_pre_dispatch_safe_failover(self):
         """Verify pre-dispatch connection error engages fallback printer."""
         job = self.env["print_gateway.print_job"].create({
