@@ -348,6 +348,23 @@ patch(PosStore.prototype, {
             return super.sendOrderInPreparation(order, opts);
         }
 
+        // Gateway dispatch needs a durable server-side order id. Odoo 19
+        // syncAllOrders excludes entries already in syncingOrders, so save
+        // a new order BEFORE acquiring the native preparation-print guard.
+        // Otherwise the first kitchen send silently skips sync, fails the
+        // id check, and only saves the order after the ticket was rejected.
+        if (!order?.isSynced || !Number.isInteger(order?.id) || order.id <= 0) {
+            try {
+                await gatewaySync(this, { orders: [order], force: true, throw: true });
+                if (!Number.isInteger(order?.id) || order.id <= 0) {
+                    throw new Error(_t("The POS order is not synchronized yet, so kitchen printing cannot continue."));
+                }
+            } catch (error) {
+                this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
+                return false;
+            }
+        }
+
         let isPrinted = false;
         let hasChanges = false;
         try {
@@ -630,6 +647,19 @@ patch(PosStore.prototype, {
                             order.uiState.gatewayKitchenAttempts = {};
                             order.uiState.gatewayKitchenPendingKeys = [];
                             order.uiState.gatewayKitchenOperationIds = {};
+                            // This callback runs after sendOrderInPreparation
+                            // has returned. Persist the consumed change here
+                            // too, or another POS can print the same ticket.
+                            if (!this.models["pos.prep.display"]?.length) {
+                                try {
+                                    await gatewaySync(this, { orders: [order] });
+                                } catch (error) {
+                                    // The ticket was already accepted. A sync
+                                    // failure must not reopen physical retry.
+                                    console.warn("Accepted kitchen retry could not be synchronized:", error);
+                                    this.notification.add(gatewayServerMessage(error) || _t("Order synchronization timed out."), { type: "warning", sticky: true });
+                                }
+                            }
                         }
                         return accepted;
                     },
