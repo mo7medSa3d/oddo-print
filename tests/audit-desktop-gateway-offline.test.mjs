@@ -98,6 +98,9 @@ test("failed candidate check keeps configuration and presents HTTP guidance once
     probeGatewayHealth: async () => { throw Object.assign(new Error("INTERNAL_ERROR"), { status: 500 }); },
     setGatewayUrl: async (value) => changes.push(value),
     setMsg: (value) => messages.push(value), friendlyGatewayError,
+    observeGatewayFailure: () => false,
+    observeGatewaySuccess: () => true,
+    savedOriginMatches: () => false,
     errMsg: (error) => error instanceof Error ? error.message : String(error),
   }, (source) => `${slice(source, "const checkHealth = useCallback", "const handleDiscover = useCallback")}\nexport { checkHealth };`);
   await api.checkHealth();
