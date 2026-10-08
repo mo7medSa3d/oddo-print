@@ -30,7 +30,7 @@ class PosOrderGatewayPrinting(models.Model):
         self.check_access("read")
         company = self.config_id.company_id or self.company_id
         if company != self.env.company:
-            raise ValidationError(_("The receipt must use the active Odoo company."))
+            raise ValidationError(_("Gateway printing must use the active Odoo company."))
         router = self.env["print_gateway.print_router"]
         route = router.resolve_binding(
             record=self, company=company, document_type="receipt",

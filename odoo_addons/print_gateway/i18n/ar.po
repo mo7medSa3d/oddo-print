@@ -1544,12 +1544,6 @@ msgid "No printers found for this Print Agent — check the printer or workstati
 msgstr "لا توجد طابعات لهذا الـ Agent — تحقّق من الطابعة أو جهاز العمل"
 
 #. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
-msgid "No receipt element to rasterize"
-msgstr "لا يوجد عنصر إيصال لتحويله إلى صورة"
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
 msgid "No valid action configured for policy %s (action_type: %s)"
 msgstr "لا يوجد إجراء صالح مُعدّ للقاعدة %s (نوع الإجراء: %s)"
