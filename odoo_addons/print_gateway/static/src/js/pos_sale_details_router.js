@@ -4,6 +4,7 @@ import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { gatewayServerMessage, showGatewayBillingLimitDialog } from "./gateway_limit_dialog";
 import { formatDateTime } from "@web/core/l10n/dates";
+import { withGatewayDeadline } from "./async_control";
 
 // `@web/core/l10n/dates` does not export DateTime in Odoo 19 (it reads the
 // luxon global privately). Take DateTime from the same global, mirroring
@@ -13,8 +14,13 @@ import { SaleDetailsButton } from "@point_of_sale/app/components/navbar/sale_det
 import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
 
-async function elementToJpeg(element, renderer) {
-    return renderGatewayReceiptJpeg(element, { renderer });
+function gatewayDataCall(pos, model, method, args, kwargs = {}, silent = true, { ambiguous = false } = {}) {
+    return withGatewayDeadline(
+        () => pos.data.call(model, method, args, kwargs, silent),
+        20000,
+        _t("Printing service request timed out."),
+        { ambiguous },
+    );
 }
 
 // Secure per-click operation identity (mirrors gatewayUuid in
@@ -44,8 +50,13 @@ patch(SaleDetailsButton.prototype, {
             return super.onClick();
         }
 
+        // Guard the entire click, including metadata and image rendering.
+        if (this.pos.gatewaySaleDetailsPending) {
+            return false;
+        }
+        this.pos.gatewaySaleDetailsPending = true;
         try {
-            const enabled = await this.pos.data.call(
+            const enabled = await gatewayDataCall(this.pos,
                 "pos.session",
                 "is_gateway_printing_enabled",
                 [[sessionId]],
@@ -56,11 +67,6 @@ patch(SaleDetailsButton.prototype, {
                 return super.onClick();
             }
 
-            const saleDetails = await this.pos.data.call(
-                "report.point_of_sale.report_saledetails",
-                "get_sale_details",
-                [false, false, false, [sessionId]]
-            );
             // One operation identity per user click with cached payload for
             // uncertain retries: the render embeds the current timestamp, so
             // a retry must resend the IDENTICAL bytes (same id + same image)
@@ -69,8 +75,8 @@ patch(SaleDetailsButton.prototype, {
             // (5 minutes); accepted/definitively-failed outcomes and older
             // operations mint a fresh id with a fresh render.
             const saleDetailsOps = (this.pos.gatewaySaleDetailsOperations ||= new Map());
-            if (this.pos.gatewaySaleDetailsPending) {
-                return false;
+            for (const [key, op] of saleDetailsOps) {
+                if (Date.now() - op.at >= 5 * 60 * 1000) saleDetailsOps.delete(key);
             }
             const lastOp = saleDetailsOps.get(sessionId);
             const reuseUncertain = lastOp && lastOp.terminal === false
@@ -82,6 +88,10 @@ patch(SaleDetailsButton.prototype, {
                 image = lastOp.image;
             } else {
                 operationId = gatewayOperationUuid();
+                const saleDetails = await gatewayDataCall(
+                    this.pos, "report.point_of_sale.report_saledetails",
+                    "get_sale_details", [false, false, false, [sessionId]],
+                );
                 const report = renderToElement(
                     "point_of_sale.SaleDetailsReport",
                     Object.assign({}, saleDetails, {
@@ -92,41 +102,42 @@ patch(SaleDetailsButton.prototype, {
                 );
                 let rasterWidth = 512;
                 try {
-                    rasterWidth = await this.pos.data.call(
+                    rasterWidth = await gatewayDataCall(this.pos,
                         "pos.session", "get_gateway_sale_details_raster_width", [[sessionId]], {}, true,
                     );
                 } catch (error) {
                     console.warn("Sale Details printer width unavailable, using native 512px:", error);
                 }
-                image = await renderGatewayReceiptJpeg(report, {
-                    renderer: this.env.services.renderer,
-                    width: rasterWidth,
-                });
+                image = await withGatewayDeadline(
+                    () => renderGatewayReceiptJpeg(report, {
+                        renderer: this.env.services.renderer,
+                        width: rasterWidth,
+                    }),
+                    15000,
+                    _t("Receipt rendering timed out."),
+                );
             }
-            this.pos.gatewaySaleDetailsPending = true;
             let result;
             try {
-                try {
-                    result = await this.pos.data.call(
-                        "pos.session",
-                        "action_print_gateway_sale_details",
-                        [[sessionId]],
-                        { image, operation_id: operationId },
-                        true
-                    );
-                } catch (rpcError) {
-                    saleDetailsOps.set(sessionId, { id: operationId, image, at: Date.now(), terminal: false });
-                    throw rpcError;
-                }
-            } finally {
-                this.pos.gatewaySaleDetailsPending = false;
+                result = await gatewayDataCall(
+                    this.pos,
+                    "pos.session",
+                    "action_print_gateway_sale_details",
+                    [[sessionId]],
+                    { image, operation_id: operationId },
+                    true,
+                    { ambiguous: true },
+                );
+            } catch (rpcError) {
+                saleDetailsOps.set(sessionId, { id: operationId, image, at: Date.now(), terminal: false });
+                throw rpcError;
             }
+            const terminal = ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
             saleDetailsOps.set(sessionId, {
                 id: operationId,
-                image,
+                image: terminal ? undefined : image,
                 at: Date.now(),
-                terminal: result && !["unknown", "partial"].includes(result.status)
-                    && ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status),
+                terminal,
             });
             if (!result?.gateway_enabled) {
                 throw new Error(_t("Print Gateway returned an invalid Sale Details response."));
@@ -158,6 +169,8 @@ patch(SaleDetailsButton.prototype, {
             // cannot freeze the Sale Details button with a double dialog.
             this.env.services.notification.add(gatewayServerMessage(error) || _t("Sales Details could not be printed."), { type: "danger" });
             return false;
+        } finally {
+            this.pos.gatewaySaleDetailsPending = false;
         }
     },
 });
