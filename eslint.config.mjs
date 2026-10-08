@@ -6,7 +6,20 @@ export default defineConfig([
   ...nextCoreWebVitals,
   {
     files: ["odoo_addons/**/*.js"],
+    languageOptions: {
+      globals: Object.fromEntries([
+        "window", "document", "console", "crypto", "luxon", "XMLHttpRequest",
+        "CustomEvent", "setTimeout", "clearTimeout",
+      ].map((name) => [name, "readonly"])),
+    },
     rules: {
+      // These plain JS assets are not covered by the Gateway's TS typecheck.
+      // A missing scope (e.g. kitchen route.raster_width) must fail CI.
+      "no-undef": "error",
+      "no-unused-vars": ["error", {
+        args: "after-used", argsIgnorePattern: "^_", caughtErrors: "none",
+        ignoreRestSiblings: true,
+      }],
       // Odoo POS assets use OWL, not React; these React rules are semantically inapplicable here.
       "react-hooks/rules-of-hooks": "off",
       // OWL's useEffect takes a dependency *function* (re-evaluated on each

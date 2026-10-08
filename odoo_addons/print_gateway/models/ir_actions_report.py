@@ -46,14 +46,24 @@ class IrActionsReportGateway(models.Model):
 
         route = router.route_report(self, records, data=data)
         if not route.get("native"):
+            status = route.get("status")
+            accepted = status in ("queued", "submitted", "claimed", "printing", "success")
+            # A successful RPC is not proof of spooler acceptance or paper
+            # output. Match the frontend allowlist; unknown/malformed outcomes
+            # must never inherit the router's generic "accepted" message.
+            message = route.get("message") if accepted else (
+                _("Gateway print failed for bound printer. Native download cancelled.")
+                if status == "failed" else
+                _("Print status is unknown. Check the printer before trying again.")
+            )
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
-                    "title": _("Print Job Accepted"),
-                    "message": route["message"],
-                    "type": "success",
-                    "sticky": False,
+                    "title": _("Print Job Accepted") if accepted else _("Printing Service"),
+                    "message": message,
+                    "type": "success" if accepted else "danger" if status == "failed" else "warning",
+                    "sticky": not accepted,
                 },
             }
         return super().report_action(docids, data=data, config=config)

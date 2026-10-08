@@ -177,6 +177,16 @@ func FactsFromDevice(d DeviceInfo) DeviceFacts {
 
 // ClassifyDeviceInfo classifies a discovery/normalization-layer DeviceInfo.
 func ClassifyDeviceInfo(d DeviceInfo) DeviceClassification {
+	// Explicit wire printer types are authoritative: a software-only
+	// capture with an unfamiliar name/driver must never be inferred as
+	// production hardware just because the registry is manually configured.
+	// Preserve the distinction between virtual and redirected sessions.
+	switch strings.ToLower(strings.TrimSpace(d.PrinterType)) {
+	case "virtual":
+		return DeviceClassification{Class: ClassVirtual, IsVirtual: true, Confidence: "high", Reasons: []string{"declared-virtual-printer-type"}}
+	case "redirected":
+		return DeviceClassification{Class: ClassRedirected, IsVirtual: true, IsRedirected: true, Confidence: "high", Reasons: []string{"declared-redirected-printer-type"}}
+	}
 	c := ClassifyDevice(FactsFromDevice(d))
 	// An explicitly flagged record (persisted by this or an older version)
 	// wins when the metadata alone is inconclusive.
@@ -384,8 +394,25 @@ func redirectedEvidence(f DeviceFacts) (string, bool) {
 }
 
 // virtualEvidence collects decisive proof that a queue is software-only.
+// FAX-only Windows queues from multifunction devices frequently share the
+// physical printer's USB/IP port. The port alone is NOT evidence that this
+// queue can print paper; a vendor FAX queue sends a facsimile instead.
+func vendorFaxQueue(f DeviceFacts) bool {
+	for _, label := range []string{f.DriverName, f.Name, f.DisplayName, f.SpoolerName} {
+		name := strings.ToLower(strings.TrimSpace(label))
+		if name == "fax" || strings.HasSuffix(name, " fax") ||
+			strings.HasSuffix(name, "-fax") || strings.HasSuffix(name, " (fax)") {
+			return true
+		}
+	}
+	return false
+}
+
 func virtualEvidence(f DeviceFacts) []string {
 	var reasons []string
+	if vendorFaxQueue(f) {
+		reasons = append(reasons, "vendor-fax-output-queue")
+	}
 	if _, isVirtualPort := portKind(f.PortName); isVirtualPort {
 		reasons = append(reasons, "virtual-port-monitor:"+portHead(f.PortName))
 	}

@@ -5,6 +5,7 @@ import { agents, printers } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
+import { receiptRasterWidthDots } from "../../../../lib/receipt-width";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
 export const dynamic = "force-dynamic";
@@ -106,6 +107,7 @@ export async function GET(req: Request) {
       connectionType: row.connectionType,
       protocol: row.protocol,
       capabilities: odooPrinterCapabilities(row.capabilities, row.connectionType, row.protocol),
+      printableWidthDots: receiptRasterWidthDots(row.capabilities as Record<string, unknown> | null),
       agent: {
         id: row.agentId,
         name: row.agentName,

@@ -9,6 +9,8 @@ export default defineConfig({
   resolve: { alias: { "@": resolve(rootDir, "src") } },
   test: {
     clearMocks: false,
+    // This phase runs after the production build and database migrations.
+    env: { RUN_DB_BACKED_ACCEPTANCE: "1" },
     include: [...integrationTestFiles],
     pool: "forks",
     fileParallelism: false,

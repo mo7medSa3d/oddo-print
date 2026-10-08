@@ -18,6 +18,35 @@ func RasterMaxWidthFromPaperWidthMM(mm int) int {
 	return paperMillimetresToDots(mm)
 }
 
+// RasterMaxWidthForConfiguredPaper prefers real operator-provided printer
+// dots over nominal paper width. At 80mm, a 180dpi printer has 512 dots,
+// while a 203dpi device can expose 576. Nominal 80mm alone cannot prove
+// 576: default conservatively to 512 to prevent silent right-edge clipping.
+// The optional max_paper_width in dots always overrides an approximate DPI.
+func RasterMaxWidthForConfiguredPaper(mm int, caps map[string]interface{}) int {
+	if caps != nil {
+		if v, ok := capabilityInt(caps["max_paper_width"]); ok {
+			if v >= 288 && v <= 576 {
+				return v
+			}
+			if v == 58 || v == 80 {
+				return paperMillimetresToDots(v)
+			}
+		}
+		dpi, _ := capabilityInt(caps["print_dpi"])
+		if dpi == 0 {
+			dpi, _ = capabilityInt(caps["dpi"])
+		}
+		if mm == 80 && dpi == 203 {
+			return 576
+		}
+		if mm == 58 && dpi == 180 {
+			return 360
+		}
+	}
+	return RasterMaxWidthFromPaperWidthMM(mm)
+}
+
 func RasterMaxWidthFromCapabilities(caps map[string]interface{}) int {
 	if caps == nil {
 		return SafeRasterMaxWidth
@@ -55,7 +84,7 @@ func paperMillimetresToDots(mm int) int {
 	case mm <= 58:
 		return 384
 	case mm <= 80:
-		return 576
+		return 512 // safe for 80mm/180dpi; 576 requires explicit 203dpi evidence
 	default:
 		// Scale conservatively from the standard 80mm 576-dot reference.
 		return int(float64(mm) * 576.0 / 80.0)

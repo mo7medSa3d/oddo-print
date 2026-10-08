@@ -112,7 +112,7 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 		// completion order and can overwrite a fresher Windows spooler result.
 		// Force registry status to unknown; live OS/backend probes repopulate it.
 		d.Status = "unknown"
-		if !IsProductionPrinter(d) {
+		if !IsManagedPrinter(d) {
 			hidden = append(hidden, d)
 			continue
 		}
@@ -285,7 +285,7 @@ func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, c
 		}
 		// A virtual, redirected or unclassified queue is never promoted into
 		// the managed printer set, whatever source reported it.
-		if !IsProductionPrinter(d) {
+		if !IsManagedPrinter(d) {
 			log.Printf("[registry] refusing to register non-physical printer %q class=%s", d.Name, ClassifyDeviceInfo(d).Class)
 			continue
 		}

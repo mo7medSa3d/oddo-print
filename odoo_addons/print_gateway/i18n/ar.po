@@ -1054,6 +1054,7 @@ msgstr "يتطلب تأكيد النجاح المتأخر من الـ Gateway ا
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+#: code:addons/print_gateway/models/ir_actions_report.py:0
 msgid "Gateway print failed for bound printer. Native download cancelled."
 msgstr "تعذّرت طباعة الـ Gateway للطابعة المربوطة. تم إلغاء التنزيل الأصلي."
 
@@ -1110,6 +1111,7 @@ msgid "Gateway printing is not enabled for company %s"
 msgstr "طباعة الـ Gateway غير مُفعّلة للشركة %s"
 
 #. module: print_gateway
+#: code:addons/print_gateway/models/pos_order.py:0
 #: code:addons/print_gateway/models/pos_session.py:0
 msgid "Gateway printing must use the active Odoo company."
 msgstr "يجب أن تستخدم طباعة الـ Gateway شركة Odoo النشطة."
@@ -1542,12 +1544,6 @@ msgstr "لا توجد مهام طباعة مؤهلة ذات نتيجة جزئي�
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "No printers found for this Print Agent — check the printer or workstation"
 msgstr "لا توجد طابعات لهذا الـ Agent — تحقّق من الطابعة أو جهاز العمل"
-
-#. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
-msgid "No receipt element to rasterize"
-msgstr "لا يوجد عنصر إيصال لتحويله إلى صورة"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
@@ -2216,6 +2212,7 @@ msgstr "حالة الطباعة غير معروفة؛ ربما استقبلت ا
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+#: code:addons/print_gateway/models/ir_actions_report.py:0
 msgid "Print status is unknown. Check the printer before trying again."
 msgstr "حالة الطباعة غير معروفة. تحقّق من الطابعة قبل المحاولة مرة أخرى."
 
@@ -2303,6 +2300,7 @@ msgstr "الطباعة"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+#: code:addons/print_gateway/models/ir_actions_report.py:0
 msgid "Printing Service"
 msgstr "خدمة الطباعة"
 
@@ -3573,6 +3571,8 @@ msgstr "انتهت مهلة مزامنة الطلب."
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 msgid "Printing service request timed out."
 msgstr "انتهت مهلة طلب خدمة الطباعة."
 
@@ -3585,6 +3585,7 @@ msgstr "انتهت مهلة تحديث خدمة الطباعة."
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 msgid "Receipt rendering timed out."
 msgstr "انتهت مهلة تجهيز صورة الإيصال."
 

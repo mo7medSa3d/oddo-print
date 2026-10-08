@@ -1,5 +1,6 @@
 /** @odoo-module **/
 
+import { withGatewayDeadline } from "./async_control";
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 import { showGatewayBillingLimitDialog, gatewayServerMessage } from "./gateway_limit_dialog";
@@ -47,10 +48,9 @@ function firstNonEmptyIds(...sources) {
     return [];
 }
 
-// One operation identity per interception: a lost response re-run with the
-// same id is deduplicated server-side, while a deliberate later print mints
-// a fresh id. Fail closed without a secure RNG so distinct operations can
-// never collapse into one idempotency key.
+// One operation identity per click: uncertain retries retain it in the
+// ORM-scoped cache below; a confirmed outcome ends the reuse window. Fail
+// closed without a secure RNG so distinct operations never collapse to one key.
 function reportOperationUuid() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
         return crypto.randomUUID();
@@ -66,6 +66,13 @@ function reportOperationUuid() {
     const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+// Do not store cross-user/company state globally by report id alone. The ORM
+// service scopes the cache to this web client; the key includes all routing
+// context and report arguments. Only uncertain operations remain for 5 minutes.
+// Server-side payload fingerprinting is still authoritative: a regenerated PDF
+// that differs from an earlier submission is rejected, never silently reprinted.
+const reportOperations = new WeakMap();
 
 async function silentPrintReportHandler(action, options, env) {
     if (action.type !== "ir.actions.report" || action.report_type !== "qweb-pdf") {
@@ -85,19 +92,44 @@ async function silentPrintReportHandler(action, options, env) {
         action.data?.docids
     );
 
+    let operations, operationKey, operation;
+    let ownsOperation = false;
     try {
-        const res = await orm.call(
-            "print_gateway.binding",
-            "dispatch_report_action",
-            [],
-            {
-                report_name: action.report_name,
-                report_id: action.id,
-                res_ids: resIds,
-                context: action.context || {},
-                data: action.data ?? null,
-                operation_id: reportOperationUuid(),
-            }
+        const request = {
+            report_name: action.report_name,
+            report_id: action.id,
+            res_ids: resIds,
+            context: action.context || {},
+            data: action.data ?? null,
+        };
+        operationKey = JSON.stringify(request);
+        operations = reportOperations.get(orm);
+        if (!operations) {
+            operations = new Map();
+            reportOperations.set(orm, operations);
+        }
+        const now = Date.now();
+        for (const [key, value] of operations) {
+            if (!value.pending && now - value.at >= 5 * 60 * 1000) operations.delete(key);
+        }
+        operation = operations.get(operationKey);
+        if (operation?.pending) return true;
+        if (!operation) {
+            operation = {
+                at: now,
+                request: { ...JSON.parse(operationKey), operation_id: reportOperationUuid() },
+            };
+            operations.set(operationKey, operation);
+        }
+        // Acquire before the first await, including report rendering on the
+        // server. A second click must not allocate a second operation identity.
+        operation.pending = true;
+        ownsOperation = true;
+        const res = await withGatewayDeadline(
+            () => orm.call("print_gateway.binding", "dispatch_report_action", [], operation.request),
+            20000,
+            _t("Printing service request timed out."),
+            { ambiguous: true },
         );
 
         // The controller contract always returns an explicit boolean
@@ -111,6 +143,8 @@ async function silentPrintReportHandler(action, options, env) {
             return true;
         }
 
+        if (!res.has_binding) operations.delete(operationKey);
+        if (res.status === "failed") operations.delete(operationKey);
         if (res.has_binding && (res.billing_limit || res.success === false || !res.dispatched)) {
             if (res.billing_limit && showGatewayBillingLimitDialog(env, res.billing_limit)) {
                 return true;
@@ -131,15 +165,22 @@ async function silentPrintReportHandler(action, options, env) {
             // Both toasts link to Print Jobs so the interception never
             // leaves the user without a next step.
             const openJobs = openJobsButton(env);
-            if (["unknown", "partial"].includes(res.status)) {
+            if (res.status === "failed") {
                 notification.add(
-                    _t("Print status is unknown. Check the printer before trying again."),
-                    { type: "warning", sticky: true, buttons: [openJobs] }
+                    res.error || _t("Gateway print failed for bound printer. Native download cancelled."),
+                    { type: "danger", sticky: true, buttons: [openJobs] }
                 );
-            } else {
+            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(res.status)) {
+                operations.delete(operationKey);
                 notification.add(
                     res.message || _t("Document sent to %s. Check Print Activity for the final status.", res.printer_name || _t("Printer")),
                     { type: "success", buttons: [openJobs] }
+                );
+            } else {
+                // Missing/unrecognized states are not evidence of acceptance.
+                notification.add(
+                    _t("Print status is unknown. Check the printer before trying again."),
+                    { type: "warning", sticky: true, buttons: [openJobs] }
                 );
             }
             return true; // Cancel default browser PDF dialog
@@ -156,6 +197,8 @@ async function silentPrintReportHandler(action, options, env) {
             { type: "danger", sticky: true, buttons: [openJobsButton(env)] }
         );
         return true; // FAIL-CLOSED: Dispatch call failed, cancel native PDF dialog
+    } finally {
+        if (ownsOperation) operation.pending = false;
     }
 
     return false; // Fallback to standard Odoo report action only when no binding exists

@@ -474,6 +474,25 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
+    def _receipt_width_for_route(self, route):
+        """Return a hardware-informed canvas width, not an arbitrary 96-DPI size.
+
+        The target is the very same company/branch/agent/printer binding used
+        by dispatch. The Gateway exposes only a bounded numeric printable
+        width to authorized Odoo integrations. No guessing from printer
+        names or from CSS screen pixels.
+        """
+        binding = route.get("binding") if isinstance(route, dict) else None
+        if not binding:
+            return 512  # Odoo 19's default 80mm / 180dpi snapshot width
+        printer = binding._validate_runtime_target(enforce_destination_compatibility=True)
+        width = (printer or {}).get("printableWidthDots")
+        if type(width) is int and 288 <= width <= 576:
+            return width
+        return 512
+
+    @api.model
+    @api.private
     def route_pos_receipt(self, order, image_base64, *, idempotency_key=None):
         order.ensure_one()
         self._assert_current_company(order.company_id, record=order)

@@ -18,10 +18,10 @@
  * do NOT assert "no console 404"; they assert a valid JPEG payload is still
  * produced.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { htmlToCanvas, renderToElement, toCanvas, waitImages } from "./__mocks__/odoo";
+import { htmlToCanvas, renderToElement, toCanvas } from "./__mocks__/odoo";
 // @ts-expect-error - the JS module under test has no type declarations; its Odoo
 // dependencies resolve to the shared mock module via vitest aliases.
 import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
@@ -52,16 +52,31 @@ function makeOrder(): never {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: the direct vendored rasterization succeeds (each test overrides
-  // with rejections to drive a specific fallback leg).
   toCanvas.mockResolvedValue(makeCanvas());
+  // jsdom has no CSS layout engine, so provide a simulated 512px receipt
+  // while retaining real DOM mount/unmount behavior for the capture tests.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const width = Number.parseInt(this.style.width, 10) || 512;
+      return { width, height: 160, x: 0, y: 0, top: 0, left: 0,
+        right: width, bottom: 160, toJSON: () => ({}) };
+    });
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(160);
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get")
+    .mockImplementation(function (this: HTMLElement) {
+      return Number.parseInt(this.style.width, 10) || 512;
+    });
 });
+afterEach(() => vi.restoreAllMocks());
 
 describe("renderReceiptImage — POS receipt font 404 resilience", () => {
-  it("returns a valid JPEG payload when renderer.toJpeg succeeds", async () => {
-    const renderer = { toJpeg: vi.fn().mockResolvedValue("VALIDJPEG") };
-    const result = await renderReceiptImage(makePos(renderer), makeOrder());
+  it("never bypasses paper-width validation when only legacy renderer.toJpeg exists", async () => {
+    const renderer = { toJpeg: vi.fn().mockResolvedValue("UNMEASURED_IMAGE") };
+    renderToElement.mockReturnValue(document.createElement("div"));
+    const result = await renderReceiptImage(makePos(renderer), makeOrder(), false, 384);
     expect(result).toBe("VALIDJPEG");
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(toCanvas.mock.calls[0][0].style.width).toBe("384px");
   });
 
   it("prefers the no-fonts path and never touches renderer.toJpeg on success", async () => {
@@ -77,8 +92,8 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
     expect(renderer.toCanvas).not.toHaveBeenCalled();
     expect(toCanvas).toHaveBeenCalledTimes(1);
     expect(toCanvas.mock.calls[0][1]).toMatchObject({ skipFonts: true });
-    // The render_service wrapper (whose fixed options drop skipFonts) is
-    // bypassed on the primary path.
+    // Capture must be mounted and measured before rasterization: unlike
+    // renderer.toHtml's disappearing node, our host is always in the DOM.
     expect(htmlToCanvas).not.toHaveBeenCalled();
   });
 
@@ -112,51 +127,91 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
     expect(toCanvas.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
 
-  it("falls back to renderer.toJpeg when the no-fonts rasterization fails", async () => {
-    toCanvas.mockRejectedValueOnce(new Error("rasterize failed"));
+  it("retries through the same mounted width-checked renderer after a transient failure", async () => {
+    toCanvas.mockRejectedValueOnce(new Error("temporary raster error"));
     const renderer = {
       toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
-      toJpeg: vi.fn().mockResolvedValue("VALIDJPEG"),
-    };
-    const result = await renderReceiptImage(makePos(renderer), makeOrder());
-    expect(result).toBe("VALIDJPEG");
-    expect(renderer.toJpeg).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to toCanvas when toJpeg fails (e.g. a font embed failure)", async () => {
-    toCanvas.mockRejectedValueOnce(new Error("rasterize failed"));
-    const renderer = {
-      toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
-      toJpeg: vi.fn().mockRejectedValue(new Error("Failed to fetch resource: font 404")),
+      toJpeg: vi.fn().mockResolvedValue("UNMEASURED_IMAGE"),
       toCanvas: vi.fn().mockResolvedValue(makeCanvas()),
     };
-    const result = await renderReceiptImage(makePos(renderer), makeOrder());
+    const result = await renderReceiptImage(makePos(renderer), makeOrder(), false, 384);
     expect(result).toBe("VALIDJPEG");
+    expect(renderer.toHtml).toHaveBeenCalledTimes(2);
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(renderer.toCanvas).not.toHaveBeenCalled();
+    expect(toCanvas).toHaveBeenCalledTimes(2);
+    expect(toCanvas.mock.calls[1][0].style.width).toBe("384px");
   });
 
-  it("falls back to render_service htmlToCanvas when toJpeg and toCanvas fail", async () => {
-    toCanvas.mockRejectedValueOnce(new Error("fail"));
+  it("uses a mounted template after both toHtml render attempts fail", async () => {
+    toCanvas.mockRejectedValueOnce(new Error("unavailable"))
+      .mockRejectedValueOnce(new Error("unavailable"));
     const renderer = {
       toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
-      toJpeg: vi.fn().mockRejectedValue(new Error("fail")),
-      toCanvas: vi.fn().mockRejectedValue(new Error("fail")),
-    };
-    htmlToCanvas.mockResolvedValue(makeCanvas());
-    const result = await renderReceiptImage(makePos(renderer), makeOrder());
-    expect(result).toBe("VALIDJPEG");
-    expect(htmlToCanvas).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to renderToElement when every renderer method fails", async () => {
-    const renderer = {
-      toJpeg: vi.fn().mockRejectedValue(new Error("fail")),
-      toCanvas: vi.fn().mockRejectedValue(new Error("fail")),
-      toHtml: vi.fn().mockRejectedValue(new Error("fail")),
+      toJpeg: vi.fn().mockResolvedValue("UNMEASURED_IMAGE"),
+      toCanvas: vi.fn().mockResolvedValue(makeCanvas()),
     };
     renderToElement.mockReturnValue(document.createElement("div"));
-    htmlToCanvas.mockResolvedValue(makeCanvas());
     const result = await renderReceiptImage(makePos(renderer), makeOrder());
     expect(result).toBe("VALIDJPEG");
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(renderer.toCanvas).not.toHaveBeenCalled();
+    expect(toCanvas).toHaveBeenCalledTimes(3);
+  });
+
+  it("renders the direct template when every toHtml attempt fails", async () => {
+    const renderer = { toHtml: vi.fn().mockRejectedValue(new Error("renderer unavailable")) };
+    renderToElement.mockReturnValue(document.createElement("div"));
+    expect(await renderReceiptImage(makePos(renderer), makeOrder())).toBe("VALIDJPEG");
+    expect(renderer.toHtml).toHaveBeenCalledTimes(2);
+    expect(toCanvas).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a custom hardware width when available and safely falls back for invalid widths", async () => {
+    const renderer = { toHtml: vi.fn().mockResolvedValue(document.createElement("div")) };
+    await renderReceiptImage(makePos(renderer), makeOrder(), false, 384);
+    expect(toCanvas.mock.calls[0][0].style.width).toBe("384px");
+    toCanvas.mockClear();
+    await renderReceiptImage(makePos(renderer), makeOrder(), false, 10000);
+    expect(toCanvas.mock.calls[0][0].style.width).toBe("512px");
+  });
+
+  it("refuses an overflowing receipt instead of falling back to a clipped job", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    const renderer = {
+      toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
+      toJpeg: vi.fn().mockResolvedValue("LEGACY_CLIPPED_IMAGE"),
+    };
+    await expect(renderReceiptImage(makePos(renderer), makeOrder()))
+      .rejects.toThrow(/wider than the paper/);
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(toCanvas).not.toHaveBeenCalled();
+  });
+
+  it("a verified first-attempt paper overflow is terminal, not re-rendered with unbounded helpers", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(999);
+    const renderer = {
+      toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
+      toJpeg: vi.fn().mockResolvedValue("CLIPPED"),
+      toCanvas: vi.fn().mockResolvedValue(makeCanvas()),
+    };
+    await expect(renderReceiptImage(makePos(renderer), makeOrder(), false, 384))
+      .rejects.toThrow(/wider than the paper/);
+    expect(renderer.toHtml).toHaveBeenCalledTimes(1);
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(renderer.toCanvas).not.toHaveBeenCalled();
+    expect(toCanvas).not.toHaveBeenCalled();
+  });
+
+  it("never rasterizes a detached DOM node", async () => {
+    toCanvas.mockImplementation(async (node: HTMLElement) => {
+      expect(node.isConnected).toBe(true);
+      expect(node.classList.contains("yaseir-gateway-receipt")).toBe(true);
+      return makeCanvas();
+    });
+    const renderer = { toHtml: vi.fn().mockResolvedValue(document.createElement("div")) };
+    await renderReceiptImage(makePos(renderer), makeOrder());
+    expect(document.querySelector(".yaseir-gateway-receipt")).toBeNull();
   });
 });
 
@@ -169,14 +224,39 @@ describe("renderReceiptImage — no-fonts static contract", () => {
   it("rasterizes through the vendored build with web-font embedding disabled", () => {
     // Odoo's render_service.htmlToCanvas drops every option except addClass,
     // so skipFonts must reach html-to-image via a direct call.
-    expect(source).toContain('from "@point_of_sale/app/utils/html-to-image"');
-    expect(source).toContain("skipFonts: true");
+    const helper = readFileSync(resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/receipt_raster.js"), "utf8");
+    expect(source).toContain('from "./receipt_raster"');
+    expect(helper).toContain('from "@point_of_sale/app/utils/html-to-image"');
+    expect(helper).toContain("skipFonts: true");
+    expect(helper).toContain("renderer.whenMounted");
+    expect(helper).toContain("node.scrollWidth");
+    const css = readFileSync(resolve(process.cwd(), "odoo_addons/print_gateway/static/src/css/receipt_raster.css"), "utf8");
+    expect(css).toContain(".pos-receipt-amount");
+    expect(css).toContain(".pos-receipt-qr");
+    expect(css).toContain("flex-wrap: nowrap");
   });
 
-  it("keeps the full fallback chain for resilience", () => {
-    expect(source).toContain("renderer.toJpeg");
-    expect(source).toContain("renderer.toCanvas");
+  it("never caches POS receipt geometry by POS config across different printers", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/pos_print_router.js"),
+      "utf8",
+    );
+    const start = source.indexOf("async function gatewayReceiptRasterWidth(");
+    const end = source.indexOf("patch(PosStore.prototype", start);
+    expect(start).toBeGreaterThan(0);
+    const lookup = source.slice(start, end);
+    expect(lookup).toContain('"get_gateway_receipt_raster_width"');
+    expect(lookup).toContain("[[orderId]]");
+    expect(lookup).not.toContain("gatewayReceiptRasterWidths");
+    expect(lookup).not.toContain("cache.set(");
+    expect(lookup).not.toContain("5 * 60 * 1000");
+  });
+
+  it("never bypasses measured paper geometry through unbounded fallback helpers", () => {
+    expect(source).not.toContain("renderer.toJpeg");
+    expect(source).not.toContain("renderer.toCanvas");
     expect(source).toContain("renderer.toHtml");
     expect(source).toContain("renderToElement");
+    expect(source).toContain('if (err?.code === "POS_RECEIPT_GEOMETRY")');
   });
 });

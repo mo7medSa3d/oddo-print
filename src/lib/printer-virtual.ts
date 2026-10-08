@@ -48,6 +48,7 @@ const VIRTUAL_PORT_MONITORS = [
   "null:",
   "shrfax:", // Windows Shared Fax
   "fax:",
+  "brfax:", // Brother vendor software fax monitor
 ];
 
 function isVirtualPortMonitor(port: unknown): boolean {
@@ -71,6 +72,11 @@ const SOFTWARE_WRITER_TOKENS = [
   "microsoft print to pdf",
   "microsoft xps document writer",
   "microsoft shared fax",
+  "pc-fax",
+  "pc fax",
+  "pcfax",
+  "fax driver",
+  "fax v.",
   "send to onenote",
   "onenote",
   // Semantic families (language independent)
@@ -208,6 +214,18 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   // PORTPROMPT: even when no capabilities object was persisted.
   if (isVirtualPortMonitor(printer.port)) return true;
 
+  // Vendor FAX-only queues often share the same USB001/IP_* port as a real
+  // printer. A trailing FAX driver/queue label means facsimile transmission,
+  // not a paper print; keep older Gateway rows from routing to it.
+  const vendorFaxName = (value: unknown) => {
+    const text = lower(value);
+    return text === "fax" || text.endsWith(" fax") ||
+      text.endsWith("-fax") || text.endsWith(" (fax)");
+  };
+  if ([
+    printer.name, printer.driverName, caps?.driver_name, caps?.driverName,
+  ].some(vendorFaxName)) return true;
+
   // The driver (and PnP ids) identify a software writer or a session tunnel
   // far more reliably than the display name does.
   const hay = identityHaystack(caps, printer);
@@ -219,4 +237,20 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   // Legacy fallback: a row persisted before any metadata existed.
   if (!name) return false;
   return SOFTWARE_WRITER_TOKENS.some((pattern) => name.includes(pattern));
+}
+
+/**
+ * Deliberately configured Yaseir file-capture TEST destination. This remains
+ * virtual and is never eligible for Odoo/production routing. Only an
+ * authenticated Manager test-print request can opt into its admission.
+ */
+export function isVirtualCaptureTestRecord(printer: PrinterLike | null | undefined): boolean {
+  if (!printer) return false;
+  const caps = capabilitiesRecord(printer.capabilities);
+  return lower(printer.printerType) === "virtual"
+    && lower(printer.connectionType) === "spooler"
+    && lower(printer.protocol) === "spooler"
+    && caps?.virtual_test_sink === true
+    && lower(caps?.registration_source) === "config"
+    && isVirtualPrinterRecord(printer);
 }

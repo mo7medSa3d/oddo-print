@@ -9,9 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  *
  * This is the layer the P0 regression lived in — in-process route tests
  * bypass server.ts entirely. The suite skips when no production build
- * exists (run `npm run build` first; CI builds before running tests).
+ * exists locally. CI must supply a production build and fails closed when
+ * it is missing instead of silently reporting a green, skipped suite.
  */
 const hasProductionBuild = existsSync(join(process.cwd(), ".next", "BUILD_ID"));
+if (process.env.CI && !hasProductionBuild) {
+  throw new Error("HTTP acceptance requires npm run build before the integration phase");
+}
 const suite = describe.skipIf(!hasProductionBuild);
 
 const PORT = 3987;

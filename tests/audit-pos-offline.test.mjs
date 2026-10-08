@@ -25,6 +25,17 @@ async function loadHooks(file = "pos_print_router.js") {
   const common = new vm.SyntheticModule(Object.keys(mocks), function () {
     for (const [key, value] of Object.entries(mocks)) this.setExport(key, value);
   }, { context });
+  // This unit checks POS RPC/outcome logic, not pixel rendering. Supply an
+  // isolated raster boundary while the real pixel/layout contract is tested
+  // in tests/pos-receipt-font.test.ts against the actual module.
+  const raster = new vm.SyntheticModule([
+    "DEFAULT_RECEIPT_RASTER_WIDTH", "normalizedReceiptRasterWidth", "renderGatewayReceiptJpeg",
+  ], function () {
+    this.setExport("DEFAULT_RECEIPT_RASTER_WIDTH", 512);
+    this.setExport("normalizedReceiptRasterWidth", (value) =>
+      Number.isInteger(value) && value >= 288 && value <= 576 ? value : 512);
+    this.setExport("renderGatewayReceiptJpeg", async () => "VALIDJPEG");
+  }, { context });
   const asyncSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/async_control.js", import.meta.url), "utf8");
   const asyncControl = new vm.SourceTextModule(asyncSource, { context });
   await asyncControl.link(() => { throw new Error("async_control has no external imports"); });
@@ -34,7 +45,7 @@ async function loadHooks(file = "pos_print_router.js") {
   await limits.link(() => common);
   const source = await readFile(new URL(`../odoo_addons/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
   const loadedModule = new vm.SourceTextModule(source, { context });
-  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : common);
+  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : name === "./receipt_raster" ? raster : common);
   await loadedModule.evaluate();
   return { hooks, exports: loadedModule.namespace, mocks };
 }
@@ -156,6 +167,7 @@ test("sales report failed status does not toast success", async () => {
   assert.deepEqual(calls.map(([, method]) => method), [
     "is_gateway_printing_enabled",
     "get_sale_details",
+    "get_gateway_sale_details_raster_width",
     "action_print_gateway_sale_details",
   ]);
   assert.equal(notifications[0][1].type, "danger");

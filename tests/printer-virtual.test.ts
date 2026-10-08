@@ -13,6 +13,9 @@ const VIRTUAL = [
   { name: "print-to-FILE port", record: { port: "FILE:" } },
   { name: "NUL: port", record: { port: "NUL:" } },
   { name: "PORTPROMPT: port", record: { port: "PORTPROMPT:" } },
+  { name: "Canon G4070 FAX spooler", record: { name: "Canon G4070 series FAX", printerType: "physical", connectionType: "spooler", capabilities: { port_name: "USB001" } } },
+  { name: "Canon FAX driver behind normal queue", record: { name: "Canon G4070 series", printerType: "physical", driverName: "Canon G4070 series FAX", port: "USB001" } },
+  { name: "Vendor FAX on network port", record: { name: "HP OfficeJet Pro FAX", printerType: "physical", port: "IP_192.168.1.70" } },
   { name: "Foxit driver", record: { driverName: "Foxit PDF Printer" } },
   { name: "AnyDesk driver", record: { driverName: "AnyDesk Printer" } },
   { name: "Remote Desktop Easy Print driver", record: { driverName: "Remote Desktop Easy Print" } },
@@ -41,6 +44,11 @@ describe("printer virtual classification", () => {
 
   it("keeps 'physical IPP printer'", () => {
     expect(isVirtualPrinterRecord({ printerType: "physical", connectionType: "ipp", name: "Brother" })).toBe(false);
+  });
+
+  it("never treats a normal printer merely mentioning a fax room as software", () => {
+    expect(isVirtualPrinterRecord({ printerType: "physical", connectionType: "spooler", name: "Fax Room Laser Printer", driverName: "HP Universal Printing PCL 6" })).toBe(false);
+    expect(isVirtualPrinterRecord({ printerType: "physical", connectionType: "spooler", name: "Canon G4070 series", driverName: "Canon G4070 series Printer" })).toBe(false);
   });
 
   it("keeps 'physical Windows spooler printer'", () => {

@@ -2,8 +2,8 @@
  * Canonical test classification shared by the unit and PostgreSQL integration
  * Vitest configs and by the classification contract test.
  *
- * Keep database-dependent suites here. Unit tests must remain runnable without
- * PostgreSQL or other external services.
+ * Keep database- and production-build-dependent suites here. Unit tests must
+ * remain runnable without PostgreSQL, a production build or external services.
  */
 export const integrationVitestTestFiles = [
   "tests/control-plane-concurrency.integration.test.ts",
@@ -33,6 +33,7 @@ export const integrationVitestTestFiles = [
   "tests/discovery-identity.integration.test.ts",
   "tests/e2e-job-flow.test.ts",
   "tests/health.test.ts",
+  "tests/server-http-acceptance.test.ts",
   "tests/heartbeat-enabled.test.ts",
   "tests/job-maintenance.test.ts",
   "tests/job-status-postgres-concurrency.test.ts",
@@ -47,6 +48,7 @@ export const integrationVitestTestFiles = [
   "tests/printer-desired-state.test.ts",
   "tests/print-idempotency.test.ts",
   "tests/queue-payload-budget.test.ts",
+  "tests/virtual-capture-admission.test.ts",
   "tests/routing-availability.test.ts",
   "tests/runtime-constraints.test.ts",
   "tests/tenant-isolation.test.ts",
