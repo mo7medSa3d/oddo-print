@@ -3,4 +3,5 @@ export function renderReceiptImage(
   pos: unknown,
   currentOrder: unknown,
   basic?: boolean,
+  rasterWidth?: number,
 ): Promise<string>;
