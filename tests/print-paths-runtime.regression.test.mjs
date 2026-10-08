@@ -51,9 +51,9 @@ async function loadHooks(file = "pos_print_router.js", options = {}) {
   const root = new URL("../odoo_addons/print_gateway/static/src/js/", import.meta.url);
   const asyncControl = new vm.SourceTextModule(await readFile(new URL("async_control.js", root), "utf8"), { context });
   await asyncControl.link(() => { throw new Error("Unexpected async-control import"); });
-  const module = new vm.SourceTextModule(await readFile(new URL(file, root), "utf8"), { context });
-  await module.link((name) => name === "./receipt_raster" ? raster : name === "./async_control" ? asyncControl : common);
-  await module.evaluate();
+  const addonModule = new vm.SourceTextModule(await readFile(new URL(file, root), "utf8"), { context });
+  await addonModule.link((name) => name === "./receipt_raster" ? raster : name === "./async_control" ? asyncControl : common);
+  await addonModule.evaluate();
   return { hooks, state, controls };
 }
 
