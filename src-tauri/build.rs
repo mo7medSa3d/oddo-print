@@ -8,6 +8,7 @@ fn main() {
         "pair_agent",
         "get_gateway_config",
         "set_gateway_config",
+        "probe_gateway_health",
         "gateway_request",
         "gateway_agent_request",
         "clear_manager_session",
@@ -22,6 +23,8 @@ fn main() {
         "get_autostart",
         "set_autostart",
         "is_running_as_admin",
+        "relaunch_as_admin",
+        "set_tray_locale",
     ];
 
     tauri_build::try_build(
