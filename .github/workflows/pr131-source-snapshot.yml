@@ -9,30 +9,39 @@ permissions:
   contents: read
 
 jobs:
-  snapshot:
+  security-lock:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Checkout immutable audit source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 42425af7e4463a376a23c26721bce23adf268f63
+          ref: 75969fd4a3f2905075b4584aed114b428d434d80
           persist-credentials: false
-      - name: Archive committed source only
+      - name: Install patched Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.9
+          cache: false
+      - name: Regenerate and verify module lock
+        working-directory: agent
         shell: bash
+        env:
+          GOTOOLCHAIN: local
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 42425af7e4463a376a23c26721bce23adf268f63
-          mkdir -p "$RUNNER_TEMP/pr131-source"
-          git archive --format=tar.gz --prefix=oddo-print-pr131/ HEAD > "$RUNNER_TEMP/pr131-source/source.tar.gz"
-          git rev-parse HEAD > "$RUNNER_TEMP/pr131-source/SOURCE_COMMIT.txt"
-          git ls-tree -r HEAD > "$RUNNER_TEMP/pr131-source/SOURCE_TREE.txt"
-          cd "$RUNNER_TEMP/pr131-source"
-          sha256sum source.tar.gz > SHA256SUMS
-      - name: Upload short-lived private repository evidence
+          test "$(go env GOVERSION)" = go1.26.9
+          go mod edit -toolchain=go1.26.9
+          go get golang.org/x/net@v0.60.0
+          go mod tidy
+          go mod verify
+          git diff -- go.mod go.sum
+      - name: Upload reviewed lockfiles
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: pr131-source-42425af
-          path: ${{ runner.temp }}/pr131-source/
+          name: pr131-security-lock-go1.26.9
+          path: |
+            agent/go.mod
+            agent/go.sum
           retention-days: 1
           if-no-files-found: error
