@@ -1,0 +1,38 @@
+name: PR131 Source Snapshot
+
+on:
+  push:
+    branches: [audit/pr131-source-20261009]
+    paths: [.github/workflows/pr131-source-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout immutable audit source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 42425af7e4463a376a23c26721bce23adf268f63
+          persist-credentials: false
+      - name: Archive committed source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 42425af7e4463a376a23c26721bce23adf268f63
+          mkdir -p "$RUNNER_TEMP/pr131-source"
+          git archive --format=tar.gz --prefix=oddo-print-pr131/ HEAD > "$RUNNER_TEMP/pr131-source/source.tar.gz"
+          git rev-parse HEAD > "$RUNNER_TEMP/pr131-source/SOURCE_COMMIT.txt"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/pr131-source/SOURCE_TREE.txt"
+          cd "$RUNNER_TEMP/pr131-source"
+          sha256sum source.tar.gz > SHA256SUMS
+      - name: Upload short-lived private repository evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: pr131-source-42425af
+          path: ${{ runner.temp }}/pr131-source/
+          retention-days: 1
+          if-no-files-found: error
