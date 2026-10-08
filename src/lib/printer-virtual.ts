@@ -220,3 +220,19 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   if (!name) return false;
   return SOFTWARE_WRITER_TOKENS.some((pattern) => name.includes(pattern));
 }
+
+/**
+ * Deliberately configured Yaseir file-capture TEST destination. This remains
+ * virtual and is never eligible for Odoo/production routing. Only an
+ * authenticated Manager test-print request can opt into its admission.
+ */
+export function isVirtualCaptureTestRecord(printer: PrinterLike | null | undefined): boolean {
+  if (!printer) return false;
+  const caps = capabilitiesRecord(printer.capabilities);
+  return lower(printer.printerType) === "virtual"
+    && lower(printer.connectionType) === "spooler"
+    && lower(printer.protocol) === "spooler"
+    && caps?.virtual_test_sink === true
+    && lower(caps?.registration_source) === "config"
+    && isVirtualPrinterRecord(printer);
+}

@@ -306,7 +306,7 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 			// Only real printing hardware becomes a managed printer. Virtual,
 			// software and redirected queues never reach the registry, the
 			// heartbeat or the Gateway.
-			if !IsProductionPrinter(d) {
+			if !IsManagedPrinter(d) {
 				cls := ClassifyDeviceInfo(d)
 				log.Printf("[discovery] hiding non-physical printer: %q class=%s reasons=%v", d.Name, cls.Class, cls.Reasons)
 				continue
@@ -449,7 +449,7 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			// Only real printing hardware becomes a managed printer. Virtual,
 			// software and redirected queues never reach the registry, the
 			// heartbeat or the Gateway.
-			if !IsProductionPrinter(d) {
+			if !IsManagedPrinter(d) {
 				cls := ClassifyDeviceInfo(d)
 				log.Printf("[discovery] hiding non-physical printer: %q class=%s reasons=%v", d.Name, cls.Class, cls.Reasons)
 				continue

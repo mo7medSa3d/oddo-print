@@ -57,6 +57,10 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if spoolerName == "" {
 			return nil, fmt.Errorf("printer %s: spooler printer requires spooler_name or endpoint", cfg.ID)
 		}
+		if strings.EqualFold(spoolerName, VirtualCaptureSpoolerName) {
+			// A reserved synthetic queue never falls through to Winspool.
+			return NewVirtualCapturePrinter(cfg)
+		}
 		return NewSpooler(spoolerName, cfg.Name), nil
 
 	case "usb":
