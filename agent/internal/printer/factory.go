@@ -61,7 +61,9 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 			// A reserved synthetic queue never falls through to Winspool.
 			return NewVirtualCapturePrinter(cfg)
 		}
-		return NewSpooler(spoolerName, cfg.Name), nil
+		result := NewSpooler(spoolerName, cfg.Name)
+		result.ReceiptPaperMM, result.ReceiptRasterDots, result.ReceiptDPI = receiptPaperProfile(cfg)
+		return result, nil
 
 	case "usb":
 		if protoErr != nil {
@@ -102,6 +104,40 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 	default:
 		return nil, fmt.Errorf("printer %s: unknown printer type %q (expected network/usb/spooler/ipp)", cfg.ID, cfg.Type)
 	}
+}
+
+// receiptPaperProfile returns a verified operator-defined 58/80mm roll.
+// Unconfigured Windows queues are inspected from the driver's default form
+// immediately before a receipt image is dispatched.
+func receiptPaperProfile(cfg config.PrinterConfig) (paperMM, dots, dpi int) {
+	paperMM = cfg.PaperWidthMM
+	if paperMM == 0 {
+		if v, ok := capabilityInt(cfg.Capabilities["paper_width_mm"]); ok {
+			paperMM = v
+		}
+	}
+	if paperMM != 58 && paperMM != 80 {
+		return 0, 0, 0
+	}
+	if v, ok := capabilityInt(cfg.Capabilities["print_dpi"]); ok && (v == 180 || v == 203) {
+		dpi = v
+	} else if v, ok := capabilityInt(cfg.Capabilities["dpi"]); ok && (v == 180 || v == 203) {
+		dpi = v
+	}
+	if v, ok := capabilityInt(cfg.Capabilities["max_paper_width"]); ok && v >= 288 && v <= 576 {
+		dots = v
+	} else if paperMM == 58 {
+		if dpi == 180 {
+			dots = 360
+		} else {
+			dots = 384
+		}
+	} else if dpi == 203 {
+		dots = 576
+	} else {
+		dots = 512
+	}
+	return paperMM, dots, dpi
 }
 
 func capabilityProtocolListed(capabilities map[string]interface{}, protocol string) bool {

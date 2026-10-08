@@ -19,6 +19,25 @@ class PosOrderGatewayPrinting(models.Model):
             raise ValidationError(_("The rendered POS receipt image is required."))
         return self.env["print_gateway.print_router"].route_pos_receipt(self, image, idempotency_key=operation_id)
 
+    def get_gateway_receipt_raster_width(self):
+        """Resolve the real receipt binding before choosing browser pixels.
+
+        A separate, bounded runtime lookup is used only for receipt images.
+        No data is written; normal routing/authentication is still enforced
+        later when the actual print job is submitted.
+        """
+        self.ensure_one()
+        self.check_access("read")
+        company = self.config_id.company_id or self.company_id
+        if company != self.env.company:
+            raise ValidationError(_("The receipt must use the active Odoo company."))
+        router = self.env["print_gateway.print_router"]
+        route = router.resolve_binding(
+            record=self, company=company, document_type="receipt",
+            raise_if_not_found=False,
+        )
+        return router._receipt_width_for_route(route)
+
     def has_gateway_kitchen_binding(self, pos_printer_id=None):
         self.ensure_one()
         self.check_access("read")
@@ -74,6 +93,7 @@ class PosOrderGatewayPrinting(models.Model):
                 "category_ids": pos_printer.product_categories_ids.ids,
             }
             if route.get("binding"):
+                route_info["raster_width"] = router._receipt_width_for_route(route)
                 routes.append(route_info)
             else:
                 missing.append(route_info)
@@ -94,7 +114,8 @@ class PosOrderGatewayPrinting(models.Model):
         if fallback.get("binding"):
             return {
                 "mode": "pos_fallback",
-                "routes": [{"pos_printer_id": False, "category_ids": []}],
+                "routes": [{"pos_printer_id": False, "category_ids": [],
+                            "raster_width": router._receipt_width_for_route(fallback)}],
                 "missing_routes": [],
             }
         return {"mode": "missing", "routes": [], "missing_routes": []}

@@ -7,7 +7,7 @@ import { isGatewayTimeoutError, withGatewayDeadline } from "./async_control";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
-import { renderGatewayReceiptJpeg, DEFAULT_RECEIPT_RASTER_WIDTH } from "./receipt_raster";
+import { renderGatewayReceiptJpeg, normalizedReceiptRasterWidth, DEFAULT_RECEIPT_RASTER_WIDTH } from "./receipt_raster";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
@@ -137,6 +137,32 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
     return await elementToJpeg(receipt, renderer, rasterWidth);
 }
 
+// Fetch only once per POS/config every five minutes, never per receipt line.
+// Width is bound to the configured Gateway physical target (58/80mm and its
+// actual dot-density); unknown targets preserve Odoo 19's 512px default.
+// The Agent independently clamps the image to its backend's printable width.
+async function gatewayReceiptRasterWidth(pos, orderId) {
+    const key = String(pos.config?.id || pos.session?.config_id?.id || orderId);
+    const cache = (pos.gatewayReceiptRasterWidths ||= new Map());
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000) {
+        return hit.width;
+    }
+    let width = DEFAULT_RECEIPT_RASTER_WIDTH;
+    try {
+        const candidate = await gatewayDataCall(
+            pos, "pos.order", "get_gateway_receipt_raster_width", [[orderId]], {}, true,
+        );
+        width = normalizedReceiptRasterWidth(candidate);
+    } catch (error) {
+        // A missing/stale metadata endpoint must not force fallback to local
+        // browser printing. The Gateway will still authorize the real job.
+        console.warn("Gateway printer width unavailable; using Odoo's native receipt width:", error);
+    }
+    cache.set(key, { width, at: Date.now() });
+    return width;
+}
+
 patch(PosStore.prototype, {
     async printReceipt({ order, basic = false, printBillActionTriggered = false } = {}) {
         const currentOrder = order || this.getOrder();
@@ -172,7 +198,8 @@ patch(PosStore.prototype, {
                 return false;
             }
 
-            const image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic));
+            const rasterWidth = await gatewayReceiptRasterWidth(this, orderId);
+            const image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic, rasterWidth));
             // One operation identity per user click, with a bounded reuse
             // window for uncertain outcomes: a lost response retried with the
             // same id is deduplicated server-side, while a deliberate later
@@ -678,7 +705,9 @@ patch(PosStore.prototype, {
 
         try {
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
-            const image = await gatewayRender(() => elementToJpeg(receipt, this.env.services.renderer));
+            const image = await gatewayRender(() =>
+                elementToJpeg(receipt, this.env.services.renderer, route.raster_width)
+            );
             const result = await gatewayDataCall(
                 this,
                 "pos.order",

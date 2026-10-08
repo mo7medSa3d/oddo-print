@@ -102,6 +102,9 @@ type docInfo1 struct {
 type SpoolerPrinter struct {
 	Name        string
 	SpoolerName string
+	ReceiptPaperMM int
+	ReceiptRasterDots int
+	ReceiptDPI int
 	PDFPrint    PDFPrintFunc
 	// PDFPrintResult is an injectable result-bearing seam used by the Windows
 	// GDI/PDF path to propagate StartDocW job identity. Tests may override it.
@@ -1020,7 +1023,23 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 	case KindPDF:
 		return p.printPDFDocument(ctx, doc)
 	case KindImage:
-		pdf, err := JPEGToPDF(doc.Data)
+		if err := runDispatchAdmission(ctx); err != nil {
+			return fmt.Errorf("image spooler admission refused: %w", err)
+		}
+		roll, dots, dpi := p.ReceiptPaperMM, p.ReceiptRasterDots, p.ReceiptDPI
+		if roll == 0 {
+			// Read the actual Windows driver paper form. Never infer 80mm
+			// from product names: the same queue can be configured for A4.
+			roll, dots, dpi = spoolerDetectedReceiptPaper(ctx, p.SpoolerName)
+		}
+		var pdf []byte
+		var err error
+		if roll == 58 || roll == 80 {
+			pdf, err = JPEGToPDFReceipt(doc.Data, roll, dots, dpi)
+		} else {
+			// A4/Letter and unknown paper keep generic image behavior.
+			pdf, err = JPEGToPDF(doc.Data)
+		}
 		if err != nil {
 			return fmt.Errorf("render image for Windows spooler: %w", err)
 		}

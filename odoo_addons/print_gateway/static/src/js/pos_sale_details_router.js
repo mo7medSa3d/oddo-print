@@ -90,7 +90,18 @@ patch(SaleDetailsButton.prototype, {
                         formatCurrency: this.pos.env.utils.formatCurrency,
                     })
                 );
-                image = await elementToJpeg(report, this.env.services.render);
+                let rasterWidth = 512;
+                try {
+                    rasterWidth = await this.pos.data.call(
+                        "pos.session", "get_gateway_sale_details_raster_width", [[sessionId]], {}, true,
+                    );
+                } catch (error) {
+                    console.warn("Sale Details printer width unavailable, using native 512px:", error);
+                }
+                image = await renderGatewayReceiptJpeg(report, {
+                    renderer: this.env.services.renderer,
+                    width: rasterWidth,
+                });
             }
             this.pos.gatewaySaleDetailsPending = true;
             let result;

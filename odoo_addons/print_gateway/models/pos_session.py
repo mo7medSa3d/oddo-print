@@ -14,6 +14,21 @@ class PosSessionGatewayPrinting(models.Model):
             raise ValidationError(_("Gateway printing must use the active Odoo company."))
         return bool(self.env["print_gateway.print_router"]._gateway_config(self.env.company))
 
+    def get_gateway_sale_details_raster_width(self):
+        """Sale Details shares the same POS receipt printer binding."""
+        self.ensure_one()
+        self.check_access("read")
+        if self.company_id != self.env.company:
+            raise ValidationError(_("Gateway printing must use the active Odoo company."))
+        router = self.env["print_gateway.print_router"]
+        route = router.resolve_binding(
+            company=self.env.company,
+            document_type="receipt",
+            explicit_destination=self.config_id,
+            raise_if_not_found=False,
+        )
+        return router._receipt_width_for_route(route)
+
     def action_print_gateway_sale_details(self, image, operation_id=None):
         self.ensure_one()
         self.check_access("read")
