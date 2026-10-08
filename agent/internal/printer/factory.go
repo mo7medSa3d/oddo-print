@@ -34,7 +34,9 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		case "raw", "escpos", "zpl", "tspl":
 			rasterWidth := RasterMaxWidthFromCapabilities(cfg.Capabilities)
 			if cfg.PaperWidthMM > 0 {
-				rasterWidth = RasterMaxWidthFromPaperWidthMM(cfg.PaperWidthMM)
+				// The paper roll alone cannot justify 576 dots on an 80mm
+				// 180dpi printer. Keep the operator's exact dot width/DPI.
+				rasterWidth = RasterMaxWidthForConfiguredPaper(cfg.PaperWidthMM, cfg.Capabilities)
 			}
 			return &NetworkPrinter{Address: cfg.Endpoint, Protocol: proto, RasterMaxWidth: rasterWidth}, nil
 		case "ipp", "ipps":

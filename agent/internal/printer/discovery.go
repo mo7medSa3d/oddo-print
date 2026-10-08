@@ -803,7 +803,7 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 		}
 		if pc.PaperWidthMM > 0 {
 			if _, ok := caps["max_paper_width"]; !ok {
-				caps["max_paper_width"] = RasterMaxWidthFromPaperWidthMM(pc.PaperWidthMM)
+				caps["max_paper_width"] = RasterMaxWidthForConfiguredPaper(pc.PaperWidthMM, pc.Capabilities)
 			}
 		}
 		caps["registration_source"] = "config"
