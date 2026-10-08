@@ -731,8 +731,6 @@ export default function App() {
     };
   }, [savedGatewayUrl, probeGateway]);
 
-  }, [savedGatewayUrl, probeGateway]);
-
   useEffect(() => {
     if (savedGatewayUrl) refreshPrinters();
   }, [savedGatewayUrl, refreshPrinters]);
