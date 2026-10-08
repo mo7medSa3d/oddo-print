@@ -82,8 +82,9 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 		return nil, fmt.Errorf("PDF render exceeds %d pixel budget", maxPDFRenderPixels)
 	}
 	img, cleanup, err := renderPageWithContext(ctx, instance, &requests.RenderPageInPixels{
-		Page: requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
-		Width: width, Height: height,
+		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
+		Width:  width,
+		Height: height,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("render PDF page to JPEG for IPP: %w", err)
