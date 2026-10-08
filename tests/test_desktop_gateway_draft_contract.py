@@ -18,7 +18,9 @@ def test_candidate_probe_is_non_mutating_and_public_only():
     body = function_slice(rust, "pub async fn probe_gateway_health", "fn configured_gateway_origin")
     assert "normalize_gateway_url(&url)" in body
     assert '.join("api/agent/probe")' in body
-    assert "redirect(reqwest::redirect::Policy::none())" in body
+    assert "gateway_http_client()" in body
+    client = function_slice(rust, "fn gateway_http_client", "async fn read_response_body_limited")
+    assert "redirect(reqwest::redirect::Policy::none())" in client
     assert "bearer_auth" not in body
     assert "manager_session" not in body
     assert "set_gateway_config" not in body
