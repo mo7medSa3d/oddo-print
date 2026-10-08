@@ -306,7 +306,7 @@ function upgradeLimitFromLimitSignal(limit: {
   };
 }
 
-async function sendGatewayTestPage(printerId: string): Promise<void> {
+async function sendGatewayTestPage(printerId: string): Promise<{ virtualCapture: boolean }> {
   const response = await fetchWithTimeout(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
     credentials: "same-origin",
@@ -316,7 +316,7 @@ async function sendGatewayTestPage(printerId: string): Promise<void> {
     },
   });
   const body = await response.json().catch(() => null) as Record<string, unknown> | null;
-  if (response.ok) return;
+  if (response.ok) return { virtualCapture: body?.virtualCapture === true };
   const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
   throw new DashboardApiError(apiMessageKey(code, response.status, "errors.testPageFailed"), code, obj);
@@ -920,9 +920,9 @@ export default function DashboardClient({
     setTestingPrinterId(printerId);
     setMessage(null);
     try {
-      await sendGatewayTestPage(printerId);
+      const { virtualCapture } = await sendGatewayTestPage(printerId);
       setMessage({
-        text: t("success.testPageSubmitted", { printer: printerName }),
+        text: t(virtualCapture ? "success.virtualTestQueued" : "success.testPageSubmitted", { printer: printerName }),
         type: "ok",
       });
       void refreshData();

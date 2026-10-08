@@ -17,11 +17,11 @@ In the **Gateway server environment**, set:
 YASEIR_GATEWAY_VIRTUAL_TEST_MODE=1
 ```
 
-Restart the Agent Windows Service and Gateway so both processes receive the environment variables. These flags default to OFF. Enable only on a test environment and disable after testing. The Gateway accepts virtual output only for an RBAC-authorized **Manager Test Print**, never Odoo production printing, automatic routing, force reprint, or an arbitrary API job.
+Set the variables in the actual service/server launch environment (not just a temporary PowerShell session). Restart the Agent Windows Service and Gateway so both processes receive them. These flags default to OFF. Enable only on a test environment and disable after testing. The Gateway accepts virtual output only for an RBAC-authorized **Manager Test Print**, never Odoo production printing, automatic routing, force reprint, or an arbitrary API job.
 
-## 2. Add the special virtual capture printer to the Agent's `agent.yaml`
+## 2. Add the special virtual capture printer to the Agent's `config.yaml`
 
-Append the following to the existing `printers:` list (or create the list if it is absent). Do not overwrite the existing `server` or `agent` configuration:
+By default on Windows, edit `C:\\ProgramData\\YaseirAgent\\config.yaml` with administrative rights (or your `YASEIR_AGENT_DATA_DIR` override). Append the following to the existing `printers:` list (or create it if absent). Do not overwrite existing `server`, `agent`, pairing secrets, or other printer entries:
 
 ```yaml
 printers:
