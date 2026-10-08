@@ -23,6 +23,9 @@ func TestIPPWindowsOnePagePDFToJPEG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PDFium-to-JPEG fallback failed: %v", err)
 	}
+	if !bytes.HasPrefix(result, []byte{0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 'J', 'F', 'I', 'F', 0, 1, 2}) {
+		t.Fatal("IPP JPEG missing JFIF 1.02 APP0 header")
+	}
 	if !bytes.HasPrefix(result, []byte{0xff, 0xd8, 0xff}) {
 		t.Fatalf("fallback output is not a JPEG")
 	}

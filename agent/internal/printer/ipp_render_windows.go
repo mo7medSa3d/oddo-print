@@ -110,5 +110,5 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if output.Len() == 0 || output.Len() > maxPrintBytes {
 		return nil, fmt.Errorf("IPP JPEG output %d bytes exceeds %d-byte print job limit", output.Len(), maxPrintBytes)
 	}
-	return output.Bytes(), nil
+	return wrapIPPPayloadAsJFIF(output.Bytes(), 200)
 }

@@ -65,7 +65,8 @@ func encodePWGPage(out *bytes.Buffer, img *image.RGBA, dpi, totalPages int, page
 	put(452, uint32(totalPages))                // TotalPageCount
 	put(456, 1)                                 // CrossFeedTransform = normal
 	put(460, 1)                                 // FeedTransform = normal
-	put(480, 0x00ffffff)                        // AlternatePrimary (white)
+	// Remaining vendor/optional header fields are reserved as zero (PWG
+	// Raster 5102.4); avoid injecting unsupported alternate-primary values.
 	out.Write(header)
 	if out.Len() > maxPrintBytes {
 		return fmt.Errorf("PWG page header exceeds output budget")

@@ -83,7 +83,7 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 		// RaS2 stream before one Print-Job; do not send raw bitmap bytes.
 		pwg, err := renderIPPPDFToPWG(ctx, data, attrs)
 		if err != nil {
-			return fmt.Errorf("IPP printer %s supports PWG Raster but rendering failed before submission: %w", p.URL, err)
+			return fmt.Errorf("IPP printer %s supports image/pwg-raster but conversion failed before submission: %w. Configure the installed Windows spooler driver if this device needs a format variant the Agent cannot encode", p.URL, err)
 		}
 		return p.printDocument(ctx, pwg, "image/pwg-raster")
 	}

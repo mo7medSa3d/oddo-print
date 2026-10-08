@@ -150,3 +150,28 @@ func TestIPPRejectedDocumentFormatReturnsActionableErrorWithoutRetry(t *testing.
 		t.Fatalf("unsafe retry after explicit 0x040a: %d Print-Jobs", count)
 	}
 }
+
+func TestIPPUnknownAdvertisedMimeMustNeverTriggerPDF(t *testing.T) {
+	var count int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := readAll(r.Body)
+		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000B {
+			_, _ = w.Write(ippAttrResponse("application/x-unknown-printer-language"))
+			return
+		}
+		count++
+		t.Error("unsupported and explicitly reported format must not be sent as native PDF")
+	}))
+	defer server.Close()
+	p, err := NewIPPPrinter(server.URL, "unsupported MIME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
+	if err == nil || !strings.Contains(err.Error(), "document-format-supported") {
+		t.Fatalf("expected explicit capabilities mismatch, got %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("unsupported print requests made: %d", count)
+	}
+}
