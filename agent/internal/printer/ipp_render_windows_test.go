@@ -46,7 +46,7 @@ func TestIPPWindowsJPEGOnlyPrinterReceivesConvertedDocument(t *testing.T) {
 		switch binary.BigEndian.Uint16(body[2:4]) {
 		case 0x000B:
 			probes++
-			_, _ = w.Write(ippAttrResponse("image/jpeg", "image/pwg-raster"))
+			_, _ = w.Write(ippAttrResponse("image/jpeg"))
 		case 0x0002:
 			prints++
 			if !bytes.Contains(body, []byte("image/jpeg")) {

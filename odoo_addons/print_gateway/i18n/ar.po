@@ -1110,6 +1110,7 @@ msgid "Gateway printing is not enabled for company %s"
 msgstr "طباعة الـ Gateway غير مُفعّلة للشركة %s"
 
 #. module: print_gateway
+#: code:addons/print_gateway/models/pos_order.py:0
 #: code:addons/print_gateway/models/pos_session.py:0
 msgid "Gateway printing must use the active Odoo company."
 msgstr "يجب أن تستخدم طباعة الـ Gateway شركة Odoo النشطة."
