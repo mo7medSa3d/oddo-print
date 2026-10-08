@@ -18,6 +18,15 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
+func serviceRemovalAlreadyComplete(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, service.ErrNotInstalled) ||
+		errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) ||
+		errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE)
+}
+
 func serviceCommandExecutable(binaryPath string) (string, error) {
 	value := strings.TrimSpace(binaryPath)
 	if value == "" {
@@ -93,7 +102,7 @@ func verifyCurrentAgentServiceOwnershipIfPresent() error {
 	defer manager.Disconnect()
 	existing, err := manager.OpenService("YaseirAgent")
 	if err != nil {
-		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		if serviceRemovalAlreadyComplete(err) {
 			return nil
 		}
 		return fmt.Errorf("open YaseirAgent service for ownership verification: %w", err)
@@ -321,7 +330,7 @@ func purgeLegacyAgentServices() error {
 	for _, name := range []string{"YasserAgent", "OdooPrintAgent"} {
 		existing, err := manager.OpenService(name)
 		if err != nil {
-			if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			if serviceRemovalAlreadyComplete(err) {
 				continue
 			}
 			return fmt.Errorf("open legacy service %s: %w", name, err)
@@ -401,6 +410,9 @@ func purgeAutostartRegistry() {
 }
 
 func purgePaths(roots []string) error {
+	const attempts = 3
+	const retryDelay = 200 * time.Millisecond
+
 	var failures []string
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
@@ -413,8 +425,19 @@ func purgePaths(roots []string) error {
 			continue
 		}
 		seen[key] = struct{}{}
-		if err := os.RemoveAll(root); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+
+		var lastErr error
+		for attempt := 0; attempt < attempts; attempt++ {
+			lastErr = os.RemoveAll(root)
+			if lastErr == nil {
+				break
+			}
+			if attempt+1 < attempts {
+				time.Sleep(retryDelay)
+			}
+		}
+		if lastErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", root, lastErr))
 		}
 	}
 	if len(failures) > 0 {

@@ -2,7 +2,12 @@
 
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kardianos/service"
+	"golang.org/x/sys/windows"
+)
 
 func TestServiceCommandExecutableQuotedWithArguments(t *testing.T) {
 	got, err := serviceCommandExecutable(`"C:\Program Files\Yaseir\resources\YaseirAgent.exe" -config "C:\ProgramData\YaseirAgent\config.yaml"`)
@@ -81,5 +86,21 @@ func TestLegacyServiceCandidatesStayInsideCurrentInstallation(t *testing.T) {
 		if candidate == `C:\Other Product\YasserAgent.exe` {
 			t.Fatal("unrelated same-name executable must never become a trusted legacy candidate")
 		}
+	}
+}
+
+
+func TestServiceRemovalAlreadyCompleteAcceptsAbsentOrPendingDeletion(t *testing.T) {
+	for _, err := range []error{
+		service.ErrNotInstalled,
+		windows.ERROR_SERVICE_DOES_NOT_EXIST,
+		windows.ERROR_SERVICE_MARKED_FOR_DELETE,
+	} {
+		if !serviceRemovalAlreadyComplete(err) {
+			t.Fatalf("service removal should treat %v as already complete", err)
+		}
+	}
+	if serviceRemovalAlreadyComplete(windows.ERROR_ACCESS_DENIED) {
+		t.Fatal("access denied must remain a fatal service-removal error")
 	}
 }
