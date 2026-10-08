@@ -71,7 +71,10 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 		return fmt.Errorf("IPP printer %s is rejecting new jobs; resume the printer before attempting submission", p.URL)
 	}
 	formats := parseIPPSupportedFormats(attrs)
-	if len(formats) == 0 || containsIPPFormat(formats, ippFormatPDF) {
+	// An absent format attribute is ambiguous on legacy printers; a PRESENT
+	// attribute with unfamiliar MIME names is explicit evidence that none of
+	// our formats match and must never silently restore a PDF fallback.
+	if strings.TrimSpace(attrs["document-format-supported"]) == "" || containsIPPFormat(formats, ippFormatPDF) {
 		return p.printDocument(ctx, data, ippFormatPDF)
 	}
 	if containsIPPFormat(formats, "image/pwg-raster") {
