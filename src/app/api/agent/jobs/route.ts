@@ -49,22 +49,16 @@ const printerEligibilityPredicate = (tenantId: SQL) => sql`
 const MAX_CLAIM_BATCH = 20;
 const MAX_ERROR_LENGTH = 2000;
 
-// MAX_POLL_RESPONSE_BYTES bounds one serialized poll response BELOW the
-// agent's inbound reader (agent/internal/agent/agent.go pollJobsByteLimit =
-// 20 × 5 MiB = 100 MiB). Budgets are measured on the encoded wire form:
-// base64 has no JSON-escapable characters, so payload data length plus a
-// fixed per-row overhead is exact for the bulk. Twenty maximum-size jobs
-// would frame at ~140 MiB and the agent would fail the whole batch decode
-// while the claims stayed delivery-pending; trimming here returns what fits
-// and the stale-claim path safely reclaims the remainder on a later poll.
+// Select only the jobs whose combined encoded JSON payloads fit the Agent's
+// poll reader (20 x 5 MiB). This budget MUST be applied BEFORE the UPDATE:
+// claiming first and trimming the HTTP response would leave never-sent jobs
+// marked DELIVERY_EVIDENCE_PENDING, so maintenance would treat them as an
+// ambiguous physical delivery and forbid their automatic retry.
 const MAX_POLL_RESPONSE_BYTES = 64 * 1024 * 1024;
+// Covers all non-payload wire fields, JSON framing and escaping. The SQL
+// budget uses octet_length(payload::text), including the full encoded JSON
+// payload (not just data.length), so this is deliberately conservative.
 const POLL_ROW_OVERHEAD_BYTES = 2048;
-
-function estimatedPollRowBytes(row: Record<string, unknown>): number {
-  const payload = row.payload as { data?: unknown } | null | undefined;
-  const dataLen = payload && typeof payload.data === "string" ? payload.data.length : 0;
-  return dataLen + POLL_ROW_OVERHEAD_BYTES;
-}
 
 /**
  * CLAIM_RETURNING rows come back from raw execute() as naive UTC timestamp
@@ -206,7 +200,7 @@ export async function GET(req: Request) {
         SELECT id, created_at, priority FROM queued_candidates
       ),
       claimable AS (
-        SELECT p.id
+        SELECT p.id, c.priority, c.created_at
         FROM print_jobs p
         JOIN candidate_ids c ON c.id = p.id
         JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
@@ -222,6 +216,19 @@ export async function GET(req: Request) {
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${queuedLimit}
         FOR UPDATE OF p, a, pr, t SKIP LOCKED
+      ),
+      ranked_claimable AS (
+        SELECT c.id,
+          SUM(octet_length(p.payload::text) + ${POLL_ROW_OVERHEAD_BYTES}) OVER (
+            ORDER BY c.priority, c.created_at, c.id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS estimated_response_bytes
+        FROM claimable c
+        JOIN print_jobs p ON p.id = c.id
+      ),
+      bounded_claimable AS (
+        SELECT id FROM ranked_claimable
+        WHERE estimated_response_bytes <= ${MAX_POLL_RESPONSE_BYTES}
       )
       UPDATE print_jobs
       SET
@@ -237,8 +244,8 @@ export async function GET(req: Request) {
         retries = CASE WHEN print_jobs.status = 'claimed'
                        THEN print_jobs.retries + 1
                        ELSE print_jobs.retries END
-      FROM claimable
-      WHERE print_jobs.id = claimable.id
+      FROM bounded_claimable
+      WHERE print_jobs.id = bounded_claimable.id
         AND ${liveTenantSubscriptionPredicate(sql`print_jobs.tenant_id`)}
       RETURNING ${CLAIM_RETURNING}
     `);
@@ -258,21 +265,10 @@ export async function GET(req: Request) {
     physicalOutcome: derivePhysicalOutcome(String(row.status ?? ""), typeof row.error === "string" ? row.error : null),
   }));
 
-  // Fill the response in claim (priority, age) order without exceeding the
-  // wire budget. Claimed-but-unreturned rows keep their fenced claim with
-  // delivery-pending evidence; the stale-claim path reclaims them on a
-  // later poll (burning one retry, never duplicating physical output since
-  // nothing was dispatched). The first row is always returned to guarantee
-  // progress even if a single document ever approaches the budget alone.
-  const budgeted: Array<Record<string, unknown>> = [];
-  let usedBytes = 2; // outer JSON array brackets
-  for (const row of mapped) {
-    const cost = estimatedPollRowBytes(row) + 1; // +1 separator comma
-    if (budgeted.length > 0 && usedBytes + cost > MAX_POLL_RESPONSE_BYTES) break;
-    budgeted.push(row);
-    usedBytes += cost;
-  }
-  return NextResponse.json(budgeted);
+  // Every claimed row fits the conservative response budget by construction.
+  // Never truncate here: returning fewer jobs than we claimed would turn
+  // undelivered jobs into permanent unknown-outcome failures.
+  return NextResponse.json(mapped);
 }
 
 function stageForStatus(status: string): "printing" | "success" | "failed" | "expired" | "blocked" | "delivery" | "accepted" | "connection" {
