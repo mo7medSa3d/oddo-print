@@ -2271,6 +2271,7 @@ export const ar: Catalog = {
   "errors.invitationDeliveryUnavailable": "أُنشئت الدعوة، لكن تعذّر تأكيد إرسال البريد. الرابط مُفعّل بالفعل — لا تُرسل دعوة أخرى.",
   "job.payloadTruncated": "… تم اختصار المعاينة عند {size}. انسخ البيانات لعرضها كاملة.",
   "success.testPageSubmitted": "تم إرسال الصفحة التجريبية إلى {printer}. تابع حالتها في «مهام الطباعة الأخيرة».",
+  "success.virtualTestQueued": "تم إدراج اختبار الطابعة الافتراضية {printer}. لن تُطبع ورقة؛ افحص الملف الناتج على جهاز الوكيل بعد نجاح المهمة.",
   "success.reprintQueued": "تم إدراج إعادة الطباعة لـ {printer} في قائمة الانتظار.",
   "success.reprintQueuedWithJob": "تم إدراج إعادة الطباعة لـ {printer} في قائمة الانتظار (المهمة {job}).",
   "success.agentRegisteredWithCode": "تم تسجيل الوكيل. استخدم رمز الربط {code} قبل انتهاء صلاحيته.",

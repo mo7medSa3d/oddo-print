@@ -16,8 +16,29 @@ func rasterWidthFromESCPOS(data []byte) int {
 }
 
 func TestRasterMaxWidthFromDesiredPaperWidth(t *testing.T) {
-	if got := RasterMaxWidthFromPaperWidthMM(80); got != 576 {
-		t.Fatalf("80mm desired paper width: got %d dots, want 576", got)
+	if got := RasterMaxWidthFromPaperWidthMM(80); got != 512 {
+		t.Fatalf("80mm unknown-DPI paper: got %d dots, want conservative 512", got)
+	}
+}
+
+func TestRasterWidthHonorsReal80mmResolutionAndOperatorDots(t *testing.T) {
+	for _, test := range []struct {
+		caps map[string]interface{}
+		want int
+	}{
+		{map[string]interface{}{"print_dpi": 180}, 512},
+		{map[string]interface{}{"print_dpi": 203}, 576},
+		{map[string]interface{}{"print_dpi": 180, "max_paper_width": 512}, 512},
+		{map[string]interface{}{"print_dpi": 203, "max_paper_width": 512}, 512},
+		{map[string]interface{}{"max_paper_width": 576}, 576},
+		{nil, 512},
+	} {
+		if got := RasterMaxWidthForConfiguredPaper(80, test.caps); got != test.want {
+			t.Errorf("80mm dimensions: caps=%v got=%d want=%d", test.caps, got, test.want)
+		}
+	}
+	if got := RasterMaxWidthForConfiguredPaper(58, map[string]interface{}{"max_paper_width": 420, "print_dpi": 203}); got != 420 {
+		t.Fatalf("58mm Epson-style 420-dot printable area was truncated: %d", got)
 	}
 }
 
@@ -31,7 +52,7 @@ func TestRasterMaxWidthFromCapabilities(t *testing.T) {
 		{"explicit 58mm", map[string]interface{}{"max_paper_width": 58}, 384},
 		{"explicit 576 dots", map[string]interface{}{"max_paper_width": 576}, 576},
 		{"legacy narrow set", map[string]interface{}{"paper_widths": []int{58, 80}}, 384},
-		{"json numbers", map[string]interface{}{"paper_widths": []interface{}{80.0}}, 576},
+		{"json numbers", map[string]interface{}{"paper_widths": []interface{}{80.0}}, 512},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

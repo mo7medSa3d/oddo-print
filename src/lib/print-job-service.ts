@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { agents, printJobs, printers, printJobReceipts } from "../db/schema";
 import { db } from "../db";
-import { isVirtualPrinterRecord } from "./printer-virtual";
+import { isVirtualPrinterRecord, isVirtualCaptureTestRecord } from "./printer-virtual";
 import { isPrinterStatusExecutable, validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
 import { and, eq, sql } from "drizzle-orm";
@@ -84,6 +84,8 @@ export type CreatePrintJobOptions = {
   expiresAt?: Date;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
+  /** Only the RBAC-protected Manager test-print route may authorize a virtual file capture. */
+  allowVirtualTestCapture?: boolean;
   /** Generate a serialized operator reprint key for this original job inside the enqueue transaction. */
   reprintOfJobId?: string | null;
 };
@@ -104,7 +106,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture,
 }: {
   jobId: string;
   printerId: string;
@@ -119,6 +121,7 @@ async function insertQueuedJobAtomically({
   rateLimitKeyId?: string | null;
   requestId?: string | null;
   reprintOfJobId?: string | null;
+  allowVirtualTestCapture?: boolean;
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
@@ -324,8 +327,27 @@ async function insertQueuedJobAtomically({
     if (owner.tenant_lifecycle !== "active") {
       throw new PrintJobInputError(`Workspace is ${owner.tenant_lifecycle ?? "unavailable"}`, "TENANT_UNAVAILABLE", 409);
     }
-    if (isVirtualPrinterRecord({ name: owner.printer_name, printerType: owner.printer_type, deviceClass: owner.printer_device_class, protocol: owner.printer_protocol, connectionType: owner.printer_connection_type, capabilities: owner.printer_capabilities })) {
-      throw new PrintJobInputError("Printer is virtual or redirected", "PRINTER_VIRTUAL", 409);
+    const printerIdentity = {
+      name: owner.printer_name,
+      printerType: owner.printer_type,
+      deviceClass: owner.printer_device_class,
+      protocol: owner.printer_protocol,
+      connectionType: owner.printer_connection_type,
+      capabilities: owner.printer_capabilities,
+    };
+    // Strictly TEST-ONLY: both services must opt in, the row must be an
+    // explicit Yaseir virtual capture, and only the authenticated Manager
+    // test-print route supplies allowVirtualTestCapture. Production/Odoo/
+    // reprint API jobs remain forbidden even when the feature is enabled.
+    const virtualCaptureAuthorized = allowVirtualTestCapture === true
+      && process.env.YASEIR_GATEWAY_VIRTUAL_TEST_MODE === "1"
+      && requestedBy === "manager-test"
+      && documentType === "test_page"
+      && !rateLimitKeyId
+      && !reprintOfJobId
+      && isVirtualCaptureTestRecord(printerIdentity);
+    if (isVirtualPrinterRecord(printerIdentity) && !virtualCaptureAuthorized) {
+      throw new PrintJobInputError("Printer is virtual or redirected; use an explicitly enabled Manager virtual test printer", "PRINTER_VIRTUAL", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
@@ -389,7 +411,13 @@ async function insertQueuedJobAtomically({
     const counts = await tx.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now())::int AS agent_queued,
-        COALESCE(SUM(pg_column_size(payload)) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now()), 0)::bigint AS agent_queued_payload_bytes,
+        -- pg_column_size() measures TOAST-compressed STORAGE bytes and can
+        -- undercount a 5 MiB repetitive/base64 print payload by 100x+. The
+        -- 128 MiB queue ceiling is a LOGICAL decoded-from-DB/HTTP memory
+        -- budget: use uncompressed JSON text bytes for existing rows, just
+        -- as we use JSON.stringify bytes for the incoming row. The agent
+        -- lock above serializes admission, so the aggregate is atomic.
+        COALESCE(SUM(octet_length(payload::text)) FILTER (WHERE agent_id = ${agentId} AND status = 'queued' AND expires_at > now()), 0)::bigint AS agent_queued_payload_bytes,
         COUNT(*) FILTER (WHERE agent_id = ${agentId} AND status IN ('claimed', 'printing') AND expires_at > now())::int AS agent_in_flight
       FROM print_jobs WHERE tenant_id = ${tenantId} AND agent_id = ${agentId}
     `);
@@ -483,6 +511,7 @@ export async function createPrintJobForPrinter(
     rateLimitKeyId: options.rateLimitKeyId ?? null,
     requestId: options.requestId ?? null,
     reprintOfJobId: options.reprintOfJobId ?? null,
+    allowVirtualTestCapture: options.allowVirtualTestCapture === true,
     tenantId: options.tenantId,
   });
   logInfo("print.trace.gateway_enqueue", {

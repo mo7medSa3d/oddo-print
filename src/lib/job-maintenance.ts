@@ -29,7 +29,7 @@ const DEFAULT_RETENTION_BATCH = 500;
  */
 export async function cleanupTerminalPrintJobs(scope: { agentId?: string } = {}): Promise<number> {
   const parsedLimit = Number(process.env.JOB_RETENTION_SWEEP_LIMIT);
-  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+  const limit = Number.isFinite(parsedLimit) && parsedLimit >= 1
     ? Math.min(Math.floor(parsedLimit), 5000)
     : DEFAULT_RETENTION_BATCH;
   const agentFilter = scope.agentId ? sql`AND agent_id = ${scope.agentId}` : sql``;
@@ -103,7 +103,11 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
   // cascading failures. Remaining rows are processed in subsequent sweep ticks
   // without contention (SKIP LOCKED prevents worker pile-up).
   const parsedLimit = Number(process.env.MAINTENANCE_SWEEP_LIMIT);
-  const SWEEP_BATCH = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 200;
+  // Keep all eight sweeper UPDATEs bounded even for a mistyped env override.
+  // Fractional values < 1 must not round down to LIMIT 0 and disable recovery.
+  const SWEEP_BATCH = Number.isFinite(parsedLimit) && parsedLimit >= 1
+    ? Math.min(Math.floor(parsedLimit), 5000)
+    : 200;
 
   const expired = await db.execute(sql`
     WITH candidates AS (

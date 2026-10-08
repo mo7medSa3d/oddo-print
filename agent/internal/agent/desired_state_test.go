@@ -65,8 +65,24 @@ func TestDesiredStatePassesExplicit80mmPaperWidthSeparatelyFromObservedCapabilit
 		t.Fatalf("create backend: %v", err)
 	}
 	network, ok := backend.(*printer.NetworkPrinter)
+	if !ok || network.RasterMaxWidth != 512 {
+		t.Fatalf("80mm roll without verified DPI must use safe 512 dots, not assume 576: %#v", backend)
+	}
+	// The manager can provide a device's measured 203dpi printable width;
+	// observed protocols must not discard this explicit print geometry.
+	row.Desired.Config["print_dpi"] = 203
+	row.Desired.Config["max_paper_width"] = 576
+	cfg = desiredPrinterConfig(row)
+	if cfg.Capabilities["max_paper_width"] != 576 || cfg.Capabilities["print_dpi"] != 203 {
+		t.Fatalf("configured 203dpi/576-dot profile was lost: %#v", cfg.Capabilities)
+	}
+	backend, err = printer.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network, ok = backend.(*printer.NetworkPrinter)
 	if !ok || network.RasterMaxWidth != 576 {
-		t.Fatalf("80mm desired width did not reach renderer backend: %#v", backend)
+		t.Fatalf("explicit 203dpi/576-dot width must reach actual transport: %#v", backend)
 	}
 }
 

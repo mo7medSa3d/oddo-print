@@ -3,7 +3,6 @@ package printer
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -20,13 +19,10 @@ import (
 // IPPPrinter implements IPP/IPPS printing via HTTP POST to the printer URI.
 // Supports ipp://, ipps://, http://, https:// with path /ipp/print etc.
 //
-// The IPP path is a DOCUMENT transport: the agent submits PDFs natively
-// (document-format application/pdf) and nothing else. Raw byte streams
-// (escpos/zpl/tspl/generic raw) are not an IPP document format here —
-// sending octet-stream bytes to an IPP queue is exactly the "gibberish
-// pages" failure the PDF policy above documents, and the canonical
-// capability model (capability.go / src/lib/routing.ts) rejects it pre
-// dispatch.
+// IPP is a document transport, not a raw spooler. The Agent queries
+// document-format-supported to select native PDF or a Windows one-page
+// PDF -> JPEG fallback. Raw ESC/POS/ZPL data are never disguised as IPP
+// documents. Raster-only printers require a Windows spooler driver.
 type IPPPrinter struct {
 	URL              string // normalized http(s) transport URL, always credential-free
 	PrinterURI       string // credential-free URI carried in the IPP printer-uri attribute
@@ -34,8 +30,6 @@ type IPPPrinter struct {
 	creds            *url.Userinfo // optional basic-auth from the configured URL
 	statusMu         sync.RWMutex
 	lastStatusDetail string
-	formatsCheckedAt time.Time
-	verifiedFormats  []string
 }
 
 func (p *IPPPrinter) setStatusDetail(detail string) {
@@ -52,98 +46,6 @@ func (p *IPPPrinter) StatusDetail() string {
 	p.statusMu.RLock()
 	defer p.statusMu.RUnlock()
 	return p.lastStatusDetail
-}
-
-// SupportedDocumentFormats contains ONLY formats positively advertised by
-// Get-Printer-Attributes. Missing/failed probes never imply PDF support.
-func (p *IPPPrinter) SupportedDocumentFormats() []string {
-	p.statusMu.RLock()
-	defer p.statusMu.RUnlock()
-	return append([]string(nil), p.verifiedFormats...)
-}
-
-func ippDocumentFormats(attrs map[string]string) []string {
-	var supported []string
-	seen := make(map[string]bool)
-	for _, entry := range strings.Split(attrs["document-format-supported"], ",") {
-		format := strings.ToLower(strings.TrimSpace(entry))
-		if format == "" || seen[format] {
-			continue
-		}
-		seen[format] = true
-		supported = append(supported, format)
-	}
-	return supported
-}
-
-func ippFormatListed(formats []string, mime string) bool {
-	for _, format := range formats {
-		if strings.EqualFold(format, mime) {
-			return true
-		}
-	}
-	return false
-}
-
-func (p *IPPPrinter) requireDocumentFormat(ctx context.Context, mime string) error {
-	p.statusMu.RLock()
-	fresh := !p.formatsCheckedAt.IsZero() && time.Since(p.formatsCheckedAt) < time.Minute
-	formats := append([]string(nil), p.verifiedFormats...)
-	p.statusMu.RUnlock()
-	if !fresh {
-		// Get-Printer-Attributes does not submit a document. Fail before any
-		// physical side effect if the printer cannot prove format support.
-		attrs, err := p.getPrinterAttributes(ctx)
-		if err != nil {
-			return CapabilityMismatchf("IPP document-format support could not be verified: %v", err)
-		}
-		formats = ippDocumentFormats(attrs)
-	}
-	if !ippFormatListed(formats, mime) {
-		return CapabilityMismatchf("IPP printer has not advertised %s in document-format-supported", mime)
-	}
-	return nil
-}
-
-func ippProbeReason(err error) string {
-	if err == nil {
-		return "none"
-	}
-	var certErr x509.UnknownAuthorityError
-	if errors.As(err, &certErr) {
-		return "tls_untrusted_certificate"
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return "dns_failure"
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return "timeout_or_cancelled"
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return "network_unavailable"
-	}
-	msg := err.Error()
-	for _, entry := range []struct {
-		code   string
-		reason string
-	}{
-		{"HTTP 401", "authentication_required"},
-		{"HTTP 403", "access_denied"},
-		{"HTTP 404", "ipp_endpoint_missing"},
-		{"truncated IPP response", "invalid_ipp_response"},
-		{"IPP status", "ipp_request_rejected"},
-	} {
-		if strings.Contains(msg, entry.code) {
-			return entry.reason
-		}
-	}
-	return "probe_failed"
 }
 
 func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
@@ -240,7 +142,7 @@ func (p *IPPPrinter) Print(ctx context.Context, data []byte) error {
 	if err := ValidatePDF(data); err != nil {
 		return err
 	}
-	return p.printDocument(ctx, data, ippFormatPDF)
+	return p.printPDFWithFormatNegotiation(ctx, data)
 }
 
 func (p *IPPPrinter) PrintDocument(ctx context.Context, doc Document) error {
@@ -259,6 +161,9 @@ func (p *IPPPrinter) PrintDocument(ctx context.Context, doc Document) error {
 	}
 	if len(doc.Data) > maxPrintBytes {
 		return fmt.Errorf("payload %d exceeds %d limit", len(doc.Data), maxPrintBytes)
+	}
+	if format == ippFormatPDF {
+		return p.printPDFWithFormatNegotiation(ctx, doc.Data)
 	}
 	return p.printDocument(ctx, doc.Data, format)
 }
@@ -293,13 +198,6 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-	}
-	// Fail closed on a fenced/expired claim BEFORE querying the remote device.
-	if err := runDispatchAdmission(ctx); err != nil {
-		return fmt.Errorf("IPP print admission refused: %w", err)
-	}
-	if err := p.requireDocumentFormat(ctx, documentFormat); err != nil {
-		return err
 	}
 	ippReq := buildIPPPrintJobWithFormat(p.PrinterURI, data, documentFormat)
 	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
@@ -363,41 +261,23 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return fmt.Errorf("%s: IPP printer %s returned server error 0x%04x (%s); the job may be queued (physical outcome unknown)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
 	}
 	if status >= 0x0400 && status <= 0x04ff {
+		if status == 0x040A {
+			return fmt.Errorf("IPP printer %s rejected document-format %s (0x040A: %s): %s. Verify document-format-supported and use the Windows spooler driver if necessary", p.URL, documentFormat, ippStatusText(status), msg)
+		}
 		return fmt.Errorf("IPP printer %s returned client error 0x%04x (%s): %s", p.URL, status, ippStatusText(status), msg)
 	}
 	if status > 0x00ff {
 		return fmt.Errorf("%s: IPP printer %s returned unknown status 0x%04x (%s)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
 	}
-	log.Printf("IPP printed %d bytes to %s (IPP status 0x%04x)", len(data), p.URL, status)
+	log.Printf("IPP accepted %d bytes (%s) at %s (IPP 0x%04x; physical output not confirmed)", len(data), documentFormat, p.URL, status)
 	return nil
 }
 
 func (p *IPPPrinter) Test(ctx context.Context) error {
-	// Explicit local diagnostic only: use the ordinary guarded IPP document
-	// dispatch path with a bounded, valid single-page PDF. This is NOT a
-	// claim that the printer produced physical paper.
-	content := "BT /F1 18 Tf 60 175 Td (Yaseir IPP Test Page) Tj ET"
-	var result bytes.Buffer
-	result.WriteString("%PDF-1.4\n")
-	offsets := []int{0}
-	objects := []string{
-		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 240] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content),
-	}
-	for i, object := range objects {
-		offsets = append(offsets, result.Len())
-		fmt.Fprintf(&result, "%d 0 obj\n%s\nendobj\n", i+1, object)
-	}
-	start := result.Len()
-	fmt.Fprintf(&result, "xref\n0 %d\n0000000000 65535 f \n", len(offsets))
-	for _, offset := range offsets[1:] {
-		fmt.Fprintf(&result, "%010d 00000 n \n", offset)
-	}
-	fmt.Fprintf(&result, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(offsets), start)
-	return p.PrintDocument(ctx, Document{Kind: KindPDF, Data: result.Bytes()})
+	// A local diagnostic test page would need a real PDF document; the agent
+	// does not fabricate one. Use the operator-console "send test page"
+	// action, which routes a genuine ticket through the gateway.
+	return fmt.Errorf("IPP local test page is not supported; send a test print from the Gateway console instead")
 }
 
 // Status differentiates transport failure from unsupported status and from
@@ -411,7 +291,7 @@ func (p *IPPPrinter) Status() string {
 	if err != nil {
 		// Probe/auth/protocol/transport failures are control-plane evidence only.
 		// They do not prove the physical device is offline.
-		p.setStatusDetail(ippProbeReason(err))
+		p.setStatusDetail("probe_failed")
 		return "unknown"
 	}
 	if attrs == nil {
@@ -523,14 +403,7 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 	if status > 0x00ff {
 		return nil, fmt.Errorf("IPP status 0x%04x: %w", status, errIPPStatusUnsupported)
 	}
-	attrs := parseIPPAttributes(body)
-	// Only a completed, successful attributes response may refresh the
-	// observed MIME capabilities. An empty list is an explicit denial.
-	p.statusMu.Lock()
-	p.verifiedFormats = ippDocumentFormats(attrs)
-	p.formatsCheckedAt = time.Now()
-	p.statusMu.Unlock()
-	return attrs, nil
+	return parseIPPAttributes(body), nil
 }
 
 const (
@@ -568,6 +441,9 @@ func buildIPPGetPrinterAttributes(printerURI string) []byte {
 	writeIPPAttribute(&buf, 0x44, "", "printer-state-reasons")
 	writeIPPAttribute(&buf, 0x44, "", "printer-is-accepting-jobs")
 	writeIPPAttribute(&buf, 0x44, "", "document-format-supported")
+	writeIPPAttribute(&buf, 0x44, "", "document-format-default")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-type-supported")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-resolution-supported")
 	buf.WriteByte(0x03)
 	return buf.Bytes()
 }
@@ -720,6 +596,22 @@ func decodeIPPValue(tag byte, raw []byte) string {
 			return "true"
 		}
 		return "false"
+	case 0x32: // resolution: 4-byte X, 4-byte Y, 1-byte units
+		if len(raw) != 9 {
+			return ""
+		}
+		x := binary.BigEndian.Uint32(raw[:4])
+		y := binary.BigEndian.Uint32(raw[4:8])
+		if x == 0 || y == 0 || x > 1200 || y > 1200 {
+			return ""
+		}
+		if raw[8] == 3 { // dots per inch
+			return fmt.Sprintf("%dx%ddpi", x, y)
+		}
+		if raw[8] == 4 { // dots per centimetre
+			return fmt.Sprintf("%dx%ddpcm", x, y)
+		}
+		return ""
 	case 0x30, 0x41, 0x42, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49:
 		return string(raw)
 	default:

@@ -16,11 +16,14 @@ import (
 // sets ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1 (development/diagnostic
 // mode); by default nothing pretends to have printed.
 type SpoolerPrinter struct {
-	Name        string
-	SpoolerName string
-	PDFPrint    PDFPrintFunc
-	ProbeFunc   func(spoolerName string) string
-	Timeout     time.Duration
+	Name              string
+	SpoolerName       string
+	ReceiptPaperMM    int
+	ReceiptRasterDots int
+	ReceiptDPI        int
+	PDFPrint          PDFPrintFunc
+	ProbeFunc         func(spoolerName string) string
+	Timeout           time.Duration
 }
 
 func simulatedTransportAllowed() bool {
@@ -86,7 +89,13 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 		}
 		return nil
 	case KindImage:
-		pdf, err := JPEGToPDF(doc.Data)
+		var pdf []byte
+		var err error
+		if p.ReceiptPaperMM == 58 || p.ReceiptPaperMM == 80 {
+			pdf, err = JPEGToPDFReceipt(doc.Data, p.ReceiptPaperMM, p.ReceiptRasterDots, p.ReceiptDPI)
+		} else {
+			pdf, err = JPEGToPDF(doc.Data)
+		}
 		if err != nil {
 			return fmt.Errorf("render image for Windows spooler: %w", err)
 		}

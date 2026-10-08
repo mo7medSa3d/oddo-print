@@ -2265,6 +2265,7 @@ export const en = {
   "errors.invitationDeliveryUnavailable": "Invitation created, but we couldn’t confirm the email was sent. The link is already active — don’t send a second one.",
   "job.payloadTruncated": "… Preview shortened at {size}. Copy the data to view it in full.",
   "success.testPageSubmitted": "Test page submitted for {printer}. Track its delivery in Recent Print Jobs.",
+  "success.virtualTestQueued": "Virtual test queued for {printer}. No paper will print; inspect the captured file on the Agent computer after the job succeeds.",
   "success.reprintQueued": "Reprint queued for {printer}.",
   "success.reprintQueuedWithJob": "Reprint queued for {printer} (job {job}).",
   "success.agentRegisteredWithCode": "Agent registered. Use pairing code {code} before it expires.",

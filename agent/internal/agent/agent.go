@@ -542,6 +542,10 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 
 	// 1. Load configured printers from YAML (legacy, still supported for backward compat)
 	for _, pc := range cfg.Printers {
+		// Annotate an explicitly configured virtual capture so that the
+		// Gateway can distinguish this test backend from arbitrary virtual
+		// or redirected Windows queues during authenticated heartbeats.
+		pc = printer.TagConfiguredVirtualCapture(pc)
 		if !pc.IsEnabled() {
 			continue
 		}
@@ -2272,17 +2276,6 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			// (mirrors the canonical capability table); never invent
 			// cross-protocol compatibility.
 			caps["supported_protocols"] = printer.SupportedProtocolsForDevice(facts)
-		}
-		if ippBackend, ok := printerByID[id].(interface{ SupportedDocumentFormats() []string }); ok {
-			formats := ippBackend.SupportedDocumentFormats()
-			caps["document_formats"] = formats
-			caps["supported_protocols"] = []string{}
-			for _, format := range formats {
-				if strings.EqualFold(format, "application/pdf") {
-					caps["supported_protocols"] = []string{"pdf"}
-					break
-				}
-			}
 		}
 		if reporter, ok := printerByID[id].(interface{ StatusDetail() string }); ok {
 			if detail := strings.TrimSpace(reporter.StatusDetail()); detail != "" {

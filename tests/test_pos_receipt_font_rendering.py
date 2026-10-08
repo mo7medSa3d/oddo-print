@@ -51,9 +51,9 @@ def test_pos_receipt_rendering_declares_no_web_fonts():
     during receipt rendering, which is exactly the class of bug that produced
     the Noto 404s.
     """
-    pos_assets = list((ADDON / "static" / "src" / "js").glob("*.js")) + list(
-        (ADDON / "static" / "src" / "scss").glob("*.scss")
-    )
+    pos_assets = (list((ADDON / "static" / "src" / "js").glob("*.js"))
+                  + list((ADDON / "static" / "src" / "scss").glob("*.scss"))
+                  + list((ADDON / "static" / "src" / "css").glob("*.css")))
     assert pos_assets, "expected POS JS/SCSS assets to scan"
     offenders = []
     for path in pos_assets:
@@ -78,23 +78,33 @@ def test_render_receipt_image_uses_resilient_html_to_canvas_pipeline():
     """
     source = read("static/src/js/pos_print_router.js")
 
-    # The resilient renderer entry point is used.
-    assert 'from "@point_of_sale/app/services/render_service"' in source
-    assert "htmlToCanvas" in source
+    # The exact capture helper uses the vendored html-to-image directly
+    # with skipFonts, because Odoo render_service's wrapper silently drops
+    # custom rasterization options and can detach the source node early.
+    helper = read("static/src/js/receipt_raster.js")
+    assert 'from "./receipt_raster"' in source
+    assert 'from "@point_of_sale/app/utils/html-to-image"' in helper
+    assert "skipFonts: true" in helper
+    assert "renderer.whenMounted" in helper
+    assert "node.scrollWidth" in helper
+    assert 'backgroundColor: "#ffffff"' in helper
 
     # The receipt image renderer exists and is exported for testing.
     assert "export async function renderReceiptImage" in source
 
-    # Fallback chain: toJpeg -> toCanvas -> toHtml -> renderToElement.
-    assert "renderer.toJpeg" in source
-    assert "renderer.toCanvas" in source
+    # The receipt's physical dot-width is mandatory across fallbacks.
+    # Native toJpeg/toCanvas render at uncontrolled CSS widths, and must
+    # never override a diagnosed paper-width overflow.
+    assert "renderer.toJpeg" not in source
+    assert "renderer.toCanvas" not in source
     assert "renderer.toHtml" in source
+    assert 'if (err?.code === "POS_RECEIPT_GEOMETRY")' in source
     assert 'receiptComponent.template || "point_of_sale.OrderReceipt"' in source
     assert "data: typeof currentOrder.export_for_printing" not in source
     assert "formatCurrency: pos.env" not in source
 
-    # Each renderer step is guarded so a failure falls through to the next.
-    assert source.count("console.warn(") >= 3
+    # Temporary failures retry the mounted renderer; layout errors do not.
+    assert source.count("console.warn(") >= 1
 
 
 def test_render_receipt_image_does_not_reference_remote_font_urls():

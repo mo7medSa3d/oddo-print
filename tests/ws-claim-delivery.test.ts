@@ -76,6 +76,43 @@ suite("WS claim-before-delivery", () => {
     return ws;
   }
 
+  it("does not reserve payloads omitted from a size-bounded poll response", async () => {
+    const encoded = Buffer.alloc(5 * 1024 * 1024).toString("base64");
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = `job_poll_wire_budget_${String(i).padStart(2, "0")}`;
+      ids.push(id);
+      await insertQueuedJob(f, id);
+      await pool().query(
+        `UPDATE print_jobs SET payload = jsonb_set(payload, '{data}', to_jsonb($1::text)) WHERE id = $2`,
+        [encoded, id],
+      );
+    }
+    const first = await agentJobsGET(agentRequest(f, "GET"));
+    expect(first.status).toBe(200);
+    const dispatched = await first.json() as Array<{ id: string }>;
+    expect(dispatched).toHaveLength(9);
+    const sentIds = new Set(dispatched.map(job => job.id));
+    for (const id of ids) {
+      const row = await jobRow(id);
+      if (sentIds.has(id)) {
+        expect(row.status).toBe("claimed");
+        expect(row.delivery_attempts).toBe(1);
+      } else {
+        expect(row.status).toBe("queued");
+        expect(row.delivery_attempts).toBe(0);
+        expect(row.claim_token).toBeNull();
+        expect(row.error).toBeNull();
+      }
+    }
+    const next = await agentJobsGET(agentRequest(f, "GET"));
+    expect(next.status).toBe(200);
+    const nextJobs = await next.json() as Array<{ id: string }>;
+    expect(nextJobs).toHaveLength(1);
+    expect(sentIds.has(nextJobs[0].id)).toBe(false);
+    expect((await jobRow(nextJobs[0].id)).delivery_attempts).toBe(1);
+  }, 120_000);
+
   it("refuses both WS and polling claims for a printer confirmed absent from Agent inventory", async () => {
     await pool().query(
       `UPDATE printers

@@ -7,9 +7,7 @@ import { isGatewayTimeoutError, withGatewayDeadline } from "./async_control";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
-import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
-import { toCanvas as htmlToImageToCanvas } from "@point_of_sale/app/utils/html-to-image";
-import { waitImages } from "@point_of_sale/utils";
+import { renderGatewayReceiptJpeg, normalizedReceiptRasterWidth, DEFAULT_RECEIPT_RASTER_WIDTH } from "./receipt_raster";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
@@ -73,109 +71,59 @@ function gatewayUuid() {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function canvasToJpeg(canvas) {
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-        ctx.globalCompositeOperation = "destination-over";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    // Strip any Data-URL prefix variant (some browsers emit charset/parameters);
-    // the payload layer only accepts raw base64.
-    return canvas.toDataURL("image/jpeg", 0.65).replace(/^data:image\/[a-z]+;base64,/, "");
+async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_WIDTH) {
+    return renderGatewayReceiptJpeg(element, { renderer, width });
 }
 
-async function elementToJpeg(element) {
-    const canvas = await htmlToCanvas(element, { addClass: "pos-receipt-print" });
-    return canvasToJpeg(canvas);
-}
-
-/**
- * Convert a rendered receipt element to JPEG WITHOUT web-font embedding.
- *
- * html-to-image's font embedding scans EVERY @font-face rule in the POS
- * document and fetches each one — including Odoo's Noto UI fonts whose
- * italic/Arabic/Hebrew variants are missing from fonts.odoocdn.com, which
- * produces the recurring console 404s. The receipt declares no custom font
- * (Bootstrap utilities only), so embedding is pure overhead: text renders
- * with locally available fonts instead.
- *
- * Odoo's render_service.htmlToCanvas builds a fixed option object and drops
- * every other option, so skipFonts cannot flow through renderer.toJpeg /
- * renderer.toCanvas. This helper calls Odoo's vendored html-to-image build
- * directly with the same snapshot options Odoo uses plus skipFonts: true.
- */
-async function elementToJpegNoFonts(element) {
-    if (!element) {
-        throw new Error(_t("No receipt element to rasterize"));
-    }
-    try {
-        element.classList.add("pos-receipt-print");
-    } catch {
-        // Detached or exotic node: the class is a styling hook only.
-    }
-    // waitImages is timeout-safe and resolves on error; QR/logo <img>
-    // embedding below is independent of fonts and still applies.
-    await waitImages(element);
-    const canvas = await htmlToImageToCanvas(element, {
-        backgroundColor: "#ffffff",
-        pixelRatio: 1,
-        includeQueryParams: true,
-        skipFonts: true,
-    });
-    return canvasToJpeg(canvas);
-}
-
-export async function renderReceiptImage(pos, currentOrder, basic = false) {
+export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
-    const props = {
-        order: currentOrder,
-        basic_receipt: Boolean(basic),
-    };
-
+    const props = { order: currentOrder, basic_receipt: Boolean(basic) };
     const receiptComponent = pos.orderReceiptComponent || OrderReceipt;
 
+    // Every Gateway image must use the SAME mounted, width-measured receipt
+    // pipeline. Odoo's general toJpeg/toCanvas helpers ignore the printer's
+    // printable dot width and can silently clip a verified-overflow receipt.
+    // A geometry failure is terminal; retrying through an unmeasured renderer
+    // would send precisely the cropped ticket we are trying to prevent.
     if (renderer && typeof renderer.toHtml === "function") {
-        try {
-            // Preferred path: toHtml is pure Owl rendering (no font
-            // involvement); rasterize with web-font embedding disabled so no
-            // remote Noto variant is ever requested (see elementToJpegNoFonts).
-            const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpegNoFonts(element);
-        } catch (err) {
-            console.warn("renderer.toHtml (no-fonts) failed, falling back to standard chain:", err);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const element = await renderer.toHtml(receiptComponent, props);
+                return await elementToJpeg(element, renderer, rasterWidth);
+            } catch (err) {
+                if (err?.code === "POS_RECEIPT_GEOMETRY") {
+                    throw err;
+                }
+                console.warn("Mounted receipt rasterization failed; retrying with a fresh source:", err);
+            }
         }
     }
 
-    if (renderer && typeof renderer.toJpeg === "function") {
-        try {
-            return await renderer.toJpeg(receiptComponent, props, { addClass: "pos-receipt-print" });
-        } catch (err) {
-            console.warn("renderer.toJpeg failed, falling back to toCanvas/toHtml:", err);
-        }
-    }
-
-    if (renderer && typeof renderer.toCanvas === "function") {
-        try {
-            const canvas = await renderer.toCanvas(receiptComponent, props, { addClass: "pos-receipt-print" });
-            return canvasToJpeg(canvas);
-        } catch (err) {
-            console.warn("renderer.toCanvas failed, falling back to toHtml:", err);
-        }
-    }
-
-    if (renderer && typeof renderer.toHtml === "function") {
-        try {
-            const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpeg(element);
-        } catch (err) {
-            console.warn("renderer.toHtml failed, falling back to renderToElement:", err);
-        }
-    }
-
-    // Direct template fallback if renderer service is unavailable:
+    // A genuine Odoo renderer failure may still fall back to the template,
+    // but it must pass through the *same* width/overflow-checked capture.
+    // Never fall back to arbitrary canvas dimensions or default page zoom.
     const receipt = renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props);
-    return await elementToJpeg(receipt);
+    return await elementToJpeg(receipt, renderer, rasterWidth);
+}
+
+// Width is resolved for the ACTUAL bound printer on EACH print action,
+// not cached by POS config: the same POS can switch between 58mm and 80mm
+// bindings inside five minutes. Reusing config-wide geometry made receipts
+// clip or shrink after a routing/driver change. Fetch once per action; not
+// per receipt line. The Agent independently clamps to hardware limits.
+async function gatewayReceiptRasterWidth(pos, orderId) {
+    let width = DEFAULT_RECEIPT_RASTER_WIDTH;
+    try {
+        const candidate = await gatewayDataCall(
+            pos, "pos.order", "get_gateway_receipt_raster_width", [[orderId]], {}, true,
+        );
+        width = normalizedReceiptRasterWidth(candidate);
+    } catch (error) {
+        // A missing/stale metadata endpoint must not force fallback to local
+        // browser printing. The Gateway will still authorize the real job.
+        console.warn("Gateway printer width unavailable; using Odoo's native receipt width:", error);
+    }
+    return width;
 }
 
 patch(PosStore.prototype, {
@@ -186,6 +134,15 @@ patch(PosStore.prototype, {
             return false;
         }
 
+        // Acquire the guard before ANY await (activation, synchronization,
+        // metadata or rendering). Otherwise two slow renders can both finish
+        // after the other's submit guard was released and print twice.
+        const pendingReceipts = (this.gatewayReceiptPending ||= new Set());
+        const pendingKey = currentOrder.uuid || currentOrder.id || currentOrder;
+        if (pendingReceipts.has(pendingKey)) {
+            return false;
+        }
+        pendingReceipts.add(pendingKey);
         try {
             const sessionId = this.session?.id;
             const gatewayEnabled = sessionId
@@ -213,7 +170,6 @@ patch(PosStore.prototype, {
                 return false;
             }
 
-            const image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic));
             // One operation identity per user click, with a bounded reuse
             // window for uncertain outcomes: a lost response retried with the
             // same id is deduplicated server-side, while a deliberate later
@@ -224,46 +180,47 @@ patch(PosStore.prototype, {
             // an accepted or definitively failed outcome the next click is a
             // new deliberate operation, matching native print semantics.
             const receiptOps = (this.gatewayReceiptOperations ||= new Map());
-            const pendingReceipts = (this.gatewayReceiptPending ||= new Set());
-            if (pendingReceipts.has(orderId)) {
-                return false;
+            for (const [key, op] of receiptOps) {
+                if (Date.now() - op.at >= 5 * 60 * 1000) receiptOps.delete(key);
             }
             const lastOp = receiptOps.get(orderId);
             const reuseUncertain = lastOp && lastOp.terminal === false
                 && (Date.now() - lastOp.at < 5 * 60 * 1000);
             const operationId = reuseUncertain ? lastOp.id : gatewayUuid();
-            pendingReceipts.add(orderId);
+            // Idempotency binds the key to the EXACT submitted bytes. A
+            // fresh render can differ after order/CSS/printer changes and
+            // would conflict with an already accepted but unconfirmed job.
+            let image = reuseUncertain ? lastOp.image : undefined;
+            if (!reuseUncertain) {
+                const rasterWidth = await gatewayReceiptRasterWidth(this, orderId);
+                image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic, rasterWidth));
+            }
             let result;
             try {
-                try {
-                    result = await gatewayDataCall(
-                        this,
-                        "pos.order",
-                        "action_print_gateway_receipt",
-                        [[orderId]],
-                        { image, operation_id: operationId },
-                        true,
-                        { ambiguous: true },
-                    );
-                } catch (rpcError) {
-                    // Transport failure: the server may or may not have
-                    // accepted the job. Keep the operation uncertain so a
-                    // retry reuses this id instead of printing twice.
-                    receiptOps.set(orderId, { id: operationId, at: Date.now(), terminal: false });
-                    throw rpcError;
-                }
-            } finally {
-                pendingReceipts.delete(orderId);
+                result = await gatewayDataCall(
+                    this,
+                    "pos.order",
+                    "action_print_gateway_receipt",
+                    [[orderId]],
+                    { image, operation_id: operationId },
+                    true,
+                    { ambiguous: true },
+                );
+            } catch (rpcError) {
+                receiptOps.set(orderId, { id: operationId, image, at: Date.now(), terminal: false });
+                throw rpcError;
             }
             // Resolve the operation: definitive outcomes (accepted for
             // printing, or definitively rejected) close the reuse window;
             // uncertain statuses keep it for a retry. Transport failures are
             // recorded uncertain by the inner catch above.
+            const terminal = ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
             receiptOps.set(orderId, {
                 id: operationId,
+                // Do not retain large images for completed operations.
+                image: terminal ? undefined : image,
                 at: Date.now(),
-                terminal: result && !["unknown", "partial"].includes(result.status)
-                    && ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status),
+                terminal,
             });
 
             // Truthful feedback: "submitted" means QUEUED for the agent, not
@@ -334,6 +291,8 @@ patch(PosStore.prototype, {
             }
             this.notification.add(gatewayServerMessage(error) || _t("Receipt printing failed."), { type: "danger" });
             return false;
+        } finally {
+            pendingReceipts.delete(pendingKey);
         }
     },
 
@@ -387,6 +346,23 @@ patch(PosStore.prototype, {
         }
         if (gatewayEnabled !== true) {
             return super.sendOrderInPreparation(order, opts);
+        }
+
+        // Gateway dispatch needs a durable server-side order id. Odoo 19
+        // syncAllOrders excludes entries already in syncingOrders, so save
+        // a new order BEFORE acquiring the native preparation-print guard.
+        // Otherwise the first kitchen send silently skips sync, fails the
+        // id check, and only saves the order after the ticket was rejected.
+        if (!opts.byPassPrint && (!order?.isSynced || !Number.isInteger(order?.id) || order.id <= 0)) {
+            try {
+                await gatewaySync(this, { orders: [order], force: true, throw: true });
+                if (!Number.isInteger(order?.id) || order.id <= 0) {
+                    throw new Error(_t("The POS order is not synchronized yet, so kitchen printing cannot continue."));
+                }
+            } catch (error) {
+                this.notification.add(gatewayServerMessage(error) || _t("Kitchen / Preparation printing failed."), { type: "danger" });
+                return false;
+            }
         }
 
         let isPrinted = false;
@@ -613,7 +589,7 @@ patch(PosStore.prototype, {
                             data,
                             printer,
                             route.pos_printer_id || null,
-                            retryAttempt
+                            route.raster_width
                         );
                         if (!reprint) attempts[attemptKey] = result;
 
@@ -671,6 +647,19 @@ patch(PosStore.prototype, {
                             order.uiState.gatewayKitchenAttempts = {};
                             order.uiState.gatewayKitchenPendingKeys = [];
                             order.uiState.gatewayKitchenOperationIds = {};
+                            // This callback runs after sendOrderInPreparation
+                            // has returned. Persist the consumed change here
+                            // too, or another POS can print the same ticket.
+                            if (!this.models["pos.prep.display"]?.length) {
+                                try {
+                                    await gatewaySync(this, { orders: [order] });
+                                } catch (error) {
+                                    // The ticket was already accepted. A sync
+                                    // failure must not reopen physical retry.
+                                    console.warn("Accepted kitchen retry could not be synchronized:", error);
+                                    this.notification.add(gatewayServerMessage(error) || _t("Order synchronization timed out."), { type: "warning", sticky: true });
+                                }
+                            }
                         }
                         return accepted;
                     },
@@ -688,12 +677,11 @@ patch(PosStore.prototype, {
             return false;
         }
     },
-    async printOrderChanges(data, printer, posPrinterId = null, isRetry = false) {
+    async printOrderChanges(data, printer, posPrinterId = null, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
         const orderId = data?.orderData?.__gateway_order_id;
         const sessionId = data?.orderData?.__gateway_session_id;
         const reprint = Boolean(data?.orderData?.__gateway_reprint);
         const operationId = data?.orderData?.__gateway_print_id;
-        const requestOperationId = operationId;
 
         let gatewayEnabled;
         try {
@@ -717,9 +705,13 @@ patch(PosStore.prototype, {
             };
         }
 
+        let submissionStarted = false;
         try {
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
-            const image = await gatewayRender(() => elementToJpeg(receipt));
+            const image = await gatewayRender(() =>
+                elementToJpeg(receipt, this.env.services.renderer, rasterWidth)
+            );
+            submissionStarted = true;
             const result = await gatewayDataCall(
                 this,
                 "pos.order",
@@ -728,7 +720,7 @@ patch(PosStore.prototype, {
                 {
                     image,
                     reprint,
-                    operation_id: requestOperationId,
+                    operation_id: operationId,
                     pos_printer_id: posPrinterId || undefined,
                 },
                 true,
@@ -762,12 +754,16 @@ patch(PosStore.prototype, {
                     message: { title: _t("Printing Service"), body: _t("The Gateway plan limit has been reached.") },
                 };
             }
-            const message = gatewayServerMessage(error) || _t("Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled.");
-            this.notification.add(message, { type: "warning", sticky: true });
+            // Local rendering/geometry errors cannot have printed anything.
+            // Only an attempted submission can have an ambiguous outcome.
+            const message = gatewayServerMessage(error) || (submissionStarted
+                ? _t("Kitchen print outcome is unknown. The ticket may already have printed; automatic retry is disabled.")
+                : _t("Kitchen / Preparation printing failed."));
+            this.notification.add(message, { type: submissionStarted ? "warning" : "danger", sticky: true });
             return {
                 successful: false,
-                gatewayOutcome: "unknown",
-                canRetry: false,
+                gatewayOutcome: submissionStarted ? "unknown" : "failed",
+                canRetry: !submissionStarted,
                 message: { title: _t("Printing Service"), body: message },
             };
         }

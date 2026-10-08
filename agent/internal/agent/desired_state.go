@@ -449,6 +449,22 @@ func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
 			"supported_protocols": append([]string(nil), row.ObservedSupportedProtocols...),
 		}
 	}
+	// Observed capabilities must not override configured paper geometry.
+	// Conversely, a nominal 80mm roll does not establish 576 printable dots:
+	// 180dpi devices can have 512. Apply only explicitly configured hardware
+	// dot width/DPI, independent of discovered or inferred protocols.
+	if dots := desiredNumberValue(p.Config, "max_paper_width"); dots >= 288 && dots <= 576 {
+		if capabilities == nil {
+			capabilities = make(map[string]interface{})
+		}
+		capabilities["max_paper_width"] = dots
+	}
+	if dpi := desiredNumberValue(p.Config, "print_dpi"); dpi == 180 || dpi == 203 {
+		if capabilities == nil {
+			capabilities = make(map[string]interface{})
+		}
+		capabilities["print_dpi"] = dpi
+	}
 	return config.PrinterConfig{
 		ID:             p.ID,
 		Name:           p.Name,

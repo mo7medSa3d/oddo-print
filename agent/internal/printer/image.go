@@ -184,6 +184,43 @@ func grayscale(c color.Color) uint8 {
 // for Windows print queues because the spooler implementation already has a
 // PDF-aware path, while retaining the exact rasterized POS/Kitchen content.
 func JPEGToPDF(data []byte) ([]byte, error) {
+	return jpegToPDFWithReceiptPaper(data, 0, 0, 0)
+}
+
+// JPEGToPDFReceipt maps an Odoo POS receipt from browser CSS pixels to a
+// physical roll. The old JPEGToPDF() interpreted every CSS pixel as 1/96in,
+// making a 512px ticket ~135mm wide and causing Windows driver page
+// substitutions or unexpected shrink/clipping on 58/80mm thermal printers.
+//
+// The native Windows queue remains authoritative for paper form support:
+// the PDF backend verifies it accepts this *physical* page before StartDoc.
+// Use only for an explicitly configured/detected 58/80mm thermal printer.
+func JPEGToPDFReceipt(data []byte, paperWidthMM, printableDots, dpi int) ([]byte, error) {
+	if paperWidthMM != 58 && paperWidthMM != 80 {
+		return nil, fmt.Errorf("thermal receipt needs a verified 58mm or 80mm paper width (got %dmm)", paperWidthMM)
+	}
+	if printableDots <= 0 {
+		if paperWidthMM == 58 {
+			printableDots = 384
+		} else {
+			printableDots = 512 // conservative 80mm/180dpi baseline
+		}
+	}
+	if printableDots < 288 || printableDots > 576 {
+		return nil, fmt.Errorf("invalid thermal printable width %d dots", printableDots)
+	}
+	if dpi != 180 && dpi != 203 {
+		switch printableDots {
+		case 360, 512:
+			dpi = 180
+		default:
+			dpi = 203
+		}
+	}
+	return jpegToPDFWithReceiptPaper(data, paperWidthMM, printableDots, dpi)
+}
+
+func jpegToPDFWithReceiptPaper(data []byte, paperWidthMM, printableDots, dpi int) ([]byte, error) {
 	cfg, err := decodeJPEGConfig(data)
 	if err != nil {
 		return nil, err
@@ -200,10 +237,29 @@ func JPEGToPDF(data []byte) ([]byte, error) {
 		colorSpace = "/DeviceGray"
 	}
 
-	// Render the raster at 96 DPI, the same pixel assumption used by the web
-	// renderer, while preserving its aspect ratio.
+	// Non-receipt documents keep the legacy 96-DPI image geometry.
 	pageW := float64(w) * 72.0 / 96.0
 	pageH := float64(h) * 72.0 / 96.0
+	imageW, imageH := pageW, pageH
+	imageX, imageY := 0.0, 0.0
+	if paperWidthMM != 0 {
+		pageW = float64(paperWidthMM) * 72.0 / 25.4
+		// A roll is wider than its *printable* image. Use the smaller of
+		// actual configured dots / real device DPI and paper minus margins.
+		contentMM := math.Min(float64(printableDots)*25.4/float64(dpi), float64(paperWidthMM)-4)
+		if contentMM < 30 {
+			return nil, fmt.Errorf("thermal printer has insufficient printable area %.2fmm", contentMM)
+		}
+		imageW = contentMM * 72.0 / 25.4
+		imageH = imageW * float64(h) / float64(w)
+		imageX = (pageW - imageW) / 2.0
+		imageY = 2.0 * 72.0 / 25.4 // paper-feed margin at bottom
+		pageH = imageH + 2.0*imageY
+		// Win32 DEVMODE uses signed 0.1mm paper dimensions.
+		if pageH*25.4/72 >= 3276.7 {
+			return nil, fmt.Errorf("receipt height exceeds maximum Windows custom paper form")
+		}
+	}
 
 	var b bytes.Buffer
 	b.WriteString("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n")
@@ -226,7 +282,7 @@ func JPEGToPDF(data []byte) ([]byte, error) {
 	b.Write(data)
 	b.WriteString("\nendstream\nendobj\n")
 
-	content := fmt.Sprintf("q\n%.2f 0 0 %.2f 0 0 cm\n/Im0 Do\nQ\n", pageW, pageH)
+	content := fmt.Sprintf("q\n%.2f 0 0 %.2f %.2f %.2f cm\n/Im0 Do\nQ\n", imageW, imageH, imageX, imageY)
 	contentBody := fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(content), content)
 	writeObj(5, []byte(contentBody))
 

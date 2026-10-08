@@ -81,46 +81,9 @@ class PrintGatewayIntent(models.Model):
         return super().write(vals)
 
     @api.model
-    def compute_intent_key(self, policy, record, event_type, event_identity=None):
-        # A repeated HTTP/ORM invocation of the SAME business event must
-        # deduplicate. Legitimate new business transitions (such as reposting
-        # an invoice) receive an explicit stable transition identity supplied
-        # by the originating Odoo hook, not by a random job UUID.
+    def compute_intent_key(self, policy, record, event_type):
         raw = f"{record._name}:{record.id}:{event_type}:{policy.id}"
-        if event_identity is not None:
-            raw += ":transition:" + str(event_identity)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    @api.model
-    @api.private
-    def record_preflight_failure(self, policy, record, event_type, error, *, event_identity=None):
-        """Audit routing failures before dispatch, without printing or widening ACLs.
-
-        A retryable FAILED intent is visible in Automation Activity; the
-        existing cron can retry it when configuration is repaired. Never
-        rewrite dispatched/skipped/claimed events or create duplicate rows.
-        """
-        key = self.compute_intent_key(policy, record, event_type, event_identity)
-        existing = self.search([("intent_key", "=", key)], limit=1)
-        if existing:
-            return existing
-        company = getattr(record, "company_id", False) or self.env.company
-        try:
-            with self.env.cr.savepoint():
-                return self.create({
-                    "company_id": company.id,
-                    "policy_id": policy.id,
-                    "intent_key": key,
-                    "res_model": record._name,
-                    "res_id": record.id,
-                    "event_type": event_type,
-                    "status": "failed",
-                    "attempts": 0,
-                    "last_error": str(error)[:2048],
-                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=30),
-                })
-        except IntegrityError:
-            return self.search([("intent_key", "=", key)], limit=1)
 
     @classmethod
     def _claim_intent(cls, env, intent_id, cr=None):
@@ -278,9 +241,9 @@ class PrintGatewayIntent(models.Model):
 
     @api.model
     @api.private
-    def create_and_route(self, policy, record, event_type, *, event_identity=None):
+    def create_and_route(self, policy, record, event_type):
         """Idempotently creates intent or re-arms retryable intent and registers post-commit callback."""
-        key = self.compute_intent_key(policy, record, event_type, event_identity)
+        key = self.compute_intent_key(policy, record, event_type)
         existing = self.search([("intent_key", "=", key)], limit=1)
         if existing:
             if existing.status in ("dispatched", "skipped"):

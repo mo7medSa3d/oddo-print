@@ -170,7 +170,6 @@ class PrintGatewayRouter(models.AbstractModel):
                 record=record,
                 explicit_destination=explicit_destination,
                 branch=branch,
-                protocol=protocol,
             )
         if not binding:
             if not raise_if_not_found:
@@ -186,12 +185,6 @@ class PrintGatewayRouter(models.AbstractModel):
                     "company": gateway_company,
                     "branch": branch,
                 }
-            if protocol:
-                raise ValidationError(_(
-                    "No Print Rule matches %s (%s) in %s with printer protocol '%s'. "
-                    "ZPL/TSPL/ESC-POS/RAW must match exactly; RAW is not a wildcard."
-                ) % (destination.display_name, dtype,
-                     branch.display_name if branch else gateway_company.display_name, protocol))
             raise ValidationError(
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)
@@ -478,6 +471,25 @@ class PrintGatewayRouter(models.AbstractModel):
             context_values=context_values,
         )
         return self._submit_route(route=route, payload=payload, company=company, report=report, source_model=report.model)
+
+    @api.model
+    @api.private
+    def _receipt_width_for_route(self, route):
+        """Return a hardware-informed canvas width, not an arbitrary 96-DPI size.
+
+        The target is the very same company/branch/agent/printer binding used
+        by dispatch. The Gateway exposes only a bounded numeric printable
+        width to authorized Odoo integrations. No guessing from printer
+        names or from CSS screen pixels.
+        """
+        binding = route.get("binding") if isinstance(route, dict) else None
+        if not binding:
+            return 512  # Odoo 19's default 80mm / 180dpi snapshot width
+        printer = binding._validate_runtime_target(enforce_destination_compatibility=True)
+        width = (printer or {}).get("printableWidthDots")
+        if type(width) is int and 288 <= width <= 576:
+            return width
+        return 512
 
     @api.model
     @api.private

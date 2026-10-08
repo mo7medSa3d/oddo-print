@@ -80,11 +80,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const result = await createPrintJobForPrinter(printer.id, payload, {
       requestedBy: "manager-test",
       documentType: "test_page",
+      allowVirtualTestCapture: true,
       idempotencyKey,
       tenantId: tenantId,
       requestId: requestIdFrom(req),
     });
-    return NextResponse.json({ ok: true, jobId: result.id, printerId: printer.id, status: result.status }, { status: 201 });
+    return NextResponse.json({
+      ok: true, jobId: result.id, printerId: printer.id, status: result.status,
+      virtualCapture: printer.printerType === "virtual" && (printer.capabilities as Record<string, unknown> | null)?.virtual_test_sink === true,
+      note: printer.printerType === "virtual" ? "Virtual test captures a file on the Agent; no physical paper is printed." : undefined,
+    }, { status: 201 });
   } catch (e) {
     if (e instanceof TenantPrintQuotaExceededError) {
       const headers = new Headers({ "Cache-Control": "no-store" });
