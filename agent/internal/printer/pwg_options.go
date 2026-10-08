@@ -17,16 +17,29 @@ func pwgOptionsFromIPPAttributes(attrs map[string]string) (int, pwgRasterColor, 
 		best := 0
 		for _, item := range resolutions {
 			item = strings.TrimSpace(strings.ToLower(item))
-			if !strings.HasSuffix(item, "dpi") {
+			// RFC 8011 resolution values can be DPI or dots per cm.
+			// Hardware reporting only dpcm remains fully IPP-compliant.
+			unit := "dpi"
+			if strings.HasSuffix(item, "dpcm") {
+				unit = "dpcm"
+			} else if !strings.HasSuffix(item, unit) {
 				continue
 			}
-			parts := strings.Split(strings.TrimSuffix(item, "dpi"), "x")
+			parts := strings.Split(strings.TrimSuffix(item, unit), "x")
 			if len(parts) != 2 {
 				continue
 			}
 			x, errX := strconv.Atoi(parts[0])
 			y, errY := strconv.Atoi(parts[1])
 			if errX != nil || errY != nil || x != y || x <= 0 || x > 1200 {
+				continue
+			}
+			if unit == "dpcm" {
+				// 1in = 2.54cm; round to integer DPI as required by
+				// the PWG Raster page header, avoiding float precision.
+				x = (x*254 + 50) / 100
+			}
+			if x > 1200 {
 				continue
 			}
 			// Prefer 300dpi for a good thermal/laser result and bounded

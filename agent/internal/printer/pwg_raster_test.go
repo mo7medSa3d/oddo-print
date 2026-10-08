@@ -167,6 +167,8 @@ func TestPWGResolutionAndColorOptionSelection(t *testing.T) {
 		{nil, 300, pwgGray8, false},
 		{map[string]string{"pwg-raster-document-resolution-supported": "600x600dpi,150x150dpi,300x300dpi", "pwg-raster-document-type-supported": "srgb_8,sgray_8"}, 300, pwgGray8, false},
 		{map[string]string{"pwg-raster-document-resolution-supported": "600x600dpi", "pwg-raster-document-type-supported": "srgb_8"}, 600, pwgRGB8, false},
+		{map[string]string{"pwg-raster-document-resolution-supported": "118x118dpcm", "pwg-raster-document-type-supported": "sgray_8"}, 300, pwgGray8, false},
+		{map[string]string{"pwg-raster-document-resolution-supported": "118x118dpcm,203x203dpi"}, 203, pwgGray8, false},
 		{map[string]string{"pwg-raster-document-resolution-supported": "300x200dpi"}, 0, pwgGray8, true},
 		{map[string]string{"pwg-raster-document-type-supported": "sgray_1"}, 0, pwgGray8, true},
 	}
