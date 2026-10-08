@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/yaseir-agent/agent/internal/config"
 )
@@ -17,6 +18,11 @@ import (
 const VirtualCaptureSpoolerName = "YASEIR_VIRTUAL_TEST_CAPTURE"
 
 const virtualCaptureMaxFiles = 100
+
+// Multiple Agent executors (and even multiple explicitly configured test
+// captures) share the same output directory. Serialize quota checking and
+// creation so concurrent jobs cannot race past the 100-artifact ceiling.
+var virtualCaptureWriteMu sync.Mutex
 
 var safeVirtualJobID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 
@@ -151,6 +157,8 @@ func (p *VirtualCapturePrinter) PrintDocument(ctx context.Context, doc Document)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	virtualCaptureWriteMu.Lock()
+	defer virtualCaptureWriteMu.Unlock()
 	// Bounded local artifacts. Refuse excess jobs rather than silently
 	// deleting evidence needed to inspect a failed end-to-end test.
 	entries, err := os.ReadDir(p.dir)

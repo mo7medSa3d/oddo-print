@@ -3,9 +3,11 @@ package printer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yaseir-agent/agent/internal/config"
@@ -114,6 +116,51 @@ func TestVirtualCaptureCreatesInspectableBytesForAgentTest(t *testing.T) {
 	}
 	if err := p.Test(context.Background()); err != nil {
 		t.Fatalf("local virtual test failed: %v", err)
+	}
+}
+
+func TestVirtualCaptureQuotaIsAtomicWithConcurrentJobs(t *testing.T) {
+	t.Setenv("YASEIR_AGENT_VIRTUAL_TEST_MODE", "1")
+	dir := t.TempDir()
+	t.Setenv("YASEIR_AGENT_VIRTUAL_TEST_OUTPUT_DIR", dir)
+	p, err := NewVirtualCapturePrinter(virtualFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < virtualCaptureMaxFiles-1; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("virtual-existing-%03d.raw", i))
+		if err := os.WriteFile(name, []byte("old"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, jobID := range []string{"job_A", "job_B"} {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			errs <- p.PrintDocument(context.Background(), Document{Kind: KindRaw, JobID: id, Data: []byte("new")})
+		}(jobID)
+	}
+	wg.Wait()
+	close(errs)
+	ok, rejected := 0, 0
+	for err := range errs {
+		if err == nil {
+			ok++
+		} else {
+			rejected++
+		}
+	}
+	if ok != 1 || rejected != 1 {
+		t.Fatalf("exactly one of two competing jobs may claim the last capture slot: ok=%d rejected=%d", ok, rejected)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != virtualCaptureMaxFiles {
+		t.Fatalf("capture quota bypassed: got %d, want %d", len(files), virtualCaptureMaxFiles)
 	}
 }
 
