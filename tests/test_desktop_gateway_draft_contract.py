@@ -18,7 +18,9 @@ def test_candidate_probe_is_non_mutating_and_public_only():
     body = function_slice(rust, "pub async fn probe_gateway_health", "fn configured_gateway_origin")
     assert "normalize_gateway_url(&url)" in body
     assert '.join("api/agent/probe")' in body
-    assert "redirect(reqwest::redirect::Policy::none())" in body
+    assert "gateway_http_client()" in body
+    client = function_slice(rust, "fn gateway_http_client", "async fn read_response_body_limited")
+    assert "redirect(reqwest::redirect::Policy::none())" in client
     assert "bearer_auth" not in body
     assert "manager_session" not in body
     assert "set_gateway_config" not in body
@@ -72,3 +74,27 @@ def test_gateway_draft_copy_exists_in_both_catalogs():
     ):
         assert f'"{key}"' in en
         assert f'"{key}"' in ar
+
+
+def test_saved_gateway_auto_refresh_is_canonical_periodic_and_uses_identity_probe():
+    main = text("src/desktop/main.tsx")
+    probe = function_slice(main, "const probeGateway = useCallback", "const checkHealth = useCallback")
+    assert "await probeGatewayHealth(targetUrl)" in probe
+    assert "fetchGatewayHealth" not in probe
+    assert "normalizeGatewayUrl(savedOriginRef.current) === targetUrl" in probe
+    assert "observeGatewayFailure" in probe
+    assert "noteGatewayConnectivityFailure" in main
+    assert "noteGatewayConnectivitySuccess" in main
+    assert "window.setInterval(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS)" in main
+    assert 'window.addEventListener("online", runProbe)' in main
+    assert 'window.addEventListener("focus", runProbe)' in main
+    assert 'document.addEventListener("visibilitychange", onVisible)' in main
+    assert "target !== savedGatewayUrl" not in main
+
+
+def test_gateway_connection_does_not_expire_from_clock_freshness_alone():
+    main = text("src/desktop/main.tsx")
+    assert "healthFresh" not in main
+    assert "GATEWAY_CONNECTIVITY_FRESH_MS" not in main
+    assert "observeGatewaySuccess(savedGatewayUrl)" in main
+    assert "observeGatewayFailure(target, presented)" in main

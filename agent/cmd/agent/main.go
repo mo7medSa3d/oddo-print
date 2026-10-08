@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -271,7 +270,7 @@ func stopServiceForRemoval(s service.Service) error {
 	for {
 		status, err := s.Status()
 		if err != nil {
-			if errors.Is(err, service.ErrNotInstalled) {
+			if serviceRemovalAlreadyComplete(err) {
 				return nil
 			}
 			return fmt.Errorf("read service status before removal: %w", err)
@@ -281,7 +280,7 @@ func stopServiceForRemoval(s service.Service) error {
 		}
 		if status == service.StatusRunning && !stopRequested {
 			if err := s.Stop(); err != nil {
-				if errors.Is(err, service.ErrNotInstalled) {
+				if serviceRemovalAlreadyComplete(err) {
 					return nil
 				}
 				return fmt.Errorf("stop service before removal: %w", err)
@@ -298,7 +297,7 @@ func stopServiceForRemoval(s service.Service) error {
 func uninstallServiceIfPresent(s service.Service) (bool, error) {
 	status, err := s.Status()
 	if err != nil {
-		if errors.Is(err, service.ErrNotInstalled) {
+		if serviceRemovalAlreadyComplete(err) {
 			return false, nil
 		}
 		return false, fmt.Errorf("read service status before removal: %w", err)
@@ -307,7 +306,7 @@ func uninstallServiceIfPresent(s service.Service) (bool, error) {
 		return false, fmt.Errorf("YaseirAgent must be stopped before removal")
 	}
 	if err := s.Uninstall(); err != nil {
-		if _, statusErr := s.Status(); errors.Is(statusErr, service.ErrNotInstalled) {
+		if _, statusErr := s.Status(); serviceRemovalAlreadyComplete(statusErr) {
 			return false, nil
 		}
 		return false, fmt.Errorf("uninstall service failed: %w", err)
@@ -393,8 +392,17 @@ func handleServiceControl(rawAction, configPath string) error {
 		if err := purgeLegacyAgentServices(); err != nil {
 			return fmt.Errorf("remove legacy Agent services during purge: %w", err)
 		}
+		// Service ownership/removal is the safety boundary above and remains
+		// fail-closed. Runtime/cache cleanup is different: Windows can keep
+		// WebView, log, AV-scanned, or profile files transiently locked even
+		// after the service is gone. Do not strand the whole product because a
+		// disposable data file could not be deleted. The NSIS uninstaller
+		// retries the fixed ProgramData roots after this helper exits.
 		if err := purgeInstallationData(); err != nil {
-			return err
+			log.Printf("WARNING: uninstall data cleanup incomplete; NSIS will retry after helper exit: %v", err)
+			fmt.Fprintf(os.Stderr, "WARNING: uninstall data cleanup incomplete; NSIS will retry after helper exit: %v\n", err)
+			fmt.Println("YaseirAgent services removed; residual local data cleanup deferred to the uninstaller")
+			return nil
 		}
 		fmt.Println("YaseirAgent service and all local Yaseir application data purged successfully")
 		return nil

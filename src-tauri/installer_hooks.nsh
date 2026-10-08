@@ -189,6 +189,22 @@ ${StrStr}
   Abort "Yaseir cleanup failed. See installer details."
 
   agent_removed:
+  ; The Agent helper has now exited. Retry fixed ProgramData product roots in
+  ; the uninstaller process itself: this catches transient locks caused by the
+  ; helper, WebView/cache teardown or antivirus scanning. Data cleanup is
+  ; best-effort here; ownership-safe service removal above is the fatal gate.
+  DetailPrint "Retrying residual Yaseir runtime-data cleanup after Agent helper exit..."
+  DetailPrint "Agent cleanup result: $R1"
+  ReadEnvStr $0 "PROGRAMDATA"
+  StrCmp $0 "" 0 +2
+    StrCpy $0 "C:\ProgramData"
+  RMDir /r "$0\YaseirAgent"
+  RMDir /r "$0\YasserAgent"
+  RMDir /r "$0\OdooPrintAgent"
+  RMDir /r "$0\YaseirManager"
+  RMDir /r "$0\YasserManager"
+  RMDir /r "$0\OdooPrintManager"
+
   ; Per-user state is outside ProgramData and may not be visible to the
   ; elevated Agent helper, so remove it explicitly in the uninstaller context.
   RMDir /r "$LOCALAPPDATA\YaseirManager"

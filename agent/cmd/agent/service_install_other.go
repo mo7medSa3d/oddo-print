@@ -3,10 +3,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/kardianos/service"
 )
+
+func serviceRemovalAlreadyComplete(err error) bool {
+	return errors.Is(err, service.ErrNotInstalled)
+}
 
 func verifyCurrentAgentServiceOwnershipIfPresent() error {
 	return nil
