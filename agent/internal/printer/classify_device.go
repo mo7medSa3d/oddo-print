@@ -177,6 +177,16 @@ func FactsFromDevice(d DeviceInfo) DeviceFacts {
 
 // ClassifyDeviceInfo classifies a discovery/normalization-layer DeviceInfo.
 func ClassifyDeviceInfo(d DeviceInfo) DeviceClassification {
+	// Explicit wire printer types are authoritative: a software-only
+	// capture with an unfamiliar name/driver must never be inferred as
+	// production hardware just because the registry is manually configured.
+	// Preserve the distinction between virtual and redirected sessions.
+	switch strings.ToLower(strings.TrimSpace(d.PrinterType)) {
+	case "virtual":
+		return DeviceClassification{Class: ClassVirtual, IsVirtual: true, Confidence: "high", Reasons: []string{"declared-virtual-printer-type"}}
+	case "redirected":
+		return DeviceClassification{Class: ClassRedirected, IsVirtual: true, IsRedirected: true, Confidence: "high", Reasons: []string{"declared-redirected-printer-type"}}
+	}
 	c := ClassifyDevice(FactsFromDevice(d))
 	// An explicitly flagged record (persisted by this or an older version)
 	// wins when the metadata alone is inconclusive.
