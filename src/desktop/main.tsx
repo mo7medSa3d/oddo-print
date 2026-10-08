@@ -170,11 +170,9 @@ export default function App() {
   // health observation for the persisted Gateway. A bad draft must not make
   // a previously observed saved Gateway appear offline.
   const [gatewayDraftError, setGatewayDraftError] = useState<string | null>(null);
-  // Timestamp of the last published Gateway observation. Connectivity itself
-  // is controlled by the evidence state machine: positive evidence wins
-  // immediately; an established connection is declared down only after a
-  // confirmed outage, never because a single timer/probe became stale.
-  const [healthCheckedAt, setHealthCheckedAt] = useState(0);
+  // Connectivity is controlled by the evidence state machine: positive
+  // evidence wins immediately; an established connection is declared down
+  // only after a confirmed outage, never because a timer/probe became stale.
   const [agentStatus, setAgentStatus] = useState<AgentStatusView | null>(null);
   const [runtimePaths, setRuntimePaths] = useState<DesktopState["runtimePaths"]>(null);
   const [busy, setBusy] = useState(false);
@@ -251,7 +249,6 @@ export default function App() {
       evidence: "authenticated-api",
     });
     setCheckedGatewayUrl(canonical);
-    setHealthCheckedAt(observedAt);
     setHealthError(null);
     return true;
   }, [savedOriginMatches]);
@@ -279,7 +276,6 @@ export default function App() {
 
     setHealth(null);
     setCheckedGatewayUrl(canonical);
-    setHealthCheckedAt(observedAt);
     setHealthError(presentedError);
     return true;
   }, [savedOriginMatches]);
