@@ -5,6 +5,7 @@ package printer
 import (
 	"context"
 	"fmt"
+	"io"
 	"image"
 	"log"
 	"math"
@@ -122,6 +123,13 @@ func getPDFiumPool() (pdfium.Pool, error) {
 			ReuseWorkers:  true,
 			RuntimeConfig: runtimeConfig,
 			FSConfig:      wazero.NewFSConfig(),
+			// The Agent runs as a headless Windows Service without reliable
+			// standard handles. go-pdfium defaults nil writers to os.Stdout/
+			// os.Stderr; wazero then fails to instantiate its WASM worker
+			// with GetFileType /dev/stdout: The handle is invalid.
+			// PDFium results/errors use the API, never a process console.
+			Stdout:        io.Discard,
+			Stderr:        io.Discard,
 		})
 	})
 	return pdfiumPool, pdfiumErr
