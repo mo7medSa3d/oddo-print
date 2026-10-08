@@ -542,6 +542,10 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 
 	// 1. Load configured printers from YAML (legacy, still supported for backward compat)
 	for _, pc := range cfg.Printers {
+		// Annotate an explicitly configured virtual capture so that the
+		// Gateway can distinguish this test backend from arbitrary virtual
+		// or redirected Windows queues during authenticated heartbeats.
+		pc = printer.TagConfiguredVirtualCapture(pc)
 		if !pc.IsEnabled() {
 			continue
 		}

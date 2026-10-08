@@ -39,6 +39,23 @@ func IsVirtualCaptureConfig(pc config.PrinterConfig) bool {
 	return ok && flag
 }
 
+// TagConfiguredVirtualCapture annotates ONLY the operator-declared YAML
+// sink with its trusted configuration provenance. The Agent heartbeat copies
+// these capabilities verbatim, and the Gateway requires this marker before
+// admitting a Manager-only virtual test job. Do not modify the input map.
+func TagConfiguredVirtualCapture(pc config.PrinterConfig) config.PrinterConfig {
+	if !IsVirtualCaptureConfig(pc) {
+		return pc
+	}
+	caps := make(map[string]interface{}, len(pc.Capabilities)+1)
+	for key, value := range pc.Capabilities {
+		caps[key] = value
+	}
+	caps["registration_source"] = "config"
+	pc.Capabilities = caps
+	return pc
+}
+
 // IsManagedPrinter preserves the production filter while allowing precisely
 // one kind of operator-configured, local file-capture test destination.
 func IsManagedPrinter(d DeviceInfo) bool {

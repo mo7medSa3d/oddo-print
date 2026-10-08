@@ -53,6 +53,23 @@ func TestVirtualPrinterIsOptInAndNeverProduction(t *testing.T) {
 	}
 }
 
+func TestYAMLVirtualCaptureProvenanceFlowsToHeartbeat(t *testing.T) {
+	pc := virtualFixture()
+	tagged := TagConfiguredVirtualCapture(pc)
+	if got := tagged.Capabilities["registration_source"]; got != "config" {
+		t.Fatalf("Gateway requires trusted YAML source marker, got %v", got)
+	}
+	if _, originalMutated := pc.Capabilities["registration_source"]; originalMutated {
+		t.Fatal("source marker must not mutate shared YAML capability map")
+	}
+	regular := virtualFixture()
+	regular.SpoolerName = "Microsoft Print to PDF"
+	regularTagged := TagConfiguredVirtualCapture(regular)
+	if _, marked := regularTagged.Capabilities["registration_source"]; marked {
+		t.Fatal("ordinary virtual Windows queue cannot be tagged as Yaseir capture")
+	}
+}
+
 func TestVirtualCaptureCreatesInspectableBytesForAgentTest(t *testing.T) {
 	t.Setenv("YASEIR_AGENT_VIRTUAL_TEST_MODE", "1")
 	dir := filepath.Join(t.TempDir(), "VirtualCaptures")
