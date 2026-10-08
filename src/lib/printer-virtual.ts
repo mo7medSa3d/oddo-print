@@ -48,6 +48,7 @@ const VIRTUAL_PORT_MONITORS = [
   "null:",
   "shrfax:", // Windows Shared Fax
   "fax:",
+  "brfax:", // Brother vendor software fax monitor
 ];
 
 function isVirtualPortMonitor(port: unknown): boolean {
@@ -71,6 +72,11 @@ const SOFTWARE_WRITER_TOKENS = [
   "microsoft print to pdf",
   "microsoft xps document writer",
   "microsoft shared fax",
+  "pc-fax",
+  "pc fax",
+  "pcfax",
+  "fax driver",
+  "fax v.",
   "send to onenote",
   "onenote",
   // Semantic families (language independent)
@@ -207,6 +213,18 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   // representation. This catches legacy/API printer rows such as FILE: and
   // PORTPROMPT: even when no capabilities object was persisted.
   if (isVirtualPortMonitor(printer.port)) return true;
+
+  // Vendor FAX-only queues often share the same USB001/IP_* port as a real
+  // printer. A trailing FAX driver/queue label means facsimile transmission,
+  // not a paper print; keep older Gateway rows from routing to it.
+  const vendorFaxName = (value: unknown) => {
+    const text = lower(value);
+    return text === "fax" || text.endsWith(" fax") ||
+      text.endsWith("-fax") || text.endsWith(" (fax)");
+  };
+  if ([
+    printer.name, printer.driverName, caps?.driver_name, caps?.driverName,
+  ].some(vendorFaxName)) return true;
 
   // The driver (and PnP ids) identify a software writer or a session tunnel
   // far more reliably than the display name does.
