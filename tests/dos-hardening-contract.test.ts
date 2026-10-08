@@ -17,7 +17,8 @@ describe("DoS/resource exhaustion hardening contracts", () => {
     const service = read("src/lib/print-job-service.ts");
     expect(service).toContain("MAX_AGENT_QUEUED_JOBS = 256");
     expect(service).toContain("MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024");
-    expect(service).toContain("pg_column_size(payload)");
+    expect(service).toContain("SUM(octet_length(payload::text))");
+    expect(service).not.toContain("pg_column_size(payload)) FILTER");
     expect(service).toContain('Buffer.byteLength(JSON.stringify(validatedPayload), "utf8")');
   });
 
