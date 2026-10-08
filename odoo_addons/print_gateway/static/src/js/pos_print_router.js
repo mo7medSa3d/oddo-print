@@ -7,9 +7,7 @@ import { isGatewayTimeoutError, withGatewayDeadline } from "./async_control";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { changesToOrder } from "@point_of_sale/app/models/utils/order_change";
 import { renderToElement } from "@web/core/utils/render";
-import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
-import { toCanvas as htmlToImageToCanvas } from "@point_of_sale/app/utils/html-to-image";
-import { waitImages } from "@point_of_sale/utils";
+import { renderGatewayReceiptJpeg, DEFAULT_RECEIPT_RASTER_WIDTH } from "./receipt_raster";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 
@@ -73,6 +71,10 @@ function gatewayUuid() {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_WIDTH) {
+    return renderGatewayReceiptJpeg(element, { renderer, width });
+}
+
 function canvasToJpeg(canvas) {
     const ctx = canvas.getContext("2d");
     if (ctx) {
@@ -80,53 +82,10 @@ function canvasToJpeg(canvas) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    // Strip any Data-URL prefix variant (some browsers emit charset/parameters);
-    // the payload layer only accepts raw base64.
-    return canvas.toDataURL("image/jpeg", 0.65).replace(/^data:image\/[a-z]+;base64,/, "");
+    return canvas.toDataURL("image/jpeg", 0.90).replace(/^data:image\\/[a-z]+;base64, "");
 }
 
-async function elementToJpeg(element) {
-    const canvas = await htmlToCanvas(element, { addClass: "pos-receipt-print" });
-    return canvasToJpeg(canvas);
-}
-
-/**
- * Convert a rendered receipt element to JPEG WITHOUT web-font embedding.
- *
- * html-to-image's font embedding scans EVERY @font-face rule in the POS
- * document and fetches each one — including Odoo's Noto UI fonts whose
- * italic/Arabic/Hebrew variants are missing from fonts.odoocdn.com, which
- * produces the recurring console 404s. The receipt declares no custom font
- * (Bootstrap utilities only), so embedding is pure overhead: text renders
- * with locally available fonts instead.
- *
- * Odoo's render_service.htmlToCanvas builds a fixed option object and drops
- * every other option, so skipFonts cannot flow through renderer.toJpeg /
- * renderer.toCanvas. This helper calls Odoo's vendored html-to-image build
- * directly with the same snapshot options Odoo uses plus skipFonts: true.
- */
-async function elementToJpegNoFonts(element) {
-    if (!element) {
-        throw new Error(_t("No receipt element to rasterize"));
-    }
-    try {
-        element.classList.add("pos-receipt-print");
-    } catch {
-        // Detached or exotic node: the class is a styling hook only.
-    }
-    // waitImages is timeout-safe and resolves on error; QR/logo <img>
-    // embedding below is independent of fonts and still applies.
-    await waitImages(element);
-    const canvas = await htmlToImageToCanvas(element, {
-        backgroundColor: "#ffffff",
-        pixelRatio: 1,
-        includeQueryParams: true,
-        skipFonts: true,
-    });
-    return canvasToJpeg(canvas);
-}
-
-export async function renderReceiptImage(pos, currentOrder, basic = false) {
+export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
     const props = {
         order: currentOrder,
@@ -141,7 +100,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
             // involvement); rasterize with web-font embedding disabled so no
             // remote Noto variant is ever requested (see elementToJpegNoFonts).
             const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpegNoFonts(element);
+            return await elementToJpeg(element, renderer, rasterWidth);
         } catch (err) {
             console.warn("renderer.toHtml (no-fonts) failed, falling back to standard chain:", err);
         }
@@ -149,7 +108,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
 
     if (renderer && typeof renderer.toJpeg === "function") {
         try {
-            return await renderer.toJpeg(receiptComponent, props, { addClass: "pos-receipt-print" });
+            return await renderer.toJpeg(receiptComponent, props, { addClass: "pos-receipt-print yaseir-gateway-receipt" });
         } catch (err) {
             console.warn("renderer.toJpeg failed, falling back to toCanvas/toHtml:", err);
         }
@@ -157,7 +116,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
 
     if (renderer && typeof renderer.toCanvas === "function") {
         try {
-            const canvas = await renderer.toCanvas(receiptComponent, props, { addClass: "pos-receipt-print" });
+            const canvas = await renderer.toCanvas(receiptComponent, props, { addClass: "pos-receipt-print yaseir-gateway-receipt" });
             return canvasToJpeg(canvas);
         } catch (err) {
             console.warn("renderer.toCanvas failed, falling back to toHtml:", err);
@@ -167,7 +126,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
     if (renderer && typeof renderer.toHtml === "function") {
         try {
             const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpeg(element);
+            return await elementToJpeg(element, renderer, rasterWidth);
         } catch (err) {
             console.warn("renderer.toHtml failed, falling back to renderToElement:", err);
         }
@@ -175,7 +134,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false) {
 
     // Direct template fallback if renderer service is unavailable:
     const receipt = renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props);
-    return await elementToJpeg(receipt);
+    return await elementToJpeg(receipt, renderer, rasterWidth);
 }
 
 patch(PosStore.prototype, {
@@ -719,7 +678,7 @@ patch(PosStore.prototype, {
 
         try {
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", { data });
-            const image = await gatewayRender(() => elementToJpeg(receipt));
+            const image = await gatewayRender(() => elementToJpeg(receipt, this.env.services.renderer));
             const result = await gatewayDataCall(
                 this,
                 "pos.order",

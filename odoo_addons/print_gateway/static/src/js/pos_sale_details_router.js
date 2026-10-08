@@ -11,20 +11,10 @@ import { formatDateTime } from "@web/core/l10n/dates";
 const { DateTime } = luxon;
 import { SaleDetailsButton } from "@point_of_sale/app/components/navbar/sale_details_button/sale_details_button";
 import { renderToElement } from "@web/core/utils/render";
-import { htmlToCanvas } from "@point_of_sale/app/services/render_service";
+import { renderGatewayReceiptJpeg } from "./receipt_raster";
 
-async function elementToJpeg(element, renderService) {
-    const renderFn = renderService?.htmlToCanvas || htmlToCanvas;
-    const canvas = await renderFn(element, { addClass: "pos-receipt-print" });
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-        ctx.globalCompositeOperation = "destination-over";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    // Strip any Data-URL prefix variant (some browsers emit charset/parameters);
-    // the payload layer only accepts raw base64.
-    return canvas.toDataURL("image/jpeg", 0.65).replace(/^data:image\/[a-z]+;base64,/, "");
+async function elementToJpeg(element, renderer) {
+    return renderGatewayReceiptJpeg(element, { renderer });
 }
 
 // Secure per-click operation identity (mirrors gatewayUuid in
