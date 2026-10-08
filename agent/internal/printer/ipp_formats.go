@@ -74,6 +74,16 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 	if len(formats) == 0 || containsIPPFormat(formats, ippFormatPDF) {
 		return p.printDocument(ctx, data, ippFormatPDF)
 	}
+	if containsIPPFormat(formats, "image/pwg-raster") {
+		// IPP Everywhere requires PWG Raster even where PDF is not
+		// advertised. Assemble every page locally into one compliant
+		// RaS2 stream before one Print-Job; do not send raw bitmap bytes.
+		pwg, err := renderIPPPDFToPWG(ctx, data, attrs)
+		if err != nil {
+			return fmt.Errorf("IPP printer %s supports PWG Raster but rendering failed before submission: %w", p.URL, err)
+		}
+		return p.printDocument(ctx, pwg, "image/pwg-raster")
+	}
 	if containsIPPFormat(formats, ippFormatJPEG) {
 		// Rendering before print submission preserves deterministic
 		// failure semantics: no uncertain partial job after a render error.

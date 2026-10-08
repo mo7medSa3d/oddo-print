@@ -442,6 +442,8 @@ func buildIPPGetPrinterAttributes(printerURI string) []byte {
 	writeIPPAttribute(&buf, 0x44, "", "printer-is-accepting-jobs")
 	writeIPPAttribute(&buf, 0x44, "", "document-format-supported")
 	writeIPPAttribute(&buf, 0x44, "", "document-format-default")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-type-supported")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-resolution-supported")
 	buf.WriteByte(0x03)
 	return buf.Bytes()
 }
@@ -594,6 +596,22 @@ func decodeIPPValue(tag byte, raw []byte) string {
 			return "true"
 		}
 		return "false"
+	case 0x32: // resolution: 4-byte X, 4-byte Y, 1-byte units
+		if len(raw) != 9 {
+			return ""
+		}
+		x := binary.BigEndian.Uint32(raw[:4])
+		y := binary.BigEndian.Uint32(raw[4:8])
+		if x == 0 || y == 0 || x > 1200 || y > 1200 {
+			return ""
+		}
+		if raw[8] == 3 { // dots per inch
+			return fmt.Sprintf("%dx%ddpi", x, y)
+		}
+		if raw[8] == 4 { // dots per centimetre
+			return fmt.Sprintf("%dx%ddpcm", x, y)
+		}
+		return ""
 	case 0x30, 0x41, 0x42, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49:
 		return string(raw)
 	default:
