@@ -8,11 +8,12 @@ describe.skipIf(!hasTestDatabase)("queue logical payload ceiling", () => {
   beforeEach(truncateAll);
   it("rejects 20th compressible 5MiB job when queued logical bytes exceed 128MiB", async () => {
     const f = await seedFixture();
-    const chars = Math.ceil(5 * 1024 * 1024 / 3) * 4;
+    const encoded = Buffer.alloc(5 * 1024 * 1024).toString("base64");
+    const chars = encoded.length;
     await pool().query(`
       INSERT INTO print_jobs (id, tenant_id, agent_id, printer_id, status, payload, expires_at)
       SELECT 'queue_budget_' || n::text, $1, $2, $3, 'queued',
-             jsonb_build_object('type','raw','protocol','raw','encoding','base64','data',repeat('A',$4::int)),
+             jsonb_build_object('type','raw','protocol','raw','encoding','base64','data',repeat('A',$4::int - 1) || '='),
              now() + interval '1 hour'
       FROM generate_series(1,19) n
     `, [f.tenantId, f.agentId, f.printerId, chars]);
@@ -23,7 +24,7 @@ describe.skipIf(!hasTestDatabase)("queue logical payload ceiling", () => {
     expect(Number(sizes.logical)).toBeGreaterThan(120 * 1024 * 1024);
     expect(Number(sizes.storage)).toBeLessThan(Number(sizes.logical));
     await expect(createPrintJobForPrinter(f.printerId, {
-      type: "raw", protocol: "raw", encoding: "base64", data: "A".repeat(chars),
+      type: "raw", protocol: "raw", encoding: "base64", data: encoded,
     }, { tenantId: f.tenantId, requestedBy: "queue-budget-test", destination: f.destination, documentType: "receipt" }))
       .rejects.toBeInstanceOf(AgentQueuedJobsFullError);
     const count = (await pool().query("SELECT COUNT(*)::int AS n FROM print_jobs WHERE agent_id=$1", [f.agentId])).rows[0];
