@@ -812,9 +812,9 @@ export default function App() {
   // Affirmative observations only: an empty/missing health object, an agent
   // status without running:true, or a probe older than the freshness window
   // must read as unavailable — never as healthy/online (C046).
-  // Staleness is derived from the heartbeat (90s by default), so an honest
-  // status needs a clock that advances while the screen stays open. Declared
-  // before the derived counts below so they re-derive on every tick.
+  // Gateway connectivity now refreshes every 10s with a 45s freshness window;
+  // the clock still needs to advance while the screen stays open so a laptop
+  // that sleeps or loses timers cannot display an indefinitely stale success.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 15000);
