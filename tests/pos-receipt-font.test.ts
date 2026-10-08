@@ -236,6 +236,22 @@ describe("renderReceiptImage — no-fonts static contract", () => {
     expect(css).toContain("flex-wrap: nowrap");
   });
 
+  it("never caches POS receipt geometry by POS config across different printers", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/pos_print_router.js"),
+      "utf8",
+    );
+    const start = source.indexOf("async function gatewayReceiptRasterWidth(");
+    const end = source.indexOf("patch(PosStore.prototype", start);
+    expect(start).toBeGreaterThan(0);
+    const lookup = source.slice(start, end);
+    expect(lookup).toContain('"get_gateway_receipt_raster_width"');
+    expect(lookup).toContain("[[orderId]]");
+    expect(lookup).not.toContain("gatewayReceiptRasterWidths");
+    expect(lookup).not.toContain("cache.set(");
+    expect(lookup).not.toContain("5 * 60 * 1000");
+  });
+
   it("never bypasses measured paper geometry through unbounded fallback helpers", () => {
     expect(source).not.toContain("renderer.toJpeg");
     expect(source).not.toContain("renderer.toCanvas");

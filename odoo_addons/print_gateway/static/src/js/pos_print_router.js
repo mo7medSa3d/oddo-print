@@ -106,17 +106,12 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
     return await elementToJpeg(receipt, renderer, rasterWidth);
 }
 
-// Fetch only once per POS/config every five minutes, never per receipt line.
-// Width is bound to the configured Gateway physical target (58/80mm and its
-// actual dot-density); unknown targets preserve Odoo 19's 512px default.
-// The Agent independently clamps the image to its backend's printable width.
+// Width is resolved for the ACTUAL bound printer on EACH print action,
+// not cached by POS config: the same POS can switch between 58mm and 80mm
+// bindings inside five minutes. Reusing config-wide geometry made receipts
+// clip or shrink after a routing/driver change. Fetch once per action; not
+// per receipt line. The Agent independently clamps to hardware limits.
 async function gatewayReceiptRasterWidth(pos, orderId) {
-    const key = String(pos.config?.id || pos.session?.config_id?.id || orderId);
-    const cache = (pos.gatewayReceiptRasterWidths ||= new Map());
-    const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < 5 * 60 * 1000) {
-        return hit.width;
-    }
     let width = DEFAULT_RECEIPT_RASTER_WIDTH;
     try {
         const candidate = await gatewayDataCall(
@@ -128,7 +123,6 @@ async function gatewayReceiptRasterWidth(pos, orderId) {
         // browser printing. The Gateway will still authorize the real job.
         console.warn("Gateway printer width unavailable; using Odoo's native receipt width:", error);
     }
-    cache.set(key, { width, at: Date.now() });
     return width;
 }
 
