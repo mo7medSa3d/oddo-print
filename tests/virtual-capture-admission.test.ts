@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPrintJobForPrinter } from "../src/lib/print-job-service";
+import { GET as pollAgentJobs } from "../src/app/api/agent/jobs/route";
 import { applyMigrations, closePool, hasTestDatabase, pool, seedFixture, truncateAll, type Fixture } from "./helpers/pg";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -40,6 +41,23 @@ suite("virtual capture print-job admission", () => {
       .rejects.toMatchObject({ code: "PRINTER_VIRTUAL" });
     const count = await pool().query("SELECT COUNT(*)::int AS count FROM print_jobs WHERE printer_id=$1", [f.printerId]);
     expect(count.rows[0].count).toBe(0);
+  });
+
+  it("hands an explicitly authorized virtual test job to the real Agent polling endpoint", async () => {
+    vi.stubEnv("YASEIR_GATEWAY_VIRTUAL_TEST_MODE", "1");
+    const job = await createPrintJobForPrinter(f.printerId, pdf, {
+      tenantId: f.tenantId, requestedBy: "manager-test", documentType: "test_page",
+      allowVirtualTestCapture: true,
+    });
+    const response = await pollAgentJobs(new Request("http://gateway.test/api/agent/jobs", {
+      method: "GET", headers: { Authorization: f.agentAuth, "content-type": "application/json" },
+    }));
+    expect(response.status).toBe(200);
+    const jobs = await response.json() as Array<{ id: string; printerId?: string }>;
+    expect(jobs.some((claimed) => claimed.id === job.id)).toBe(true);
+    const actual = (await pool().query("SELECT status, delivery_attempts FROM print_jobs WHERE id=$1", [job.id])).rows[0];
+    expect(actual.status).toBe("claimed");
+    expect(Number(actual.delivery_attempts)).toBe(1);
   });
 
   it("accepts only the explicitly tagged Manager test print when opted in", async () => {
