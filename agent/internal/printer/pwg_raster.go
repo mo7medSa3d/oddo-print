@@ -50,22 +50,22 @@ func encodePWGPage(out *bytes.Buffer, img *image.RGBA, dpi, totalPages int, page
 	header := make([]byte, pwgPageHeaderBytes)
 	copy(header[0:64], "PwgRaster")
 	put := func(at int, value uint32) { binary.BigEndian.PutUint32(header[at:at+4], value) }
-	put(276, uint32(dpi))                        // HWResolution X
-	put(280, uint32(dpi))                        // HWResolution Y
-	put(352, uint32(math.Round(pageWidthPts)))   // PageSize in points
-	put(356, uint32(math.Round(pageHeightPts)))  // PageSize in points
-	put(372, uint32(w))                          // Width
-	put(376, uint32(h))                          // Height
-	put(384, 8)                                  // BitsPerColor
-	put(388, uint32(channels*8))                  // BitsPerPixel
-	put(392, uint32(w*channels))                  // BytesPerLine
-	put(396, 0)                                  // ColorOrder = chunky
-	put(400, colorSpace)                         // ColorSpace = sGray/sRGB
-	put(420, uint32(channels))                    // NumColors
-	put(452, uint32(totalPages))                 // TotalPageCount
-	put(456, 1)                                  // CrossFeedTransform = normal
-	put(460, 1)                                  // FeedTransform = normal
-	put(480, 0x00ffffff)                         // AlternatePrimary (white)
+	put(276, uint32(dpi))                       // HWResolution X
+	put(280, uint32(dpi))                       // HWResolution Y
+	put(352, uint32(math.Round(pageWidthPts)))  // PageSize in points
+	put(356, uint32(math.Round(pageHeightPts))) // PageSize in points
+	put(372, uint32(w))                         // Width
+	put(376, uint32(h))                         // Height
+	put(384, 8)                                 // BitsPerColor
+	put(388, uint32(channels*8))                 // BitsPerPixel
+	put(392, uint32(w*channels))                 // BytesPerLine
+	put(396, 0)                                 // ColorOrder = chunky
+	put(400, colorSpace)                        // ColorSpace = sGray/sRGB
+	put(420, uint32(channels))                   // NumColors
+	put(452, uint32(totalPages))                // TotalPageCount
+	put(456, 1)                                 // CrossFeedTransform = normal
+	put(460, 1)                                 // FeedTransform = normal
+	put(480, 0x00ffffff)                        // AlternatePrimary (white)
 	out.Write(header)
 	if out.Len() > maxPrintBytes {
 		return fmt.Errorf("PWG page header exceeds output budget")
