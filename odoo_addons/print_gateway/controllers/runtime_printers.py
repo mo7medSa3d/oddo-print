@@ -7,32 +7,6 @@ from odoo.http import request
 from odoo.exceptions import ValidationError
 
 
-def _fetch_runtime_inventory(url, key, headers, params=None):
-    """Bounded paging for Odoo picker inventories; never silently truncate.
-
-    The targeted Agent/Printer lookups use id predicates instead. This is
-    only for interactive pickers where we need the entire bounded fleet.
-    """
-    all_rows = []
-    offset = 0
-    while True:
-        query = dict(params or {}, limit=200, offset=offset)
-        response = requests.get(url, headers=headers, params=query, timeout=5, allow_redirects=False)
-        if response.status_code != 200:
-            raise ValidationError(request.env._('Gateway %s discovery failed (HTTP %s).') % (key, response.status_code))
-        body = response.json()
-        rows = body.get(key) if isinstance(body, dict) else None
-        if not isinstance(rows, list):
-            raise ValidationError(request.env._('Gateway returned an invalid %s discovery response.') % ('agent' if key == 'agents' else 'printer'))
-        all_rows.extend(rows)
-        if not body.get('hasMore'):
-            return {key: all_rows}
-        next_offset = body.get('nextOffset')
-        if not isinstance(next_offset, int) or next_offset <= offset or next_offset > 10000:
-            raise ValidationError(request.env._('Gateway %s discovery exceeded the supported fleet limit.') % key)
-        offset = next_offset
-
-
 class PrintGatewayRuntimePrinterController(http.Controller):
     @staticmethod
     def _require_runtime_admin():
@@ -112,9 +86,13 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         except ValidationError:
             raise
         try:
-            body = _fetch_runtime_inventory(
-                '%s/api/odoo/agents' % gateway_base, 'agents', gateway_headers,
+            response = requests.get(
+                '%s/api/odoo/agents' % gateway_base,
+                headers=gateway_headers, timeout=5, allow_redirects=False,
             )
+            if response.status_code != 200:
+                raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % response.status_code)
+            body = response.json()
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError(request.env._('Gateway agent discovery is unavailable.')) from exc
         agents = body.get('agents') if isinstance(body, dict) else None
@@ -182,12 +160,14 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         # Gateway tenant before exposing its printer inventory. Branch-scoped
         # callers have already passed the explicit assignment check above.
         try:
-            agent_body = _fetch_runtime_inventory(
+            agent_response = requests.get(
                 '%s/api/odoo/agents' % config._gateway_base(for_request=True),
-                'agents', config._gateway_headers(),
-                params={'agent_id': selected_agent_id},
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False,
             )
-            all_agents = agent_body.get('agents')
+            if agent_response.status_code != 200:
+                raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
+            agent_body = agent_response.json() if agent_response.content else {}
+            all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:
@@ -200,10 +180,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             raise Forbidden(request.env._('Access Denied: The selected Gateway Agent is not active in this tenant.'))
 
         try:
-            body = _fetch_runtime_inventory(
+            response = requests.get(
                 '%s/api/odoo/printers' % config._gateway_base(for_request=True),
-                'printers', config._gateway_headers(), params={'agent_id': selected_agent_id},
+                headers=config._gateway_headers(),
+                params={'agent_id': selected_agent_id},
+                timeout=5, allow_redirects=False,
             )
+            if response.status_code != 200:
+                raise ValidationError(request.env._('Gateway printer discovery failed (HTTP %s).') % response.status_code)
+            body = response.json()
         except ValidationError:
             raise
         except (requests.RequestException, ValueError) as exc:

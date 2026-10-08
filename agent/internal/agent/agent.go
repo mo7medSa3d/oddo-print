@@ -2273,17 +2273,6 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			// cross-protocol compatibility.
 			caps["supported_protocols"] = printer.SupportedProtocolsForDevice(facts)
 		}
-		if ippBackend, ok := printerByID[id].(interface{ SupportedDocumentFormats() []string }); ok {
-			formats := ippBackend.SupportedDocumentFormats()
-			caps["document_formats"] = formats
-			caps["supported_protocols"] = []string{}
-			for _, format := range formats {
-				if strings.EqualFold(format, "application/pdf") {
-					caps["supported_protocols"] = []string{"pdf"}
-					break
-				}
-			}
-		}
 		if reporter, ok := printerByID[id].(interface{ StatusDetail() string }); ok {
 			if detail := strings.TrimSpace(reporter.StatusDetail()); detail != "" {
 				caps["status_detail"] = boundedDiscoveryText(detail, 255)

@@ -170,7 +170,6 @@ class PrintGatewayRouter(models.AbstractModel):
                 record=record,
                 explicit_destination=explicit_destination,
                 branch=branch,
-                protocol=protocol,
             )
         if not binding:
             if not raise_if_not_found:
@@ -186,12 +185,6 @@ class PrintGatewayRouter(models.AbstractModel):
                     "company": gateway_company,
                     "branch": branch,
                 }
-            if protocol:
-                raise ValidationError(_(
-                    "No Print Rule matches %s (%s) in %s with printer protocol '%s'. "
-                    "ZPL/TSPL/ESC-POS/RAW must match exactly; RAW is not a wildcard."
-                ) % (destination.display_name, dtype,
-                     branch.display_name if branch else gateway_company.display_name, protocol))
             raise ValidationError(
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)

@@ -18,7 +18,7 @@ class AccountMovePrintGateway(models.Model):
             if not move.is_invoice(include_receipts=True) or move.state != "posted":
                 continue
             try:
-                result = policy_model.with_context(print_gateway_event_identity=move.write_date).dispatch_for_record(move, "invoice_posted")
+                result = policy_model.dispatch_for_record(move, "invoice_posted")
                 if result.get("failed"):
                     _logger.error(
                         "Automated print scheduling completed with %s policy failure(s) for invoice %s",

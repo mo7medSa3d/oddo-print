@@ -48,11 +48,7 @@ def test_discovery_errors_are_translated_and_not_empty_inventory(status, body, w
         @staticmethod
         def get(*args, **kwargs):
             return SimpleNamespace(status_code=status, json=lambda: body)
-    globals_ = {"requests": Requests, "request": SimpleNamespace(env=SimpleNamespace(_=lambda msg: "translated: " + msg)), "ValidationError": ValidationError}
-    # The paged inventory helper is intentionally separate from the Odoo
-    # controller method; exercise both under the same isolated doubles.
-    globals_["_fetch_runtime_inventory"] = load_method("controllers/runtime_printers.py", "_fetch_runtime_inventory", globals_)
-    method = load_method("controllers/runtime_printers.py", "runtime_agents", globals_)
+    method = load_method("controllers/runtime_printers.py", "runtime_agents", {"requests": Requests, "request": SimpleNamespace(env=SimpleNamespace(_=lambda msg: "translated: " + msg)), "ValidationError": ValidationError})
     self = SimpleNamespace(_require_runtime_admin=lambda: None, _scope=lambda *args: (1, False), _get_config=lambda c: (config, 1))
     with pytest.raises(ValidationError, match=want) as error:
         method(self)

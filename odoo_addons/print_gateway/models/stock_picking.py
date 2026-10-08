@@ -21,7 +21,7 @@ class StockPickingPrintGateway(models.Model):
             if picking.state != "done":
                 continue
             try:
-                result = policy_model.with_context(print_gateway_event_identity=picking.date_done or picking.write_date).dispatch_for_record(picking, "picking_validated")
+                result = policy_model.dispatch_for_record(picking, "picking_validated")
                 if result.get("failed"):
                     _logger.error(
                         "Automated print scheduling completed with %s policy failure(s) for picking %s",

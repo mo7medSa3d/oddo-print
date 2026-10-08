@@ -61,16 +61,10 @@
                                    invisible="action_type != 'raw_template'" 
                                    required="action_type == 'raw_template'"/>
                             
-                            <field name="allow_additional_pos_output"
-                                   invisible="model_name != 'pos.order' or event_type != 'pos_order_paid'"
-                                   help="Normally leave unchecked: a second Automation receipt can print alongside the standard POS receipt. Check only to intentionally print an extra ticket."/>
                             <field name="binding_id"
                                    domain="[('company_id', '=', company_id), ('branch_id', '=', branch_id)]"
                                    options="{'no_create': True}"
-                                   help="For raw stock labels use an Operation Type Print Rule without a Report and with the exact ZPL/TSPL/ESC-POS/RAW protocol. Assign the Agent to the branch first."/>
-                            <div class="text-muted" invisible="action_type != 'raw_template' or model_name != 'stock.picking'">
-                                <small>Raw stock labels use document type label. Select an Operation Type Print Rule, leave its Report blank, and match its printer protocol exactly.</small>
-                            </div>
+                                   help="Optional explicit Print Rule for this exact Company and Branch scope."/>
                         </group>
                     </group>
 
