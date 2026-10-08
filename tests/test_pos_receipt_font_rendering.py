@@ -51,9 +51,9 @@ def test_pos_receipt_rendering_declares_no_web_fonts():
     during receipt rendering, which is exactly the class of bug that produced
     the Noto 404s.
     """
-    pos_assets = list((ADDON / "static" / "src" / "js").glob("*.js")) + list(
-        (ADDON / "static" / "src" / "scss").glob("*.scss")
-    )
+    pos_assets = (list((ADDON / "static" / "src" / "js").glob("*.js"))
+                  + list((ADDON / "static" / "src" / "scss").glob("*.scss"))
+                  + list((ADDON / "static" / "src" / "css").glob("*.css")))
     assert pos_assets, "expected POS JS/SCSS assets to scan"
     offenders = []
     for path in pos_assets:
@@ -78,9 +78,16 @@ def test_render_receipt_image_uses_resilient_html_to_canvas_pipeline():
     """
     source = read("static/src/js/pos_print_router.js")
 
-    # The resilient renderer entry point is used.
-    assert 'from "@point_of_sale/app/services/render_service"' in source
-    assert "htmlToCanvas" in source
+    # The exact capture helper uses the vendored html-to-image directly
+    # with skipFonts, because Odoo render_service's wrapper silently drops
+    # custom rasterization options and can detach the source node early.
+    helper = read("static/src/js/receipt_raster.js")
+    assert 'from "./receipt_raster"' in source
+    assert 'from "@point_of_sale/app/utils/html-to-image"' in helper
+    assert "skipFonts: true" in helper
+    assert "renderer.whenMounted" in helper
+    assert "node.scrollWidth" in helper
+    assert 'backgroundColor: "#ffffff"' in helper
 
     # The receipt image renderer exists and is exported for testing.
     assert "export async function renderReceiptImage" in source
