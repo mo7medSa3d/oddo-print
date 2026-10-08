@@ -179,6 +179,18 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
     expect(toCanvas.mock.calls[0][0].style.width).toBe("512px");
   });
 
+  it("refuses an overflowing receipt instead of falling back to a clipped job", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    const renderer = {
+      toHtml: vi.fn().mockResolvedValue(document.createElement("div")),
+      toJpeg: vi.fn().mockResolvedValue("LEGACY_CLIPPED_IMAGE"),
+    };
+    await expect(renderReceiptImage(makePos(renderer), makeOrder()))
+      .rejects.toThrow(/wider than the paper/);
+    expect(renderer.toJpeg).not.toHaveBeenCalled();
+    expect(toCanvas).not.toHaveBeenCalled();
+  });
+
   it("never rasterizes a detached DOM node", async () => {
     toCanvas.mockImplementation(async (node: HTMLElement) => {
       expect(node.isConnected).toBe(true);

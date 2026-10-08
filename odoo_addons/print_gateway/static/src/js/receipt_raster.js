@@ -57,11 +57,15 @@ export async function renderGatewayReceiptJpeg(element, { renderer, width } = {}
         const measuredHeight = Math.ceil(node.scrollHeight);
         if (measuredWidth !== rasterWidth || measuredHeight < 1 ||
             measuredHeight > 16384 || measuredWidth > 576) {
-            throw new Error("POS receipt dimensions are invalid; check custom receipt CSS.");
+            const err = new Error("POS receipt dimensions are invalid; check custom receipt CSS.");
+            err.code = "POS_RECEIPT_GEOMETRY";
+            throw err;
         }
         // Avoid silent right-edge clipping (which can hide prices/QRs).
         if (node.scrollWidth > measuredWidth + 2) {
-            throw new Error("POS receipt has content wider than the paper; review its receipt template.");
+            const err = new Error("POS receipt has content wider than the paper; review its receipt template.");
+            err.code = "POS_RECEIPT_GEOMETRY";
+            throw err;
         }
         const canvas = await toCanvas(node, {
             backgroundColor: "#ffffff",

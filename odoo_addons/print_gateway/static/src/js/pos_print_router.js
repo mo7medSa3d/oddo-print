@@ -128,6 +128,11 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
             const element = await renderer.toHtml(receiptComponent, props);
             return await elementToJpeg(element, renderer, rasterWidth);
         } catch (err) {
+            // A proved out-of-paper layout must not fall back to the default
+            // Odoo renderer and submit the same clipped/tangled receipt.
+            if (err?.code === "POS_RECEIPT_GEOMETRY") {
+                throw err;
+            }
             console.warn("renderer.toHtml failed, falling back to renderToElement:", err);
         }
     }
