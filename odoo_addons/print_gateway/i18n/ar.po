@@ -533,11 +533,6 @@ msgid "Connection & Printing"
 msgstr "الاتصال والطباعة"
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/print_policy.py:0
-msgid "Could not build the raw payload for rule '%s'. Check that the template only uses placeholders this document provides."
-msgstr "تعذّر بناء الحمولة الخام للقاعدة '%s'. تحقّق من أن القالب يستخدم فقط العناصر النائبة التي يوفّرها هذا المستند."
-
-#. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/components/language_switcher.js:0
 msgid "Could not change language. Make sure the language is installed."
@@ -3649,3 +3644,103 @@ msgstr "حرارية"
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "unknown"
 msgstr "غير معروف"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_policy.py:0
+msgid "Raw template exceeds the 64 KiB size limit."
+msgstr "يتجاوز القالب الخام الحد الأقصى للحجم البالغ 64 كيلوبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_policy.py:0
+msgid "Could not build raw template for rule '%s': %s"
+msgstr "تعذّر إنشاء القالب الخام للقاعدة '%s': %s"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_policy.py:0
+msgid "Rendered raw label exceeds the 512 KiB size limit."
+msgstr "يتجاوز الملصق الخام الناتج الحد الأقصى للحجم البالغ 512 كيلوبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_policy.py:0
+msgid "POS Paid automation to the normal POS receipt/preparation printer may produce a second physical ticket. Select a separate destination, or explicitly enable 'Allow additional POS ticket'."
+msgstr "قد تؤدي أتمتة الدفع إلى طابعة إيصالات أو تحضير نقاط البيع المعتادة إلى طباعة تذكرة ورقية ثانية. اختر وجهة مستقلة أو فعّل خيار 'السماح بتذكرة نقاط بيع إضافية' صراحةً."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_policy.py:0
+msgid "POS Paid automation resolved to the normal POS receipt/preparation printer. Choose a separate output destination or explicitly enable 'Allow additional POS ticket'."
+msgstr "تشير أتمتة الدفع إلى طابعة إيصالات أو تحضير نقاط البيع المعتادة. اختر وجهة طباعة مستقلة أو فعّل خيار 'السماح بتذكرة نقاط بيع إضافية' صراحةً."
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_policy__allow_additional_pos_output
+msgid "Allow additional POS ticket"
+msgstr "السماح بتذكرة نقاط بيع إضافية"
+
+#. module: print_gateway
+#: model:ir.model.fields,help:print_gateway.field_print_gateway_policy__allow_additional_pos_output
+msgid "Explicitly allow a second print to the normal POS receipt/preparation destination. This may print an additional physical ticket."
+msgstr "السماح صراحةً بطباعة ثانية في وجهة إيصالات أو تحضير نقاط البيع المعتادة. قد يؤدي ذلك إلى طباعة تذكرة ورقية إضافية."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Standard POS receipt/kitchen images do not carry ESC/POS drawer/cutter/buzzer commands. Disable these options for POS image Print Rules. Native ESC/POS command rules support them."
+msgstr "صور إيصالات وتحضير نقاط البيع المعتادة لا تتضمن أوامر ESC/POS الخاصة بدرج النقد أو القاطع أو الجرس. عطّل هذه الخيارات لقواعد طباعة صور نقاط البيع؛ وتدعمها قواعد أوامر ESC/POS الأصلية."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Operation Type PDF printing requires a Stock Picking report."
+msgstr "تتطلب طباعة PDF لنوع العملية تقريرًا لحركة المخزون."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "PDF delivery slips require a spooler/IPP/IPPS document printer. Clear Report for ZPL/TSPL/ESC-POS labels."
+msgstr "تتطلب أذونات التسليم بصيغة PDF طابعة مستندات عبر Spooler أو IPP أو IPPS. أزل التقرير لطباعة ملصقات ZPL أو TSPL أو ESC/POS."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Raw stock labels require an exact ZPL, TSPL, ESC/POS or RAW printer protocol, with no PDF Report."
+msgstr "تتطلب ملصقات المخزون الخام بروتوكول طابعة مطابقًا تمامًا من ZPL أو TSPL أو ESC/POS أو RAW، دون تقرير PDF."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "No Print Rule matches %s (%s) in %s with printer protocol '%s'. ZPL/TSPL/ESC-POS/RAW must match exactly; RAW is not a wildcard."
+msgstr "لا توجد قاعدة طباعة تطابق %s (%s) في %s باستخدام بروتوكول الطابعة '%s'. يجب أن تتطابق ZPL وTSPL وESC/POS وRAW تمامًا؛ ولا يُعد RAW خيارًا عامًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/controllers/runtime_printers.py:0
+msgid "Gateway %s discovery failed (HTTP %s)."
+msgstr "فشل استكشاف %s عبر البوابة (HTTP %s)."
+
+#. module: print_gateway
+#: code:addons/print_gateway/controllers/runtime_printers.py:0
+msgid "Gateway returned an invalid %s discovery response."
+msgstr "أعادت البوابة استجابة استكشاف %s غير صالحة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/controllers/runtime_printers.py:0
+msgid "Gateway %s discovery exceeded the supported fleet limit."
+msgstr "تجاوز استكشاف %s عبر البوابة الحد المدعوم لعدد الأجهزة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Gateway agent-name lookup failed (HTTP %s)."
+msgstr "فشل البحث عن اسم وكيل الطباعة عبر البوابة (HTTP %s)."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "Report (PDF only)"
+msgstr "التقرير (PDF فقط)"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "For Operation Type, leave empty for raw ZPL/TSPL/ESC-POS/RAW labels (Document Type label), or select a Stock Picking report for PDF delivery (Document Type delivery)."
+msgstr "بالنسبة لنوع العملية، اترك الحقل فارغًا لملصقات ZPL وTSPL وESC/POS وRAW الخام (نوع المستند: ملصق)، أو اختر تقرير حركة مخزون لتسليم PDF (نوع المستند: تسليم)."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
+msgid "Normally leave unchecked: a second Automation receipt can print alongside the standard POS receipt. Check only to intentionally print an extra ticket."
+msgstr "اترك الخيار غير محدد عادةً؛ فقد تُطبع نسخة إضافية من إيصال الأتمتة مع إيصال نقاط البيع المعتاد. فعّله فقط عند الرغبة في تذكرة إضافية."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
+msgid "For raw stock labels use an Operation Type Print Rule without a Report and with the exact ZPL/TSPL/ESC-POS/RAW protocol. Assign the Agent to the branch first."
+msgstr "لملصقات المخزون الخام، استخدم قاعدة طباعة لنوع العملية دون تقرير وببروتوكول ZPL أو TSPL أو ESC/POS أو RAW مطابق تمامًا. أسند وكيل الطباعة إلى الفرع أولًا."
