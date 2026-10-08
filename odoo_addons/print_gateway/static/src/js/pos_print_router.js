@@ -353,7 +353,7 @@ patch(PosStore.prototype, {
         // a new order BEFORE acquiring the native preparation-print guard.
         // Otherwise the first kitchen send silently skips sync, fails the
         // id check, and only saves the order after the ticket was rejected.
-        if (!order?.isSynced || !Number.isInteger(order?.id) || order.id <= 0) {
+        if (!opts.byPassPrint && (!order?.isSynced || !Number.isInteger(order?.id) || order.id <= 0)) {
             try {
                 await gatewaySync(this, { orders: [order], force: true, throw: true });
                 if (!Number.isInteger(order?.id) || order.id <= 0) {
