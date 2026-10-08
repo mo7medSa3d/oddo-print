@@ -3744,3 +3744,18 @@ msgstr "اترك الخيار غير محدد عادةً؛ فقد تُطبع ن�
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
 msgid "For raw stock labels use an Operation Type Print Rule without a Report and with the exact ZPL/TSPL/ESC-POS/RAW protocol. Assign the Agent to the branch first."
 msgstr "لملصقات المخزون الخام، استخدم قاعدة طباعة لنوع العملية دون تقرير وببروتوكول ZPL أو TSPL أو ESC/POS أو RAW مطابق تمامًا. أسند وكيل الطباعة إلى الفرع أولًا."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "Raw labels: leave Report empty and select the exact printer language. PDF delivery slips: choose a stock report and spooler/IPP/IPPS printer."
+msgstr "الملصقات الخام: اترك حقل التقرير فارغًا وحدد لغة الطابعة بدقة. أذونات التسليم بصيغة PDF: اختر تقرير مخزون وطابعة Spooler أو IPP أو IPPS."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "POS images do not carry ESC/POS drawer, cutter or buzzer commands. Use a native ESC/POS command rule for these options; do not enable them on a POS image rule."
+msgstr "صور نقاط البيع لا تحتوي على أوامر ESC/POS الخاصة بدرج النقد أو القاطع أو الجرس. استخدم قاعدة أوامر ESC/POS أصلية لهذه الخيارات، ولا تفعّلها في قاعدة طباعة صور نقاط البيع."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
+msgid "Raw stock labels use document type label. Select an Operation Type Print Rule, leave its Report blank, and match its printer protocol exactly."
+msgstr "تستخدم ملصقات المخزون الخام نوع المستند «ملصق». اختر قاعدة طباعة لنوع العملية، واترك التقرير فارغًا، وطابق بروتوكول الطابعة بدقة."
