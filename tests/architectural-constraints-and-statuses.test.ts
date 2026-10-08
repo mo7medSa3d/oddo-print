@@ -114,15 +114,22 @@ describe("Architectural Constraints, ACLs, and Runtime Statuses", () => {
 
     const mainTsx = read("src/desktop/main.tsx");
     expect(mainTsx).toContain("onGatewayConfigChanged");
-    // Affirmative health only (C046): an empty/missing health object, a stale
-    // probe, or a non-true ok flag must never read as connected.
+    // Connectivity is affirmative but no longer expires on a short clock
+    // freshness latch. Positive probe/API evidence wins immediately, while
+    // established connectivity only goes offline after the shared evidence
+    // state machine confirms a sustained outage.
     expect(mainTsx).toContain("ok === true");
-    expect(mainTsx).toContain("healthFresh");
-    expect(mainTsx).toContain("healthCheckedAt");
+    expect(mainTsx).toContain("GatewayConnectivityEvidence");
+    expect(mainTsx).toContain("noteGatewayConnectivitySuccess");
+    expect(mainTsx).toContain("noteGatewayConnectivityFailure");
+    expect(mainTsx).toContain("observeGatewaySuccess(savedGatewayUrl)");
+    expect(mainTsx).not.toContain("healthFresh");
+    expect(mainTsx).not.toContain("healthCheckedAt");
     expect(mainTsx).toContain("const [savedGatewayUrl, setSavedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const [checkedGatewayUrl, setCheckedGatewayUrl] = useState(\"\");");
     expect(mainTsx).toContain("const probeGateway = useCallback(async (targetUrl: string): Promise<boolean>");
-    expect(mainTsx).toContain("window.setTimeout(() => {");
+    expect(mainTsx).toContain("window.setTimeout(runProbe, 250)");
+    expect(mainTsx).toContain("window.setInterval(runProbe, GATEWAY_AUTO_PROBE_INTERVAL_MS)");
     expect(mainTsx).toContain("const gatewayConnected = Boolean(");
     expect(mainTsx).toContain("checkedGatewayUrl === normalizedGatewayUrl");
     expect(mainTsx).toContain("const raw = gatewayUrl.trim();");
