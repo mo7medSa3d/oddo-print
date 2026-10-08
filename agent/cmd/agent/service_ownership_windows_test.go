@@ -89,7 +89,6 @@ func TestLegacyServiceCandidatesStayInsideCurrentInstallation(t *testing.T) {
 	}
 }
 
-
 func TestServiceRemovalAlreadyCompleteAcceptsAbsentOrPendingDeletion(t *testing.T) {
 	for _, err := range []error{
 		service.ErrNotInstalled,
