@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
@@ -32,7 +32,15 @@ function odooPrinterCapabilities(value: unknown, connectionType: string, protoco
     supported.add("pdf");
     supported.add("image");
   } else if (conn === "ipp" || conn === "ipps" || proto === "ipp" || proto === "ipps") {
-    supported.add("pdf");
+    // IPP is a transport, not proof that this device accepts PDF. The Agent
+    // publishes document_formats only after querying document-format-supported.
+    const formats = value && typeof value === "object" && !Array.isArray(value)
+      ? (value as { document_formats?: unknown }).document_formats : undefined;
+    const pdfVerified = Array.isArray(formats) && formats.some(
+      (v) => typeof v === "string" && v.trim().toLowerCase() === "application/pdf",
+    );
+    if (pdfVerified) supported.add("pdf");
+    else supported.delete("pdf");
   }
   return { supported_protocols: [...supported] };
 }
@@ -58,11 +66,19 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const agentId = searchParams.get("agent_id")?.trim();
+  const printerId = searchParams.get("printer_id")?.trim();
+  const limit = Number(searchParams.get("limit") ?? "200");
+  const offset = Number(searchParams.get("offset") ?? "0");
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 ||
+      !Number.isSafeInteger(offset) || offset < 0 || offset > 10000) {
+    return NextResponse.json({ error: "limit must be 1-200 and offset must be 0-10000" }, { status: 400 });
+  }
 
   const conditions = [eq(printers.lifecycle, "active"), eq(printers.inventoryPresent, true), eq(agents.lifecycle, "active"), eq(printers.tenantId, apiKey.tenantId), eq(agents.tenantId, apiKey.tenantId)];
   if (agentId) {
     conditions.push(eq(agents.id, agentId));
   }
+  if (printerId) conditions.push(eq(printers.id, printerId));
 
   await refreshClockSkew();
   const now = gatewayNow();
@@ -87,9 +103,14 @@ export async function GET(req: Request) {
     .from(printers)
     .innerJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId)))
     .where(and(...conditions))
-    .orderBy(printers.name);
+    .orderBy(asc(printers.name), asc(printers.id))
+    .limit(limit + 1)
+    .offset(offset);
+  const hasMore = rows.length > limit;
   return NextResponse.json({
-    printers: rows.map((row) => ({
+    hasMore,
+    nextOffset: hasMore ? offset + limit : null,
+    printers: rows.slice(0, limit).map((row) => ({
       id: row.id,
       name: row.name,
       reportedStatus: row.status,

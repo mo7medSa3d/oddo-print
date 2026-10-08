@@ -357,7 +357,7 @@ export async function getDashboardJobs(options?: {
       conditions.push(inArray(printJobs.status, ["queued", "claimed", "printing"]));
     } else if (statusParam === "queued" || statusParam === "claimed" || statusParam === "printing" || statusParam === "expired") {
       conditions.push(eq(printJobs.status, statusParam));
-    } else if (statusParam === "success" || statusParam === "printed") {
+    } else if (statusParam === "success") {
       conditions.push(eq(printJobs.status, "success"));
     } else if (statusParam === "unknown" || statusParam === "attention") {
       conditions.push(

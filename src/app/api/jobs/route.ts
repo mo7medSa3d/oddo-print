@@ -45,6 +45,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: `search must be between 2 and ${MAX_SEARCH_LENGTH} characters` }, { status: 400 });
   }
 
+  if (statusParam === "printed") {
+    return NextResponse.json({ error: "Physical paper output is not independently verified. Use status=success for successful printer delivery." }, { status: 400 });
+  }
   if (statusParam && !isJobFilterStatus(statusParam)) {
     return NextResponse.json({ error: "invalid status filter" }, { status: 400 });
   }
@@ -57,7 +60,7 @@ export async function GET(req: Request) {
       conditions.push(inArray(printJobs.status, ["queued", "claimed", "printing"]));
     } else if (statusParam === "queued" || statusParam === "claimed" || statusParam === "printing" || statusParam === "expired") {
       conditions.push(eq(printJobs.status, statusParam));
-    } else if (statusParam === "success" || statusParam === "printed") {
+    } else if (statusParam === "success") {
       conditions.push(eq(printJobs.status, "success"));
     } else if (statusParam === "unknown" || statusParam === "attention") {
       conditions.push(

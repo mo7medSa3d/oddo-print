@@ -51,7 +51,12 @@ func TestIPPIncompleteSuccessRemainsUnknown(t *testing.T) {
 		{2, 0, 0, 0, 0, 0, 0, 2, 3},  // wrong request ID
 		{99, 0, 0, 0, 0, 0, 0, 1, 3}, // invalid protocol version
 	} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(response) }))
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if replyIPPFormatQuery(w, r) {
+				return
+			}
+			_, _ = w.Write(response)
+		}))
 		p, _ := NewIPPPrinter(server.URL, "truncated")
 		err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
 		if err == nil || !OutcomeUnknown(err) {

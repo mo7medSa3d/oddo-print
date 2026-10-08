@@ -91,7 +91,7 @@ export const JOB_FILTER_STATUSES = [
   "claimed",
   "printing",
   "success",
-  "printed",
+  // Physical output cannot currently be independently confirmed; use success.
   "failed",
   "expired",
   "unknown",
