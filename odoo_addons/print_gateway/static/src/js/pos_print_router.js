@@ -75,69 +75,33 @@ async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_W
     return renderGatewayReceiptJpeg(element, { renderer, width });
 }
 
-function canvasToJpeg(canvas) {
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-        ctx.globalCompositeOperation = "destination-over";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    return canvas.toDataURL("image/jpeg", 0.90).replace(/^data:image\/[a-z]+(?:;[^,]*)?;base64,/, "");
-}
-
 export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
-    const props = {
-        order: currentOrder,
-        basic_receipt: Boolean(basic),
-    };
-
+    const props = { order: currentOrder, basic_receipt: Boolean(basic) };
     const receiptComponent = pos.orderReceiptComponent || OrderReceipt;
 
+    // Every Gateway image must use the SAME mounted, width-measured receipt
+    // pipeline. Odoo's general toJpeg/toCanvas helpers ignore the printer's
+    // printable dot width and can silently clip a verified-overflow receipt.
+    // A geometry failure is terminal; retrying through an unmeasured renderer
+    // would send precisely the cropped ticket we are trying to prevent.
     if (renderer && typeof renderer.toHtml === "function") {
-        try {
-            // Preferred path: toHtml is pure Owl rendering (no font
-            // involvement); rasterize with web-font embedding disabled so no
-            // remote Noto variant is ever requested (see elementToJpegNoFonts).
-            const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpeg(element, renderer, rasterWidth);
-        } catch (err) {
-            console.warn("renderer.toHtml (no-fonts) failed, falling back to standard chain:", err);
-        }
-    }
-
-    if (renderer && typeof renderer.toJpeg === "function") {
-        try {
-            return await renderer.toJpeg(receiptComponent, props, { addClass: "pos-receipt-print yaseir-gateway-receipt" });
-        } catch (err) {
-            console.warn("renderer.toJpeg failed, falling back to toCanvas/toHtml:", err);
-        }
-    }
-
-    if (renderer && typeof renderer.toCanvas === "function") {
-        try {
-            const canvas = await renderer.toCanvas(receiptComponent, props, { addClass: "pos-receipt-print yaseir-gateway-receipt" });
-            return canvasToJpeg(canvas);
-        } catch (err) {
-            console.warn("renderer.toCanvas failed, falling back to toHtml:", err);
-        }
-    }
-
-    if (renderer && typeof renderer.toHtml === "function") {
-        try {
-            const element = await renderer.toHtml(receiptComponent, props);
-            return await elementToJpeg(element, renderer, rasterWidth);
-        } catch (err) {
-            // A proved out-of-paper layout must not fall back to the default
-            // Odoo renderer and submit the same clipped/tangled receipt.
-            if (err?.code === "POS_RECEIPT_GEOMETRY") {
-                throw err;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const element = await renderer.toHtml(receiptComponent, props);
+                return await elementToJpeg(element, renderer, rasterWidth);
+            } catch (err) {
+                if (err?.code === "POS_RECEIPT_GEOMETRY") {
+                    throw err;
+                }
+                console.warn("Mounted receipt rasterization failed; retrying with a fresh source:", err);
             }
-            console.warn("renderer.toHtml failed, falling back to renderToElement:", err);
         }
     }
 
-    // Direct template fallback if renderer service is unavailable:
+    // A genuine Odoo renderer failure may still fall back to the template,
+    // but it must pass through the *same* width/overflow-checked capture.
+    // Never fall back to arbitrary canvas dimensions or default page zoom.
     const receipt = renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props);
     return await elementToJpeg(receipt, renderer, rasterWidth);
 }
