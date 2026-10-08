@@ -50,6 +50,12 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Honour the Agent's last-moment disable/retirement fence even for
+	// the read-only IPP capability probe. The existing printDocument
+	// executes the fence again just before sending document bytes.
+	if err := runDispatchAdmission(ctx); err != nil {
+		return fmt.Errorf("IPP format probe admission refused: %w", err)
+	}
 	attrs, probeErr := p.getPrinterAttributes(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
