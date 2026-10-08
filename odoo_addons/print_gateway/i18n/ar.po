@@ -1739,11 +1739,6 @@ msgid "Optional domain filter expression evaluated against the triggering record
 msgstr "تعبير اختياري لترشيح النطاق يُقيّم على السجل الذي أطلق الحدث، مثل [('picking_type_code', '=', 'outgoing')]"
 
 #. module: print_gateway
-#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
-msgid "Optional explicit Print Rule for this exact Company and Branch scope."
-msgstr "قاعدة طباعة صريحة اختيارية لنطاق هذه الشركة وهذا الفرع تحديدًا."
-
-#. module: print_gateway
 #: model:ir.model.fields,help:print_gateway.field_print_gateway_policy__binding_id
 msgid "Optional explicit Print Rule for this exact Odoo Company and Branch scope."
 msgstr "قاعدة طباعة صريحة اختيارية لنطاق شركة وفرع Odoo المحددين."
@@ -3759,3 +3754,9 @@ msgstr "صور نقاط البيع لا تحتوي على أوامر ESC/POS ا�
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
 msgid "Raw stock labels use document type label. Select an Operation Type Print Rule, leave its Report blank, and match its printer protocol exactly."
 msgstr "تستخدم ملصقات المخزون الخام نوع المستند «ملصق». اختر قاعدة طباعة لنوع العملية، واترك التقرير فارغًا، وطابق بروتوكول الطابعة بدقة."
+
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__status_sync_attempted_at
+msgid "Status sync attempted at"
+msgstr "وقت محاولة مزامنة الحالة"
