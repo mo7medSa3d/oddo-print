@@ -5,8 +5,8 @@ package printer
 import (
 	"context"
 	"fmt"
-	"io"
 	"image"
+	"io"
 	"log"
 	"math"
 	"os"
