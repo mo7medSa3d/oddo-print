@@ -82,7 +82,7 @@ function canvasToJpeg(canvas) {
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    return canvas.toDataURL("image/jpeg", 0.90).replace(/^data:image\\/[a-z]+;base64, "");
+    return canvas.toDataURL("image/jpeg", 0.90).replace(/^data:image\/[a-z]+(?:;[^,]*)?;base64,/, "");
 }
 
 export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
