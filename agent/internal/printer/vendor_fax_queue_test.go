@@ -15,7 +15,7 @@ func TestVendorFaxOnlyQueuesAreNeverPaperPrinters(t *testing.T) {
 	} {
 		di := DeviceInfo{
 			Name: tc.name, ConnectionType: "spooler", Protocol: "spooler",
-			SpoolerName: tc.name,
+			SpoolerName:  tc.name,
 			Capabilities: map[string]interface{}{"port_name": tc.port, "driver_name": tc.driver},
 		}
 		if got := ClassifyDeviceInfo(di); got.Class != ClassVirtual {
@@ -38,7 +38,7 @@ func TestVendorMultifunctionActualPrinterStillSelectable(t *testing.T) {
 	} {
 		di := DeviceInfo{
 			Name: tc.name, ConnectionType: "spooler", Protocol: "spooler",
-			SpoolerName: tc.name,
+			SpoolerName:  tc.name,
 			Capabilities: map[string]interface{}{"port_name": "USB001", "driver_name": tc.driver},
 		}
 		if got := ClassifyDeviceInfo(di); got.Class != ClassPhysical {
