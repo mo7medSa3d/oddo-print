@@ -10,7 +10,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/jpeg"
-	"math"
 
 	"github.com/klippa-app/go-pdfium/requests"
 )
@@ -60,26 +59,9 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if err != nil || size == nil {
 		return nil, fmt.Errorf("read PDF page dimensions: %v", err)
 	}
-	if !(size.Width > 0 && size.Height > 0) || math.IsNaN(size.Width) || math.IsNaN(size.Height) || math.IsInf(size.Width, 0) || math.IsInf(size.Height, 0) {
-		return nil, fmt.Errorf("invalid PDF page dimensions")
-	}
-	// Render at ~200 dpi for legible test pages and barcodes, capped to the
-	// same bounded rendering budget as the Windows GDI PDF pipeline.
-	w, h := size.Width*(200.0/72.0), size.Height*(200.0/72.0)
-	if w < 1 || h < 1 {
-		return nil, fmt.Errorf("PDF page dimensions are too small")
-	}
-	area := w * h
-	if area > float64(maxPDFRenderPixels) {
-		scale := math.Sqrt(float64(maxPDFRenderPixels) / area)
-		w, h = w*scale, h*scale
-	}
-	if w > 32767 || h > 32767 {
-		return nil, fmt.Errorf("PDF page dimensions exceed JPEG renderer bounds")
-	}
-	width, height := int(math.Round(w)), int(math.Round(h))
-	if width <= 0 || height <= 0 || int64(width)*int64(height) > maxPDFRenderPixels {
-		return nil, fmt.Errorf("PDF render exceeds %d pixel budget", maxPDFRenderPixels)
+	width, height, renderDPI, err := ippJPEGGeometry(size.Width, size.Height, maxPDFRenderPixels)
+	if err != nil {
+		return nil, err
 	}
 	img, cleanup, err := renderPageWithContext(ctx, instance, &requests.RenderPageInPixels{
 		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
@@ -110,5 +92,5 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if output.Len() == 0 || output.Len() > maxPrintBytes {
 		return nil, fmt.Errorf("IPP JPEG output %d bytes exceeds %d-byte print job limit", output.Len(), maxPrintBytes)
 	}
-	return wrapIPPPayloadAsJFIF(output.Bytes(), 200)
+	return wrapIPPPayloadAsJFIF(output.Bytes(), uint16(renderDPI))
 }
