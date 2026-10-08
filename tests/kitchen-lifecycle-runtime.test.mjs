@@ -107,3 +107,15 @@ for (const syncFails of [false, true]) {
     }
   });
 }
+
+test("preparation-display bypass does not force a new print-specific save", async () => {
+  const f = await fixture({ draft: true, syncError: true });
+  f.pos.models["pos.prep.display"] = [{}];
+  let nativeChangeUpdate = false;
+  f.pos.updateLastOrderChangeIfNoDevice = () => { nativeChangeUpdate = true; };
+  assert.equal(await f.hooks.sendOrderInPreparation.call(f.pos, f.order, { byPassPrint: true }), false);
+  assert.equal(nativeChangeUpdate, true);
+  assert.equal(f.submissions.length, 0);
+  assert.equal(f.notifications.length, 0);
+  assert.equal(f.pos.syncingOrders.size, 0);
+});
