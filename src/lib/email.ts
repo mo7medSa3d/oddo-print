@@ -4,48 +4,6 @@ import { runtimeSecret } from "./runtime-secret";
 
 export type TransactionalEmail = { to: string; subject: string; html: string; text: string };
 
-function captureHttpTestEmail(message: TransactionalEmail): boolean {
-  if (process.env.YASEIR_HTTP_TEST_MODE !== "1") return false;
-  const captureFile = process.env.YASEIR_TEST_EMAIL_CAPTURE_FILE?.trim();
-  if (!captureFile) return false;
-  mkdirSync(dirname(captureFile), { recursive: true });
-  appendFileSync(
-    captureFile,
-    `TO: ${message.to}\nSUBJECT: ${message.subject}\n${message.text}\n---\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
-  return true;
-}
-
-export async function sendTransactionalEmail(message: TransactionalEmail): Promise<void> {
-  if (captureHttpTestEmail(message)) return;
-
-  const apiKey = runtimeSecret("RESEND_API_KEY");
-  const from = runtimeSecret("EMAIL_FROM");
-  if (!apiKey || !from) {
-    throw new Error("Transactional email provider is not configured");
-  }
-  const maxAttempts = 3;
-  let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (res.ok) return;
-    const responseText = await res.text().catch(() => "");
-    lastError = new Error(`Transactional email provider rejected the request (${res.status})${responseText ? `: ${responseText.slice(0, 200)}` : ""}`);
-    if (res.status !== 429 && res.status < 500) throw lastError;
-    if (attempt < maxAttempts) {
-      const delay = Math.min(1000 * 2 ** (attempt - 1), 8000);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-  throw lastError;
-}
-
 export function appBaseUrl(req: Request): string {
   const configured = runtimeSecret("APP_BASE_URL")?.trim().replace(/\/$/, "");
   if (configured) {
@@ -65,4 +23,47 @@ export function appBaseUrl(req: Request): string {
   }
   if (process.env.NODE_ENV === "production") throw new Error("APP_BASE_URL is required in production");
   return new URL(req.url).origin;
+}
+
+// Explicit staging-only email capture; the live provider takes priority if configured.
+function captureHttpTestEmail(message: TransactionalEmail): boolean {
+  if (process.env.YASEIR_HTTP_TEST_MODE !== "1" || runtimeSecret("RESEND_API_KEY")) return false;
+  const captureFile = process.env.YASEIR_TEST_EMAIL_CAPTURE_FILE?.trim();
+  if (!captureFile) return false;
+  mkdirSync(dirname(captureFile), { recursive: true });
+  appendFileSync(
+    captureFile,
+    `TO: ${message.to}\nSUBJECT: ${message.subject}\n${message.text}\n---\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return true;
+}
+
+export async function sendTransactionalEmail(message: TransactionalEmail): Promise<void> {
+  if (captureHttpTestEmail(message)) return;
+  const apiKey = runtimeSecret("RESEND_API_KEY");
+  const from = runtimeSecret("EMAIL_FROM");
+  if (!apiKey || !from) {
+    throw new Error("Transactional email provider is not configured");
+  }
+  const maxAttempts = 3;
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) return;
+    const text = await res.text().catch(() => "");
+    lastError = new Error(`Transactional email provider rejected the request (${res.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
+    // Retry only on transient failures (5xx or 429 rate-limit).
+    if (res.status !== 429 && res.status < 500) throw lastError;
+    if (attempt < maxAttempts) {
+      const delay = Math.min(1000 * 2 ** (attempt - 1), 8000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }

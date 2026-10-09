@@ -187,17 +187,8 @@ function httpTestCatalogBinding(input: {
         return { id: input.priceId, active: true, type: "recurring", currency, interval, productId };
       }
     }
-    if (!/^price_[A-Za-z0-9_]+$/.test(input.priceId)) return null;
-    if (!/^[a-z]{3}$/.test(input.currency) || !["day", "week", "month", "year"].includes(input.interval)) return null;
-    if (input.productId && !/^prod_[A-Za-z0-9_]+$/.test(input.productId)) return null;
-    return {
-      id: input.priceId,
-      active: true,
-      type: "recurring",
-      currency: input.currency.toLowerCase(),
-      interval: input.interval,
-      productId: input.productId ?? null,
-    };
+    // Never invent a valid Price from its shape: staging accepts catalogued prices only.
+    return null;
   } catch {
     return null;
   }
