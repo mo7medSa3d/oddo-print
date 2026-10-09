@@ -762,6 +762,8 @@ pub struct AgentGatewayRequestArgs {
     /// origin can never show or mutate the old Agent Gateway under the new
     /// displayed origin.
     pub expected_origin: String,
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
 }
 
 fn valid_gateway_printer_id(id: &str) -> bool {
@@ -818,6 +820,7 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         "POST" => {
             path == "/api/printers"
                 || gateway_printer_action_path(path, "test-connection")
+                || gateway_printer_action_path(path, "test-print")
         }
         // Physical test-print and desired-state mutation are manager-RBAC only;
         // the Agent bearer may perform only non-printing console actions here.
@@ -846,6 +849,18 @@ pub async fn gateway_agent_request(
     {
         return Err("gateway request body exceeds 8 MiB".into());
     }
+    // Credentials and privileged headers are never accepted from the WebView.
+    // Only a bounded retry key may reach the paired CLI for a test-print.
+    if let Some(key) = args.idempotency_key.as_deref() {
+        if !gateway_printer_action_path(&path, "test-print")
+            || !(8..=128).contains(&key.len())
+            || !key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+        {
+            return Err("invalid printer diagnostic idempotency key".into());
+        }
+    } else if gateway_printer_action_path(&path, "test-print") {
+        return Err("printer test-print requires an idempotency key".into());
+    }
     let expected_origin = normalize_gateway_url(&args.expected_origin)
         .map_err(|e| format!("invalid expected Gateway origin: {e}"))?;
     run_blocking(move || {
@@ -866,6 +881,9 @@ pub async fn gateway_agent_request(
             .env("YASEIR_AGENT_DATA_DIR", &root);
         if let Some(body) = args.body {
             request_cmd.arg("-body").arg(body);
+        }
+        if let Some(key) = args.idempotency_key {
+            request_cmd.arg("-idempotency-key").arg(key);
         }
         #[cfg(windows)]
         {
@@ -1959,6 +1977,10 @@ mod agent_console_path_tests {
         assert!(allowed_agent_gateway_path(
             "/api/jobs?limit=50&search=invoice",
             "GET"
+        ));
+        assert!(allowed_agent_gateway_path(
+            "/api/printers/p1/test-print",
+            "POST"
         ));
         assert!(!allowed_agent_gateway_path(
             "/api/other/p1/test-print",

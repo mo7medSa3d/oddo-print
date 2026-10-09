@@ -245,13 +245,14 @@ async function gatewayConsoleRequest(
   method = "GET",
   headers: Record<string, string> = {},
   body?: string,
+  idempotencyKey?: string,
 ): Promise<GatewayResponse> {
   const base = normalizeGatewayUrl(gatewayUrl);
   if (!isTauri) {
-    return gatewayRequest(base, path, method, headers, body);
+    return gatewayRequest(base, path, method, idempotencyKey ? { ...headers, "Idempotency-Key": idempotencyKey } : headers, body);
   }
   const responseEnvelope = await invoke<string>("gateway_agent_request", {
-    args: { path, method, body: body ?? null, expected_origin: base },
+    args: { path, method, body: body ?? null, expected_origin: base, idempotency_key: idempotencyKey ?? null },
   });
   const response = JSON.parse(responseEnvelope) as Partial<GatewayResponse>;
   if (typeof response.status !== "number" || typeof response.body !== "string") {
@@ -691,11 +692,15 @@ export async function testGatewayPrinter(
   idempotencyKey?: string,
 ): Promise<DiagnosticResult> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const { status, body } = await gatewayRequest(
+  // Paired Agent credentials are scoped by the Gateway to this Agent's
+  // printer. Never prompt for or forward a separate Manager password.
+  const { status, body } = await gatewayConsoleRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
     "POST",
-    idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    {},
+    undefined,
+    idempotencyKey,
   );
   if (status < 200 || status >= 300) {
     // No local clear here: gatewayRequest already ran the refresh-then-clear
