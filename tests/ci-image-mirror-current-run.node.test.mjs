@@ -50,7 +50,7 @@ test('Compose CLI selects the CI overlay without changing default production ref
 test('Odoo Community CI image stays immutable and does not pull from Docker Hub', () => {
   const odoo = 'public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
   assert.equal(ci.split(odoo).length - 1, 2, 'pull and run must use same immutable image');
-  assert.doesNotMatch(ci, /\bdocker pull odoo:19\.0@/);
+  assert.equal(ci.includes('docker pull odoo:19.0@'), false);
 });
 
 test('all CI mirror image overrides remain immutable and reject mutable tags', () => {
