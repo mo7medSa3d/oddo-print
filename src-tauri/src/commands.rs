@@ -1710,10 +1710,10 @@ mod agent_console_path_tests {
     #[test]
     fn agent_console_allowlist_matches_desktop_jobs_requests() {
         assert!(allowed_agent_gateway_path("/api/printers", "POST"));
-        assert!(!allowed_agent_gateway_path(
+        assert!(allowed_agent_gateway_path(
             "/api/printers/p1/test-print",
             "POST"
-        ));
+        )); // Own-Agent test print is gated by validated retry key + Gateway ownership
         assert!(allowed_agent_gateway_path(
             "/api/printers/p1/test-connection",
             "POST"
@@ -1723,9 +1723,19 @@ mod agent_console_path_tests {
             "/api/jobs?limit=50&search=invoice",
             "GET"
         ));
-        assert!(allowed_agent_gateway_path(
-            "/api/printers/p1/test-print",
-            "POST"
+        // Keep this allowlist narrow: no read or control-plane mutation
+        // through the test-print path, no query injection or path traversal.
+        assert!(!allowed_agent_gateway_path(
+            "/api/printers/p1/test-print", "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/printers/p1/test-print", "PATCH"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/printers/p1/test-print?redirect=/api/agents", "POST"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/printers/../test-print", "POST"
         ));
         assert!(!allowed_agent_gateway_path(
             "/api/other/p1/test-print",
