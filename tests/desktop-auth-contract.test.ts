@@ -52,7 +52,7 @@ describe("paired-Agent desktop security contract", () => {
     const source=read("src/desktop/lib/ipc.ts");
     const gateway=read("agent/cmd/cli/gateway.go");
     expect(source).toContain('gatewayConsoleRequest(');
-    expect(source).toContain("The Gateway enforces Agent/tenant ownership");
+    expect(source).toContain("enforces Agent/tenant ownership");
     expect(gateway).not.toContain('case "PATCH":');
   });
 
