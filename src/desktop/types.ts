@@ -70,6 +70,7 @@ export interface DesktopState {
   /* printers */
   printers: PrinterInfo[];
   discoveredPrinters: PrinterInfo[];
+  discoveredVirtualPrinters: PrinterInfo[];
   discoveryWarning: string | null;
   printersLoading: boolean;
   printersError: string | null;

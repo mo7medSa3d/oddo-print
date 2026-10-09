@@ -44,7 +44,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             <div dir="auto" className="truncate [unicode-bidi:isolate]">{t("desktop.settings.lastObservedGateway", { url: s.checkedGatewayUrl || t("desktop.settings.notObservedYet") })}</div>
           </div>
           {gatewayDraftPending && <p className="text-xs text-warn">{t("desktop.settings.draftNotSavedBody")}</p>}
-          <div className="flex justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} >{t("desktop.settings.checkConnection")}</Button></div>
+          <div className="flex min-w-0 justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} className="max-w-full min-w-0 h-auto min-h-10" ><span className="min-w-0 whitespace-normal break-words text-center leading-snug">{t("desktop.settings.checkConnection")}</span></Button></div>
           {gatewayDisplayError && <ErrorState title={t("desktop.settings.checkFailed")} message={gatewayDisplayError} retry={s.checkHealth} />}
         </SettingsSection>
 

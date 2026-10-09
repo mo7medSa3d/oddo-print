@@ -1701,7 +1701,7 @@ func markInteractiveUserConnectionsCandidateOnly(infos []DeviceInfo, sessionID u
 // "unknown" status rather than a fabricated "online" — because EnumPrinters
 // proved it exists.
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
-	infos, err := enumerateSpoolerPrintersWindows()
+	infos, err := enumerateSpoolerPrintersWindows(false)
 	if sessionID, sessionErr := currentProcessSessionID(); sessionErr != nil {
 		err = errors.Join(err, fmt.Errorf("read discovery session: %w", sessionErr))
 	} else if marked := markInteractiveUserConnectionsCandidateOnly(infos, sessionID); marked > 0 {
@@ -1724,7 +1724,13 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	return infos, err
 }
 
-func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
+// EnumSpoolerQueuesForDiagnostics exposes installed queues to the *local*
+// desktop without registering them for Gateway jobs. No print submission occurs.
+func EnumSpoolerQueuesForDiagnostics() ([]DeviceInfo, error) {
+	return enumerateSpoolerPrintersWindows(true)
+}
+
+func enumerateSpoolerPrintersWindows(includeVirtual bool) ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level 4 + bounded GetPrinterW level 2)")
 
 	queues, enumErr := enumPrinterQueues()
@@ -1789,7 +1795,7 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 			}
 		}
 
-		if isVirtualSpooler(portName, driverName, name) {
+		if !includeVirtual && isVirtualSpooler(portName, driverName, name) {
 			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
 			continue
 		}

@@ -658,6 +658,7 @@ export async function updateGatewayPrinter(
 
 export interface DiscoverResult {
   printers: PrinterInfo[];
+  virtualPrinters: PrinterInfo[];
   errors: string[];
 }
 

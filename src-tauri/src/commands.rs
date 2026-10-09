@@ -1122,6 +1122,8 @@ pub struct PrinterInfo {
 #[derive(Serialize)]
 pub struct DiscoverResult {
     pub printers: Vec<PrinterInfo>,
+    #[serde(rename = "virtualPrinters")]
+    pub virtual_printers: Vec<PrinterInfo>,
     pub errors: Vec<String>,
 }
 
@@ -1371,6 +1373,7 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             .arg("printers")
             .arg("discover")
             .arg("--json")
+            .arg("--include-virtual")
             .arg("-config")
             .arg(&config)
             .env("YASEIR_AGENT_DATA_DIR", &root);
@@ -1398,8 +1401,8 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
         let errors = parse_discovery_diagnostics(&stderr);
         // --json returns this scan's inventory. Registry persistence can fail;
         // rereading the file would silently substitute stale or empty results.
-        let printers = parse_discovery_stdout(&stdout)?;
-        Ok(DiscoverResult { printers, errors })
+        let (printers, virtual_printers) = parse_discovery_stdout(&stdout)?;
+        Ok(DiscoverResult { printers, virtual_printers, errors })
     })
     .await
 }
@@ -1423,14 +1426,24 @@ fn parse_discovery_diagnostics(stderr: &str) -> Vec<String> {
     diagnostics
 }
 
-fn parse_discovery_stdout(stdout: &str) -> Result<Vec<PrinterInfo>, String> {
+fn parse_discovery_stdout(stdout: &str) -> Result<(Vec<PrinterInfo>, Vec<PrinterInfo>), String> {
     // Older CLI builds encoded an empty slice as null. Accept that legacy
     // representation, but reject corrupt/non-JSON output rather than showing
     // an unrelated on-disk inventory as a successful discovery.
     let printers: Option<Vec<PrinterInfo>> = serde_json::from_str(stdout)
         .map_err(|e| format!("parse discovery JSON: {e}"))?;
-    Ok(printers.unwrap_or_default().into_iter()
-        .filter(is_valid_printer_for_ui).collect())
+    let mut production = Vec::new();
+    let mut local_virtual = Vec::new();
+    for printer in printers.unwrap_or_default() {
+        // Classify virtual before applying production filtering. Never treat
+        // inspection-only queues as Gateway/Agent printer registrations.
+        if is_virtual_printer_for_ui(&printer) {
+            local_virtual.push(printer);
+        } else if is_valid_printer_for_ui(&printer) {
+            production.push(printer);
+        }
+    }
+    Ok((production, local_virtual))
 }
 
 #[cfg(test)]

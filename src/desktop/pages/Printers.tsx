@@ -53,6 +53,26 @@ export function PrintersPage({ s }: { s: DesktopState }) {
         </div>
       )}
 
+      {s.discoveredVirtualPrinters.length > 0 && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title={t("desktop.printers.virtualTitle")}
+            subtitle={t("desktop.printers.virtualBody", { count: s.discoveredVirtualPrinters.length })}
+          />
+          <ul className="divide-y divide-edge-subtle">
+            {s.discoveredVirtualPrinters.map((p) => (
+              <li key={`virtual-${p.id}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <div className="break-words font-semibold text-ink">{p.name}</div>
+                  <div className="break-all text-xs text-ink-3" dir="ltr">{p.spoolerName ?? p.spooler_name ?? p.id}</div>
+                </div>
+                <StatusBadge tone="neutral" label={t("desktop.printers.localDiagnosticOnly")} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {pendingLocal.length > 0 && (
         <Card className="overflow-hidden">
           <CardHeader title={t("desktop.printers.localPendingTitle")} subtitle={t("desktop.printers.localPendingBody", { count: pendingLocal.length })} />
