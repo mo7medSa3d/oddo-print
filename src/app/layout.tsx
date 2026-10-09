@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
 import { I18nProvider } from "../i18n/react";
@@ -8,20 +7,9 @@ import { getServerLocale, makeT } from "../i18n/server";
 import { dirFor } from "../i18n/config";
 import "./globals.css";
 
-const ibmPlexSans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-ibm-plex-sans",
-  display: "swap",
-});
-
-const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
-  subsets: ["arabic"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-ibm-plex-sans-arabic",
-  display: "swap",
-});
-
+// Avoid build-time network requests for Google Fonts. The design system uses
+// platform-installed font families with Arabic-capable fallbacks until vetted
+// self-hosted font assets are checked into this repository.
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = makeT(await getServerLocale());
@@ -55,7 +43,6 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html
       lang={locale}
       dir={dirFor(locale)}
-      className={`${ibmPlexSans.variable} ${ibmPlexSansArabic.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased bg-app text-ink min-h-screen">
