@@ -91,6 +91,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const result = await createPrintJobForPrinter(printer.id, payload, {
       requestedBy: pairedAgent ? "agent-diagnostic" : "manager-test",
       ...(claims ? { managerAuthority: { claims, permission: "printers.test" as const } } : {}),
+      ...(pairedAgent ? { agentDiagnosticAuthority: { agentId: pairedAgent.id, tenantId: pairedAgent.tenantId } } : {}),
       documentType: "test_page",
       allowVirtualTestCapture: true,
       idempotencyKey: effectiveKey,

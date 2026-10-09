@@ -82,6 +82,9 @@ export type CreatePrintJobOptions = {
   /** Manager-authenticated jobs require a live commit-point authority fence;
    * API key jobs must not fake a Manager principal. */
   managerAuthority?: { claims: ManagerClaims; permission: ManagerPermission };
+  /** A paired Agent may enqueue a diagnostic only for its own printer;
+   * the transaction fences ownership again before all idempotency reuse. */
+  agentDiagnosticAuthority?: { agentId: string; tenantId: string };
   requestedBy: string;
   idempotencyKey?: string | null;
   tenantId: string;
@@ -112,7 +115,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture, managerAuthority,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture, managerAuthority, agentDiagnosticAuthority,
 }: {
   jobId: string;
   printerId: string;
@@ -129,6 +132,7 @@ async function insertQueuedJobAtomically({
   reprintOfJobId?: string | null;
   allowVirtualTestCapture?: boolean;
   managerAuthority?: { claims: ManagerClaims; permission: ManagerPermission };
+  agentDiagnosticAuthority?: { agentId: string; tenantId: string };
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
@@ -153,6 +157,13 @@ async function insertQueuedJobAtomically({
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
 
+    if (agentDiagnosticAuthority) {
+      // Re-check authorization under the enqueue locks so reassignment,
+      // retirement or a stale prior receipt cannot cross Agent boundaries.
+      if (agentDiagnosticAuthority.tenantId !== tenantId || agentDiagnosticAuthority.agentId !== agentId) {
+        throw new PrintJobInputError("Agent diagnostic printer ownership changed", "AGENT_PRINTER_MISMATCH", 403);
+      }
+    }
     if (managerAuthority) {
       // Identity reuse can disclose a job ID and requestedBy even without a
       // new insert. Fence the live principal BEFORE all idempotency/reprint
@@ -525,7 +536,7 @@ export async function createPrintJobForPrinter(
   const validatedPayload = validatePrintJobPayload(payload);
   // Manager idempotency is verified only inside the owning transaction; an
   // optimistic read here would disclose a prior job after the actor was demoted.
-  if (!options.managerAuthority && options.idempotencyKey) {
+  if (!options.managerAuthority && !options.agentDiagnosticAuthority && options.idempotencyKey) {
     const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, options.tenantId), eq(printJobReceipts.idempotencyKey, options.idempotencyKey)) });
     if (receipt) {
       if ((options.rateLimitKeyId && receipt.apiKeyId === null) || receipt.fingerprint !== idempotencyDigest({ printerId: normalizedPrinterId, documentType: options.documentType, destination: options.destination, payload: validatedPayload })) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
@@ -559,6 +570,7 @@ export async function createPrintJobForPrinter(
     reprintOfJobId: options.reprintOfJobId ?? null,
     allowVirtualTestCapture: options.allowVirtualTestCapture === true,
     managerAuthority: options.managerAuthority,
+    agentDiagnosticAuthority: options.agentDiagnosticAuthority,
     tenantId: options.tenantId,
   });
   logInfo("print.trace.gateway_enqueue", {
