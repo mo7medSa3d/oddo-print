@@ -49,7 +49,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "Optional JSON request body")
 	idempotencyKey := fs.String("idempotency-key", "", "Required Agent diagnostic retry key for test-print")
-	expectOrigin := fs.String("expect-origin", "", "Manager-visible Gateway origin the request must target")
+	expectOrigin := fs.String("expect-origin", "", "Expected desktop Gateway origin, verified against the paired Agent")
 	configOverride := fs.String("config", configPath, "Path to the paired agent config file")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -90,13 +90,13 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(1)
 	}
 
-	// The desktop Manager origin and the paired Agent origin are distinct
+	// The desktop Gateway origin and paired Agent origin are separate inputs
 	// identities: the caller must name the origin it intends to act on, and
-	// the paired config must agree. Otherwise a Manager origin change would
+	// the paired config must agree. Otherwise a desktop origin change could
 	// show or mutate the old Agent Gateway under the new displayed origin.
 	if expected := normalizeOriginForCompare(*expectOrigin); expected != "" {
 		if normalizeOriginForCompare(strings.TrimSpace(cfg.Server.URL)) != expected {
-			fmt.Fprintln(os.Stderr, "paired Agent Gateway origin differs from the requested Manager origin; re-pair or correct the Manager Gateway URL")
+			fmt.Fprintln(os.Stderr, "paired Agent Gateway origin differs from the requested desktop origin; re-pair or correct the Gateway URL")
 			os.Exit(2)
 		}
 	}
