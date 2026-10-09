@@ -28,6 +28,7 @@ import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette"
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { ensureCustomerSession } from "../lib/session-config";
 import { BrandMark } from "./brand";
+import { BreadcrumbTrail, NavIconFrame, ShellSearchButton } from "./visual-system";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 
@@ -97,10 +98,10 @@ function ConsoleNav({
   }, []);
 
   return (
-    <nav aria-label={t("nav.consoleNavigation")} className="flex flex-col gap-4 px-2.5">
+    <nav aria-label={t("nav.consoleNavigation")} className="flex flex-col gap-5 px-2.5">
       {groups.map((group) => (
         <div key={group.section}>
-          {!collapsed && <div className="label-caps px-2 pb-1.5">{group.section}</div>}
+          {!collapsed && <div className="tg-sidebar-label px-3 pb-2">{group.section}</div>}
           <ul className="flex flex-col gap-0.5">
             {group.items.map((item) => {
               const active = isActive(pathname, item.href);
@@ -112,17 +113,15 @@ function ConsoleNav({
                     aria-current={active ? "page" : undefined}
                     title={collapsed ? navLabel(item, t) : undefined}
                     onClick={onNavigate}
-                    className={`sidebar-item ${active ? "sidebar-item-active" : ""} ${
+                    data-active={active}
+                    className={`sidebar-item tg-nav-item ${active ? "sidebar-item-active" : ""} ${
                       collapsed ? "justify-center px-0" : ""
                     }`}
                   >
                     {Icon && (
-                      <Icon
-                        className={`h-[17px] w-[17px] shrink-0 ${
-                          active ? "text-brand" : "text-ink-3"
-                        }`}
-                        aria-hidden
-                      />
+                      <NavIconFrame active={active}>
+                        <Icon className="h-[17px] w-[17px]" />
+                      </NavIconFrame>
                     )}
                     {!collapsed && <span className="truncate">{navLabel(item, t)}</span>}
                   </Link>
@@ -324,19 +323,19 @@ function ConsoleShell({
 
   return (
     <div
-      className="min-h-screen min-w-0 max-w-full bg-app text-ink"
-      style={{ "--nav-w": collapsed ? "72px" : "256px" } as CSSProperties}
+      className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app text-ink"
+      style={{ "--nav-w": collapsed ? "80px" : "264px" } as CSSProperties}
     >
       {/* Desktop rail */}
       <aside
         aria-label={t("nav.consoleNavigation")}
-        className="fixed inset-y-0 start-0 z-40 hidden flex-col border-e border-edge bg-surface lg:flex"
+        className="tg-console-rail fixed z-40 hidden flex-col border-e border-edge bg-surface lg:flex"
         style={{
           width: "var(--nav-w)",
           transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined,
         }}
       >
-        <div className={`flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-3"}`}>
+        <div className={`flex h-16 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-4"}`}>
           <Link
             href="/dashboard"
             aria-label={t("nav.home")}
@@ -401,10 +400,22 @@ function ConsoleShell({
 
       {/* Content column */}
       <div
-        className="min-w-0 max-w-full lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
+        className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
+        {/* Shared TailGrids-style breadcrumb / command navbar for the desktop console. */}
+        <header className="tg-console-topbar sticky top-0 z-30 hidden h-16 min-w-0 items-center justify-between gap-4 px-5 lg:flex xl:px-8">
+          <BreadcrumbTrail
+            parent={t("nav.section.workspace")}
+            current={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
+            label={t("nav.consoleNavigation")}
+          />
+          <div className="ms-auto flex min-w-0 items-center gap-2">
+            <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} onClick={() => setPaletteOpen(true)} />
+            <ThemeToggle />
+          </div>
+        </header>
         {/* Mobile chrome */}
-        <header className="glass-chrome sticky top-0 z-30 flex h-14 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
+        <header className="tg-console-topbar glass-chrome sticky top-0 z-30 flex h-16 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -441,7 +452,7 @@ function ConsoleShell({
             role="dialog"
             aria-modal="true"
             aria-label={t("nav.consoleNavigation")}
-            className="pg-slide-in-left absolute inset-y-0 start-0 flex w-[280px] max-w-[85vw] flex-col border-e border-edge-strong bg-surface shadow-2xl"
+            className="tg-mobile-sheet pg-slide-in-left absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col rounded-e-2xl border-e border-edge-strong bg-surface shadow-2xl"
           >
             <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
               <ConsoleBrand brandSubtitle={t("brand.tagline")} />
@@ -550,7 +561,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Platform control plane keeps its own layout (src/app/platform/layout.tsx).
   if (isPlatformScreen) {
-    return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
+    return <main className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
   }
 
   // Auth screens render their own centered card — no shell chrome.
@@ -562,7 +573,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // This check intentionally precedes the authenticated branch because auth state
   // can remain true for one client render while sign-out navigates to "/".
   if (isPublicScreen) {
-    return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
+    return <main className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
   }
 
   // Authenticated console: sidebar shell + full-width content.
@@ -575,7 +586,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   // Brief loading state while the session check resolves, render without navigation chrome.
-  return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
+  return <main className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
 }
 
 export { TopNavbar };

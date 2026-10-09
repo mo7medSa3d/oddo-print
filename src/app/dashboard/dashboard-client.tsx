@@ -43,6 +43,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { apiMessageKey } from "../../lib/api-error-keys";
+import { lifecycleLabel } from "../../lib/lifecycle-labels";
 import type { MessageKey } from "../../i18n/messages/en";
 import type { Translator } from "../../i18n/translate";
 import {
@@ -1643,7 +1644,7 @@ export default function DashboardClient({
               >
                 {printerStatusOptions.map((status) => (
                   <option key={status} value={status}>
-                    {status === "all" ? t("printer.allStatuses") : printerLabel(status, locale)}
+                    {status === "all" ? t("printer.allStatuses") : status === "disabled" || status === "retired" ? lifecycleLabel(t, status) : printerLabel(status, locale)}
                   </option>
                 ))}
               </Select>

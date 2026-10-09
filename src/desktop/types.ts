@@ -71,6 +71,7 @@ export interface DesktopState {
   printers: PrinterInfo[];
   discoveredPrinters: PrinterInfo[];
   discoveredVirtualPrinters: PrinterInfo[];
+  enableVirtualPrinterTest: (p: PrinterInfo) => void;
   discoveryWarning: string | null;
   printersLoading: boolean;
   printersError: string | null;

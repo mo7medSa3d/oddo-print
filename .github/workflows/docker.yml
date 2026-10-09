@@ -24,6 +24,8 @@ env:
   GATEWAY_DOMAIN: "http://print.example.com"
   APP_BASE_URL: https://print.example.com
   PLATFORM_TENANT_ID: ci-platform-tenant
+  # Compose overlays only the registry; versions and sha256 digests stay pinned.
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
 
 jobs:
   docker-build-runtime:

@@ -69,6 +69,11 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 			// A reserved synthetic queue never falls through to Winspool.
 			return NewVirtualCapturePrinter(cfg)
 		}
+		if strings.EqualFold(cfg.PrinterType, "virtual") || strings.EqualFold(cfg.PrinterType, "redirected") {
+			if err := ValidateVirtualSpoolerTestQueue(cfg); err != nil {
+				return nil, err
+			}
+		}
 		result := NewSpooler(spoolerName, cfg.Name)
 		result.ReceiptPaperMM, result.ReceiptRasterDots, result.ReceiptDPI = receiptPaperProfile(cfg)
 		return result, nil

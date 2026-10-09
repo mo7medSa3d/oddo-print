@@ -96,7 +96,13 @@ describe("windows-service-recovery", () => {
       expect(windowsInstall).toContain(`"${dir}"`);
     }
     expect(windowsInstall).not.toContain('"Odoo Print Manager"');
-    expect(windowsInstall).not.toContain('"com.yasser.manager"');
+    // Tauri WebView2 state uses this bundle ID. Only the uninstall caller's
+    // own Windows Known Folders may contain this exact product-owned root.
+    expect(windowsInstall).toContain('"com.yasser.manager"');
+    expect(windowsInstall).toContain("windows.FOLDERID_LocalAppData");
+    expect(windowsInstall).toContain("windows.FOLDERID_RoamingAppData");
+    expect(windowsInstall).toContain("windows.GetCurrentProcessToken().GetTokenUser()");
+    expect(windowsInstall).toContain("windows.WinLocalSystemSid");
     // Machine cleanup uses trusted ProgramData roots; it must not enumerate
     // profiles or other users' registry hives during elevated uninstall.
     expect(windowsInstall).toContain("trusted ProgramData");

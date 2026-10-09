@@ -275,13 +275,14 @@ export async function loginManager(
     { "Content-Type": "application/json", "X-Odoo-Print-Desktop": "1" },
     JSON.stringify({ username: username.trim(), password }),
   );
-  const data = (JSON.parse(body || "{}")) as {
-    ok?: boolean;
-    expiresAt?: string;
-    accessToken?: string;
-    refreshToken?: string;
-    error?: string;
-  };
+  // A TLS proxy / upstream failure can return an HTML error body. Keep its
+  // HTTP status instead of collapsing it into an unhelpful JSON parse error.
+  // The renderer never displays raw response content or credentials.
+  let parsed: unknown;
+  try { parsed = JSON.parse(body || "{}"); } catch { parsed = null; }
+  const data = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as { ok?: boolean; error?: string }
+    : {};
   if (status < 200 || status >= 300 || !data.ok) {
     const err: Error & { status?: number } = new Error(data.error || `Manager login failed (${status})`);
     err.status = status;
@@ -295,7 +296,11 @@ export async function loginManager(
   // visible Manager workspace and role for privileged controls. A failed
   // verification must never mark the browser preview authenticated.
   const verified = await getManagerSession(base);
-  if (!verified.authenticated) throw new Error("Manager login did not establish an authorized session");
+  if (!verified.authenticated) {
+    const failure = new Error("Manager login did not establish an authorized session") as Error & { code?: string };
+    failure.code = "MANAGER_SESSION_UNVERIFIED";
+    throw failure;
+  }
   if (!isTauri) browserManagerAuthenticated = true;
   if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
   return verified;
@@ -601,7 +606,12 @@ export async function registerGatewayPrinter(
     if (!queue) throw new Error("Spooler printer name is required");
     config.spooler_name = queue;
     config.address = queue;
-    config.passthrough_protocols = [...new Set((req.spoolerPassthroughProtocols ?? []).filter((value) => value === "raw" || value === "escpos"))];
+    const passthrough = [...new Set((req.spoolerPassthroughProtocols ?? []).filter((value) => value === "raw" || value === "escpos"))];
+    config.passthrough_protocols = passthrough;
+    if (req.virtualSpoolerTest === true) {
+      if (passthrough.length) throw new Error("Virtual Windows spooler test does not accept RAW passthrough");
+      config.virtual_spooler_test = true;
+    }
   } else if (connectionType === "usb") {
     if (req.usbVid) config.vid = parseUsbIdentifier(req.usbVid);
     if (req.usbPid) config.pid = parseUsbIdentifier(req.usbPid);
@@ -622,10 +632,15 @@ export async function registerGatewayPrinter(
     agentId: req.agentId,
     connectionType,
     protocol: req.protocol || (connectionType === "spooler" ? "spooler" : "unknown"),
-    printerType: req.printerType || "physical",
+    printerType: req.virtualSpoolerTest === true ? "virtual" : req.printerType || "physical",
     config,
   };
-  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "POST", headers, JSON.stringify(payload));
+  // A software queue is a deliberate Manager action. The Agent execution
+  // credential cannot authorize exposing a PDF/OneNote queue to Odoo.
+  // Preserve the existing Agent registration transport for physical devices.
+  const { status, body } = await (req.virtualSpoolerTest === true ? gatewayRequest : gatewayConsoleRequest)(
+    base, "/api/printers", "POST", headers, JSON.stringify(payload),
+  );
   if (status < 200 || status >= 300) {
     throw gatewayHttpError(status, body, "printer registration failed (" + status + ")");
   }
@@ -706,6 +721,7 @@ export interface RegisterPrinterRequest {
   usbPid?: string;
   usbSerial?: string;
   spoolerPassthroughProtocols?: Array<"raw" | "escpos">;
+  virtualSpoolerTest?: boolean;
 }
 
 export function registerPrinter(req: RegisterPrinterRequest): Promise<string> {

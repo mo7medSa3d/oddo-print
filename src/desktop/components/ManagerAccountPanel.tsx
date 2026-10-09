@@ -41,9 +41,17 @@ export function ManagerAccountPanel({
     try {
       await login(username.trim(), password);
       setPassword("");
-    } catch {
-      // Generic copy: never render upstream auth responses or credentials.
-      setError(t("desktop.manager.loginFailed"));
+    } catch (failure) {
+      // The Gateway provides structured HTTP status codes. Never render raw
+      // server messages, credentials or a stack trace in the Desktop.
+      const status = (failure as { status?: unknown } | null)?.status;
+      const code = (failure as { code?: unknown } | null)?.code;
+      setError(status === 401 ? t("desktop.manager.invalidCredentials") :
+        status === 403 ? t("desktop.manager.permissionDenied") :
+        status === 429 ? t("desktop.manager.rateLimited") :
+        status === 503 || (typeof status === "number" && status >= 500) ? t("desktop.manager.serviceUnavailable") :
+        code === "MANAGER_SESSION_UNVERIFIED" ? t("desktop.manager.sessionUnverified") :
+        t("desktop.manager.connectionFailed"));
     } finally {
       setPassword("");
       submitting.current = false;

@@ -27,6 +27,7 @@ import {
 } from "../components/ui";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
+import { BreadcrumbTrail } from "../components/visual-system";
 import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
@@ -50,6 +51,7 @@ import {
   getPrinters,
   fetchGatewayPrinters,
   updateGatewayPrinter,
+  registerGatewayPrinter,
   getRuntimePaths,
   isTauri,
   onTrayNavigate,
@@ -81,6 +83,7 @@ import {
   humanConnection,
   humanType,
   isProductionPrinter,
+  isPendingVirtualSpoolerTestPrinter,
   isVirtualPrinter,
   jobDestination,
   jobDocType,
@@ -413,7 +416,7 @@ export default function App() {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
       if (!current()) return false;
       observeGatewaySuccess(savedGatewayUrl);
-      setPrinters(list.filter(isProductionPrinter));
+      setPrinters(list.filter((printer) => isProductionPrinter(printer) || isPendingVirtualSpoolerTestPrinter(printer)));
       return true;
     } catch (e) {
       if (!current()) return false;
@@ -633,6 +636,56 @@ export default function App() {
       setBusyBoth(false);
     }
   }, [savedGatewayUrl, refreshPrinters, setBusyBoth, t, locale, managerCanManage, managerAuthorityError]);
+
+  const enableVirtualPrinterTest = useCallback(async (candidate: PrinterInfo) => {
+    if (!managerCanManage) { managerAuthorityError("manage"); return; }
+    if (!savedGatewayUrl) {
+      setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
+      return;
+    }
+    if (busyRef.current) return;
+    // Never trust an arbitrary UI row: the queue must be present in the last
+    // local Agent CLI diagnostic inventory, and the owner identity must match.
+    const local = discoveredVirtualPrinters.find((item) => item.id === candidate.id &&
+      item.agentId === candidate.agentId &&
+      (item.spoolerName || item.spooler_name) === (candidate.spoolerName || candidate.spooler_name));
+    const queue = (local?.spoolerName || local?.spooler_name || "").trim();
+    const owner = (local?.agentId || "").trim();
+    if (!isTauri || !local || !isVirtualPrinter(local) || !queue || !owner) {
+      setMsg({ text: t("desktop.printers.virtualUnavailable"), type: "error" });
+      return;
+    }
+    if (printers.some((item) => item.agentId === owner &&
+        (item.config?.spooler_name === queue || item.spoolerName === queue) &&
+        item.lifecycle !== "retired")) {
+      setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
+      return;
+    }
+    if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
+    setBusyBoth(true);
+    try {
+      await registerGatewayPrinter(savedGatewayUrl, {
+        name: local.name,
+        agentId: owner,
+        connectionType: "spooler",
+        protocol: "spooler",
+        spoolerName: queue,
+        printerType: "virtual",
+        virtualSpoolerTest: true,
+      });
+      await refreshPrinters();
+      setMsg({ text: t("desktop.printers.virtualRegistered"), type: "info" });
+    } catch (e) {
+      const status = (e as { status?: number } | null)?.status;
+      setMsg({ text: status === 401 ? t("desktop.manager.requireSignIn") :
+        status === 403 ? t("desktop.manager.roleDenied") :
+        status === 404 ? t("desktop.printers.virtualAgentMissing") :
+        friendlyPrinterError(errMsg(e), locale), type: "error" });
+    } finally {
+      setBusyBoth(false);
+    }
+  }, [managerCanManage, managerAuthorityError, savedGatewayUrl, discoveredVirtualPrinters,
+    printers, setBusyBoth, refreshPrinters, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
@@ -1154,6 +1207,7 @@ export default function App() {
     printers: physicalPrinters,
     discoveredPrinters,
     discoveredVirtualPrinters,
+    enableVirtualPrinterTest,
     discoveryWarning,
     printersLoading,
     printersError,
@@ -1202,7 +1256,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-app text-ink">
+    <div className="tg-shell-root min-h-screen bg-app text-ink">
       <AdminPrivilegeDialog
         open={agentServiceNeedsAdmin && !adminDismissed}
         onClose={() => setAdminDismissed(true)}
@@ -1224,7 +1278,7 @@ export default function App() {
       />
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 lg:hidden"
+          className="pg-fade-in fixed inset-0 z-30 lg:hidden"
           style={{ backgroundColor: "var(--overlay)" }}
           onClick={() => setSidebarOpen(false)}
           aria-hidden
@@ -1232,9 +1286,9 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:ps-[72px]" : "lg:ps-[248px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[104px]" : "lg:ps-[288px]"}`}
       >
-        <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-7">
+        <header className="tg-desktop-topbar sticky top-0 z-20 border-b border-edge/80 bg-surface/90 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-7">
           <div className="flex items-center gap-4">
             <button
               onClick={() => {
@@ -1247,6 +1301,12 @@ export default function App() {
               <Menu className="h-5 w-5" />
             </button>
             <div className="min-w-0 flex-1">
+              <BreadcrumbTrail
+                parent={t("desktop.sidebar.productName")}
+                current={pageMeta[page].title}
+                label={t("nav.consoleNavigation")}
+                className="mb-1 hidden sm:flex"
+              />
               <PageHeader
                 title={pageMeta[page].title}
                 subtitle={pageMeta[page].subtitle}
@@ -1330,11 +1390,13 @@ export default function App() {
         )}
 
         <main className="w-full min-w-0 max-w-full flex-1 px-3 py-5 sm:px-5 sm:py-7 lg:px-8 lg:py-8">
+          <div key={page} className="tg-view-reveal mx-auto w-full max-w-[1680px]">
           {page === "dashboard" && <OverviewPage s={state} />}
           {page === "printers" && <PrintersPage s={state} />}
           {page === "jobs" && <JobsPage s={state} />}
           {page === "agents" && <AgentsPage s={state} />}
           {page === "settings" && <SettingsPage s={state} />}
+          </div>
         </main>
       </div>
 

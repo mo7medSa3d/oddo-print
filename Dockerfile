@@ -1,11 +1,13 @@
-# syntax=docker/dockerfile:1
+# The immutable Docker Hub image is the production default. CI may use the
+# officially published ECR Public mirror with the same digest when Hub is throttled.
+ARG NODE_BASE_IMAGE=node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
+FROM ${NODE_BASE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
+FROM ${NODE_BASE_IMAGE} AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -13,12 +15,12 @@ COPY . .
 # for both an empty asset directory and deployments that add public files.
 RUN mkdir -p public && npm run build
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-deps
+FROM ${NODE_BASE_IMAGE} AS runtime-deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
+FROM ${NODE_BASE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV TZ=UTC

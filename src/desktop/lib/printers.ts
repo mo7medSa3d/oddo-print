@@ -1,6 +1,6 @@
 import type { PrinterInfo } from "./ipc";
 import type { Tone } from "../../shared/job-vocabulary";
-import { isVirtualPrinterRecord } from "../../lib/printer-virtual";
+import { isVirtualPrinterRecord, isApprovedVirtualSpoolerTestRecord } from "../../lib/printer-virtual";
 
 export {
   agentLiveView,
@@ -133,9 +133,31 @@ export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
   });
 }
 
+/** Keep Manager-authorized software queues visible during Agent confirmation,
+ * without making them selectable or routable until the observed capability
+ * arrives. Hiding pending rows made the Desktop re-offer registration and
+ * could create unlimited duplicate printer records on repeated clicks.
+ */
+export function isPendingVirtualSpoolerTestPrinter(p: PrinterInfo): boolean {
+  const conn = p.connection_type || p.connectionType;
+  const type = p.printer_type || p.printerType;
+  return p.managementSource === "manager" && type === "virtual" &&
+    conn === "spooler" && p.protocol === "spooler" &&
+    p.config?.virtual_spooler_test === true &&
+    typeof p.config?.spooler_name === "string" && !!p.config.spooler_name.trim() &&
+    !isProductionPrinter(p);
+}
+
 /** Printers that may be shown, selected for a binding and used for jobs. */
 export function isProductionPrinter(p: PrinterInfo): boolean {
-  return !isVirtualPrinter(p);
+  return !isVirtualPrinter(p) || (p.managementSource === "manager" && isApprovedVirtualSpoolerTestRecord({
+    name: p.name,
+    printerType: p.printer_type || p.printerType,
+    connectionType: p.connection_type || p.connectionType,
+    protocol: p.protocol,
+    capabilities: p.capabilities,
+    config: p.config,
+  }));
 }
 
 /* ---------- Status vocabulary ---------- */

@@ -135,7 +135,7 @@ jobs:
               }
             }
             END { exit bad ? 1 : 0 }
-          ' docker-compose.yml .github/workflows/*.yml; then
+          ' docker-compose.yml docker-compose.ci.yml .github/workflows/*.yml; then
             :
           else
             echo 'Unpinned container image reference detected; pin every YAML image: value by digest.'
@@ -181,7 +181,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: public.ecr.aws/docker/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

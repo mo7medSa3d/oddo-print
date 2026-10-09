@@ -193,6 +193,8 @@ ${StrStr}
   ; cleanup from a trusted location, not wiped by a broader fallback.
   DetailPrint "Owned service purge completed. If files were locked, use the secure cleanup runbook."
   DetailPrint "Agent cleanup result: $R1"
-  ; Per-user profiles may not belong to the elevated uninstall identity.
-  ; Do not remove arbitrary profile directories or HKCU run keys here.
+  ; The Agent helper removes only the current uninstall caller's product-
+  ; named AppData Known Folder children after checking for reparse roots.
+  ; A different administrator cannot claim the original desktop user's
+  ; profile, and NSIS must never recurse over other accounts or HKCU keys.
 !macroend

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { agents, printJobs, printers, printJobReceipts } from "../db/schema";
 import { db } from "../db";
-import { isVirtualPrinterRecord, isVirtualCaptureTestRecord } from "./printer-virtual";
+import { isVirtualPrinterRecord, isVirtualCaptureTestRecord, isApprovedVirtualSpoolerTestRecord } from "./printer-virtual";
 import { isPrinterStatusExecutable, validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
 import { and, eq, sql } from "drizzle-orm";
@@ -321,6 +321,7 @@ async function insertQueuedJobAtomically({
         p.agent_id AS printer_agent_id,
         p.management_source AS management_source,
         p.capabilities AS printer_capabilities,
+        p.config AS printer_config,
         p.applied_desired_revision AS applied_desired_revision,
         p.desired_revision AS desired_revision,
         a.lifecycle AS agent_lifecycle,
@@ -350,7 +351,8 @@ async function insertQueuedJobAtomically({
       printer_protocol?: string;
       printer_agent_id?: string;
       management_source?: string;
-      printer_capabilities?: { supported_protocols?: string[] } | null;
+      printer_capabilities?: { supported_protocols?: string[]; virtual_spooler_test?: boolean } | null;
+      printer_config?: Record<string, unknown> | null;
       applied_desired_revision?: number | string;
       desired_revision?: number | string;
       agent_lifecycle?: string;
@@ -372,6 +374,8 @@ async function insertQueuedJobAtomically({
       protocol: owner.printer_protocol,
       connectionType: owner.printer_connection_type,
       capabilities: owner.printer_capabilities,
+      config: owner.printer_config,
+      managementSource: owner.management_source,
     };
     // Strictly TEST-ONLY: both services must opt in, the row must be an
     // explicit Yaseir virtual capture, and only the authenticated Manager
@@ -384,8 +388,10 @@ async function insertQueuedJobAtomically({
       && !rateLimitKeyId
       && !reprintOfJobId
       && isVirtualCaptureTestRecord(printerIdentity);
-    if (isVirtualPrinterRecord(printerIdentity) && !virtualCaptureAuthorized) {
-      throw new PrintJobInputError("Printer is virtual or redirected; use an explicitly enabled Manager virtual test printer", "PRINTER_VIRTUAL", 409);
+    const virtualSpoolerAuthorized = owner.management_source === "manager"
+      && isApprovedVirtualSpoolerTestRecord(printerIdentity);
+    if (isVirtualPrinterRecord(printerIdentity) && !virtualCaptureAuthorized && !virtualSpoolerAuthorized) {
+      throw new PrintJobInputError("Virtual or redirected queue is not approved for printing; a Manager must explicitly enable a local Windows virtual spooler test destination and wait for Agent verification", "PRINTER_VIRTUAL", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);

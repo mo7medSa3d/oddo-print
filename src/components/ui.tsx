@@ -105,7 +105,8 @@ const buttonVariants: Record<ButtonVariant, string> = {
     "bg-ok-solid text-on-solid border border-transparent shadow-xs hover:brightness-[0.95] active:brightness-[0.9]",
 };
 
-const buttonSizes: Record<"sm" | "md" | "lg", string> = {
+const buttonSizes: Record<"xs" | "sm" | "md" | "lg", string> = {
+  xs: "h-8 px-2.5 text-xs gap-1.5 rounded-md",
   sm: "h-9 px-3 text-xs gap-1.5 rounded-sm",
   md: "h-10 px-3.5 text-sm gap-1.5 rounded-sm",
   lg: "h-11 px-5 text-base gap-2 rounded-md",
@@ -113,8 +114,12 @@ const buttonSizes: Record<"sm" | "md" | "lg", string> = {
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   loading?: boolean;
+  /** TailGrids-style aliases. `pending` is a presentational busy state. */
+  pending?: boolean;
+  appearance?: "fill" | "outline";
+  iconOnly?: boolean;
   icon?: React.ReactNode;
   href?: string;
   target?: string;
@@ -125,6 +130,9 @@ export function Button({
   variant = "secondary",
   size = "md",
   loading = false,
+  pending = false,
+  appearance = "fill",
+  iconOnly = false,
   icon,
   children,
   className = "",
@@ -134,11 +142,20 @@ export function Button({
   disabled,
   ...props
 }: ButtonProps) {
-  const baseClasses = `relative inline-flex select-none items-center justify-center whitespace-nowrap font-[560] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-150 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${buttonVariants[variant]} ${buttonSizes[size]} ${className}`;
+  const isPending = loading || pending;
+  const outlined = appearance === "outline" && variant !== "ghost";
+  const outlineVariant = variant === "danger"
+    ? "border-bad-edge text-bad hover:bg-bad-bg"
+    : variant === "success"
+      ? "border-ok-edge text-ok hover:bg-ok-bg"
+      : variant === "primary"
+        ? "border-edge-accent text-brand-subtle-text hover:bg-brand-subtle"
+        : "border-edge-strong text-ink hover:bg-surface-2";
+  const baseClasses = `tg-action-button relative inline-flex select-none items-center justify-center ${className.includes("whitespace-normal") ? "whitespace-normal" : "whitespace-nowrap"} font-[600] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${outlined ? `border bg-surface ${outlineVariant}` : buttonVariants[variant]} ${buttonSizes[size]} ${iconOnly ? "aspect-square !px-0" : ""} ${className}`;
 
   const content = (
     <>
-      {loading ? (
+      {isPending ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
       ) : (
         // Icon slots are decorative: every control carries its meaning as text
@@ -150,7 +167,7 @@ export function Button({
   );
 
   if (href) {
-    const linkDisabled = loading || disabled;
+    const linkDisabled = isPending || disabled;
     const handleLinkClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
       if (linkDisabled) {
         event.preventDefault();
@@ -173,7 +190,8 @@ export function Button({
         rel={rel}
         className={`${baseClasses} ${linkDisabled ? "pointer-events-none opacity-45" : ""}`}
         aria-disabled={linkDisabled || undefined}
-        aria-busy={loading || undefined}
+        aria-busy={isPending || undefined}
+        data-appearance={appearance}
         tabIndex={linkDisabled ? -1 : props.tabIndex}
         onClick={handleLinkClick}
         title={props.title}
@@ -191,8 +209,9 @@ export function Button({
          type="submit" should trigger submission. */
       type={props.type ?? "button"}
       className={baseClasses}
-      disabled={loading || disabled}
-      aria-busy={loading || undefined}
+      disabled={isPending || disabled}
+      aria-busy={isPending || undefined}
+      data-appearance={appearance}
       {...props}
     >
       {content}
@@ -261,13 +280,13 @@ export function StatusBadge({
   label: string;
   icon?: React.ReactNode;
   pulse?: boolean;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
   className?: string;
 }) {
-  const dims = size === "sm" ? "h-5 px-1.5 text-2xs gap-1" : "h-6 px-2 text-2xs gap-1.5";
+  const dims = size === "sm" ? "h-5 px-2 text-2xs gap-1" : size === "lg" ? "h-8 px-3 text-xs gap-2" : "h-6 px-2.5 text-xs gap-1.5";
   return (
     <span
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border font-[600] tracking-[0.005em] ${dims} ${toneBg[tone]} ${className}`}
+      className={`tg-status-pill inline-flex shrink-0 items-center whitespace-nowrap rounded-full border font-[600] tracking-[0.005em] ${dims} ${toneBg[tone]} ${className}`}
     >
       {icon ? (
         <span className="flex h-3 w-3 items-center justify-center" aria-hidden>
@@ -325,7 +344,7 @@ export function Card({
   id?: string;
 }) {
   return (
-    <div id={id} className={`card min-w-0 max-w-full ${className}`}>
+    <div id={id} className={`tg-card-root card min-w-0 max-w-full ${className}`}>
       {children}
     </div>
   );
@@ -355,7 +374,7 @@ export function CardHeader({
           </span>
         )}
         <div className="min-w-0">
-          <h2 className="break-words text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
+          <h2 className="tg-panel-title break-words text-md font-[650] leading-snug tracking-[-0.012em] text-ink">
             {title}
           </h2>
           {subtitle && <p className="mt-0.5 text-sm leading-snug text-ink-3">{subtitle}</p>}
@@ -1519,7 +1538,7 @@ export function Tabs<T extends string>({
       role="tablist"
       aria-label={ariaLabel ?? t("ui.filterOptions")}
       onKeyDown={onListKeyDown}
-      className={`flex min-w-0 max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:thin] ${className}`}
+      className={`tg-tab-list flex min-w-0 max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:thin] ${className}`}
     >
       {tabs.map((t) => {
         const selected = t === active;
@@ -1532,18 +1551,19 @@ export function Tabs<T extends string>({
             aria-selected={selected}
             tabIndex={selected ? 0 : -1}
             data-tab={t}
+            data-active={selected}
             onClick={() => onChange(t)}
-            className={`relative flex h-9 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-[550] capitalize transition-colors duration-150 ${focusRing} ${
+            className={`tg-tab-trigger relative flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-[600] capitalize ${focusRing} ${
               selected
-                ? "bg-brand-solid text-brand-contrast shadow-xs ring-1 ring-inset ring-brand-solid"
-                : "text-ink-3 hover:bg-surface-2 hover:text-ink"
+                ? "bg-surface text-brand-subtle-text shadow-sm"
+                : "text-ink-3 hover:bg-surface-hover hover:text-ink"
             }`}
           >
             {labels?.[t] ?? t}
             {count !== undefined && (
               <span
                 className={`rounded-xs px-1 text-2xs font-[600] tabular ${
-                  selected ? "bg-white/15 text-brand-contrast" : "bg-surface-2 text-ink-3"
+                  selected ? "bg-brand-subtle text-brand-subtle-text" : "bg-surface text-ink-3"
                 }`}
               >
                 {count}
@@ -1779,7 +1799,7 @@ export function Modal({
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
+            <h2 className="break-words text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 text-sm leading-relaxed text-ink-3">
                 {description}
@@ -1896,7 +1916,7 @@ export function Drawer({
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
+            <h2 className="break-words text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 text-sm text-ink-3">
                 {description}
@@ -1979,7 +1999,7 @@ export function PageHeader({
     <header
       className={[
         variant === "band"
-          ? `border-b border-edge-subtle ${sticky ? "sticky top-0 z-30 glass-chrome" : ""}`
+          ? `tg-page-heading border-b border-edge-subtle ${sticky ? "sticky top-0 z-30 glass-chrome" : ""}`
           : "",
         className,
       ].join(" ")}

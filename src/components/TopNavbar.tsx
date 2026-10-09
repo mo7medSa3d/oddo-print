@@ -81,8 +81,8 @@ export function TopNavbar({
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-edge/80 bg-surface/95 text-ink backdrop-blur-xl backdrop-saturate-150">
-      <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-2 px-3 sm:px-5 lg:gap-4 lg:px-8">
+    <header className="tg-console-topbar sticky top-0 z-40 border-b border-edge/80 bg-surface/95 text-ink backdrop-blur-xl backdrop-saturate-150">
+      <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-2 px-3 sm:px-5 lg:gap-4 lg:px-8">
         <Link
           href={brandHref}
           className="shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
@@ -123,7 +123,7 @@ export function TopNavbar({
           aria-label={t("nav.consoleNavigation")}
           className={[
             menuOpen ? "flex" : "hidden",
-            "pg-scale-in absolute inset-inline-3 top-[60px] z-50 flex-col gap-1 rounded-md border border-edge-strong bg-surface p-2 shadow-xl",
+            "tg-mobile-sheet pg-scale-in absolute inset-inline-3 top-[68px] z-50 flex-col gap-1 rounded-xl border border-edge-strong bg-surface p-2 shadow-xl",
             "lg:static lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:items-center lg:gap-1 lg:overflow-x-auto lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
           ].join(" ")}
         >
@@ -145,9 +145,10 @@ export function TopNavbar({
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
+                  data-active={active}
                   onClick={() => setMenuOpen(false)}
                   className={[
-                    "inline-flex h-10 shrink-0 items-center gap-2 rounded-sm px-3 text-sm font-[550] transition-colors duration-150 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
+                    "tg-nav-item inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-transparent px-3 text-sm font-[600] transition-all duration-200 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35",
                     active
                       ? "bg-brand-subtle text-brand-subtle-text"
                       : "text-ink-2 hover:bg-surface-2 hover:text-ink",
