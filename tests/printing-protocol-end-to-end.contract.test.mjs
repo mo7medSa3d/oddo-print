@@ -24,7 +24,7 @@ function markers(source, anchor, closing) {
 }
 function gatewayExports() {
   const compiled = ts.transpileModule(jobStatus, {
-    compilerOptions: { compiledModule: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const compiledModule = {exports:{}};
   vm.runInNewContext(compiled, {
