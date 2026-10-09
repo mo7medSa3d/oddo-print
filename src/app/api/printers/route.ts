@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
 import { validateConsoleAuth } from "../../../lib/console-auth";
@@ -139,14 +140,19 @@ export async function POST(req: Request) {
       config.address = config.spooler_name.trim();
     }
 
-    // A Manager may deliberately attach a local software queue for integration
-    // tests. Never accept redirected/fax queues, and never let an Agent
-    // credential register an arbitrary virtual destination via this route.
+    // A *paired* Agent may explicitly enable testing for its OWN locally
+    // installed software spooler. This is not Manager authentication and
+    // never grants Agent credentials permission to edit other printers.
+    // The resulting Gateway desired state remains unverified until the Agent
+    // service independently enumerates and validates that Windows queue.
     const virtualTest = config.virtual_spooler_test === true;
-    if (virtualTest && (auth.kind !== "manager" || data.printerType !== "virtual" ||
+    const virtualSpoolerName = typeof config.spooler_name === "string" ? config.spooler_name.trim() : "";
+    const prohibitedSoftwareQueue = /fax|redirected| in session |citrix|thinprint|remote desktop|vmware|yaseir_virtual_test_capture/i.test(virtualSpoolerName);
+    if (virtualTest && (data.printerType !== "virtual" ||
         connectionType !== "spooler" || protocol !== "spooler" ||
-        !config.spooler_name || config.passthrough_protocols?.length)) {
-      return NextResponse.json({ error: "Virtual test printers require an explicit Manager-owned Windows spooler queue without RAW passthrough", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
+        !virtualSpoolerName || config.passthrough_protocols?.length ||
+        prohibitedSoftwareQueue)) {
+      return NextResponse.json({ error: "Virtual test requires a local Windows software spooler queue, without redirected/FAX/capture queues or RAW passthrough", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
     }
     if (auth.kind === "manager" && data.printerType === "virtual" && !virtualTest) {
       return NextResponse.json({ error: "Virtual printer registration requires explicit test opt-in", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
@@ -156,7 +162,12 @@ export async function POST(req: Request) {
     const error = validateConnectionConfig(connectionType, config, protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    const id = data.id ?? `printer_${nanoid(8)}`;
+    // An Agent cannot choose arbitrary printer IDs for a virtual test. A
+    // stable per-tenant/Agent/queue ID makes ambiguous double-click/retry
+    // registration conflict rather than creating two destinations.
+    const id = virtualTest && auth.kind === "agent"
+      ? "printer_vt_" + createHash("sha256").update(JSON.stringify([tenantId, auth.agent.id, virtualSpoolerName.toLowerCase()])).digest("hex").slice(0, 24)
+      : data.id ?? `printer_${nanoid(8)}`;
     try {
       const row = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${tenantId}))`);
@@ -176,8 +187,12 @@ export async function POST(req: Request) {
           connectionType, protocol,
           status: "unknown", lifecycle: "active", config,
           capabilities: null,
-          managementSource: auth.kind === "manager" ? "manager" : "agent",
-          desiredRevision: auth.kind === "manager" ? 1 : 0,
+          // Gateway-owned desired state is necessary for the Windows Agent
+          // to receive and verify the opt-in, irrespective of who paired it.
+          // "manager" here is the existing control-plane ownership type,
+          // NOT a requirement for desktop Manager user credentials.
+          managementSource: auth.kind === "manager" || virtualTest ? "manager" : "agent",
+          desiredRevision: auth.kind === "manager" || virtualTest ? 1 : 0,
           appliedDesiredRevision: 0,
           observedDesiredRevision: 0,
           observedDeviceClass: null,
