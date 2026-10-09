@@ -472,9 +472,8 @@ export async function testGatewayPrinter(
     idempotencyKey,
   );
   if (status < 200 || status >= 300) {
-    // No local clear here: gatewayRequest already ran the refresh-then-clear
-    // cycle, clearing only on authoritative rejection. Clearing again on a
-    // preserved (transient-failure) session would sign the operator out.
+    // Agent credentials stay in the paired native CLI and are never exposed
+    // to the WebView; preserve Gateway status for precise operator feedback.
     throw gatewayHttpError(status, body, "Gateway test print failed (" + status + ")");
   }
   return decodeDiagnosticResult(JSON.parse(body), printerId);

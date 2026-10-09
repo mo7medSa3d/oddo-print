@@ -199,7 +199,7 @@ export default function App() {
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
   const busyRef = useRef(false);
   // One synchronous operation owner: uncertain Gateway outcomes preserve the
-  // key across retries, scoped to a verified Manager actor and saved origin.
+  // key across retries, scoped to the paired Agent and saved Gateway origin.
   const diagnosticOps = useRef(new DiagnosticOperations(generateIdempotencyKey));
   const setBusyBoth = useCallback((v: boolean) => {
     busyRef.current = v;
