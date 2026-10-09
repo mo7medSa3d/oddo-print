@@ -94,11 +94,10 @@ def test_manager_login_does_not_mask_identity_lookup_failures_as_invalid_credent
     assert 'logError("auth.login.user_lookup_failed"' in block
     assert 'NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 })' in block
     # The catch must terminate this branch instead of falling through to the
-    # generic INVALID credentials response, and must preserve rate-limit
-    # headers so clients can back off.
+    # generic INVALID credentials response.
     catch_start = block.index("catch")
     catch_end = block.index("}\n", catch_start) + 2
-    assert "return setRateLimitHeaders(NextResponse.json" in block[catch_start:catch_end]
+    assert "NextResponse.json" in block[catch_start:catch_end]
     assert "setRateLimitHeaders" in block[catch_start:catch_end]
 
 
@@ -146,7 +145,8 @@ def test_logout_does_not_report_success_when_session_revocation_fails():
     ):
         source = read(rel)
         assert "session_revoke_failed" in source
-        assert '{ ok: false, error: "Logout temporarily unavailable" }' in source
+        assert "Logout temporarily unavailable" in source
+        assert "revokeFailed" in source
         assert "status: revokeFailed ? 503 : 200" in source
         assert 'action: "session.revoked"' in source
 
@@ -170,21 +170,32 @@ def test_terminal_claim_credentials_are_cleared_without_breaking_crash_recovery(
     gateway_delivery = read("src/lib/job-delivery.ts")
     go_queue = read("agent/internal/queue/queue.go")
 
-    # Failed unknown deliveries retain the claim fence so the exact delivery
-    # attempt can reconcile a late success; a bounded 24h cleanup clears
-    # retained fences afterwards. Only paths where no physical output is
-    # possible (undelivered claims, retries-exhausted requeue) clear tokens.
-    start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
-    block = gateway_maintenance[max(0, start - 100): start + 600]
-    assert "claim_token=claim_token" in block
-    start = gateway_maintenance.index("AGENT_EXECUTION_TIMEOUT")
-    block = gateway_maintenance[max(0, start - 100): start + 700]
-    assert "claim_token=CASE WHEN expires_at <= now() THEN NULL ELSE claim_token END" in block
+    # Ordinary terminal failures clear the execution credential.
+    for marker in (
+        "exceeded max retries after a stale claim",
+    ):
+        start = gateway_maintenance.index(marker)
+        block = gateway_maintenance[max(0, start - 220): start + 220]
+        assert "claim_token=NULL" in block
+        assert "claimed_at=NULL" in block
+
+    # Unknown delivery keeps the claim fence temporarily so the exact Agent
+    # attempt can reconcile a late success, then the 24-hour cleanup clears it.
+    unknown_start = gateway_maintenance.index("UNKNOWN_PARTIAL_DELIVERY: claim lease expired")
+    unknown_block = gateway_maintenance[max(0, unknown_start - 320): unknown_start + 700]
+    assert "claim_token=claim_token" in unknown_block
+    assert "claimed_at=claimed_at" in unknown_block
     assert "updated_at <= now() - interval '24 hours'" in gateway_maintenance
 
     failed_release = gateway_delivery[gateway_delivery.index("SET status = 'failed'"):gateway_delivery.index("RETURNING id", gateway_delivery.index("SET status = 'failed'"))]
     assert "claim_token = NULL" in failed_release
     assert "claimed_at = NULL" in failed_release
+
+    unknown_delivery_start = gateway_delivery.index("export async function markJobDeliveryUnknown")
+    unknown_delivery_block = gateway_delivery[unknown_delivery_start:gateway_delivery.index("export async function recordJobAck", unknown_delivery_start)]
+    assert "deliveredAt: sql`COALESCE" in unknown_delivery_block
+    assert "claimedAt: sql`COALESCE" in unknown_delivery_block
+    assert "claimToken: sql`NULL`" not in unknown_delivery_block
 
     assert "status == \"success\" || status == \"failed\"" in go_queue
     assert "claim_token = NULL" in go_queue

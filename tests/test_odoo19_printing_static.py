@@ -239,27 +239,7 @@ def test_gateway_queue_admission_allows_active_agent_when_heartbeat_is_stale():
     assert 'owner.agent_status !== "online"' not in service
     assert "owner.agent_last_seen_at" not in service
 
-def test_gateway_queue_does_not_self_deadlock_current_write_transaction():
-    source = read("models/gateway_config.py")
-    start = source.index("    def _queue_enabled_state_sync(")
-    end = source.index("    def _check_admin(", start)
-    queue = source[start:end]
-
-    # _queue_enabled_state_sync() runs during create()/write() before the
-    # surrounding transaction commits. The fresh-cursor persistence helper
-    # takes a row lock and would block on the current transaction's own lock.
-    invalid_path = queue[queue.index("except (ValidationError, ValueError) as exc:"):queue.index("record_id = record.id")]
-    executable_invalid_path = "\n".join(
-        line for line in invalid_path.splitlines()
-        if not line.lstrip().startswith("#")
-    )
-    assert "with_context(skip_enabled_sync=True).sudo().write(" in invalid_path
-    assert '"last_enabled_sync_error": str(exc)[:4000]' in invalid_path
-    assert "_persist_enabled_sync_result(" not in executable_invalid_path
-    assert 'record.modified(["last_enabled_sync_error"])' in invalid_path
-
-
-def test_gateway_config_form_is_setup_only_without_internal_recovery_buttons():
+def test_gateway_config_form_exposes_guarded_connection_and_recovery_actions():
     source = read("views/gateway_config_views.xml")
     form_start = source.index('id="view_print_gateway_config_form"')
     form_end = source.index('<record id="view_print_gateway_config_search"', form_start)

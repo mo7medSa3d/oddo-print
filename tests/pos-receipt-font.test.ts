@@ -22,9 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { htmlToCanvas, renderToElement, toCanvas } from "./__mocks__/odoo";
-// No @ts-expect-error here: this branch ships pos_print_router.d.ts next to
-// the JS module under test, so the import is typed (main has no .d.ts and
-// keeps the suppression there). Odoo dependencies resolve via vitest aliases.
+// @ts-expect-error - the JS module under test has no type declarations; its Odoo
+// dependencies resolve to the shared mock module via vitest aliases.
 import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
 
 function makeCanvas(): HTMLCanvasElement {
