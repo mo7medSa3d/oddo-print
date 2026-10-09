@@ -60,7 +60,9 @@ describe("deployment security contracts", () => {
     expect(agentMain).toContain('YaseirAgent service is already uninstalled');
     expect(windowsWorkflow).toContain('NSIS did not install the YaseirAgent Windows service');
     expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
-    expect(windowsWorkflow).toContain('NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed.');
+    expect(windowsWorkflow).toContain("NSIS machine uninstall verified: service, install files, and ProgramData removed.");
+    expect(windowsWorkflow).toContain("User-scoped Tauri data remains after machine uninstall");
+    expect(windowsWorkflow).not.toContain("current-user data are removed.");
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {
