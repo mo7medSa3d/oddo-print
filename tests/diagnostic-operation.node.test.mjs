@@ -25,7 +25,7 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
 }}).outputText;
 const sendSource = between(dashboard, 'async function sendGatewayTestPage(', '/* ---------- Local presentational helpers ---------- */');
 const dashHandler = between(dashboard, '  const handleGatewayTestPrint = async', '  /**\n   * Reprint');
-const desktopHandler = between(desktop, '  const handleTest = useCallback(', '  const handleEditSaved = useCallback');
+const desktopHandler = between(desktop, '  const handleTest = useCallback(', '  const startAgent = useCallback');
 const ipcSource = between(ipc, 'export async function testGatewayPrinter(', 'export function cleanupLocalJobs');
 function makeDashboard(send, { actor = 'tenant1:user1:owner', confirms = [true] } = {}) {
   let serial=0;
@@ -49,23 +49,22 @@ function gatewayResponse(body, status=201) {
   return {ok:status>=200&&status<300,status,json:async()=>body};
 }
 const good = (status='queued', id='printer1', extras={})=>({ok:true,jobId:`job-${id}`,printerId:id,status,...extras});
-function makeDesktop(send,{confirms=[true],url='https://gateway.example.com',permitted=true,actor='tenant1:user1:operator'}={}) {
+function makeDesktop(send,{confirms=[true],url='https://gateway.example.com'}={}) {
   let serial=0;
   const messages=[]; const requests=[];
   const ops=new model.DiagnosticOperations(()=>`desktop-operation-${++serial}`);
   const decisions=[...confirms];
   const ipcContext=vm.createContext({
     ...model, normalizeGatewayUrl:value=>value,
-    gatewayRequest:async (_url,path,method,headers)=>{
-      requests.push({url:_url,path,key:headers['Idempotency-Key']});
-      return send(path,headers);
+    gatewayConsoleRequest:async (_url,path,method,_headers,_body,key)=>{
+      requests.push({url:_url,path,key});
+      return send(path,{'Idempotency-Key':key});
     },
     gatewayHttpError:(status,body)=>Object.assign(new Error(`HTTP_${status}`),{status,body}),
   });
   vm.runInContext(compile(`${ipcSource.replace(/^export /m, "")}\nglobalThis.send = testGatewayPrinter;`), ipcContext);
   const context=vm.createContext({
     ...model, useCallback:fn=>fn, diagnosticOps:{current:ops},savedGatewayUrl:url,
-    managerCanTest:permitted, managerActorScope:actor, managerAuthorityError:()=>messages.push({text:'AUTH_REQUIRED'}),
     window:{confirm:()=>decisions.shift() ?? false},
     testGatewayPrinter:ipcContext.send,
     setBusyBoth:()=>{},setMsg:v=>messages.push(v),refreshJobs:()=>{},
@@ -187,9 +186,11 @@ test('desktop same tick guard, 401/403/503 retain identity and explicit repeat r
   assert.equal(new Set(fixture.requests.map(r=>r.key)).size,2);
 });
 
-test('desktop protected diagnostic refuses request before verified Manager permission', async () => {
-  const guest=makeDesktop(async ()=>({status:201,body:JSON.stringify(good())}),{permitted:false});
-  await guest.run('printer1');
-  assert.equal(guest.requests.length,0);
-  assert.deepEqual(guest.messages,[{text:'AUTH_REQUIRED'}]);
+test('unpaired Agent is denied by Gateway while preserving the same diagnostic retry key', async () => {
+  const denied=makeDesktop(async()=>({status:401,body:'{"error":"Unauthorized"}'}));
+  await denied.run('printer1');
+  assert.equal(denied.requests.length,1);
+  assert.equal(denied.messages.at(-1).text,'diagnostic.authRequired');
+  await denied.run('printer1');
+  assert.equal(new Set(denied.requests.map(x=>x.key)).size,1);
 });
