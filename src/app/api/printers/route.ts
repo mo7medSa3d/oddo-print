@@ -154,8 +154,8 @@ export async function POST(req: Request) {
         prohibitedSoftwareQueue)) {
       return NextResponse.json({ error: "Virtual test requires a local Windows software spooler queue, without redirected/FAX/capture queues or RAW passthrough", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
     }
-    if (auth.kind === "manager" && data.printerType === "virtual" && !virtualTest) {
-      return NextResponse.json({ error: "Virtual printer registration requires explicit test opt-in", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
+    if (data.printerType === "virtual" && !virtualTest) {
+      return NextResponse.json({ error: "Virtual printer registration requires explicit test opt-in from the paired Agent or Gateway", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
     }
     const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
     if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
