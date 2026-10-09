@@ -1,0 +1,18 @@
+# CI-only registry substitution: upstream Docker Official Images on ECR Public.
+# Production docker-compose.yml and Dockerfile defaults continue to use Docker Hub.
+# Preserve the exact, reviewed manifest digests across registries. If a mirror
+# lacks an identical manifest, the image pull MUST fail instead of falling back
+# to a mutable tag or weaker validation.
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  migrate:
+    build:
+      args:
+        NODE_BASE_IMAGE: public.ecr.aws/docker/library/node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+  gateway:
+    build:
+      args:
+        NODE_BASE_IMAGE: public.ecr.aws/docker/library/node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+  caddy:
+    image: public.ecr.aws/docker/library/caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e

@@ -25,3 +25,16 @@ test('Go purge rejects product-root junctions/reparse points before recursive de
   assert.match(purge, /GetFileAttributes/);
   assert.match(purge, /os\.RemoveAll\(root\)/);
 });
+
+test('interactive NSIS uninstall cleans only current-user product Known Folder roots', () => {
+  const caller = go.slice(go.indexOf('func callerOwnedUserDataRoots()'), go.indexOf('func purgeAgentData()'));
+  assert.match(caller, /GetCurrentProcessToken\(\)\.GetTokenUser\(\)/);
+  assert.match(caller, /FOLDERID_LocalAppData/);
+  assert.match(caller, /FOLDERID_RoamingAppData/);
+  assert.match(caller, /WinLocalSystemSid/);
+  assert.match(caller, /"com\.yasser\.manager"/);
+  assert.doesNotMatch(caller, /os\.Getenv\("(APPDATA|LOCALAPPDATA|USERPROFILE)"\)|ReadDir\(.+Users/i);
+  const purge = go.slice(go.indexOf('func purgeInstallationData()'));
+  assert.match(purge, /callerOwnedUserDataRoots\(\)/);
+  assert.match(purge, /purgePaths\(roots\)/);
+});

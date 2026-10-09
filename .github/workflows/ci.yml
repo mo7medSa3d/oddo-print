@@ -69,7 +69,7 @@ jobs:
     timeout-minutes: 45
     services:
       postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: public.ecr.aws/docker/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -325,7 +325,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: public.ecr.aws/docker/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: odoo
           POSTGRES_PASSWORD: odoo
@@ -356,7 +356,7 @@ jobs:
         run: |
           set -euo pipefail
           credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
-          docker pull odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c
+          docker pull public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
             docker run --rm --network host --name odoo19_test_run \
@@ -369,7 +369,7 @@ jobs:
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
               -v "$GITHUB_WORKSPACE/agent:/mnt/agent:ro" \
               -v "$GITHUB_WORKSPACE/src:/mnt/src:ro" \
-              odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c \
+              public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c \
               odoo \
                 --database=odoo19_test \
                 --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \

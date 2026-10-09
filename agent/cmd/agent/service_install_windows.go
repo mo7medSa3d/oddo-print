@@ -470,6 +470,62 @@ func managerDataRoots() ([]string, error) {
 	return roots, nil
 }
 
+// callerOwnedUserDataRoots returns product-specific data for the exact Windows
+// identity executing the uninstaller. Uninstall may be elevated under a
+// different account; never walk other profiles or trust inherited APPDATA /
+// LOCALAPPDATA values to decide what an elevated process should delete.
+//
+// The Tauri bundle identifier is com.yasser.manager, so its WebView2 profile
+// can remain under LocalAppData even after machine-wide ProgramData is purged.
+// Those bytes belong to this application and must be removed for a full
+// uninstall when the uninstaller runs as that same Windows user.
+func callerOwnedUserDataRoots() ([]string, error) {
+	info, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return nil, fmt.Errorf("resolve uninstall caller identity: %w", err)
+	}
+	if info == nil || info.User.Sid == nil {
+		return nil, fmt.Errorf("uninstall caller has no Windows SID")
+	}
+	if info.User.Sid.IsWellKnown(windows.WinLocalSystemSid) ||
+		info.User.Sid.IsWellKnown(windows.WinLocalServiceSid) ||
+		info.User.Sid.IsWellKnown(windows.WinNetworkServiceSid) {
+		// Service accounts do not own an interactive user's AppData. Never
+		// descend into another identity's profile to compensate.
+		return nil, nil
+	}
+	local, err := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
+	if err != nil {
+		return nil, fmt.Errorf("resolve caller LocalAppData: %w", err)
+	}
+	roaming, err := windows.KnownFolderPath(windows.FOLDERID_RoamingAppData, 0)
+	if err != nil {
+		return nil, fmt.Errorf("resolve caller RoamingAppData: %w", err)
+	}
+	return callerProductDataRoots(local, roaming)
+}
+
+// Keep the allowlist aligned with legacy Yaseir naming, the current Tauri
+// bundle ID, and the checked on-disk per-user roots. The product-root reparse
+// checks in purgePaths() apply to all of these entries.
+func callerProductDataRoots(local, roaming string) ([]string, error) {
+	var roots []string
+	for _, folder := range []string{local, roaming} {
+		folder = strings.TrimSpace(folder)
+		if folder == "" || !filepath.IsAbs(folder) {
+			return nil, fmt.Errorf("uninstall caller application data folder is invalid")
+		}
+		for _, name := range []string{
+			"YaseirManager", "YasserManager", "OdooPrintManager",
+			"Yaseir Print Manager", "Yasser Print Manager",
+			"com.yasser.manager",
+		} {
+			roots = append(roots, filepath.Join(folder, name))
+		}
+	}
+	return roots, nil
+}
+
 func purgeAgentData() error {
 	roots, err := agentDataRoots()
 	if err != nil {
@@ -487,8 +543,13 @@ func purgeInstallationData() error {
 	if err != nil {
 		return err
 	}
-	if err := purgePaths(append(agentRoots, managerRoots...)); err != nil {
+	// A service-only uninstall is permitted to leave other users' profile
+	// state intact. A normal interactive NSIS uninstall cleans exactly the
+	// caller's own product directories, including Tauri WebView2 state.
+	callerRoots, err := callerOwnedUserDataRoots()
+	if err != nil {
 		return err
 	}
-	return nil
+	roots := append(append(agentRoots, managerRoots...), callerRoots...)
+	return purgePaths(roots)
 }
