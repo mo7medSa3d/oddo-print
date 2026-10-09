@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,17 @@ type spoolerEvidenceFakePrinter struct {
 }
 
 func (p *spoolerEvidenceFakePrinter) LastSpoolerJobID() string { return p.spoolerJobID }
+
+func (p *spoolerEvidenceFakePrinter) Print(ctx context.Context, data []byte) error {
+	// Model a native allocation before the later transport result, not a static
+	// backend getter that could refer to an unrelated previous document.
+	id, err := strconv.ParseUint(p.spoolerJobID, 10, 64)
+	if err != nil {
+		return err
+	}
+	printer.RecordSpoolerJobID(ctx, id)
+	return p.fakePrinter.Print(ctx, data)
+}
 
 type recordingGateway struct {
 	mu        sync.Mutex

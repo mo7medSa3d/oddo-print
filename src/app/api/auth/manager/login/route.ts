@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createManagerSession, managerCookieHeader, managerRefreshCookieHeader, verifyManagerPassword, getManagerUsername, resolveManagerTenantId, authenticateManagerUser } from "../../../../../lib/manager-auth";
-import { isTrustedDesktopRequest } from "../../../../../lib/session-tokens";
+import { isTrustedDesktopRequest, AuthenticationChangedError } from "../../../../../lib/session-tokens";
 import {
   clientIpFrom,
   reserveAuthAttempt,
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     return setRateLimitHeaders(NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 }), pre);
   }
 
-  let identity: { userId: string; role: import("../../../../../lib/manager-auth").ManagerRole } | null = null;
+  let identity: { userId: string; role: import("../../../../../lib/manager-auth").ManagerRole; credentialVersion: string } | null = null;
   if (!identity && username.includes("@")) {
     try {
       identity = await authenticateManagerUser(username, password, tenantId);
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
   try {
     sess = await createManagerSession(
       tenantId,
-      identity ? { userId: identity.userId, role: identity.role } : { role: "owner" },
+      identity ?? { role: "owner" },
       {
         ipAddress: ip,
         userAgent: req.headers.get("user-agent"),
@@ -99,6 +99,7 @@ export async function POST(req: Request) {
       },
     );
   } catch (e) {
+    if (e instanceof AuthenticationChangedError) return setRateLimitHeaders(NextResponse.json({ error: INVALID }, { status: 401 }), pre);
     logError("auth.login.session_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
     return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 }), pre);
   }

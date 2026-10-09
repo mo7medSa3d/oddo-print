@@ -21,6 +21,7 @@ import {
   jobDisplayLabel as jobDisplayLabelImpl,
   jobTone as jobToneImpl,
   printerObservationFreshness,
+  effectivePrinterStatus,
   printerLabel as printerLabelImpl,
 } from "../../shared/job-vocabulary";
 import { DEFAULT_LOCALE, type Locale } from "../../i18n/config";
@@ -98,11 +99,25 @@ export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.n
   return printerObservationFreshness(new Date(seen), nowMs) !== "fresh";
 }
 
-export function printerDisplayStatus(p: PrinterInfo): string {
-  // `/api/printers` already exposes an evidence-based current status. The
-  // reportedStatus field is historical/diagnostic evidence only; using it
-  // when freshness is stale would resurrect an old Online/Offline claim.
-  return p.status || "unknown";
+export function printerDisplayStatus(p: PrinterInfo, nowMs = Date.now()): string {
+  // Even an initially valid /api/printers snapshot ages. Never resurrect the
+  // last reported online status when observation evidence is stale or missing.
+  // This shared function also handles non-active lifecycle states.
+  return effectivePrinterStatus(p, undefined, nowMs);
+}
+
+/** Single advancing-clock projection used by every Desktop status summary. */
+export function printerHealthCounts(printers: PrinterInfo[], nowMs = Date.now()) {
+  let online = 0;
+  let offline = 0;
+  let unknown = 0;
+  for (const printer of printers) {
+    const effective = printerDisplayStatus(printer, nowMs);
+    if (effective === "online") online += 1;
+    else if (effective === "offline" || effective === "error") offline += 1;
+    else unknown += 1;
+  }
+  return { online, offline, unknown };
 }
 
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {

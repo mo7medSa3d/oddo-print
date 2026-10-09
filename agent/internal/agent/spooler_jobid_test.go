@@ -84,9 +84,8 @@ func TestUpdateJobStatusOmitsEmptySpoolerJobID(t *testing.T) {
 	}
 }
 
-// Dispatch-side linkage: a backend that reports an ID surfaces it through
-// the same helper the success path uses.
-func TestDispatchReadsSpoolerJobIDOfPrinter(t *testing.T) {
+// Legacy diagnostics remain available, but are not dispatch-owned evidence.
+func TestLegacySpoolerDiagnosticAccessor(t *testing.T) {
 	p := &fakePrinter{}
 	if got := printer.SpoolerJobIDOf(p); got != "" {
 		t.Fatalf("plain fake backend must yield no spooler job ID, got %q", got)

@@ -21,9 +21,32 @@ import (
 // remain useful to manager discovery but must not be persisted/count as local
 // runnable printers until an execution backend exists.
 func IsRuntimeDiscoveryPrinter(d DeviceInfo) bool {
+	// Validate the actual execution endpoint, including historical registry
+	// rows and legacy Type-only records. A claimed verification/source or a
+	// different NetworkAddress field must never waive this destination policy.
+	pc := config.PrinterConfig{
+		ID: d.ID, Type: d.Type, ConnectionType: d.ConnectionType,
+		Protocol: d.Protocol, Endpoint: d.Endpoint, SpoolerName: d.SpoolerName,
+	}
+	if err := config.ValidatePrinterEndpoint(pc); err != nil {
+		return false
+	}
 	protocol := strings.ToLower(strings.TrimSpace(d.Protocol))
 	if protocol == "lpr" {
 		return false
+	}
+	// A discovered IPP URL is only a candidate, irrespective of whether it
+	// originated from mDNS, SNMP enrichment, WSD or an IP/port scan. A valid
+	// address, a responding SNMP agent and a service TXT announcement do NOT
+	// prove that the IPP endpoint speaks the printing protocol. Require an
+	// actual successful IPP Get-Printer-Attributes probe for executable
+	// auto-discovery. Manually configured IPP printers remain operator-owned
+	// and still undergo format negotiation at print time.
+	if d.Capabilities != nil && (protocol == "ipp" || protocol == "ipps") {
+		if _, discovered := d.Capabilities["discovered_via"]; discovered &&
+			!isCapabilityVerified(d.Capabilities, "ipp_verified") {
+			return false
+		}
 	}
 	if d.Capabilities != nil {
 		if verification, ok := d.Capabilities["verification"].(string); ok {
@@ -995,8 +1018,9 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	return merged
 }
 
-// TestPrinter executes a real test print against the given printer ID and returns
-// success/failure with meaningful error. It resolves the printer via fast local discovery
+// TestPrinter checks backend-specific readiness/transport for the given printer.
+// A successful Test does not prove bytes were submitted or physically printed.
+// It returns success/failure with a meaningful error. It resolves the printer via fast local discovery
 // first (registry, spooler, config), falling back to full network discovery only if needed.
 func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 	var target *DeviceInfo

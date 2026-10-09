@@ -28,5 +28,5 @@ export default defineConfig([
       "react/no-direct-mutation-state": "off",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "dist-desktop/**", "src-tauri/**"]),
+  globalIgnores([".audit/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "dist-desktop/**", "src-tauri/**"]),
 ]);

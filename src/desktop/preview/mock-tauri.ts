@@ -195,12 +195,13 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
       let status = 200;
       let body: unknown;
       if (path === "/api/health") body = { ok: true };
-      else if (path === "/api/auth/manager/login" || path === "/api/auth/manager/refresh") { mockManagerAuthenticated = true; body = { ok: true, expiresAt: new Date(Date.now() + 15 * 60000).toISOString() }; }
+      else if (path === "/api/auth/manager/login") { mockManagerAuthenticated = true; body = { ok: true, expiresAt: new Date(Date.now() + 15 * 60000).toISOString() }; }
+      else if (path === "/api/auth/manager/refresh" && mockManagerAuthenticated) body = { ok: true, expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
       else if (!mockManagerAuthenticated) { status = 401; body = { error: "Preview manager is signed out" }; }
-      else if (path === "/api/auth/manager/me") body = { authenticated: true, exp: Math.floor(Date.now() / 1000) + 900 };
+      else if (path === "/api/auth/manager/me") body = { authenticated: true, exp: Math.floor(Date.now() / 1000) + 900, tenantId: "preview-workspace", userId: "preview-manager", role: "owner" };
       else if (path.startsWith("/api/agents")) body = [{ id: "agent-preview", name: "Preview Agent", lifecycle: "active", status: "online" }];
       else if (path.startsWith("/api/jobs")) body = demoJobs;
-      else if (path.endsWith("/test-print")) body = { ok: true, jobId: "preview-test", status: "queued" };
+      else if (path.endsWith("/test-print")) body = { ok: true, jobId: "preview-test", printerId: decodeURIComponent(path.split("/").at(-2) ?? ""), status: "queued" };
       else if (path.startsWith("/api/printers")) body = request?.method === "GET" ? demoPrinters : { ok: true };
       else { status = 404; body = { error: "Unsupported preview request" }; }
       const envelope = { status, body: JSON.stringify(body) };

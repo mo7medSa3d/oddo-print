@@ -117,7 +117,7 @@ def test_lower_priority_explicit_binding_is_exact_and_separate_policy_targets_do
 def test_branch_owned_destinations_require_branch_specific_bindings():
     binding = read("models/binding.py")
     fallback = binding[binding.index("def find_for"):binding.index("def dispatch_report_action")]
-    assert "if destination_company == branch:" in fallback
+    assert "if selected_branch is False and branch and destination_company == branch:" in fallback
     assert "return self.browse()" in fallback
 
 
@@ -356,10 +356,17 @@ def test_gateway_kitchen_uses_native_order_change_lifecycle():
     end = source.index("async printChanges(", start)
     method = source[start:end]
 
-    assert "if (isPrinted)" in method
-    assert "order.updateLastOrderChange();" in method
+    # The accepted snapshot, not the later live order, must be marked as
+    # prepared. The actual-method JS behavior test exercises native Odoo 19
+    # updateLastOrderChange() against that snapshot and concurrent edits.
+    assert "preparationSnapshot = captureKitchenPreparationState(order);" in method
+    assert "if (isPrinted && !reprint && hasChanges)" in method
+    assert "consumeAcceptedKitchenSnapshot(order, preparationSnapshot);" in method
     assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
-    assert method.index("if (isPrinted)") < method.index("order.updateLastOrderChange();")
+    assert method.index("if (isPrinted && !reprint && hasChanges)") < method.index("consumeAcceptedKitchenSnapshot(order, preparationSnapshot);")
+    helper = source[source.index("function consumeAcceptedKitchenSnapshot(order, snapshot)"):source.index("function consumeAcceptedKitchenSnapshot(order, snapshot)") + 1900]
+    assert "order.updateLastOrderChange.call(snapshot);" in helper
+    assert "order.updateLastOrderChange();" in helper  # deliberately bounded legacy-fixture fallback
 
 
 def test_gateway_kitchen_does_not_consume_failed_changes():
@@ -368,13 +375,13 @@ def test_gateway_kitchen_does_not_consume_failed_changes():
     method_end = source.index("async printChanges(", method_start)
     method = source[method_start:method_end]
 
-    # Gateway failures return isPrinted=false. Odoo 19 must retain the change
-    # for retry/reconciliation; unconditional updateLastOrderChange() would
-    # silently mark an unprinted kitchen ticket as consumed.
-    assert "if (isPrinted)" in method
-    assert "order.updateLastOrderChange();" in method
-    assert "else {" in method
-    assert "this.updateLastOrderChangeIfNoDevice(order, opts);" in method
+    # A failed or explicitly reprinted ticket cannot consume a live edit.
+    # The native no-device path is still present on the other branch.
+    assert "if (isPrinted && !reprint && hasChanges)" in method
+    assert "consumeAcceptedKitchenSnapshot(order, preparationSnapshot);" in method
+    assert "else {\n                    this.updateLastOrderChangeIfNoDevice(order, opts);" in method
+    assert "order.updateLastOrderChange();" not in method
+    assert method.index("this.printChanges(") < method.index("consumeAcceptedKitchenSnapshot(order, preparationSnapshot);")
 
 def test_gateway_kitchen_preserves_odoo19_post_print_sync():
     source = (ADDON / "static/src/js/pos_print_router.js").read_text(encoding="utf-8")
@@ -399,10 +406,12 @@ def test_gateway_config_auto_syncs_after_api_key_save():
     assert 'record.resModel !== "print_gateway.gateway_config"' in source
     assert 'hasOwnProperty.call(changes, "gateway_api_key")' in source
     assert 'record.data.gateway_api_key' in source
-    assert 'this.orm.call(' in source
+    assert 'this.controller.orm.call(' in source
     assert '"print_gateway.gateway_config"' in source
     assert '"action_test_connection"' in source
-    assert 'await this.model.load({ resId });' in source
+    assert 'await this.controller.model.load({ resId });' in source
+    assert 'await withGatewayDeadline(() => synchronize.run(), POST_SAVE_DEADLINE_MS' in source
+    assert 'return saved;' in source
 
 
 def test_gateway_config_auto_sync_uses_persisted_res_id_never_datapoint_id():
@@ -435,32 +444,34 @@ def test_gateway_config_auto_sync_uses_persisted_res_id_never_datapoint_id():
 
 
 def test_gateway_config_auto_syncs_activation_toggle_without_manual_refresh():
-    """Replacing a key or toggling activation must converge on screen by itself.
+    """Activation changes schedule an optional, bounded, owner-fenced sync.
 
-    Contract: the form-controller hook also fires for the "enabled" toggle,
-    pushes the fenced revision through action_retry_enabled_sync, and reloads
-    the record from persisted state in every path, so the operator never has
-    to refresh manually and the "Syncing" banner cannot be the last thing
-    shown after a successful save.
+    A successful native web_save must not be falsely reported as failed just
+    because follow-up connectivity or form reload hangs. Timeout warns, and
+    suppresses late navigation. Behavioral regression exercises these branches.
     """
     source = (ADDON / "static" / "src" / "js" / "gateway_config_auto_sync.js").read_text(encoding="utf-8")
     assert 'hasOwnProperty.call(changes, "enabled")' in source
     assert '"action_retry_enabled_sync"' in source
     # The credential guard keeps the toggle from firing without a stored key.
     assert source.index('record.data.gateway_api_key') < source.index('"action_retry_enabled_sync"')
-    # Exactly one reload path: every trigger converges through the same
-    # finally block reading the authoritative persisted state.
-    assert source.count('await this.model.load({ resId });') == 1
+    # One reload path on owner/current form, never after the deadline.
+    assert source.count('await this.controller.model.load({ resId });') == 1
+    assert 'if (!this.cancelled && ownsCurrentForm())' in source
+    assert 'synchronize.cancelled = true;' in source
     assert 'patch(Record.prototype' in source
-    assert source.index('await super._save(...args)') < source.index('await synchronize()')
+    assert source.index('await super._save(...args)') < source.index('await withGatewayDeadline(() => synchronize.run()')
     assert 'this.model.root.resId === resId' in source
     assert 'afterSave.delete(this)' in source
+    assert 'return saved;' in source
 
 
 
 def test_odoo_integration_guide_matches_current_module_architecture():
     guide = (ROOT / "ODOO_INTEGRATION.md").read_text(encoding="utf-8")
-    assert "Version: 19.0.2.11.0" in guide
+    import ast
+    manifest = ast.literal_eval((ADDON / "__manifest__.py").read_text(encoding="utf-8"))
+    assert f"Version: {manifest['version']}" in guide
     assert "report_download_override.py" not in guide
     assert "report_interceptor.js" in guide
     assert "runtime_agent_assignment" in guide
@@ -652,8 +663,11 @@ def test_report_operation_identity_chain():
     assert "def route_report(self, report, records, data=None, explicit_binding=None, idempotency_key=None)" in router
     assert "def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None, operation_id=None)" in binding
     assert "idempotency_key=operation_id" in binding
-    assert "operation_id: reportOperationUuid()" in interceptor
     assert "function reportOperationUuid()" in interceptor
+    assert "claimPrintOperation(recoveryKey," in interceptor
+    assert "operation_id: claim.id" in interceptor
+    assert "finishPrintOperation(recoveryKey, operation.request.operation_id)" in interceptor
+    assert "const reportOperations = new WeakMap();" in interceptor
 
 
 def test_raw_wire_types_match_gateway_contract():

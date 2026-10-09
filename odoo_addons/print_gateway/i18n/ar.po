@@ -1286,6 +1286,7 @@ msgstr "طباعة JPEG على شرائح نقطية"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+#: code:addons/print_gateway/models/print_router.py:0
 msgid "Kitchen / Preparation printing failed."
 msgstr "تعذّرت طباعة المطبخ / التحضير."
 
@@ -2213,6 +2214,7 @@ msgstr "حالة الطباعة غير معروفة؛ ربما استقبلت ا
 #: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0
 #: code:addons/print_gateway/models/ir_actions_report.py:0
+#: code:addons/print_gateway/models/print_router.py:0
 msgid "Print status is unknown. Check the printer before trying again."
 msgstr "حالة الطباعة غير معروفة. تحقّق من الطابعة قبل المحاولة مرة أخرى."
 
@@ -2368,6 +2370,7 @@ msgstr "تقرير QWeb بصيغة PDF"
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_print_job__status__queued
+#: code:addons/print_gateway/models/print_router.py:0
 msgid "Queued"
 msgstr "في قائمة الانتظار"
 

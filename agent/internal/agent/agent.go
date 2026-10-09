@@ -43,8 +43,9 @@ const (
 	maxPendingJobsPerPrinter = 8
 	// WebSocket/read-loop side work is bounded. The gateway's claim lease
 	// remains the final recovery mechanism if these best-effort queues fill.
-	maxRejectQueue = 32
-	maxWSAckQueue  = 64
+	maxRejectQueue         = 32
+	maxTerminalReportQueue = 32
+	maxWSAckQueue          = 64
 )
 
 // Gateway response bounds. Every control-plane response read is capped so a
@@ -130,6 +131,16 @@ type rejectWork struct {
 	key        string
 }
 
+// terminalReportWork only re-reports a known physical outcome. The claim token
+// is captured from the *original physical attempt*, never from a duplicate
+// delivery. A later Gateway claim cannot authorize the old attempt's report.
+type terminalReportWork struct {
+	ctx    context.Context
+	jobID  string
+	result terminalExecutionResult
+	key    string
+}
+
 type wsAckWork struct {
 	ctx     context.Context
 	conn    *websocket.Conn
@@ -148,6 +159,11 @@ type Agent struct {
 	printersMu     sync.RWMutex
 	printers       map[string]printer.Printer
 	printerConfigs map[string]config.PrinterConfig
+	// retiredPrinters is not executable inventory. It retains the exact old
+	// backend after disable/removal until its detached native worker exits.
+	// Losing this reference would let re-enable install an independent mutex
+	// while the old worker can still submit bytes. Protected by printersMu.
+	retiredPrinters map[string]printer.Printer
 	// registryOwned is the runtime subset sourced only from a complete,
 	// successfully read printers.json snapshot. YAML-owned IDs are excluded.
 	registryOwned map[string]struct{}
@@ -229,6 +245,12 @@ type Agent struct {
 	rejectQueue   chan rejectWork
 	rejectMu      sync.Mutex
 	rejectPending map[string]struct{}
+	// Separate bounded I/O path for a duplicate of an already physically
+	// completed job whose SQLite terminal write failed. The WebSocket reader
+	// must not perform HTTP status reporting, including response-body reads.
+	terminalReportQueue   chan terminalReportWork
+	terminalReportPending map[string]struct{}
+	terminalReportQueueMu sync.Mutex
 
 	wsMu   sync.RWMutex
 	wsConn *websocket.Conn
@@ -375,6 +397,40 @@ func priorSessionMayBeLive(old printer.Printer) bool {
 	return false
 }
 
+// retiredSessionMayBeLiveLocked keeps lifecycle retirement separate from native
+// completion. The caller holds printersMu; no timeout or desired revision is
+// evidence that a detached worker has stopped owning its physical transport.
+func (a *Agent) retiredSessionMayBeLiveLocked(id string) bool {
+	if priorSessionMayBeLive(a.retiredPrinters[id]) {
+		return true
+	}
+	delete(a.retiredPrinters, id)
+	return false
+}
+
+// retirePrinterLocked removes executable inventory without dropping a live
+// generation. Callers hold both the per-printer execution lock and printersMu.
+// Repeated removal must not overwrite a still-live retired backend with nil.
+func (a *Agent) retirePrinterLocked(id string) {
+	if priorSessionMayBeLive(a.printers[id]) {
+		if a.retiredPrinters == nil {
+			a.retiredPrinters = make(map[string]printer.Printer)
+		}
+		a.retiredPrinters[id] = a.printers[id]
+	}
+	delete(a.printers, id)
+	delete(a.printerConfigs, id)
+	a.retiredSessionMayBeLiveLocked(id)
+}
+
+// reapRetiredPrintersLocked bounds retained references to genuinely live
+// workers. It runs on reconciliation, never by expiring a safety fence.
+func (a *Agent) reapRetiredPrintersLocked() {
+	for id := range a.retiredPrinters {
+		a.retiredSessionMayBeLiveLocked(id)
+	}
+}
+
 func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig) bool {
 	if !pc.IsEnabled() || a.legacyPrinterDisabled(id) {
 		return false
@@ -385,6 +441,10 @@ func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig
 	a.printersMu.Lock()
 	defer a.printersMu.Unlock()
 	if _, gatewayManaged := a.gatewayOwned[id]; gatewayManaged {
+		return false
+	}
+	if a.retiredSessionMayBeLiveLocked(id) {
+		log.Printf("printer %q registration deferred: a retired print session may still own the transport", id)
 		return false
 	}
 	if old, exists := a.printerConfigs[id]; exists {
@@ -515,25 +575,27 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
-		printers:          make(map[string]printer.Printer),
-		printerConfigs:    make(map[string]config.PrinterConfig),
-		registryOwned:     make(map[string]struct{}),
-		queue:             q,
-		execSem:           make(chan struct{}, maxConcurrentJobs),
-		pendingSlots:      make(chan struct{}, maxPendingJobs),
-		inFlight:          make(map[string]struct{}),
-		inFlightTokens:    make(map[string]string),
-		pendingByPrinter:  make(map[string]int),
-		inFlightPrinters:  make(map[string]string),
-		inFlightReceived:  make(map[string]time.Time),
-		terminalExecution: make(map[string]terminalExecutionResult),
-		shutdownCh:        make(chan struct{}),
-		discoverySem:      make(chan struct{}, 1),
-		rejectQueue:       make(chan rejectWork, maxRejectQueue),
-		rejectPending:     make(map[string]struct{}),
-		desiredStates:     make(map[string]desiredPrinterRecord),
-		gatewayOwned:      make(map[string]struct{}),
-		desiredStatePath:  desiredStatePath(configPath),
+		printers:              make(map[string]printer.Printer),
+		printerConfigs:        make(map[string]config.PrinterConfig),
+		registryOwned:         make(map[string]struct{}),
+		queue:                 q,
+		execSem:               make(chan struct{}, maxConcurrentJobs),
+		pendingSlots:          make(chan struct{}, maxPendingJobs),
+		inFlight:              make(map[string]struct{}),
+		inFlightTokens:        make(map[string]string),
+		pendingByPrinter:      make(map[string]int),
+		inFlightPrinters:      make(map[string]string),
+		inFlightReceived:      make(map[string]time.Time),
+		terminalExecution:     make(map[string]terminalExecutionResult),
+		shutdownCh:            make(chan struct{}),
+		discoverySem:          make(chan struct{}, 1),
+		rejectQueue:           make(chan rejectWork, maxRejectQueue),
+		rejectPending:         make(map[string]struct{}),
+		terminalReportQueue:   make(chan terminalReportWork, maxTerminalReportQueue),
+		terminalReportPending: make(map[string]struct{}),
+		desiredStates:         make(map[string]desiredPrinterRecord),
+		gatewayOwned:          make(map[string]struct{}),
+		desiredStatePath:      desiredStatePath(configPath),
 	}
 
 	if err := a.loadDesiredState(); err != nil {
@@ -937,6 +999,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	a.launchTracked(func() { a.connectWebSocket(ctx) })
 	a.launchTracked(func() { a.runRejectWorker(ctx) })
+	a.launchTracked(func() { a.runTerminalReportWorker(ctx) })
 	a.launchTracked(func() { a.runInitialAsyncDiscovery(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
@@ -1600,9 +1663,11 @@ func (a *Agent) dispatchJobWithContexts(executionCtx, sessionCtx context.Context
 		// the durable Gateway state later.
 		a.inFlightMu.Unlock()
 		a.shutdownGate.RUnlock()
-		log.Printf("Job %s already has a process-local terminal physical result; refusing duplicate dispatch and re-reporting", jobID)
-		if err := a.updateJobStatus(sessionCtx, jobID, terminal.status, terminal.errMsg, fields.ClaimToken, terminal.spoolerJobID); err != nil {
-			log.Printf("Job %s: failed to re-report process-local terminal result: %v", jobID, err)
+		log.Printf("Job %s already has a process-local terminal physical result; refusing duplicate dispatch and scheduling fenced re-report", jobID)
+		if !a.enqueueTerminalReReport(sessionCtx, jobID, terminal) {
+			// No second print is permitted even when reporting is temporarily
+			// unavailable. A later delivery can retry the same fenced report.
+			log.Printf("Job %s: terminal re-report not queued; keeping in-process physical fence", jobID)
 		}
 		return false
 	}
@@ -1875,6 +1940,54 @@ func (a *Agent) enqueueReject(ctx context.Context, jobID, token, reason string) 
 		a.rejectMu.Unlock()
 		log.Printf("Job %s: rejection queue full (%d); relying on gateway claim lease for recovery", jobID, maxRejectQueue)
 		return false
+	}
+}
+
+// enqueueTerminalReReport is nonblocking on the WebSocket reader. Duplicate
+// frames coalesce while a re-report is queued or executing. Queue admission
+// never alters the in-process physical fence; saturation only delays a
+// best-effort status update, not authorization to print again.
+func (a *Agent) enqueueTerminalReReport(ctx context.Context, jobID string, result terminalExecutionResult) bool {
+	if ctx == nil || ctx.Err() != nil || jobID == "" || result.claimToken == "" {
+		return false
+	}
+	key := jobID + "\x00" + result.claimToken
+	a.terminalReportQueueMu.Lock()
+	defer a.terminalReportQueueMu.Unlock()
+	if _, exists := a.terminalReportPending[key]; exists {
+		return true
+	}
+	work := terminalReportWork{ctx: ctx, jobID: jobID, result: result, key: key}
+	select {
+	case a.terminalReportQueue <- work:
+		a.terminalReportPending[key] = struct{}{}
+		return true
+	default:
+		log.Printf("Job %s: terminal re-report queue full (%d), retaining physical fence", jobID, maxTerminalReportQueue)
+		return false
+	}
+}
+
+// runTerminalReportWorker owns bounded background HTTP retries for duplicate
+// terminal deliveries. It uses the original session context for cancellation
+// and *original* claim token for Gateway fencing; stale claims may be rejected
+// authoritatively, but are never rewritten to a newer delivery's token.
+func (a *Agent) runTerminalReportWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case work := <-a.terminalReportQueue:
+			if ctx.Err() == nil && work.ctx.Err() == nil {
+				r := work.result
+				if err := a.updateJobStatus(work.ctx, work.jobID, r.status, r.errMsg, r.claimToken, r.spoolerJobID); err != nil {
+					log.Printf("Job %s: process-local terminal re-report failed: %v", work.jobID, err)
+				}
+			}
+			a.terminalReportQueueMu.Lock()
+			delete(a.terminalReportPending, work.key)
+			a.terminalReportQueueMu.Unlock()
+		}
 	}
 }
 
@@ -2432,6 +2545,10 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 }
 
 func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
+	a.printersMu.Lock()
+	a.reapRetiredPrintersLocked()
+	a.printersMu.Unlock()
+
 	// Gateway-owned printer IDs remain authoritative until the Gateway desired
 	// state explicitly removes them. A stale printers.json entry must never
 	// re-enter the runtime registry during the heartbeat preflight.
@@ -2482,8 +2599,7 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 		a.printersMu.Lock()
 		if _, gatewayManaged := a.gatewayOwned[id]; !gatewayManaged {
 			if _, stillPresent := present[id]; !stillPresent {
-				delete(a.printers, id)
-				delete(a.printerConfigs, id)
+				a.retirePrinterLocked(id)
 			}
 		}
 		a.printersMu.Unlock()
@@ -2990,15 +3106,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// allocated) and the terminal ledger write must not lose the only
 	// durable link to the platform job. The observer stops when dispatch
 	// returns; the terminal path remains authoritative.
-	stopSpoolWatch := a.watchSpoolerJobID(jobID, p)
-	printErr := printer.PrintDocument(printCtx, p, printer.Document{Kind: kind, Data: printData, JobID: jobID})
-	stopSpoolWatch()
+	spoolerJobID, printErr := a.dispatchDocumentWithEvidence(printCtx, jobID, p, printer.Document{Kind: kind, Data: printData, JobID: jobID})
 	log.Printf("print.trace transport_complete request_id=%s job_id=%s printer_id=%s transport_latency_ms=%d success=%t", requestID, jobID, printerID, time.Since(printStart).Milliseconds(), printErr == nil)
 
 	// Capture platform submission evidence for this attempt regardless of the
 	// terminal result. Windows can allocate a spool job before a later write or
 	// render error, and that identity is essential for safe reconciliation.
-	spoolerJobID := printer.SpoolerJobIDOf(p)
 	failureMsg := ""
 	if printErr != nil {
 		failureMsg = printErr.Error()
@@ -3033,26 +3146,37 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, printer.SpoolerJobIDOf(p))
+		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, spoolerJobID)
 		return
 	}
 
 	log.Printf("Job %s: payload transmitted successfully to printer %s", jobID, printerID)
 	// Surface the platform job identity (Windows spooler) when the backend
-	// reports one. SpoolerJobIDOf returns "" for every other backend, so
+	// reports one for this dispatch. Non-publishing backends return "", so
 	// this stays a no-op off Windows and the Gateway contract is unchanged.
 	a.updateJobStatus(ctx, jobID, "success", "", claimToken, spoolerJobID)
 }
 
-// watchSpoolerJobID persists platform submission evidence observed while
-// hardware dispatch runs. It polls the backend's reported identity and
-// records the first non-empty value into the printing ledger row, then
-// stops when dispatch returns (the returned closure blocks until the
-// observer exits, so no write races the terminal update). Failures are
-// best-effort by design: the terminal path re-captures the identity and
-// stays authoritative. Non-reporting backends yield "" forever and cost one
-// woken poll per dispatch.
-func (a *Agent) watchSpoolerJobID(jobID string, p printer.Printer) (stop func()) {
+// dispatchDocumentWithEvidence gives the worker, observer and terminal path
+// one invocation-owned evidence scope. Never read a reusable backend's last ID
+// here: dispatch may fail before acquiring its session. The deferred join also
+// stops the observer if a backend panics and the outer execution fence recovers.
+func (a *Agent) dispatchDocumentWithEvidence(ctx context.Context, jobID string, p printer.Printer, doc printer.Document) (spoolerJobID string, printErr error) {
+	printCtx, evidence := printer.WithSpoolerJobEvidence(ctx)
+	stop := a.watchSpoolerJobID(jobID, evidence)
+	defer func() {
+		stop()
+		spoolerJobID = evidence.Close()
+	}()
+	printErr = printer.PrintDocument(printCtx, p, doc)
+	return
+}
+
+// watchSpoolerJobID persists only the current invocation's platform allocation
+// during dispatch. The returned closure joins the observer before the terminal
+// snapshot/write. SQLite failures are retried on later polls and at stop time;
+// this is best-effort early persistence, not an atomic native/SQLite commit.
+func (a *Agent) watchSpoolerJobID(jobID string, evidence *printer.SpoolerJobEvidence) (stop func()) {
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
@@ -3060,7 +3184,7 @@ func (a *Agent) watchSpoolerJobID(jobID string, p printer.Printer) (stop func())
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		record := func() bool {
-			if id := printer.SpoolerJobIDOf(p); id != "" {
+			if id := evidence.SpoolerJobID(); id != "" {
 				// Log failures for diagnostics but keep watching: a
 				// transient SQLite error must not lose later evidence,
 				// and the final stop-time read gets one more chance.
@@ -3079,9 +3203,9 @@ func (a *Agent) watchSpoolerJobID(jobID string, p printer.Printer) (stop func())
 			case <-ticker.C:
 				if record() {
 					// Identity is stable for the attempt; further polls
-					// only repeat the same write. Keep watching cheaply:
-					// a backend could theoretically reallocate, and the
-					// stop-time read covers the common case anyway.
+					// only repeat the same write, but retrying also covers
+					// transient persistence failures. The stop-time read
+					// gives terminal handoff one final opportunity.
 				}
 			}
 		}

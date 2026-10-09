@@ -149,6 +149,61 @@ func physicalIdentityKey(d DeviceInfo) (string, bool) {
 	return "", false
 }
 
+// spoolerDetailValue accepts both current first-class fields and older
+// capability-only registry records. It is identity evidence, not live health.
+func spoolerDetailValue(d DeviceInfo, field, capability string) string {
+	if usableIdentityValue(field) {
+		return normalizeIdentityValue(field)
+	}
+	return capabilityIdentityValue(d, capability)
+}
+
+// sameSpoolerQueueDuringDetailLoss is a narrow continuity fallback, not a
+// display-name or physical-printer matcher. EnumPrinters' queue/server still
+// identify the same local transport when optional GetPrinter details disappear.
+// Two strong (possibly conflicting) identities use the existing strong matcher.
+func sameSpoolerQueueDuringDetailLoss(a, b DeviceInfo) bool {
+	isSpooler := func(d DeviceInfo) bool {
+		return strings.EqualFold(d.Protocol, "spooler") ||
+			strings.EqualFold(d.ConnectionType, "spooler") ||
+			strings.EqualFold(d.ConnectionType, "windows_spooler")
+	}
+	if !isSpooler(a) || !isSpooler(b) || !usableIdentityValue(a.SpoolerName) || !usableIdentityValue(b.SpoolerName) {
+		return false
+	}
+	// Do not fold spaces into underscores as the legacy ID hash does: these
+	// may be two distinct queue names. Never substitute a display name.
+	if normalizeIdentityValue(a.SpoolerName) != normalizeIdentityValue(b.SpoolerName) {
+		return false
+	}
+	serverA := spoolerDetailValue(a, a.SpoolerServer, "server_name")
+	serverB := spoolerDetailValue(b, b.SpoolerServer, "server_name")
+	if serverA != serverB {
+		return false
+	}
+	scopeA := capabilityIdentityValue(a, "spooler_scope")
+	scopeB := capabilityIdentityValue(b, "spooler_scope")
+	if scopeA != "" && scopeB != "" && scopeA != scopeB {
+		return false
+	}
+	_, strongA := physicalIdentityKey(a)
+	_, strongB := physicalIdentityKey(b)
+	if strongA && strongB {
+		return false
+	}
+	// Detail loss can remove evidence, never contradict evidence still present.
+	for _, pair := range [][2]string{
+		{spoolerDetailValue(a, a.SpoolerPort, "port_name"), spoolerDetailValue(b, b.SpoolerPort, "port_name")},
+		{spoolerDetailValue(a, a.SpoolerDriver, "driver_name"), spoolerDetailValue(b, b.SpoolerDriver, "driver_name")},
+		{spoolerDetailValue(a, a.SpoolerShare, "share_name"), spoolerDetailValue(b, b.SpoolerShare, "share_name")},
+	} {
+		if pair[0] != "" && pair[1] != "" && pair[0] != pair[1] {
+			return false
+		}
+	}
+	return true
+}
+
 // StableIDFromSpooler derives a deterministic printer ID from Windows spooler name.
 // Kept for backwards compatibility with previously persisted IDs.
 func StableIDFromSpooler(spoolerName string) string {

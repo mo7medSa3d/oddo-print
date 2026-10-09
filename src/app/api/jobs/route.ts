@@ -1,3 +1,5 @@
+import { requireActiveTenantInTransaction } from "../../../lib/tenant-guard";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../lib/manager-mutation-authorization";
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { idempotencyDigest } from "../../../lib/print-job-service";
@@ -157,7 +159,8 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: `limit must be an integer between 1 and ${MAX_CLEANUP_ROWS}` }, { status: 400 });
   }
 
-  const deleted = await db.transaction(async (tx) => {
+  let deleted: number;
+  try { deleted = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${claims.tenantId}`}))`);
     // IDs first: materializing up to 5000 full rows (payloads up to 5 MiB)
     // would exhaust Gateway memory. Full rows are fetched in small inner
@@ -174,6 +177,8 @@ export async function DELETE(req: Request) {
         lt(printJobs.updatedAt, before),
       ),
     ).orderBy(printJobs.updatedAt).limit(requestedLimit).for("update");
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+    await requireManagerActorInTransaction(tx, claims, "jobs.cancel");
     if (candidateIds.length === 0) return 0;
     let count = 0;
     for (let offset = 0; offset < candidateIds.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
@@ -194,5 +199,9 @@ export async function DELETE(req: Request) {
     }
     return count;
   });
+  } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    throw error;
+  }
   return NextResponse.json({ deleted, before: before.toISOString(), limit: requestedLimit });
 }

@@ -11,11 +11,10 @@
     3. npm run typecheck + lint    (gateway + desktop frontend)
     4. npm run desktop:vite:build  (React UI -> dist-desktop/)
     5. Go agent: vet + tests + release build (-trimpath -ldflags "-s -w")
-    6. cargo tauri build           (embeds frontend + agent exes -> NSIS/MSI)
+    6. cargo tauri build           (embeds frontend + agent exes -> NSIS)
 
   Outputs (default target x86_64-pc-windows-msvc):
     src-tauri\target\<target>\release\bundle\nsis\Yaseir Print Manager_<ver>_x64-setup.exe
-    src-tauri\target\<target>\release\bundle\msi\Yaseir Print Manager_<ver>_x64_en-US.msi
 
   The bundle is fully standalone: customers need no Node.js, Go, Rust or
   Python. WebView2 is fetched at install time via the bootstrapper (see
@@ -29,8 +28,10 @@
 param(
   # Rust target triple for the desktop app.
   [string]$Target = "x86_64-pc-windows-msvc",
-  # Comma-separated Tauri bundles ("nsis", "msi", or "nsis,msi").
-  [string]$Bundles = "nsis,msi",
+  # Only NSIS has the required Agent service installer/upgrade/removal hooks.
+  # Reject unsupported MSI requests before running any build steps.
+  [ValidateSet("nsis")]
+  [string]$Bundles = "nsis",
   # Skip `npm ci` (use the existing node_modules).
   [switch]$SkipNpmInstall,
   # Skip Go vet + unit tests (CI already ran them).
@@ -171,13 +172,6 @@ if ($Bundles -match "nsis") {
   $unexpectedNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $nsis[0].Name })
   if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
   $artifacts += $nsis
-}
-if ($Bundles -match "msi") {
-  $msi = @(Get-ChildItem (Join-Path $bundleDir "msi\Yaseir Print Manager_*.msi") -File -ErrorAction SilentlyContinue)
-  if ($msi.Count -ne 1) { throw "Expected exactly one Yaseir Print Manager MSI under $bundleDir\msi; found $($msi.Count)" }
-  $unexpectedMsi = @(Get-ChildItem (Join-Path $bundleDir "msi\*.msi") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $msi[0].Name })
-  if ($unexpectedMsi.Count -ne 0) { throw "Unexpected extra MSI package(s) detected: $($unexpectedMsi.Name -join ', ')" }
-  $artifacts += $msi
 }
 
 Write-Host ""

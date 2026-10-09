@@ -1,3 +1,5 @@
+import type { ManagerClaims } from "./manager-auth";
+import { requireManagerActorInTransaction } from "./manager-mutation-authorization";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../db";
@@ -54,9 +56,10 @@ export function stripeBillingMutation(operation: BillingOperation, subscriptionS
 }
 
 export async function runBillingOperation(
-  tenantId: string,
+  manager: ManagerClaims,
   operation: BillingOperation,
 ): Promise<NextResponse> {
+  const tenantId = manager.tenantId;
   // Claim (transaction). An absent tenant simply yields no subscription row
   // and surfaces as the shared "missing" outcome below; nothing in this
   // transaction raises TENANT_NOT_FOUND (the earlier 404 mapping here was
@@ -69,6 +72,8 @@ export async function runBillingOperation(
       WHERE id = ${tenantId}
       FOR UPDATE
     `);
+    // The durable billing claim is the authorization linearization point.
+    await requireManagerActorInTransaction(tx, manager, "billing.manage");
     const result = await tx.execute(sql`
       SELECT stripe_subscription_id AS "stripeSubscriptionId",
              billing_operation_id AS "billingOperationId",

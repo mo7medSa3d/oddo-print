@@ -23,7 +23,7 @@ describe("Tenant Selection Token Contract", () => {
   });
 
   it("creates and verifies a valid selection token", async () => {
-    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com");
+    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com", "a".repeat(64));
     expect(typeof token).toBe("string");
     expect(token.split(".").length).toBe(3);
 
@@ -36,14 +36,14 @@ describe("Tenant Selection Token Contract", () => {
   });
 
   it("rejects tampered selection token", async () => {
-    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com");
+    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com", "a".repeat(64));
     const [h, p] = token.split(".");
     const tampered = `${h}.${p}.invalid_signature`;
     await expect(verifyTenantSelectionToken(tampered)).resolves.toBeNull();
   });
 
   it("rejects token with modified payload", async () => {
-    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com");
+    const token = await createTenantSelectionToken("usr_123456789012345678", "user@example.com", "a".repeat(64));
     const [h, , s] = token.split(".");
     const forgedPayload = Buffer.from(
       JSON.stringify({

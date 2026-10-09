@@ -342,7 +342,7 @@ The browser calls:
 POST /api/auth/login
 ```
 
-For one workspace, the Gateway returns `200` and sets the `mgr_session` HttpOnly cookie.
+For one workspace, the Gateway returns `200` and sets the `cust_session` HttpOnly cookie. The customer refresh cookie is `cust_refresh` (not the Manager `mgr_refresh`); the separate Manager login flow uses `mgr_session`.
 
 For multiple workspaces, login returns `409` with a short-lived selection token and workspace IDs; the UI then calls:
 
@@ -441,7 +441,7 @@ The Agent should move from offline to online after heartbeat registration.
 
 The Gateway uses heartbeat freshness, not only the persisted status field, to determine effective online availability.
 
-A stale heartbeat is treated as offline.
+A stale/missing heartbeat yields `unknown` effective Agent status in the API, not a proven Offline device. Print routing may treat the Agent as unavailable until a fresh heartbeat confirms connectivity; operator labels can say unavailable without changing the API evidence classification.
 
 ## 16. Register/discover a printer on the Agent
 

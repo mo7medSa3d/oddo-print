@@ -100,7 +100,7 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 		contentType = r.Header.Get("Content-Type")
 		body := readAll(r.Body)
 		received = body
-		resp := []byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x03}
+		resp := ippAcceptedJobResponse(0, 3)
 		w.Header().Set("Content-Type", "application/ipp")
 		w.WriteHeader(200)
 		w.Write(resp)
@@ -126,7 +126,7 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 func TestIPPPrintAcceptsSuccessStatusClass(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/ipp")
-		_, _ = w.Write([]byte{0x02, 0x00, 0x00, 0x01, 0, 0, 0, 1, 0x03})
+		_, _ = w.Write(ippAcceptedJobResponse(1, 3))
 	}))
 	defer server.Close()
 	p, _ := NewIPPPrinter(server.URL, "Test")
@@ -157,7 +157,7 @@ func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
 
 func TestIPPPrintErrorOnBadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := []byte{0x02, 0x00, 0x04, 0x04, 0x00, 0x00, 0x00, 0x01, 0x03}
+		resp := ippRejectedJobResponse(0x0404)
 		w.Header().Set("Content-Type", "application/ipp")
 		w.Write(resp)
 	}))

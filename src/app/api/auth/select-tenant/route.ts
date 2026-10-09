@@ -5,7 +5,7 @@ import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { validateWorkspaceManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
-import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction } from "../../../../lib/session-tokens";
+import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction, AuthenticationChangedError } from "../../../../lib/session-tokens";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom } from "../../../../lib/auth-rate-limit";
@@ -23,6 +23,7 @@ export async function POST(req: Request) {
   let userId: string | null = null;
   let isSelectionToken = false;
   let tokenJti: string | null = null;
+  let credentialVersion: string | undefined;
 
   if (selectionToken) {
     const verified = await verifyTenantSelectionToken(selectionToken);
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
     userId = verified.userId;
     isSelectionToken = true;
     tokenJti = verified.jti;
+    credentialVersion = verified.credentialVersion;
   } else if (claims?.userId) {
     userId = claims.userId;
   } else {
@@ -39,6 +41,29 @@ export async function POST(req: Request) {
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
+      if (!isSelectionToken && claims) {
+        // User lock serializes reset; family lock serializes logout/rotation.
+        // Do not mint a replacement from a session revoked after preflight.
+        if (claims.familyId) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${claims.familyId}, 0))`);
+          const source = await tx.execute(sql`
+            SELECT id FROM refresh_tokens
+            WHERE family_id = ${claims.familyId} AND user_id = ${userId}
+              AND tenant_id = ${claims.tenantId} AND kind = ${claims.kind ?? "manager"}
+              AND revoked_at IS NULL AND expires_at > clock_timestamp()
+            FOR UPDATE
+          `);
+          if (source.rows.length === 0) throw new AuthenticationChangedError();
+        } else {
+          const source = await tx.execute(sql`
+            SELECT jti FROM manager_sessions
+            WHERE jti = ${claims.jti} AND user_id = ${userId}
+              AND tenant_id = ${claims.tenantId} AND revoked_at IS NULL
+              AND expires_at > clock_timestamp() FOR UPDATE
+          `);
+          if (source.rows.length === 0) throw new AuthenticationChangedError();
+        }
+      }
       if (isSelectionToken && tokenJti) {
         const consumed = await tx.insert(authRateLimits).values({
           key: `tsel_used_${tokenJti}`,
@@ -74,6 +99,7 @@ export async function POST(req: Request) {
           kind: "customer",
           tenantId: membership.tenantId,
           userId: userId!,
+          credentialVersion,
           role: membership.role as "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin",
         },
         {
@@ -98,6 +124,7 @@ export async function POST(req: Request) {
     res.headers.set("Cache-Control", "no-store");
     return res;
   } catch (error) {
+    if (error instanceof AuthenticationChangedError) return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
     const message = error instanceof Error ? error.message : "Workspace selection failed";
     // Single-use-token replay is a client-state conflict, not an
     // authentication failure: 409 (mirrors agent/register's consumed-code

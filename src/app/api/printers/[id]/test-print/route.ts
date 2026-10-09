@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../db";
-import { agents, printers, printJobs, printJobReceipts } from "../../../../../db/schema";
+import { agents, printers, printJobReceipts } from "../../../../../db/schema";
+import { derivePhysicalOutcome } from "../../../../../lib/job-status";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
@@ -40,13 +41,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
     return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", retryable: false }, { status: 400 });
   }
-  if (idempotencyKey) {
-    const existing = await db.query.printJobs.findFirst({ where: and(eq(printJobs.tenantId, tenantId), eq(printJobs.idempotencyKey, idempotencyKey)) }) ?? await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.idempotencyKey, idempotencyKey)) });
-    if (existing) {
-      if (existing.printerId !== printer.id || existing.documentType !== "test_page" || existing.requestedBy !== "manager-test") return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT" }, { status: 409 });
-      return NextResponse.json({ ok: true, jobId: existing.id, printerId: existing.printerId, status: existing.status, isReused: true });
-    }
-  }
+  // Do not return a reused print identity from an unchecked preflight read.
+  // The canonical queue transaction validates Manager authority before reuse.
+
 
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
   if (!agent) return NextResponse.json({ error: "Printer owner agent missing", code: "AGENT_NOT_FOUND" }, { status: 404 });
@@ -79,14 +76,36 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const result = await createPrintJobForPrinter(printer.id, payload, {
       requestedBy: "manager-test",
+      managerAuthority: { claims, permission: "printers.test" },
       documentType: "test_page",
       allowVirtualTestCapture: true,
       idempotencyKey,
       tenantId: tenantId,
       requestId: requestIdFrom(req),
     });
+    // Idempotent replay can surface a terminal receipt after the live job was
+    // cleaned. Preserve the terminal physical-outcome marker for honest UI
+    // presentation; never infer paper output from transport success alone.
+    // This read is for display only; the owning transaction already fenced
+    // Manager authority and verified the idempotency fingerprint.
+    let physicalOutcome: "printed" | "not_printed" | "unknown" | undefined;
+    if (result.isReused && (result.status === "success" || result.status === "failed" || result.status === "expired")) {
+      try {
+        const receipt = await db.query.printJobReceipts.findFirst({
+          where: and(eq(printJobReceipts.id, result.id), eq(printJobReceipts.tenantId, tenantId)),
+        });
+        if (receipt?.status === result.status && receipt.printerId === printer.id) {
+          physicalOutcome = derivePhysicalOutcome(result.status, receipt.error);
+        }
+      } catch {
+        // The job is already accepted: degrading its display metadata must not
+        // force a second physical intent. The client treats absent as UNKNOWN.
+      }
+    }
     return NextResponse.json({
       ok: true, jobId: result.id, printerId: printer.id, status: result.status,
+      isReused: result.isReused,
+      ...(physicalOutcome ? { physicalOutcome } : {}),
       virtualCapture: printer.printerType === "virtual" && (printer.capabilities as Record<string, unknown> | null)?.virtual_test_sink === true,
       note: printer.printerType === "virtual" ? "Virtual test captures a file on the Agent; no physical paper is printed." : undefined,
     }, { status: 201 });

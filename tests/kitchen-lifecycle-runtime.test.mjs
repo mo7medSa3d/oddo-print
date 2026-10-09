@@ -23,8 +23,10 @@ async function fixture({ draft = false, failStation = false, syncError = false }
   const root = new URL("../odoo_addons/print_gateway/static/src/js/", import.meta.url);
   const controls = new vm.SourceTextModule(await readFile(new URL("async_control.js", root), "utf8"), { context });
   await controls.link(() => { throw new Error("Unexpected import"); });
+  const recovery = new vm.SourceTextModule(await readFile(new URL("operation_recovery.js", root), "utf8"), { context });
+  await recovery.link(() => { throw new Error("Unexpected recovery import"); });
   const addon = new vm.SourceTextModule(await readFile(new URL("pos_print_router.js", root), "utf8"), { context });
-  await addon.link((name) => name === "./async_control" ? controls : common);
+  await addon.link((name) => name === "./async_control" ? controls : name === "./operation_recovery" ? recovery : common);
   await addon.evaluate();
 
   const notifications = [], dialogs = [], submissions = [], syncs = [];

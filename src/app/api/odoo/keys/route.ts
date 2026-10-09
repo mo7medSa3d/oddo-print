@@ -1,3 +1,5 @@
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { ActionError } from "../../../../lib/action-error";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -76,6 +78,8 @@ export async function POST(req: Request) {
       // Creating a new Odoo credential grants runtime access. Keep the
       // entitlement decision and credential insertion in the SAME transaction
       // so Stripe subscription changes serialize with this control-plane write.
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
+      await requireManagerActorInTransaction(tx, manager, "integrations.manage");
       await requireTenantBillingAccess(tx, manager.tenantId);
 
       await tx.insert(apiKeys).values({
@@ -96,6 +100,7 @@ export async function POST(req: Request) {
       }, tx);
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (isTenantBillingError(error)) {
       return NextResponse.json(
         { error: error.message, code: error.code },
@@ -123,12 +128,15 @@ export async function DELETE(req: Request) {
   const id = typeof bodyRecord.id === "string" ? bodyRecord.id.trim() : "";
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+  try {
   if (bodyRecord.remove === true) {
     const removed = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
       const existing = await tx.select({ id: apiKeys.id }).from(apiKeys)
         .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`)).for("update");
       if (!existing.length) return null;
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
+      await requireManagerActorInTransaction(tx, manager, "integrations.manage");
       // Erase the usable credential, retaining only the FK history anchor.
       // Nulling api_key_id would misclassify accepted Odoo jobs as internal
       // and make the addon's reconciliation/status lookups lose those jobs.
@@ -146,6 +154,11 @@ export async function DELETE(req: Request) {
 
   const revoked = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
+    const existing = await tx.select({ id: apiKeys.id }).from(apiKeys)
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`)).for("update");
+    if (!existing.length) return null;
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
+    await requireManagerActorInTransaction(tx, manager, "integrations.manage");
     const result = await tx.update(apiKeys)
       .set({ revokedAt: sql`clock_timestamp()`, readOnlyUntil: null, odooEnabled: false, odooEnabledRevision: sql`${apiKeys.odooEnabledRevision} + 1`, odooEnabledUpdatedAt: sql`clock_timestamp()` })
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`))
@@ -163,4 +176,8 @@ export async function DELETE(req: Request) {
   });
   if (!revoked) return NextResponse.json({ error: "API key not found" }, { status: 404 });
   return NextResponse.json(revoked, { status: 200 });
+  } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    throw error;
+  }
 }

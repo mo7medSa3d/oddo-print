@@ -25,6 +25,7 @@ import { ActionError } from "../lib/action-error";
 import { getServerLocale, makeT } from "../i18n/server";
 import { writeAuditEvent } from "../lib/audit";
 import { requireManagerPermission } from "../lib/authorization";
+import { requireManagerActorInTransaction } from "../lib/manager-mutation-authorization";
 import { entitlementLimitSignal, isTenantBillingError } from "../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../lib/tenant-guard";
 import type { LimitSignalResult } from "../lib/limit-signal";
@@ -68,6 +69,7 @@ export async function deleteAgent(id: string) {
     const locked = await tx.execute(sql`SELECT id FROM agents WHERE id = ${agentId} AND tenant_id = ${manager.tenantId} FOR UPDATE`);
     if (!locked.rows[0]) throw new ActionError(t("errors.agentNotFound"), 404);
     await requireActiveTenantInTransaction(tx, manager.tenantId);
+    await requireManagerActorInTransaction(tx, manager, "agents.retire");
     const agentPrinters = await tx.select({ id: printers.id }).from(printers)
       .where(and(eq(printers.agentId, agentId), eq(printers.tenantId, manager.tenantId))).for("update");
     const printerIds = agentPrinters.map((p) => p.id);
@@ -123,7 +125,7 @@ export async function createPrintJob(printerId: string, payload: unknown) {
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.create");
   try {
-    const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId });
+    const result = await createPrintJobForPrinter(printerId, payload, { requestedBy: "manager", tenantId: manager.tenantId, managerAuthority: { claims: manager, permission: "jobs.create" } });
     revalidatePath("/dashboard");
     return { ok: true as const, id: result.id, reused: result.isReused === true };
   } catch (error) {
@@ -167,6 +169,7 @@ export async function reprintJob(jobId: string) {
     // different keys from a stale COUNT(*).
     const result = await createPrintJobForPrinter(job.printerId, job.payload, {
       requestedBy: "manager-reprint",
+      managerAuthority: { claims: manager, permission: "jobs.retry" },
       reprintOfJobId: job.id,
       destination: job.destination,
       documentType: job.documentType ?? undefined,
@@ -224,6 +227,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
     // twin (api/printers/[id]) applies at the equivalent point: after the
     // optional owner-agent lock, before the printer row is locked/updated.
     await requireActiveTenantInTransaction(tx, manager.tenantId);
+    await requireManagerActorInTransaction(tx, manager, "printers.manage");
 
     const locked = await tx.execute(sql`
       SELECT id, agent_id, lifecycle
@@ -278,7 +282,7 @@ export async function setAgentLifecycle(id: string, lifecycle: "active" | "disab
     const result = await transitionAgentLifecycle(id, lifecycle, manager.tenantId, {
       type: manager.userId ? "user" : "system",
       id: manager.userId ?? "legacy-manager",
-    });
+    }, manager);
     if (!result) throw new ActionError(t("errors.agentNotFound"), 404);
     // transitionAgentLifecycle persists the single authoritative lifecycle
     // audit event inside the same transaction as the state change.

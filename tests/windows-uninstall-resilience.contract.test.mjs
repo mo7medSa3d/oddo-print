@@ -29,11 +29,9 @@ test("service deletion retry is idempotent for Windows marked-for-delete state",
   assert.match(main, /serviceRemovalAlreadyComplete\(statusErr\)/);
 });
 
-test("uninstaller retries fixed ProgramData roots after the helper exits", () => {
+test("uninstaller leaves residual cleanup to owner-fenced Agent helper", () => {
   const cleanup = between(nsis, "agent_removed:", "!macroend");
-  assert.match(cleanup, /ReadEnvStr \$0 "PROGRAMDATA"/);
-  for (const dir of ["YaseirAgent", "YasserAgent", "OdooPrintAgent", "YaseirManager", "YasserManager", "OdooPrintManager"]) {
-    assert.ok(cleanup.includes(`RMDir /r "$0\\${dir}"`), `missing ProgramData retry for ${dir}`);
-  }
+  assert.match(cleanup, /secure cleanup runbook/);
+  assert.doesNotMatch(cleanup, /RMDir\s+\/r|ReadEnvStr|DeleteRegValue/i);
   assert.doesNotMatch(cleanup, /Abort "Yaseir cleanup failed/);
 });

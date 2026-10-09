@@ -69,18 +69,53 @@ Manual test for client demo:
 7. Verify queue depth preserved (jobs not lost)
 8. Verify printer status still reported
 
-Automated test (Windows only):
+Controlled crash/recovery drill (isolated Windows staging VM only; deliberately destructive):
+
+The operator **must not** select a process by image name. The snippet reads
+SCM's exact running service PID and executable path, then rechecks that exact
+PID, process creation timestamp, and image path immediately before the forced
+crash. If SCM reports an unquoted/ambiguous executable or identity changes,
+the drill aborts instead of guessing. This is not an application start/stop
+implementation, and is **not** an approved production automation.
+
 ```powershell
-$svc = "YaseirAgent"
-$before = (Get-Service $svc).Status
-$proc = Get-Process YaseirAgent -ErrorAction SilentlyContinue
-if ($proc) { Stop-Process -Id $proc.Id -Force }
-Start-Sleep 65
-$after = (Get-Service $svc).Status
-if ($after -ne "Running") { throw "Service did not recover" }
-# Check Gateway health
-Invoke-RestMethod "http://localhost:3000/api/agents/health?agentId=xxx"
+$svc = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'"
+if (-not $svc -or $svc.State -ne 'Running' -or $svc.ProcessId -le 0) {
+  throw 'Expected the owned YaseirAgent SCM service to be running'
+}
+$match = [regex]::Match($svc.PathName, '^"(?<exe>[^"]+\.exe)"(?:\s|$)')
+if (-not $match.Success) { throw 'Ambiguous/unquoted SCM executable path; abort' }
+$scmImage = [IO.Path]::GetFullPath($match.Groups['exe'].Value)
+$ownedPid = [int]$svc.ProcessId
+$before = Get-CimInstance Win32_Process -Filter "ProcessId=$ownedPid"
+if (-not $before -or [IO.Path]::GetFullPath($before.ExecutablePath) -ine $scmImage) {
+  throw 'SCM-owned executable identity mismatch; abort'
+}
+$confirm = Read-Host 'Type YaseirAgent to force-crash this verified staging service'
+if ($confirm -cne 'YaseirAgent') { throw 'Drill canceled' }
+$liveSvc = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'"
+$liveProc = Get-CimInstance Win32_Process -Filter "ProcessId=$ownedPid"
+if (-not $liveSvc -or [int]$liveSvc.ProcessId -ne $ownedPid -or
+    -not $liveProc -or $liveProc.CreationDate -ne $before.CreationDate -or
+    [IO.Path]::GetFullPath($liveProc.ExecutablePath) -ine $scmImage) {
+  throw 'Process identity changed; abort'
+}
+Stop-Process -Id $ownedPid -Force
+Start-Sleep -Seconds 65
+$restarted = Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'"
+if (-not $restarted -or $restarted.State -ne 'Running' -or
+    [int]$restarted.ProcessId -le 0 -or [int]$restarted.ProcessId -eq $ownedPid) {
+  throw 'Service recovery or new process identity not verified'
+}
 ```
+
+Verify Agent health **through a separately authenticated Manager session** in
+the saved Gateway origin (the `GET /api/agents/health?agentId=...` route requires
+workspace Manager authorization and `agents.read`). Do not use unauthenticated
+`Invoke-RestMethod`, transmit session cookies in logs, or paste customer tokens
+into scripts. The permitted Manager must verify tenant/Agent identity, fresh
+heartbeat after restart, retained queue contents, and printer observations.
+Native Windows SCM and Gateway session checks still require operator evidence.
 
 ## Observability
 - Structured logs include `requestId`, `agentId`, `failureCount`, `exitCode`, `lastRestart`
@@ -93,7 +128,7 @@ In sandbox (no Windows SCM), this is BLOCKED by design. Code is hardened with SC
 ## Future: Tauri Updater Signed
 - Use Tauri updater with signed artifacts (see DESKTOP_UPDATER.md)
 - Windows service update requires stopping service, replacing binary, starting service
-- MSI installer should configure SCM failure actions during install
+- MSI has no supported Agent service lifecycle in this repository; NSIS is the only shipping installer until separately implemented and verified
 
 ### Agent-health collection pagination
 

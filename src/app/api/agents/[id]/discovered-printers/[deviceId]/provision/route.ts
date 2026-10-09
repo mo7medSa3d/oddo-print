@@ -1,3 +1,4 @@
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../../../../lib/manager-mutation-authorization";
 import { NextResponse } from "next/server";
 import { db } from "../../../../../../../db";
 import { agents, discoveredDevices, printers } from "../../../../../../../db/schema";
@@ -65,6 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!row) return { kind: "not_found" as const };
 
     await requireActiveTenantInTransaction(tx, claims.tenantId);
+    await requireManagerActorInTransaction(tx, claims, "printers.manage");
 
     if (row.candidate_status === "provisioned" && row.provisioned_printer_id) {
       return { kind: "already" as const, printerId: row.provisioned_printer_id };
@@ -190,6 +192,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return { kind: "created" as const, printerId };
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof TenantEntitlementError) {
       const headers = new Headers({ "Retry-After": "60", "Cache-Control": "no-store" });
       return NextResponse.json({

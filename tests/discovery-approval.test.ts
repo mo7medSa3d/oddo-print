@@ -13,6 +13,7 @@ import { createManagerSession } from "../src/lib/manager-auth";
 import { POST as discoveryReportPOST } from "../src/app/api/agent/discovery/route";
 import { POST as discoveryCancelPOST } from "../src/app/api/agents/[id]/discovery/[discoveryId]/cancel/route";
 import { POST as verifyPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/verify/route";
+import { GET as discoverySessionGET } from "../src/app/api/agents/[id]/discovery/[discoveryId]/route";
 import { POST as provisionPOST } from "../src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route";
 
 const suite = describe.skipIf(!hasTestDatabase);
@@ -59,6 +60,19 @@ suite("discovery trust and approval flow", () => {
     });
   }
 
+  async function observationApprovalRequest(token: string, discoveryId: string, deviceId: string) {
+    const response = await discoverySessionGET(new Request(`http://gateway.test/api/agents/${f.agentId}/discovery/${discoveryId}`, {
+      method: "GET", headers: { Authorization: `Bearer ${token}` },
+    }), { params: Promise.resolve({ id: f.agentId, discoveryId }) });
+    if (response.status !== 200) throw new Error(`Discovery GET failed: ${response.status}`);
+    const payload = await response.json();
+    const observation = payload.devices.find((d: { id: string }) => d.id === deviceId);
+    if (!observation?.observationFingerprint) throw new Error("No matching immutable discovery observation");
+    return new Request(`http://gateway.test/api/agents/${f.agentId}/discovered-printers/${deviceId}/verify`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "If-Match": `"${observation.observationFingerprint}"` },
+    });
+  }
+
   it("treats agent verification/confidence as untrusted observation data", async () => {
     const discoveryId = await createDiscoverySession();
     const res = await agentRequest(discoveryId, [{
@@ -97,7 +111,7 @@ suite("discovery trust and approval flow", () => {
     expect((await unapproved.json()).code).toBe("DEVICE_NOT_APPROVED");
 
     const verify = await verifyPOST(
-      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-provision-1/verify`),
+      await observationApprovalRequest(manager.token, discoveryId, "device-provision-1"),
       { params: Promise.resolve({ id: f.agentId, deviceId: "device-provision-1" }) } as any,
     );
     expect(verify.status).toBe(200);
@@ -129,7 +143,7 @@ suite("discovery trust and approval flow", () => {
 
     const manager = await createManagerSession(f.tenantId);
     const verify = await verifyPOST(
-      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-spooler-1/verify`),
+      await observationApprovalRequest(manager.token, discoveryId, "device-spooler-1"),
       { params: Promise.resolve({ id: f.agentId, deviceId: "device-spooler-1" }) } as any,
     );
     expect(verify.status).toBe(200);
@@ -160,7 +174,7 @@ suite("discovery trust and approval flow", () => {
 
     const manager = await createManagerSession(f.tenantId);
     const verify = await verifyPOST(
-      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-lpr-1/verify`),
+      await observationApprovalRequest(manager.token, discoveryId, "device-lpr-1"),
       { params: Promise.resolve({ id: f.agentId, deviceId: "device-lpr-1" }) } as any,
     );
     expect(verify.status).toBe(200);
@@ -341,7 +355,7 @@ suite("discovery trust and approval flow", () => {
 
     const manager = await createManagerSession(f.tenantId);
     const verify = await verifyPOST(
-      await managerRequest(manager.token, `/api/agents/${f.agentId}/discovered-printers/device-concurrent-1/verify`),
+      await observationApprovalRequest(manager.token, discoveryId, "device-concurrent-1"),
       { params: Promise.resolve({ id: f.agentId, deviceId: "device-concurrent-1" }) } as any,
     );
     expect(verify.status).toBe(200);

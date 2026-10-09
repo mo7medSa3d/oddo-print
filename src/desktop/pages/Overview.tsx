@@ -5,16 +5,14 @@ import { DetailList, StatItem, StatStrip, StatusNotice, ViewAllButton, PrinterAv
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
-import { agentStatusNoteKey, deriveOutcome, humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerDisplayStatus, printerEndpoint, printerIsStale, printerTone } from "../lib/printers";
+import { agentStatusNoteKey, deriveOutcome, humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerDisplayStatus, printerHealthCounts, printerEndpoint, printerIsStale, printerTone } from "../lib/printers";
 
 export function OverviewPage({ s }: { s: DesktopState }) {
   const { t, tc, locale, formatTime, formatDateTime } = useI18n();
   const shownPrinters = s.printers.filter(isProductionPrinter);
   const gatewayPrinterIds = new Set(shownPrinters.map((p) => p.id));
   const pendingLocalPrinters = s.discoveredPrinters.filter(isProductionPrinter).filter((p) => !gatewayPrinterIds.has(p.id));
-  const online = shownPrinters.filter((p) => p.status === "online").length;
-  const offline = shownPrinters.filter((p) => p.status === "offline" || p.status === "error").length;
-  const unknownPrinters = shownPrinters.filter((p) => p.status === "unknown").length;
+  const { online, offline, unknown: unknownPrinters } = printerHealthCounts(shownPrinters, s.nowMs);
   // Uncertain physical outcomes are attention-worthy on their own: a failed
   // job whose outcome markers say UNKNOWN may already exist on paper.
   const unknownJobs = s.jobs.filter(
@@ -76,14 +74,14 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                   // class must never invent a language.
                   const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", (p.connection_type || p.connectionType) ?? "unknown").join(" · ") || t("desktop.status.unknown");
                   return (
-                    <div key={p.id} className="flex w-full items-center justify-between gap-4 px-1 py-3.5 transition-colors hover:bg-surface-hover sm:px-2">
+                    <div key={p.id} className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 px-1 py-3.5 transition-colors hover:bg-surface-hover sm:px-2">
                       <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app">
-                        <PrinterAvatar name={p.name} size="lg" tone={printerTone(printerDisplayStatus(p)) === "neutral" ? "brand" : printerTone(printerDisplayStatus(p))} />
+                        <PrinterAvatar name={p.name} size="lg" tone={printerTone(printerDisplayStatus(p, s.nowMs)) === "neutral" ? "brand" : printerTone(printerDisplayStatus(p, s.nowMs))} />
                         <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{p.name}</span><span className="mt-0.5 block truncate text-xs text-ink-3">{humanType(p, locale)} • {humanConnection(p, locale)} • {printerEndpoint(p)}</span></span>
                       </button>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex max-w-full flex-wrap items-center gap-2">
                         <span className="hidden text-xs font-[550] text-ink-3 sm:inline">{badgeLabel}</span>
-                        <div className="flex items-center gap-1"><StatusBadge tone={printerTone(printerDisplayStatus(p))} label={labelPrinter(printerDisplayStatus(p), locale)} />{printerIsStale(p) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}</div>
+                        <div className="flex items-center gap-1"><StatusBadge tone={printerTone(printerDisplayStatus(p, s.nowMs))} label={labelPrinter(printerDisplayStatus(p, s.nowMs), locale)} />{printerIsStale(p, s.nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}</div>
                         <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy} icon={<Activity className="h-3 w-3 text-brand" />} title={t("desktop.overview.testNamed", { name: p.name })}>{t("desktop.overview.test")}</Button>
                       </div>
                     </div>
@@ -116,7 +114,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             </div>
             <div className="mt-4 border-t border-edge pt-4">
               <div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.overview.quickActions")}</div>
-              <div className="grid grid-cols-2 gap-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.checkGateway")}</Button></div>
+              <div className="grid grid-cols-1 gap-2 min-[460px]:grid-cols-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.checkGateway")}</Button></div>
             </div>
           </div>
         </Card>
@@ -125,12 +123,30 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       <Card className="overflow-hidden">
         <CardHeader title={t("desktop.overview.recentJobs")} subtitle={t("desktop.overview.recentJobsSubtitle", { pending: s.pendingJobs, failed: s.failedJobs })} icon={<ClipboardList className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="ghost" onClick={() => s.navigate("jobs")}>{t("desktop.overview.viewAll")}</Button>} />
         {s.jobsLoading ? <div className="px-5 pb-5"><LoadingState rows={3} /></div> : s.jobsError ? <div className="px-5 pb-5"><ErrorState title={t("desktop.overview.jobsUnavailable")} message={s.jobsError} retry={() => { void s.refreshJobs(); }} /></div> : s.jobs.length === 0 ? <EmptyState icon={<FileText className="h-8 w-8" />} title={t("desktop.overview.noJobsYet")} description={t("desktop.overview.noJobsYetBody")} /> : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-edge-subtle lg:hidden">
+            {s.jobs.slice(0, 5).map((j) => (
+              <li key={jobId(j)} className="min-w-0 space-y-2 px-4 py-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</span>
+                  <StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} />
+                </div>
+                <p className="truncate font-mono text-xs text-ink-3" dir="ltr" title={jobId(j)}>{jobId(j)}</p>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+                  <span className="min-w-0 break-words">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</span>
+                  <span aria-hidden>·</span>
+                  <span>{formatDateTime(jobTimestamp(j, "updatedAt"))}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden min-w-0 overflow-x-auto lg:block">
             <table className="data-table min-w-[720px]">
               <thead><tr><th>{t("desktop.overview.colDocument")}</th><th>{t("desktop.overview.colPrinter")}</th><th>{t("desktop.overview.colStatus")}</th><th className="text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
               <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)}><td><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-xs text-ink-3">{jobId(j)}</div></td><td className="text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="text-end text-xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

@@ -1,3 +1,4 @@
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -186,6 +187,7 @@ export async function POST(req: Request) {
       const tenantRow = tenant.rows[0] as { id?: string; lifecycle?: string } | undefined;
       if (!tenantRow?.id) throw new Error("TENANT_NOT_FOUND");
       if (tenantRow.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
+      await requireManagerActorInTransaction(tx, claims, "billing.manage");
 
       let sub = await tx.query.tenantSubscriptions.findFirst({
         where: eq(tenantSubscriptions.tenantId, claims.tenantId),
@@ -371,6 +373,7 @@ export async function POST(req: Request) {
       };
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof Error && error.message === "PLAN_NOT_BILLABLE") return NextResponse.json({ error: "Plan is not billable", code: "PLAN_NOT_BILLABLE" }, { status: 400 });
     if (error instanceof Error && error.message === "TENANT_NOT_FOUND") {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
@@ -700,6 +703,7 @@ export async function POST(req: Request) {
         FOR UPDATE
       `);
 
+      await requireManagerActorInTransaction(tx, claims, "billing.manage");
       const touched = await tx.update(tenantSubscriptions)
         .set({ updatedAt: sql`clock_timestamp()` })
         .where(and(
@@ -817,6 +821,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     // Preserve the creating intent for ambiguous/retryable Stripe failures: if
     // Stripe accepted the request but the response or local finalization was
     // lost, the next retry must replay the same idempotency key rather than

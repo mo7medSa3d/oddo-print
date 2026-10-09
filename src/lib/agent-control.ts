@@ -7,6 +7,7 @@ import { writeAuditEvent } from "./audit";
 import { requireManagerPermission } from "./authorization";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "./entitlements";
 import { requireActiveTenantInTransaction } from "./tenant-guard";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "./manager-mutation-authorization";
 import type { ManagerClaims } from "./manager-auth";
 import { ActionError } from "./action-error";
 import { logWarn } from "./log";
@@ -51,6 +52,7 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
       expiresAt = candidate;
 
       await requireActiveTenantInTransaction(tx, manager.tenantId);
+      await requireManagerActorInTransaction(tx, manager, "agents.pair");
       await enforceTenantResourceEntitlement(
         tx,
         manager.tenantId,
@@ -68,6 +70,9 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
       });
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) {
+      throw new ActionError(error.message, 403, "MANAGER_AUTH_CHANGED");
+    }
     if (error instanceof TenantEntitlementError) {
       const code = error.entitlement === "max_agents" ? "MAX_AGENTS_EXCEEDED" : "TENANT_ENTITLEMENT_EXCEEDED";
       throw new ActionError(error.message, 429, code, {

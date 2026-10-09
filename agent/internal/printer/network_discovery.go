@@ -349,7 +349,7 @@ func mergeNetworkDevices(devices []DeviceInfo) []DeviceInfo {
 		}
 
 		snmpV := isCapabilityVerified(existing.Capabilities, "snmp_verified") || isCapabilityVerified(d.Capabilities, "snmp_verified")
-		mdnsV := isCapabilityVerified(existing.Capabilities, "mdns_verified") || isCapabilityVerified(d.Capabilities, "mdns_verified")
+		mdnsV := isCapabilityVerified(existing.Capabilities, "ipp_verified") || isCapabilityVerified(d.Capabilities, "ipp_verified")
 
 		if snmpV || mdnsV {
 			existing.Capabilities["verification"] = "verified"

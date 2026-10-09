@@ -108,8 +108,8 @@ export function JobsPage({ s }: { s: DesktopState }) {
           <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => refreshWithFilters(true)} loading={s.jobsLoading} icon={<RefreshCw className="h-4 w-4" />} className="h-10 rounded-md">{t("desktop.jobs.refresh")}</Button><Button variant="ghost" onClick={() => setCleanupOpen(true)} disabled={cleanupBusy} icon={<Trash2 className="h-4 w-4" />} className="h-10">{t("desktop.jobs.cleanLocal")}</Button></div>
         </div>
         {s.jobPrinterFilter && (
-          <div className="flex items-center gap-3 border-t border-edge bg-brand-subtle px-5 py-3">
-            <span className="inline-flex items-center gap-2 rounded-md border border-edge-accent bg-surface px-3 py-1.5 text-xs font-medium text-brand"><PrinterIcon className="h-4 w-4" /> {t("desktop.jobs.filteredTo")} <Mono className="text-inherit">{s.printerFilterName}</Mono><button onClick={() => s.setJobPrinterFilter(null)} aria-label={t("desktop.jobs.clearFilterAria", { name: s.printerFilterName })} className="ms-1 inline-flex h-7 w-7 items-center justify-center rounded-sm hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"><X className="h-4 w-4" /></button></span>
+          <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-edge bg-brand-subtle px-3 py-3 sm:px-5">
+            <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-2 rounded-md border border-edge-accent bg-surface px-3 py-1.5 text-xs font-medium text-brand"><PrinterIcon className="h-4 w-4" /> {t("desktop.jobs.filteredTo")} <Mono className="text-inherit">{s.printerFilterName}</Mono><button onClick={() => s.setJobPrinterFilter(null)} aria-label={t("desktop.jobs.clearFilterAria", { name: s.printerFilterName })} className="ms-1 inline-flex h-7 w-7 items-center justify-center rounded-sm hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"><X className="h-4 w-4" /></button></span>
           </div>
         )}
       </Card>
@@ -119,7 +119,28 @@ export function JobsPage({ s }: { s: DesktopState }) {
           {s.jobsFiltered.length === 0 ? (
           <EmptyState icon={s.jobTab === "failed" ? <XCircle className="h-8 w-8 text-bad" /> : s.jobTab === "unknown" ? <AlertTriangle className="h-8 w-8 text-warn" /> : s.jobTab === "delivered" ? <CheckCircle2 className="h-8 w-8 text-ok" /> : <Inbox className="h-8 w-8" />} title={s.jobPrinterFilter ? t("desktop.jobs.emptyForPrinter", { name: s.printerFilterName }) : s.jobTab === "all" ? t("desktop.jobs.emptyAll") : t("desktop.jobs.emptyForTab", { tab: JOB_TAB_LABELS[s.jobTab] })} description={s.jobPrinterFilter ? t("desktop.jobs.emptyFilteredBody") : s.jobTab === "failed" ? t("desktop.jobs.emptyFailedBody") : s.jobTab === "queued" ? t("desktop.jobs.emptyQueuedBody") : t("desktop.jobs.emptyDefaultBody")} action={s.jobPrinterFilter ? <Button variant="secondary" onClick={() => s.setJobPrinterFilter(null)} icon={<X className="h-4 w-4" />}>{t("desktop.jobs.clearFilter")}</Button> : undefined} />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-edge-subtle lg:hidden" aria-label={t("desktop.jobs.tab.all")}>
+            {s.jobsFiltered.map((j) => (
+              <li key={jobId(j)} className="min-w-0 space-y-3 p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div>
+                    <div className="mt-0.5 truncate font-mono text-xs text-ink-4" dir="ltr" title={jobId(j)}>{jobId(j)}</div>
+                  </div>
+                  <StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} />
+                </div>
+                {jobDestination(j) && <p className="break-all text-xs text-ink-3" dir="auto">{jobDestination(j)}</p>}
+                <div className="min-w-0 break-words text-xs text-ink-3">
+                  {String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}
+                  <span className="mx-2" aria-hidden>·</span>
+                  <span>{formatDateTime(jobTimestamp(j, "updatedAt"))}</span>
+                </div>
+                <div><Button size="sm" variant="secondary" onClick={() => s.setSelectedJob(j)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.jobs.details")}</Button></div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden min-w-0 overflow-x-auto lg:block">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-edge bg-surface-2 text-start text-xs font-[550] text-ink-3"><th className="px-5 py-2.5">{t("desktop.jobs.colDocument")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colJobId")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colStatus")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colCreated")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colUpdated")}</th><th className="px-5 py-2.5 text-end">{t("desktop.jobs.colActions")}</th></tr></thead>
               <tbody>{s.jobsFiltered.map((j) => (
@@ -127,6 +148,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
               ))}</tbody>
             </table>
           </div>
+          </>
           )}
         </>)}
       </Card>

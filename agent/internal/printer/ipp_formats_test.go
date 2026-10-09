@@ -56,7 +56,7 @@ func TestIPPNativePDFIsSubmittedExactlyOnceWhenSupported(t *testing.T) {
 			if !bytes.Contains(data, []byte(ippFormatPDF)) || !bytes.HasSuffix(data, pdf) {
 				t.Errorf("IPP client did not submit native PDF with correct format")
 			}
-			_, _ = w.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 3})
+			_, _ = w.Write(ippAcceptedJobResponse(0, 3))
 		default:
 			t.Errorf("unexpected IPP operation")
 		}
@@ -86,7 +86,7 @@ func TestIPPRasterOnlyDeviceRejectsPDFBeforeNetworkPrintJob(t *testing.T) {
 		}
 		submissions++
 		t.Error("IPP client sent PDF to a device which explicitly rejects application/pdf")
-		_, _ = w.Write([]byte{2, 0, 0x04, 0x0a, 0, 0, 0, 1, 3})
+		_, _ = w.Write(ippRejectedJobResponse(0x040a))
 	}))
 	defer server.Close()
 	p, _ := NewIPPPrinter(server.URL, "raster-only device")
@@ -138,7 +138,7 @@ func TestIPPRejectedDocumentFormatReturnsActionableErrorWithoutRetry(t *testing.
 			return
 		}
 		count++
-		_, _ = w.Write([]byte{2, 0, 4, 10, 0, 0, 0, 1, 3})
+		_, _ = w.Write(ippRejectedJobResponse(0x040a))
 	}))
 	defer server.Close()
 	p, _ := NewIPPPrinter(server.URL, "legacy")

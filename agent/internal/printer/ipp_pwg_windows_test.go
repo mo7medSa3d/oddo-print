@@ -54,7 +54,7 @@ func TestIPPWindowsPWGOnlyPrinterGetsRealRaster(t *testing.T) {
 			} else if got := binary.BigEndian.Uint32(body[at+4+276 : at+4+280]); got != 150 {
 				t.Errorf("document ignores printer's advertised DPI: %d", got)
 			}
-			_, _ = w.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 3})
+			_, _ = w.Write(ippAcceptedJobResponse(0, 3))
 		default:
 			t.Errorf("unexpected IPP operation")
 		}

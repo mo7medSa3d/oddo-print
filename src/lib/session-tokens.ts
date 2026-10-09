@@ -51,6 +51,8 @@ export type SharedSessionPrincipal = {
   userId?: string | null;
   role?: string | null;
   email?: string | null;
+  /** Internal credential proof from password verification; never serialized as session claims. */
+  credentialVersion?: string;
 };
 
 export type SessionRequestContext = {
@@ -112,6 +114,36 @@ function configFor(kind: SessionKind): SessionKindConfig {
 
 export function hashRefreshToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+export class AuthenticationChangedError extends Error {
+  constructor() {
+    super("Authentication changed; sign in again");
+    this.name = "AuthenticationChangedError";
+  }
+}
+
+/** Bind a password-authentication snapshot without exposing the password verifier. */
+export function credentialVersionFor(userId: string, passwordHash: string): string {
+  return createHmac("sha256", getSecret())
+    .update("session-credential-v1\0").update(userId).update("\0").update(passwordHash)
+    .digest("hex");
+}
+
+export async function assertSessionCredentialInTransaction(
+  tx: DbTx, userId: string, credentialVersion: string,
+): Promise<void> {
+  // Password reset takes this same user lock before updating credentials and
+  // revoking families. Recheck AFTER acquiring it, then keep it through insert.
+  const result = await tx.execute(sql`
+    SELECT id, password_hash AS "passwordHash", email_verified_at AS "emailVerifiedAt"
+    FROM users WHERE id = ${userId} FOR UPDATE
+  `);
+  const user = result.rows[0] as { passwordHash?: string; emailVerifiedAt?: Date } | undefined;
+  if (!user?.passwordHash || !user.emailVerifiedAt ||
+      !compareStringsSafe(credentialVersion, credentialVersionFor(userId, user.passwordHash))) {
+    throw new AuthenticationChangedError();
+  }
 }
 
 function compareStringsSafe(a: string, b: string): boolean {
@@ -268,6 +300,10 @@ async function insertInitialPair(
   context?: SessionRequestContext,
 ): Promise<SessionPair> {
   validatePrincipal(principal);
+  if (principal.credentialVersion) {
+    if (!principal.userId) throw new AuthenticationChangedError();
+    await assertSessionCredentialInTransaction(tx, principal.userId, principal.credentialVersion);
+  }
 
   const nowMs = await dbNowMsInTransaction(tx);
   const nowSec = Math.floor(nowMs / 1000);

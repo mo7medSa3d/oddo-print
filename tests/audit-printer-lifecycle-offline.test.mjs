@@ -46,6 +46,11 @@ async function lifecycleActions(agentLifecycle, failure) {
     lifecycleLabel: (_t, state) => state,
     canTransitionLifecycle: (from, to) => from === "disabled" && to === "active",
     requireActiveTenantInTransaction: async () => {},
+    // This fixture isolates printer lifecycle logic after commit-authority
+    // admission. F013 executes the actual guard separately against revocation.
+    requireManagerActorInTransaction: async (_tx, actor, permission) => {
+      if (!actor?.userId || permission !== "printers.manage") throw new Error("Actor not authorized");
+    },
     writeAuditEvent: async () => {}, revalidatePath: () => {}, logError: () => {},
   });
   return { api, printer, writes: () => writes };

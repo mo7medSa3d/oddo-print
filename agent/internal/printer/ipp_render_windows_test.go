@@ -58,7 +58,7 @@ func TestIPPWindowsJPEGOnlyPrinterReceivesConvertedDocument(t *testing.T) {
 			} else if _, err := jpeg.DecodeConfig(bytes.NewReader(body[idx:])); err != nil {
 				t.Errorf("Print-Job contains corrupt JPEG: %v", err)
 			}
-			_, _ = w.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 3})
+			_, _ = w.Write(ippAcceptedJobResponse(0, 3))
 		default:
 			t.Errorf("unexpected IPP operation")
 		}

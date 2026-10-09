@@ -33,6 +33,9 @@ class PrintGatewayJob(models.Model):
     gateway_job_id = fields.Char(string="Gateway Job ID", index=True, copy=False, readonly=True)
     printer_id = fields.Char(string="Printer", required=True, index=True, readonly=True)
     destination = fields.Char(required=True, readonly=True)
+    # Immutable routing identity: unlike a display name, this survives renames
+    # and prevents ambiguity at failover. Old jobs without it cannot fail over.
+    destination_key = fields.Char(index=True, readonly=True, copy=False)
     document_type = fields.Char(required=True, readonly=True)
     # Canonical status vocabulary (mirrors the Gateway DB status enum
     # queued/claimed/printing/success/failed/expired in
@@ -41,9 +44,10 @@ class PrintGatewayJob(models.Model):
     # terminal state). Terminal: success/failed/partial/unknown - enforced
     # by _VALID_TRANSITIONS and write(). Physical outcome metadata is
     # exactly printed/not_printed/unknown (_compute_physical_outcome):
-    # a transport-level 'success' is NOT physical proof, so it remains
-    # 'unknown'; 'unknown'/'partial' => unknown; anything else carrying a
-    # _GATEWAY_UNKNOWN_MARKERS prefix => unknown; otherwise not_printed.
+    # a transport-level 'success', in-flight Gateway status, or unresolved
+    # remote delivery is NOT proof of physical paper output. "not_printed"
+    # requires a never-submitted queued job or a definite no-delivery refusal
+    # recorded before Gateway admission, not merely a terminal failed status.
     # action_sync_status maps a Gateway 'failed' whose error starts with any
     # _GATEWAY_UNKNOWN_MARKERS prefix to 'unknown'.
     status = fields.Selection([
@@ -86,6 +90,9 @@ class PrintGatewayJob(models.Model):
     attempts = fields.Integer(default=0, readonly=True)
     reprint_attempt_count = fields.Integer(string="Reprint Attempts", default=0, readonly=True)
     next_retry_at = fields.Datetime(index=True, readonly=True)
+    # Round-robin status polling fence. NULL first guarantees fresh/legacy
+    # eligible rows a turn before already-inspected unresolved rows.
+    last_status_polled_at = fields.Datetime(index=True, readonly=True, copy=False)
     last_error = fields.Text(readonly=True)
     source_model = fields.Char(readonly=True)
     source_record_id = fields.Integer(readonly=True)
@@ -429,30 +436,37 @@ class PrintGatewayJob(models.Model):
         "UNKNOWN_SUBMISSION_OUTCOME",
     )
 
-    @api.depends("status", "last_error")
+    @api.depends("status", "last_error", "gateway_job_id")
     def _compute_physical_outcome(self):
         for job in self:
-            if job.status == "success":
-                # Gateway success means the agent completed transport/execution.
-                # Current transports do not provide a physical-paper proof.
+            error = str(job.last_error or "")
+            # Reject inferred paper output from status alone. In particular,
+            # claimed/printing/failed-with-remote-identity can have produced
+            # some or all of a physical page, even if the RPC says failed.
+            if any(error.startswith(marker) for marker in self._GATEWAY_UNKNOWN_MARKERS):
                 job.physical_outcome = "unknown"
-            elif job.status in ("unknown", "partial"):
-                job.physical_outcome = "unknown"
-            elif any(str(job.last_error or "").startswith(marker) for marker in self._GATEWAY_UNKNOWN_MARKERS):
-                # A gateway "failed" carrying an unknown-outcome marker must
-                # NEVER present as "definitely not printed" - that is what
-                # would enable the safe-looking Retry button on a job whose
-                # paper may already exist.
-                job.physical_outcome = "unknown"
-            else:
+            elif job.status == "queued" and not job.gateway_job_id:
+                # Still only in Odoo's durable outbox; no Gateway admission.
                 job.physical_outcome = "not_printed"
+            elif (
+                job.status == "failed" and not job.gateway_job_id
+                and error.startswith(("GATEWAY_REJECTED_", "CONNECTION_ERROR:"))
+            ):
+                # A deterministic Gateway HTTP refusal or proven connect-
+                # phase failure occurred before print-job admission.
+                job.physical_outcome = "not_printed"
+            else:
+                # Successful transport is not proof of paper. Nor is an
+                # unexpected/undecidable failure proof that none was printed.
+                job.physical_outcome = "unknown"
 
     @api.private
     @api.model
     def create_operation(self, *, company, gateway_config, printer_id, destination, document_type,
                          payload, source_model=None, source_record_id=None, report=None,
                          idempotency_key=None, payload_type=None, protocol=None,
-                         raw_payload=None, printer_profile=None, fallback_binding=None):
+                         raw_payload=None, printer_profile=None, fallback_binding=None,
+                         destination_key=None):
         # TRUSTED SERVICE BOUNDARY (not reachable via RPC):
         # print_gateway.print_job is intentionally read-only for normal users
         # (ACL: group_user has read only), yet the print flows run as those
@@ -543,6 +557,7 @@ class PrintGatewayJob(models.Model):
             return (
                 existing.printer_id == str(printer_id).strip()
                 and existing.destination == str(destination).strip()
+                and (existing.destination_key or False) == (destination_key or False)
                 and existing.document_type == str(document_type).strip().lower()
                 and existing.payload == payload_json
             )
@@ -558,6 +573,7 @@ class PrintGatewayJob(models.Model):
             "gateway_config_id": gateway_config.id,
             "printer_id": str(printer_id).strip(),
             "destination": str(destination).strip(),
+            "destination_key": destination_key or False,
             "document_type": str(document_type).strip().lower(),
             "status": "queued",
             "payload": payload_json,
@@ -1114,8 +1130,10 @@ class PrintGatewayJob(models.Model):
             )
             route_compatible = bool(
                 current_binding.destination_ref
-                and current_binding.destination_ref.display_name == job.destination
+                and job.destination_key
+                and job.destination_key == "%s,%s" % (current_binding.destination_ref._name, current_binding.destination_ref.id)
                 and current_binding.document_type == job.document_type
+                and current_binding.report_id == job.report_id
             )
             # Phase 11: failover requires EXACT protocol/capability
             # parity - never a broadened match to "make failover work".
@@ -2011,6 +2029,7 @@ class PrintGatewayJob(models.Model):
                 gateway_config=job.gateway_config_id,
                 printer_id=job.printer_id,
                 destination=job.destination,
+                destination_key=job.destination_key,
                 document_type=job.document_type,
                 payload=json.loads(job.payload),
                 payload_type=job.payload_type,
@@ -2069,6 +2088,7 @@ class PrintGatewayJob(models.Model):
                 gateway_config=job.gateway_config_id,
                 printer_id=job.printer_id,
                 destination=job.destination,
+                destination_key=job.destination_key,
                 document_type=job.document_type,
                 payload=json.loads(job.payload),
                 payload_type=job.payload_type,
@@ -2200,7 +2220,7 @@ class PrintGatewayJob(models.Model):
                     AND last_error LIKE 'UNKNOWN_SUBMISSION_OUTCOME:%%'
                     AND (next_retry_at IS NULL OR next_retry_at <= now())
                )
-             ORDER BY id ASC
+             ORDER BY last_status_polled_at ASC NULLS FIRST, id ASC
              LIMIT 100
         """)
         job_ids = [row[0] for row in self.env.cr.fetchall()]
@@ -2279,11 +2299,18 @@ class PrintGatewayJob(models.Model):
                     except Exception as exc:
                         _logger.warning("Gateway ambiguous-submission lookup failed for Odoo job %s: %s", job.id, exc)
 
-                # Let Odoo's scheduler commit each bounded unit of work and
-                # enforce its remaining-time budget instead of accumulating
-                # locks/state across the entire 100-job batch.
+                # Rotate the durable fairness marker AFTER network I/O, so
+                # no status row remains write-locked while HTTP is in flight.
+                # Mark all attempts (including failed HTTP), not just state
+                # changes, otherwise long-lived active jobs monopolize the
+                # first 100 slots indefinitely.
+                self.sudo().browse([j.id for j in chunk]).write({
+                    "last_status_polled_at": db_now_utc(self.env.cr),
+                })
+                # Odoo's scheduler commits the poll marker and status progress
+                # per bounded unit and enforces its remaining time budget.
                 remaining = self.env["ir.cron"]._commit_progress(len(chunk))
                 if remaining <= 0:
-                    break
+                    return total_synced
 
         return total_synced

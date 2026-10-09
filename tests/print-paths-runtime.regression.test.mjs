@@ -51,8 +51,10 @@ async function loadHooks(file = "pos_print_router.js", options = {}) {
   const root = new URL("../odoo_addons/print_gateway/static/src/js/", import.meta.url);
   const asyncControl = new vm.SourceTextModule(await readFile(new URL("async_control.js", root), "utf8"), { context });
   await asyncControl.link(() => { throw new Error("Unexpected async-control import"); });
+  const recovery = new vm.SourceTextModule(await readFile(new URL("operation_recovery.js", root), "utf8"), { context });
+  await recovery.link(() => { throw new Error("Unexpected recovery import"); });
   const addonModule = new vm.SourceTextModule(await readFile(new URL(file, root), "utf8"), { context });
-  await addonModule.link((name) => name === "./receipt_raster" ? raster : name === "./async_control" ? asyncControl : common);
+  await addonModule.link((name) => name === "./receipt_raster" ? raster : name === "./async_control" ? asyncControl : name === "./operation_recovery" ? recovery : common);
   await addonModule.evaluate();
   return { hooks, state, controls };
 }
@@ -220,11 +222,11 @@ test("invoice response allowlist never reports failed, absent or unrecognized st
     assert.equal(await handler(f.action, {}, f.env), true);
     assert.notEqual(f.notifications.at(-1)[1].type, "success", `status=${status}`);
   }
-  for (const status of ["queued", "submitted", "claimed", "printing", "success"]) {
+  for (const [status, expected] of [["queued", "warning"], ["submitted", "info"], ["claimed", "info"], ["printing", "info"], ["success", "info"]]) {
     const f = reportFixture();
-    f.env.services.orm.call = async () => ({ has_binding: true, dispatched: true, success: true, status });
+    f.env.services.orm.call = async () => ({ has_binding: true, dispatched: true, success: status !== "queued", status });
     assert.equal(await handler(f.action, {}, f.env), true);
-    assert.equal(f.notifications.at(-1)[1].type, "success", `status=${status}`);
+    assert.equal(f.notifications.at(-1)[1].type, expected, `status=${status}`);
   }
 });
 
@@ -271,7 +273,7 @@ test("report native fallback is allowed only for explicit no-binding; malformed 
   assert.equal(await handler(f.action, {}, f.env), false);
   f.env.services.orm.call = async () => null;
   assert.equal(await handler(f.action, {}, f.env), true);
-  assert.equal(f.notifications.at(-1)[1].type, "danger");
+  assert.equal(f.notifications.at(-1)[1].type, "warning");
   assert.equal(await handler({ ...f.action, report_type: "qweb-html" }, {}, f.env), false);
 });
 
@@ -307,4 +309,51 @@ test("invoice and sales-details submission timeouts preserve identity for a boun
   assert.equal(submissions[0].kwargs.operation_id, submissions[1].kwargs.operation_id);
   assert.equal(submissions[0].kwargs.image, submissions[1].kwargs.image);
   assert.equal(state.renders, 1);
+});
+
+
+test("invoice unknown or queued status stays sticky, bound, and idempotent", async () => {
+  const { hooks: handler } = await loadHooks("report_interceptor.js");
+  for (const reply of [
+    { has_binding: true, dispatched: true, success: false, status: "queued" },
+    { has_binding: true, dispatched: true, success: false, status: "unknown" },
+    { has_binding: true, dispatched: false, success: false, status: "unknown" },
+    { has_binding: true, dispatched: true, success: true, status: "unexpected" },
+  ]) {
+    const f = reportFixture();
+    f.env.services.orm.call = async (...args) => { f.calls.push(args); return reply; };
+    assert.equal(await handler(f.action, {}, f.env), true);
+    assert.equal(f.notifications.at(-1)[1].type, "warning");
+    assert.equal(f.notifications.at(-1)[1].sticky, true);
+    assert.equal(await handler(f.action, {}, f.env), true);
+    assert.equal(f.calls[0][3].operation_id, f.calls[1][3].operation_id);
+  }
+});
+
+test("invoice lost RPC response is warned as uncertain, not as confirmed failure", async () => {
+  const { hooks: handler } = await loadHooks("report_interceptor.js");
+  const f = reportFixture();
+  f.env.services.orm.call = async () => { throw new Error("Response lost"); };
+  assert.equal(await handler(f.action, {}, f.env), true);
+  assert.equal(f.notifications.at(-1)[1].type, "warning");
+  assert.equal(f.notifications.at(-1)[1].sticky, true);
+});
+
+test("sale details queued/unknown preserve operation and image; no green toast", async () => {
+  const { hooks } = await loadHooks("pos_sale_details_router.js");
+  for (const status of ["queued", "unknown", "partial", "unexpected"]) {
+    const f = fixture();
+    const nativeCall = f.pos.data.call;
+    f.pos.data.call = (...args) => args[1] === "action_print_gateway_sale_details"
+      ? (f.calls.push({ model: args[0], method: args[1], kwargs: args[3] }),
+         { gateway_enabled: true, status }) : nativeCall(...args);
+    await hooks.onClick.call(f.button);
+    await hooks.onClick.call(f.button);
+    const calls = submittedCalls(f);
+    assert.equal(calls.length, 2, `status=${status}`);
+    assert.equal(calls[0].kwargs.operation_id, calls[1].kwargs.operation_id, `status=${status}`);
+    assert.equal(calls[0].kwargs.image, calls[1].kwargs.image, `status=${status}`);
+    assert.equal(f.notifications.at(-1)[1].type, "warning", `status=${status}`);
+    assert.equal(f.notifications.at(-1)[1].sticky, true, `status=${status}`);
+  }
 });

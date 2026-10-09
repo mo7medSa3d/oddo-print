@@ -13,6 +13,7 @@ const { DateTime } = luxon;
 import { SaleDetailsButton } from "@point_of_sale/app/components/navbar/sale_details_button/sale_details_button";
 import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation } from "./operation_recovery";
 
 function gatewayDataCall(pos, model, method, args, kwargs = {}, silent = true, { ambiguous = false } = {}) {
     return withGatewayDeadline(
@@ -55,6 +56,8 @@ patch(SaleDetailsButton.prototype, {
             return false;
         }
         this.pos.gatewaySaleDetailsPending = true;
+        let submissionAttempted = false;
+        let activePrintClaim = null;
         try {
             const enabled = await gatewayDataCall(this.pos,
                 "pos.session",
@@ -67,27 +70,31 @@ patch(SaleDetailsButton.prototype, {
                 return super.onClick();
             }
 
-            // One operation identity per user click with cached payload for
-            // uncertain retries: the render embeds the current timestamp, so
-            // a retry must resend the IDENTICAL bytes (same id + same image)
-            // or the server rejects it as a conflicting operation. A reuse
-            // applies only while the previous outcome is uncertain and recent
-            // (5 minutes); accepted/definitively-failed outcomes and older
-            // operations mint a fresh id with a fresh render.
+            // A browser reload does not retain the rendered Sale Details bytes
+            // (the report includes a timestamp). Persist the operation key,
+            // not the confidential image. Block a fresh print if a prior
+            // unknown operation exists without its original live payload.
             const saleDetailsOps = (this.pos.gatewaySaleDetailsOperations ||= new Map());
-            for (const [key, op] of saleDetailsOps) {
-                if (Date.now() - op.at >= 5 * 60 * 1000) saleDetailsOps.delete(key);
-            }
             const lastOp = saleDetailsOps.get(sessionId);
-            const reuseUncertain = lastOp && lastOp.terminal === false
-                && (Date.now() - lastOp.at < 5 * 60 * 1000);
-            let operationId;
-            let image;
-            if (reuseUncertain) {
-                operationId = lastOp.id;
-                image = lastOp.image;
-            } else {
-                operationId = gatewayOperationUuid();
+            const memoryRetry = Boolean(lastOp?.terminal === false && lastOp?.image);
+            const recoveryKey = printRecoveryKey("sale-details", [
+                this.pos.env?.services?.user?.userId || this.pos.user?.id || 0,
+                this.pos.company?.id || this.pos.env?.services?.company?.currentCompany?.id || 0,
+                sessionId, this.pos.config?.id || 0,
+            ]);
+            const claim = claimPrintOperation(recoveryKey, memoryRetry ? lastOp.id : null,
+                memoryRetry, gatewayOperationUuid);
+            if (claim.blocked) {
+                this.env.services.notification.add(
+                    _t("An earlier Sales Details print is unresolved after this page changed. Check Print Activity and the printer. Use the explicit reprint action in Print Activity if another paper copy is needed."),
+                    { type: "warning", sticky: true },
+                );
+                return false;
+            }
+            activePrintClaim = { recoveryKey, id: claim.id, newIntent: claim.newIntent };
+            let operationId = claim.id;
+            let image = memoryRetry ? lastOp.image : undefined;
+            if (!memoryRetry) {
                 const saleDetails = await gatewayDataCall(
                     this.pos, "report.point_of_sale.report_saledetails",
                     "get_sale_details", [false, false, false, [sessionId]],
@@ -117,8 +124,10 @@ patch(SaleDetailsButton.prototype, {
                     _t("Receipt rendering timed out."),
                 );
             }
+            saleDetailsOps.set(sessionId, { id: operationId, image, terminal: false, at: Date.now() });
             let result;
             try {
+                submissionAttempted = true;
                 result = await gatewayDataCall(
                     this.pos,
                     "pos.session",
@@ -132,7 +141,10 @@ patch(SaleDetailsButton.prototype, {
                 saleDetailsOps.set(sessionId, { id: operationId, image, at: Date.now(), terminal: false });
                 throw rpcError;
             }
-            const terminal = ["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
+            // Queued jobs retain the operation ID and raster: a second click
+            // must not silently mint a duplicate while the outbox is pending.
+            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
+            if (terminal && result?.gateway_enabled) finishPrintOperation(recoveryKey, operationId);
             saleDetailsOps.set(sessionId, {
                 id: operationId,
                 image: terminal ? undefined : image,
@@ -142,32 +154,50 @@ patch(SaleDetailsButton.prototype, {
             if (!result?.gateway_enabled) {
                 throw new Error(_t("Print Gateway returned an invalid Sale Details response."));
             }
-            if (["unknown", "partial"].includes(result?.status)) {
+            if (!result?.status || ["unknown", "partial"].includes(result.status)
+                || !["queued", "submitted", "claimed", "printing", "success", "failed"].includes(result.status)) {
                 this.env.services.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
-            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
+            } else if (result?.status === "queued") {
                 this.env.services.notification.add(
-                    result.message || _t("Sales Details sent to the printing service."),
-                    { type: "success" }
+                    result.message || _t("Sales Details queued. Check Print Activity before reprinting."),
+                    { type: "warning", sticky: true }
+                );
+            } else if (["submitted", "claimed", "printing", "success"].includes(result?.status)) {
+                this.env.services.notification.add(
+                    result.message || _t("Sales Details processing; physical paper output is not confirmed."),
+                    { type: "info" }
                 );
             }
             if (!["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
-                if (!["unknown", "partial"].includes(result?.status)) {
-                    this.env.services.notification.add(result?.message || _t("Sales Details could not be printed."), { type: "danger" });
+                if (result?.status === "failed") {
+                    this.env.services.notification.add(result?.message || _t("Sales Details could not be printed."), { type: "danger", sticky: true });
                 }
                 return false;
             }
             return result;
         } catch (error) {
+            if (activePrintClaim && !submissionAttempted && activePrintClaim.newIntent) {
+                finishPrintOperation(activePrintClaim.recoveryKey, activePrintClaim.id);
+                const saved = this.pos.gatewaySaleDetailsOperations?.get(sessionId);
+                if (saved?.id === activePrintClaim.id) this.pos.gatewaySaleDetailsOperations.delete(sessionId);
+            }
             if (showGatewayBillingLimitDialog(this.env, error)) {
                 return false;
             }
             // Fail-safe parity with the receipt router: notify once and
             // return false instead of re-throwing, so a Gateway failure
             // cannot freeze the Sale Details button with a double dialog.
-            this.env.services.notification.add(gatewayServerMessage(error) || _t("Sales Details could not be printed."), { type: "danger" });
+            if (submissionAttempted) {
+                this.env.services.notification.add(
+                    _t("Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s", gatewayServerMessage(error) || ""),
+                    { type: "warning", sticky: true }
+                );
+            } else {
+                this.env.services.notification.add(gatewayServerMessage(error) || _t("Sales Details could not be printed."), { type: "danger", sticky: true });
+            }
             return false;
         } finally {
             this.pos.gatewaySaleDetailsPending = false;

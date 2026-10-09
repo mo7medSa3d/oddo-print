@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 describe("desktop attention counts include unknown and stale printers", () => {
   it("Agents fleet stat never reports ok with only unknown/stale printers", () => {
     const agents = readFileSync("src/desktop/pages/Agents.tsx", "utf8");
-    expect(agents).toContain('p.status === "unknown"');
-    expect(agents).toContain("printerIsStale(p)");
+    expect(agents).toContain("printerHealthCounts(physical, s.nowMs)");
+    expect(agents).toContain("const attention = offline + unknown;");
   });
 
   it("Overview printer stat surfaces unknown printers instead of ok", () => {

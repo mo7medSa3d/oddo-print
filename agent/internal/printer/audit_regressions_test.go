@@ -41,8 +41,11 @@ func TestAuditMergePromotesWholeSpoolerTransportTuple(t *testing.T) {
 }
 
 func TestAuditMDNSPreservesIPPSAndDoesNotInventIPPForLPD(t *testing.T) {
-	for _, tc := range []struct{ service, protocol, connection string }{{"_ipps._tcp", "ipps", "ipps"}, {"_printer._tcp", "lpr", "network"}} {
-		entry := &zeroconf.ServiceEntry{ServiceRecord: zeroconf.ServiceRecord{Service: tc.service, Instance: "Printer"}, Port: 515, AddrIPv4: []net.IP{net.ParseIP("10.0.0.20")}, Text: []string{"rp=printers/Queue"}}
+	for _, tc := range []struct {
+		service, protocol, connection string
+		port                          int
+	}{{"_ipps._tcp", "ipps", "ipps", 631}, {"_printer._tcp", "lpr", "network", 515}} {
+		entry := &zeroconf.ServiceEntry{ServiceRecord: zeroconf.ServiceRecord{Service: tc.service, Instance: "Printer"}, Port: tc.port, AddrIPv4: []net.IP{net.ParseIP("10.0.0.20")}, Text: []string{"rp=printers/Queue"}}
 		di, ok := parseMDNSServiceEntry(entry)
 		if !ok || di.Protocol != tc.protocol || di.ConnectionType != tc.connection || di.Status != "unknown" {
 			t.Fatalf("invalid protocol/health: %#v", di)

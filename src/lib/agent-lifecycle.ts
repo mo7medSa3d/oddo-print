@@ -6,6 +6,8 @@ import { generatePairingCode, hashPairingCode } from "./agent-auth";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { requireTenantBillingAccess } from "./entitlements";
 import { requireActiveTenantInTransaction } from "./tenant-guard";
+import { requireManagerActorInTransaction } from "./manager-mutation-authorization";
+import type { ManagerClaims } from "./manager-auth";
 
 export type AgentLifecycleResult = {
   changed: boolean;
@@ -27,6 +29,7 @@ export async function transitionAgentLifecycle(
   next: "active" | "disabled" | "retired",
   tenantId: string,
   actor: { type: AuditActor; id: string | null },
+  manager: ManagerClaims,
 ): Promise<AgentLifecycleResult | null> {
   return db.transaction(async (tx) => {
     const locked = await tx.execute(sql`
@@ -61,6 +64,8 @@ export async function transitionAgentLifecycle(
     // The agent row is already locked. Fence tenant lifecycle before any
     // credential or lifecycle mutation.
     await requireActiveTenantInTransaction(tx, tenantId);
+    if (manager.tenantId !== tenantId) throw new Error("Manager tenant identity changed");
+    await requireManagerActorInTransaction(tx, manager, next === "retired" ? "agents.retire" : "agents.disable");
 
     if (reenable) {
       await requireTenantBillingAccess(tx, tenantId);

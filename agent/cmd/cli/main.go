@@ -88,7 +88,7 @@ func printUsage() {
 	fmt.Println("Printer management:")
 	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
 	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
-	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]  # transport/queue diagnostic; not proof of physical print")
 	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
 	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
 	fmt.Println("  yaseir-agent-cli.exe printers remove <printer-id> [-config <path>]")
@@ -247,14 +247,21 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	}
 }
 
+// cliPrinterDiagnosticSuccess is deliberately transport-neutral: a Windows
+// spooler Test() is a readiness probe (zero document bytes), whereas a raw
+// network Test() may only prove connectivity. Neither proves physical output.
+func cliPrinterDiagnosticSuccess(printerID string) string {
+	return fmt.Sprintf("Printer diagnostic passed for %s. This is a backend-specific readiness/transport check, NOT proof that a document was submitted or physically printed. Use the Gateway test-page job and verify printer output for end-to-end acceptance.", printerID)
+}
+
 func handlePrintersTest(configPath, printerID string) {
 	loaded := loadConfigForCLI(configPath)
 	registryPath := config.RegistryPath(loaded.path)
-	fmt.Printf("Testing printer %s...\n", printerID)
+	fmt.Printf("Checking printer %s...\n", printerID)
 	if err := testPrinterHelper(loaded.cfg, registryPath, printerID); err != nil {
-		log.Fatalf("Test print FAILED for %s: %v", printerID, err)
+		log.Fatalf("Printer diagnostic FAILED for %s: %v", printerID, err)
 	}
-	fmt.Printf("Test print succeeded for %s (bytes submitted to spooler/TCP).\n", printerID)
+	fmt.Println(cliPrinterDiagnosticSuccess(printerID))
 }
 
 func validateManualPrinterTransport(connectionType, endpoint, spoolerName string) error {

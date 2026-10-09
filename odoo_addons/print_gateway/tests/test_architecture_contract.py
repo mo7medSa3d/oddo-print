@@ -369,11 +369,14 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # is undefined); the retry prefix itself is unchanged.
         self.assertIn("function gatewayUuid()", source)
         self.assertIn('"kitchen-retry-" + gatewayUuid()', source)
-        self.assertIn("retry: async () =>", source)
+        # The retry callback owns the whole operation, including preparation
+        # consumption and sync, and passes that exact token to the nested call.
+        # Runtime kitchen-ownership tests verify coalescing and station effects.
+        self.assertIn("retry: () => withKitchenOperation(this, order, async (retryOwner)", source)
         self.assertIn('prior?.gatewayOutcome === "failed"', source)
         self.assertIn("gatewayKitchenOperationIds", source)
         self.assertIn("const retryPrinters = new Set();", source)
-        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters)", source)
+        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters, retryOwner)", source)
         self.assertNotIn("retryItems", source)
 
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):

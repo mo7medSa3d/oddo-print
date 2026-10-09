@@ -1,3 +1,4 @@
+import { AuthenticationChangedError } from "../../../../../lib/session-tokens";
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader, platformRefreshCookieHeader } from "../../../../../lib/platform-auth";
@@ -51,10 +52,16 @@ export async function POST(req: Request) {
 
   await recordAuthSuccess(clientIp, email);
 
-  const session = await createPlatformSession(user.userId, user.email, {
+  let session;
+  try {
+    session = await createPlatformSession(user.userId, user.email, {
     ipAddress: clientIp,
     userAgent: req.headers.get("user-agent"),
-  });
+    }, user.credentialVersion);
+  } catch (error) {
+    if (error instanceof AuthenticationChangedError) return setRateLimitHeaders(NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 }), decision);
+    throw error;
+  }
 
   void writeAuditEvent({
     tenantId: null,

@@ -43,9 +43,12 @@ async function loadHooks(file = "pos_print_router.js") {
   const limitSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog.js", import.meta.url), "utf8");
   const limits = new vm.SourceTextModule(limitSource, { context });
   await limits.link(() => common);
+  const recoverySource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/operation_recovery.js", import.meta.url), "utf8");
+  const recovery = new vm.SourceTextModule(recoverySource, { context });
+  await recovery.link(() => { throw new Error("Unexpected recovery import"); });
   const source = await readFile(new URL(`../odoo_addons/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
   const loadedModule = new vm.SourceTextModule(source, { context });
-  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : name === "./receipt_raster" ? raster : common);
+  await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : name === "./receipt_raster" ? raster : name === "./operation_recovery" ? recovery : common);
   await loadedModule.evaluate();
   return { hooks, exports: loadedModule.namespace, mocks };
 }

@@ -2,9 +2,10 @@ import React from "react";
 import { Activity, ChevronRight, KeyRound, Link2, Play, Power, RotateCcw, Server, ShieldCheck, Square, Copy, Lock } from "lucide-react";
 import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, StatusDot } from "../../components/ui";
 import { SettingsSection } from "../ui";
+import { ManagerAccountPanel } from "../components/ManagerAccountPanel";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { friendlyAgentError, friendlyPrinterError, labelPrinter } from "../lib/printers";
+import { friendlyAgentError, friendlyPrinterError, labelPrinter, printerDisplayStatus } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
@@ -92,6 +93,12 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         </SettingsSection>
       </div>
 
+      <ManagerAccountPanel
+        key={s.gatewayUrl} gatewayUrl={s.gatewayUrl}
+        account={s.managerAccount} login={s.managerLogin}
+        logout={s.managerLogout} refresh={s.managerRefresh}
+      />
+
       <Card className="overflow-hidden">
         <div className="flex items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4">
           <div className="flex items-start gap-2.5"><KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" /><div className="min-w-0"><h2 className="text-base font-semibold text-ink">{t("desktop.settings.pairTitle")}</h2><p className="mt-1 text-sm leading-snug text-ink-3">{t("desktop.settings.pairSubtitle")}</p></div></div>
@@ -115,7 +122,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-edge bg-surface-2/30 px-5 py-4">
           <div><h2 className="text-base font-semibold text-ink">{t("desktop.settings.currentStatus")}</h2><p className="mt-1 text-sm leading-snug text-ink-3">{t("desktop.settings.currentStatusBody")}</p></div>
           <Button size="sm" variant="secondary" onClick={() => {
-            const report = [`=== Yaseir Agent Diagnostic Export ===`, `Generated: ${new Date().toISOString()}`, `Version: ${s.version || "unknown"}`, `Running: ${s.isOnline}`, `Gateway (saved): ${s.gatewayUrl || t("desktop.settings.notConfigured")}`, `Gateway (draft): ${s.gatewayDraftUrl || t("desktop.settings.notConfigured")}`, `Gateway (last observed): ${s.checkedGatewayUrl || "unknown"}`, `Reachable: ${s.gatewayConnected}`, `Printers: ${s.printers.length}`, `Pending: ${s.pendingJobs}, Failed: ${s.failedJobs}`, ``, `=== Printers ===`, ...s.printers.map((p) => ` - ${p.name} [${p.status}]`), ``, `=== Paths ===`, ...paths.map(([k, v]) => ` - ${k}: ${v}`)].join("\n");
+            const report = [`=== Yaseir Agent Diagnostic Export ===`, `Generated: ${new Date().toISOString()}`, `Version: ${s.version || "unknown"}`, `Running: ${s.isOnline}`, `Gateway (saved): ${s.gatewayUrl || t("desktop.settings.notConfigured")}`, `Gateway (draft): ${s.gatewayDraftUrl || t("desktop.settings.notConfigured")}`, `Gateway (last observed): ${s.checkedGatewayUrl || "unknown"}`, `Reachable: ${s.gatewayConnected}`, `Printers: ${s.printers.length}`, `Pending: ${s.pendingJobs}, Failed: ${s.failedJobs}`, ``, `=== Printers ===`, ...s.printers.map((p) => ` - ${p.name} [${printerDisplayStatus(p, s.nowMs)}]`), ``, `=== Paths ===`, ...paths.map(([k, v]) => ` - ${k}: ${v}`)].join("\n");
             navigator.clipboard.writeText(report).then(() => s.setMsg({ text: t("desktop.settings.statusCopied"), type: "success" })).catch(() => s.setMsg({ text: t("desktop.settings.copyFailed"), type: "error" }));
           }} icon={<Copy className="h-3.5 w-3.5" />}>{t("desktop.settings.copySummary")}</Button>
         </div>
@@ -125,7 +132,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.gatewaySection")}</span><span className={s.gatewayConnected ? "font-semibold text-ok" : s.gatewayUrl ? "font-semibold text-bad" : "font-semibold text-warn"}>{s.gatewayConnected ? t("desktop.settings.reachable") : s.gatewayUrl ? t("desktop.settings.failedCheck") : t("desktop.settings.notConfigured")}</span></div>
             {s.healthError && <div className="rounded-sm border border-bad-edge bg-bad-bg px-3 py-2 text-sm leading-relaxed text-bad">{s.healthError}</div>}
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.devices")}</span><span className="font-semibold text-ink tabular-nums">{s.printers.length}</span></div>
-            {s.printers.map((p) => (<div key={p.id} className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="truncate text-ink-2">{p.name}</span><span className={`text-xs font-semibold ${p.status === "online" ? "text-ok" : p.status === "offline" || p.status === "error" ? "text-bad" : "text-warn"}`}>{labelPrinter(p.status, locale)}</span></div>))}
+            {s.printers.map((p) => (<div key={p.id} className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="truncate text-ink-2">{p.name}</span><span className={`text-xs font-semibold ${printerDisplayStatus(p, s.nowMs) === "online" ? "text-ok" : ["offline", "error"].includes(printerDisplayStatus(p, s.nowMs)) ? "text-bad" : "text-warn"}`}>{labelPrinter(printerDisplayStatus(p, s.nowMs), locale)}</span></div>))}
             {s.printers.length === 0 && <p className="py-3 text-sm text-ink-3">{t("desktop.settings.noDevices")}</p>}
           </div>
         </div>

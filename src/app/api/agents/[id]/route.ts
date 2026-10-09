@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { agents, printers, printJobs } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
+import { ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { eq, count, desc, and } from "drizzle-orm";
 import { z } from "zod";
@@ -53,10 +54,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // retire permission even on the API path; disable alone is insufficient.
   try { requireManagerPermission(claims, lifecycle === "retired" ? "agents.retire" : "agents.disable"); } catch { const e = new ActionError("Forbidden", 403, "FORBIDDEN"); return NextResponse.json({ error: e.message, code: e.code, ...(e.details ?? {}) }, { status: e.status }); }
   try {
-    const result = await transitionAgentLifecycle(id, lifecycle, claims.tenantId, { type: "user", id: claims.userId ?? null });
+    const result = await transitionAgentLifecycle(id, lifecycle, claims.tenantId, { type: "user", id: claims.userId ?? null }, claims);
     if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ ok: true, lifecycle: result.lifecycle, pairingCode: result.pairingCode });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof LifecycleConflict) return NextResponse.json({ error: error.message }, { status: 409 });
     if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
     logError("agent.lifecycle_failed", { agentId: id, error: error instanceof Error ? error.message : "unknown" });

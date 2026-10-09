@@ -177,7 +177,7 @@ class PrintGatewayBinding(models.Model):
         for record in self:
             record.effective_company_id = record.branch_id or record.company_id
 
-    @api.constrains("fallback_binding_id", "company_id", "branch_id", "destination_type", "destination_ref", "document_type")
+    @api.constrains("fallback_binding_id", "company_id", "branch_id", "destination_type", "destination_ref", "document_type", "report_id")
     def _check_fallback_binding_scope(self):
         for record in self:
             fallback = record.fallback_binding_id
@@ -196,6 +196,10 @@ class PrintGatewayBinding(models.Model):
             if fallback.document_type != record.document_type:
                 raise ValidationError(_(
                     "The failover binding must use the same document type as the primary binding."
+                ))
+            if fallback.report_id != record.report_id:
+                raise ValidationError(_(
+                    "The failover binding must use the same report action as the primary binding."
                 ))
 
     @api.depends("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id")
@@ -499,7 +503,7 @@ class PrintGatewayBinding(models.Model):
                     % (record.runtime_agent_id.strip(), scope_label)
                 )
 
-    @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "company_id", "branch_id", "effective_company_id")
+    @api.constrains("destination_type", "destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id", "destination_report_id", "report_id", "printer_id", "printer_protocol", "company_id", "branch_id", "effective_company_id")
     def _check_binding(self):
         for record in self:
             destination = record.destination_ref
@@ -542,6 +546,19 @@ class PrintGatewayBinding(models.Model):
                     raise ValidationError(_("A Report must be selected for this Destination Type."))
                 if record.destination_report_id and record.destination_report_id != record.report_id:
                     raise ValidationError(_("Report destination and report document must be the same record."))
+            elif record.destination_type == "picking_type":
+                # A picking operation has two distinct modes. With a report,
+                # the binding retains its QWeb document identity. Without one,
+                # it is the raw-label destination selected by route_raw_command
+                # (document_type='label'). A document transport/unknown
+                # protocol must never be saved as a byte-stream label target.
+                if not record.report_id:
+                    if record.destination_report_id:
+                        raise ValidationError(_("A raw label binding must not reference an Odoo Report."))
+                    if record.printer_protocol not in ("zpl", "tspl", "escpos", "raw"):
+                        raise ValidationError(_(
+                            "A raw label binding requires an explicitly declared ZPL, TSPL, ESC/POS, or raw printer protocol."
+                        ))
             elif not record.report_id:
                 raise ValidationError(_("A real Odoo report must be selected for this Destination Type."))
             if record.report_id and record.report_id.model == "pos.order" and record.destination_type not in ("pos", "report"):
@@ -564,14 +581,32 @@ class PrintGatewayBinding(models.Model):
         self._validate_binding_protocol_against_runtime(runtime_printer)
         router = self.env["print_gateway.print_router"]
         res = router.route_test_page(self)
+        status = res.get("status")
+        # A committed Odoo outbox is not proof of Gateway admission or of
+        # paper output. Unknown/lost responses must not suggest safe reprint.
+        notice_type = (
+            "danger" if status == "failed"
+            else "warning" if status not in ("submitted", "claimed", "printing", "success")
+            else "info"
+        )
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": _("Test Print Dispatched"),
-                "message": res.get("message") or _("Diagnostic test page sent to printer '%s'.") % self.printer_id,
-                "type": "success",
-                "sticky": False,
+                "title": _("Test Print Failed") if notice_type == "danger" else (
+                    _("Test Print Pending / Uncertain") if notice_type == "warning" else _("Test Print In Progress")
+                ),
+                "message": res.get("message") or (
+                    _("Diagnostic test job queued; check Print Activity before retrying.")
+                    if status == "queued" else
+                    _("Diagnostic test print status unknown; check the printer and Print Activity before retrying.")
+                    if notice_type == "warning" else
+                    _("Diagnostic test job failed; check Print Activity.")
+                    if notice_type == "danger" else
+                    _("Diagnostic test job admitted for printer '%s'; paper output is not confirmed.") % self.printer_id
+                ),
+                "type": notice_type,
+                "sticky": notice_type in ("warning", "danger"),
             },
         }
 
@@ -630,10 +665,10 @@ class PrintGatewayBinding(models.Model):
         branch_matches = binding.branch_id == branch or (branch and not binding.branch_id)
         if binding.company_id != company or not branch_matches:
             raise ValidationError(_("The explicitly selected print binding is not scoped to the current company and branch."))
-        if binding.destination_ref != destination or binding.document_type != normalized:
-            raise ValidationError(_("The explicitly selected print binding does not match this destination and document type."))
         if report and binding.report_id != report:
             raise ValidationError(_("The explicitly selected print binding does not match this report action."))
+        if binding.destination_ref != destination or binding.document_type != normalized:
+            raise ValidationError(_("The explicitly selected print binding does not match this destination and document type."))
         if not binding.runtime_agent_id or not binding.printer_id:
             raise ValidationError(_("The explicitly selected print binding has no routable runtime and printer."))
         if protocol and binding.printer_protocol != protocol:
@@ -655,31 +690,52 @@ class PrintGatewayBinding(models.Model):
         normalized = (document_type or "").strip().lower()
         if not normalized:
             raise ValidationError(_("Print document type is required."))
-        destination = self.destination_for(record=record, report=report, explicit_destination=explicit_destination)
-        expected_company = branch or company
-        destination_company = getattr(destination, "company_id", False)
-        if destination_company and destination_company != expected_company:
-            raise ValidationError(_("Print destination belongs to another Odoo company/branch context."))
-        domain = [
-            ("company_id", "=", company.id), ("enabled", "=", True),
-            ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
-            ("document_type", "=", normalized), ("branch_id", "=", branch.id if branch else False),
-        ]
-        binding = self.search(domain, order="priority asc, id asc", limit=1)
-        if binding or not branch:
-            return binding
-        # POS configurations and stock operation types are branch-owned.
-        # Their root binding cannot carry the same destination_ref, so require
-        # an explicit branch binding rather than pretending a root fallback is
-        # structurally available. Root fallback remains valid for global/root
-        # report destinations.
-        if destination_company == branch:
-            return self.browse()
-        return self.search([
-            ("company_id", "=", company.id), ("branch_id", "=", False), ("enabled", "=", True),
-            ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
-            ("document_type", "=", normalized),
-        ], order="priority asc, id asc", limit=1)
+        # One report must never select a binding intended for another report,
+        # even when both reports render the same record/operation/document type.
+        # A report-specific action may be bound to either its operational
+        # destination (e.g. stock.picking.type) OR to ir.actions.report itself.
+        # Search the exact report identity in both cases, in explicit order.
+        if record and getattr(record, "company_id", False):
+            expected_company = branch or company
+            if record.company_id != expected_company:
+                raise ValidationError(_("Printable record belongs to another Odoo company/branch context."))
+        destinations = []
+        if explicit_destination:
+            destinations.append(explicit_destination)
+        else:
+            if record:
+                # Preserve the destination produced by legacy stock/POS
+                # routing, but never let that override report identity.
+                try:
+                    destinations.append(self.destination_for(record=record))
+                except ValidationError:
+                    if not report:
+                        raise
+            if report and report not in destinations:
+                destinations.append(report)
+        if not destinations:
+            destinations.append(self.destination_for(record=record, report=report))
+        report_id = report.id if report else False
+        for selected_branch in (branch, False) if branch else (False,):
+            for destination in destinations:
+                destination_company = getattr(destination, "company_id", False)
+                # An operational destination owned by a branch cannot be
+                # silently re-routed via a root-scoped binding.
+                if destination_company and destination_company != (branch or company):
+                    raise ValidationError(_("Print destination belongs to another Odoo company/branch context."))
+                if selected_branch is False and branch and destination_company == branch:
+                    continue
+                domain = [
+                    ("company_id", "=", company.id), ("enabled", "=", True),
+                    ("destination_ref", "=", "%s,%s" % (destination._name, destination.id)),
+                    ("document_type", "=", normalized),
+                    ("report_id", "=", report_id),
+                    ("branch_id", "=", selected_branch.id if selected_branch else False),
+                ]
+                selected = self.search(domain, order="priority asc, id asc", limit=1)
+                if selected:
+                    return selected
+        return self.browse()
 
     @api.model
     def dispatch_report_action(self, report_name=None, report_id=None, res_ids=None, context=None, data=None, operation_id=None):
@@ -741,13 +797,16 @@ class PrintGatewayBinding(models.Model):
             if route.get("native"):
                 return {"dispatched": False, "has_binding": False, "success": False}
 
+            status = route.get("status") or "unknown"
+            # ``dispatched`` here means the durable Odoo print operation was
+            # committed. It is NOT a physical printing-success indicator.
             return {
                 "dispatched": True,
-                "success": True,
+                "success": status in ("submitted", "claimed", "printing", "success"),
                 "has_binding": True,
-                "status": route.get("status") or "unknown",
+                "status": status,
                 "printer_name": route.get("printer_id") or binding.printer_id,
-                "message": route.get("message") or _("Sent silently to printer."),
+                "message": route.get("message") or _("Print result is pending or uncertain; check Print Activity."),
             }
         except Exception as exc:
             raw_error = str(exc)
@@ -772,6 +831,7 @@ class PrintGatewayBinding(models.Model):
                 "dispatched": False,
                 "success": False,
                 "has_binding": True,
-                "error": "Print dispatch failed. Open Print Jobs for the reason; the document was not sent.",
+                "status": "unknown",
+                "error": _("Print dispatch outcome is uncertain. The document may have reached the Gateway; check Print Activity and the printer before retrying."),
                 "fail_closed": True,
             }

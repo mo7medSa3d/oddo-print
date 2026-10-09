@@ -8,6 +8,7 @@ async function loadFetchHelper(fetchImpl) {
   const source = await readFile('src/lib/fetch-timeout.ts', 'utf8');
   const context = vm.createContext({
     AbortController,
+    AbortSignal,
     Error,
     Promise,
     URL,
@@ -28,7 +29,14 @@ function abortAwarePendingFetch(_input, init = {}) {
       reject(signal.reason ?? new Error('aborted'));
       return;
     }
-    signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')), { once: true });
+    // AbortSignal.timeout uses an unref'ed platform timer in Node, correctly
+    // avoiding a timer leak for a finished response. Keep this *synthetic*
+    // pending fetch alive, as a real network connection would, until aborted.
+    const mockNetworkWait = setTimeout(() => reject(new Error('mock network stalled')), 1000);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(mockNetworkWait);
+      reject(signal.reason ?? new Error('aborted'));
+    }, { once: true });
   });
 }
 

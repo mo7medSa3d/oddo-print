@@ -316,9 +316,10 @@ func discoveryVerification(di printer.DeviceInfo) string {
 		if v, ok := di.Capabilities["snmp_verified"].(bool); ok && v {
 			verification = "verified"
 		}
-		if v, ok := di.Capabilities["mdns_verified"].(bool); ok && v {
-			verification = "verified"
-		}
+		// Historical mdns_verified is not independent transport proof:
+		// pre-fix agents set it on receipt of a DNS-SD advertisement.
+		// Only ipp_verified (a completed Get-Printer-Attributes exchange)
+		// can promote IPP discovery above candidate here.
 	}
 	// WSD is discovery evidence only. A stale capability emitted by an older
 	// agent must never elevate a device to routable/verified status by itself.

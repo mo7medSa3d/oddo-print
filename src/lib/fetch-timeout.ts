@@ -1,26 +1,31 @@
-/** Bounded fetch for browser request flows: every request carries a total
- * deadline so a stalled connection surfaces as a retryable error instead of
- * hanging the screen forever (C063). An caller-supplied AbortSignal still
- * wins (it aborts first); otherwise the timeout fires. */
+/** Bounded browser fetch across headers AND streaming response consumption.
+ *
+ * The fetch() promise resolves once response HEADERS arrive. Cleaning up a
+ * setTimeout() in its finally block therefore silently cancels the deadline
+ * before response.json()/text()/blob() have read the body. Native AbortSignal
+ * composition remains active for the complete response stream, including
+ * cloned responses, without wrapping or buffering any Response body.
+ *
+ * Note: after headers, the browser may surface AbortError rather than our
+ * pre-header timeout message. The body is still aborted and is NOT safe to
+ * treat as an unsubmitted mutation or immediately retry a print operation.
+ */
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
   timeoutMs = 15_000,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onCallerAbort = () => controller.abort(init.signal?.reason);
-  if (init.signal?.aborted) controller.abort(init.signal.reason);
-  else init.signal?.addEventListener("abort", onCallerAbort, { once: true });
+  // AbortSignal.timeout() owns its lifecycle; do not clear it at response
+  // headers. AbortSignal.any() preserves caller cancellation *after* headers
+  // and keeps the original response status, URL, streaming and clone contract.
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, { ...init, signal });
   } catch (error) {
-    if (controller.signal.aborted && !init.signal?.aborted) {
+    if (deadline.aborted && !init.signal?.aborted) {
       throw new Error(`Request timed out after ${timeoutMs}ms`);
     }
     throw error;
-  } finally {
-    clearTimeout(timer);
-    init.signal?.removeEventListener("abort", onCallerAbort);
   }
 }

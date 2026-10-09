@@ -324,7 +324,7 @@ function ConsoleShell({
 
   return (
     <div
-      className="min-h-screen bg-app text-ink"
+      className="min-h-screen min-w-0 max-w-full bg-app text-ink"
       style={{ "--nav-w": collapsed ? "72px" : "256px" } as CSSProperties}
     >
       {/* Desktop rail */}
@@ -401,10 +401,10 @@ function ConsoleShell({
 
       {/* Content column */}
       <div
-        className="lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
+        className="min-w-0 max-w-full lg:ps-[var(--nav-w)] motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
         {/* Mobile chrome */}
-        <header className="glass-chrome sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-edge/80 px-3 lg:hidden">
+        <header className="glass-chrome sticky top-0 z-30 flex h-14 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -413,17 +413,17 @@ function ConsoleShell({
           >
             <MenuIcon className="h-4 w-4" aria-hidden />
           </button>
-          <Link href="/dashboard" aria-label={t("nav.home")} className="min-w-0">
+          <Link href="/dashboard" aria-label={t("nav.home")} className="min-w-0 max-w-[160px] flex-1 sm:max-w-none sm:flex-none">
             <ConsoleBrand brandSubtitle={t("brand.tagline")} />
           </Link>
-          <div className="ms-auto flex items-center gap-1">
-            <LanguageSwitcher />
+          <div className="ms-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <LanguageSwitcher compact />
             <ThemeToggle />
-            <Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" />
+            <span className="hidden min-[400px]:inline-flex"><Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" /></span>
           </div>
         </header>
 
-        <main className="page-transition">{children}</main>
+        <main className="page-transition min-w-0 max-w-full">{children}</main>
       </div>
 
       {/* Mobile navigation sheet */}
@@ -550,7 +550,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Platform control plane keeps its own layout (src/app/platform/layout.tsx).
   if (isPlatformScreen) {
-    return <main className="min-h-screen bg-app text-ink">{children}</main>;
+    return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
   }
 
   // Auth screens render their own centered card — no shell chrome.
@@ -562,7 +562,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // This check intentionally precedes the authenticated branch because auth state
   // can remain true for one client render while sign-out navigates to "/".
   if (isPublicScreen) {
-    return <main className="min-h-screen bg-app text-ink">{children}</main>;
+    return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
   }
 
   // Authenticated console: sidebar shell + full-width content.
@@ -575,7 +575,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   // Brief loading state while the session check resolves, render without navigation chrome.
-  return <main className="min-h-screen bg-app text-ink">{children}</main>;
+  return <main className="min-h-screen min-w-0 max-w-full bg-app text-ink">{children}</main>;
 }
 
 export { TopNavbar };

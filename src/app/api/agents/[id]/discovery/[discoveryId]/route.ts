@@ -4,6 +4,7 @@ import { agents, discoverySessions, discoveredDevices } from "../../../../../../
 import { validateWorkspaceManager } from "../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../lib/authorization";
 import { eq, and } from "drizzle-orm";
+import { discoveryObservationFingerprint } from "../../../../../../lib/discovery-observation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,5 +19,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // agentId FK disagrees with the session's agent must not leak across the
   // :id boundary even within one tenant.
   const devices = await db.query.discoveredDevices.findMany({ where: and(eq(discoveredDevices.discoveryId, discoveryId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)) });
-  return NextResponse.json({ session, devices });
+  return NextResponse.json({ session, devices: devices.map((device) => ({ ...device, observationFingerprint: discoveryObservationFingerprint(device) })) });
 }
