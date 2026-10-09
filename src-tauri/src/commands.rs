@@ -425,10 +425,9 @@ async fn read_response_body_limited(
     String::from_utf8(body).map_err(|e| format!("Gateway response was not valid UTF-8: {e}"))
 }
 
-/// Probe a candidate Gateway health endpoint without changing the persisted
-/// Gateway origin or touching the Manager session. Settings uses this before
-/// committing a new origin so an unreachable typo cannot revoke a valid
-/// authenticated session for the currently configured Gateway.
+/// Probe a candidate Gateway health endpoint without mutating the saved
+/// origin or the Agent pairing identity. Settings checks connectivity before
+/// saving so an unreachable typo cannot replace a valid connection.
 #[tauri::command]
 pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String> {
     let base = normalize_gateway_url(&url)?;
@@ -506,11 +505,9 @@ pub struct AgentGatewayRequestArgs {
     pub path: String,
     pub method: String,
     pub body: Option<String>,
-    /// Manager-visible Gateway origin the operator intends to act on. The
-    /// paired Agent config owns a different origin (its own Server URL); the
-    /// CLI refuses the request unless they match, so changing the Manager
-    /// origin can never show or mutate the old Agent Gateway under the new
-    /// displayed origin.
+    /// The Gateway origin displayed in the desktop must match the paired
+    /// Agent's configured Server URL. The CLI rejects origin changes that
+    /// might otherwise send actions to another Gateway without re-pairing.
     pub expected_origin: String,
     #[serde(default)]
     pub idempotency_key: Option<String>,
@@ -572,8 +569,9 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
                 || gateway_printer_action_path(path, "test-connection")
                 || gateway_printer_action_path(path, "test-print")
         }
-        // Physical test-print and desired-state mutation are manager-RBAC only;
-        // the Agent bearer may perform only non-printing console actions here.
+        // PATCH/DELETE and arbitrary control-plane mutations remain denied.
+        // The explicitly allowlisted test-print is authenticated and fenced
+        // to this Agent's own printer by the Gateway API.
         _ => false,
     }
 }
