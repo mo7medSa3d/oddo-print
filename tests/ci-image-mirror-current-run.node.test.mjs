@@ -47,10 +47,21 @@ test('Compose CLI selects the CI overlay without changing default production ref
   assert.match(dockerfile, /^ARG NODE_BASE_IMAGE=node:24\.21\.0-alpine@sha256:[a-f0-9]{64}$/m);
 });
 
-test('Odoo Community CI image stays immutable and does not pull from Docker Hub', () => {
-  const odoo = 'public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
-  assert.equal(ci.split(odoo).length - 1, 2, 'pull and run must use same immutable image');
-  assert.equal(ci.includes('docker pull odoo:19.0@'), false);
+test('Odoo CI has two registry origins pinned to the identical reviewed image digest', () => {
+  const digest = 'sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
+  const ecr = `public.ecr.aws/docker/library/odoo:19.0@${digest}`;
+  const hub = `docker.io/library/odoo:19.0@${digest}`;
+  const candidatesLine = ci.split('\n').find(line => line.includes('for candidate in '));
+  assert.ok(candidatesLine, 'image selection must be explicit');
+  const refs = [...candidatesLine.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(refs, [ecr, hub], 'no floating tag or unexpected registry fallback');
+  assert.equal(ci.split(ecr).length - 1, 1);
+  assert.equal(ci.split(hub).length - 1, 1);
+  assert.match(ci, /if docker pull "\$candidate"; then/);
+  assert.match(ci, /odoo_image="\$candidate"/);
+  assert.match(ci, /if \[ -z "\$odoo_image" \]; then\s*echo[^\n]+\n\s*exit 1/);
+  assert.match(ci, /"\$odoo_image" \\/);
+  assert.doesNotMatch(ci, /docker pull (?:odoo|docker\.io\/library\/odoo):19\.0(?:\s|$)/m);
 });
 
 test('all CI mirror image overrides remain immutable and reject mutable tags', () => {
