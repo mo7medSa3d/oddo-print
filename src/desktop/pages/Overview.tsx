@@ -114,7 +114,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             </div>
             <div className="mt-4 border-t border-edge pt-4">
               <div className="mb-2 text-xs font-[550] text-ink-3">{t("desktop.overview.quickActions")}</div>
-              <div className="grid grid-cols-1 gap-2 min-[460px]:grid-cols-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.checkGateway")}</Button></div>
+              <div className="grid min-w-0 grid-cols-1 gap-2"><Button variant="primary" onClick={s.refreshStatus} icon={<RefreshCw className="h-4 w-4 shrink-0" />} className="min-w-0 w-full h-auto min-h-10 whitespace-normal"><span className="min-w-0 break-words whitespace-normal text-center">{t("desktop.overview.refresh")}</span></Button><Button variant="secondary" onClick={s.checkHealth} icon={<Activity className="h-4 w-4 shrink-0" />} className="min-w-0 w-full h-auto min-h-10 whitespace-normal"><span className="min-w-0 break-words whitespace-normal text-center">{t("desktop.overview.checkGateway")}</span></Button></div>
             </div>
           </div>
         </Card>

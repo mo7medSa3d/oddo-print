@@ -95,7 +95,7 @@ test('same-tick double submit invokes login once, and a rejected request release
   assert.equal(calls.length,1,'duplicate submit cannot create two live tokens');
   rejectFirst(new Error('gateway refused'));await Promise.all([one,two]);
   tree=app.render();
-  assert.equal(app.find(tree,'p').some(x=>x.props.role==='alert' && x.props.children==='desktop.manager.loginFailed'),true);
+  assert.equal(app.find(tree,'p').some(x=>x.props.role==='alert' && x.props.children==='desktop.manager.connectionFailed'),true);
   assert.equal(app.find(tree,'Button').find(x=>x.props.type==='submit').props.disabled,false);
   app.find(tree,'Input')[1].props.onChange({target:{value:'secret-again'}});
   tree=app.render();

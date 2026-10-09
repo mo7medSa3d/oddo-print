@@ -212,5 +212,5 @@ func (p *SpoolerPrinter) Status() string {
 
 // EnumSpoolerQueuesForDiagnostics has no Windows spooler on this OS.
 func EnumSpoolerQueuesForDiagnostics() ([]DeviceInfo, error) {
-	return nil, nil
+	return nil, fmt.Errorf("Windows spooler enumeration is unavailable on this OS")
 }

@@ -1,68 +1,65 @@
 @import "tailwindcss";
 
 /* ============================================================
-   YASEIR DESIGN SYSTEM 2.0
+   YASEIR / TAILGRIDS-INSPIRED VISUAL SYSTEM 3.0
    One token layer for the Gateway console, the Platform control
    plane, the auth/marketing surfaces, and the Desktop Manager.
 
    Principles
-   - Restraint: one accent, five semantic statuses, no gradients
-     used as decoration.
-   - Rhythm: a single spacing cadence and a single type scale.
-   - Depth: layered, low-contrast elevation; borders do the work
-     that heavy shadows should not.
-   - Motion: short, purposeful, and fully disabled under
-     prefers-reduced-motion.
+   - TailGrids-style composable cards, navigation, forms and status chips.
+   - Calm blue brand, soft dimensional surfaces and spacious typography.
+   - Motion communicates state; prefers-reduced-motion always wins.
+   - One shared token system for Gateway and Desktop, including RTL.
    ============================================================ */
 
 :root {
   color-scheme: light;
 
-  /* ---------- Brand: Yaseir blue (matches the product icon, #2563EB) ---------- */
-  --brand-50: #eff4ff;
-  --brand-100: #e2ebff;
-  --brand-200: #c9dbff;
-  --brand-300: #a3c1ff;
-  --brand-400: #6f9dff;
-  --brand-500: #3b7cf6;
-  --brand-600: #2563eb;
-  --brand-700: #1d4ed8;
-  --brand-800: #1e40af;
-  --brand-900: #1e3a8a;
-  --brand-950: #152a63;
+  /* ---------- Brand: Yaseir blue (brand identity blue; refreshed shell accent) ---------- */
+  --brand-50: #f1f3ff;
+  --brand-100: #e4e9ff;
+  --brand-200: #cbd4ff;
+  --brand-300: #acbcff;
+  --brand-400: #8298ff;
+  --brand-500: #5874ff;
+  --brand-600: #3758f9;
+  --brand-700: #2848dd;
+  --brand-800: #203bb8;
+  --brand-900: #1e328b;
+  --brand-950: #19275a;
 
-  --brand: #2563eb;
-  --brand-hover: #1d4ed8;
-  --brand-active: #1e40af;
+  --brand: #3758f9;
+  --brand-hover: #2848dd;
+  --brand-active: #1e3cb8;
   /* Solid tints used behind white label text (primary buttons, step markers).
      They are darker than --brand-hover so 1.4.3 stays satisfied at weight 560
-     (white on #2563eb = 5.2:1); every other brand use stays on --brand. */
-  --brand-solid: #2563eb;
+     (white on the selected blue must remain readable); every other brand use stays on --brand. */
+  --brand-solid: #3758f9;
   --brand-contrast: #ffffff;
-  --brand-subtle: #eff4ff;
-  --brand-subtle-hover: #e3ecff;
-  --brand-subtle-border: #c9dbff;
-  --brand-subtle-text: #1d4ed8;
-  --brand-ring: rgba(37, 99, 235, 0.22);
+  --brand-subtle: #eef1ff;
+  --brand-subtle-hover: #e2e8ff;
+  --brand-subtle-border: #cbd4ff;
+  --brand-subtle-text: #2442bc;
+  --brand-ring: rgba(55, 88, 249, 0.22);
 
   /* ---------- Neutral surfaces ---------- */
-  --bg: #f8f9fb;
-  --bg-subtle: #fcfcfd;
+  --bg: #f6f8ff;
+  --bg-subtle: #fbfcff;
   --surface: #ffffff;
-  --surface-2: #f4f5f7;
-  --surface-3: #eaecf0;
-  --surface-hover: #f1f3f5;
-  --surface-accent: #f2f6ff;
-  --surface-accent-2: #e7efff;
+  --surface-2: #f3f5fc;
+  --surface-3: #e8ecf6;
+  --surface-hover: #edf1ff;
+  --surface-accent: #eef2ff;
+  --surface-accent-2: #e3eaff;
   --surface-elevated: #ffffff;
   --surface-overlay: rgba(255, 255, 255, 0.82);
   --surface-glass: rgba(255, 255, 255, 0.72);
 
-  --border: #e2e4ea;
-  --border-strong: #d1d5dd;
-  --border-accent: #c9dbff;
-  --border-subtle: #ecedf1;
-  --divider: #e8e9ee;
+  --border: #e4e8f3;
+  --border-strong: #cbd3e4;
+  --border-accent: #cbd4ff;
+  --border-subtle: #edf0f7;
+  --divider: #e8ecf4;
   /* Boundary of a form control. WCAG 2.2 SC 1.4.11 asks for 3:1 against the
      surface a control sits on, which decorative separators do not have to
      meet — so inputs, selects and checkboxes use this stronger edge instead of
@@ -70,16 +67,16 @@
   --control-border: #7b8189;
 
   /* ---------- Ink ---------- */
-  --text: #16181d;
-  --text-2: #454a54;
+  --text: #17223b;
+  --text-2: #40506d;
   /* Meta and hint tiers. Both clear 4.5:1 on every surface this product paints
      (page, card, raised panel, brand tint) — measured 5.2:1 and 4.6:1 on the
      darkest light surface (--surface-3). */
-  --text-3: #5d636c;
-  --text-4: #626870;
+  --text-3: #53627a;
+  --text-4: #5b6880;
   --text-on-brand: #ffffff;
   --text-on-solid: #ffffff;
-  --text-display: #101216;
+  --text-display: #101b32;
 
   /* ---------- Semantic status ---------- */
   --success: #1c6c3f;
@@ -108,20 +105,20 @@
   --notice-icon: #c66d1a;
 
   /* ---------- Focus / overlay ---------- */
-  --focus-ring: #2563eb;
-  --focus-ring-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  --focus-ring: #3758f9;
+  --focus-ring-shadow: 0 0 0 3px rgba(55, 88, 249, 0.2);
   --focus-ring-inset: 0 0 0 2px rgba(255, 255, 255, 0.9);
   --overlay: rgba(15, 18, 26, 0.4);
   --overlay-soft: rgba(15, 18, 26, 0.16);
 
   /* ---------- Radius scale — restrained operational geometry ---------- */
-  --r-xs: 5px;
-  --r-sm: 7px;
-  --r-md: 9px;
-  --r-lg: 11px;
-  --r-xl: 12px;
-  --r-2xl: 13px;
-  --r-3xl: 16px;
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-2xl: 20px;
+  --r-3xl: 24px;
   --r-pill: 9999px;
 
   /* ---------- Elevation: layered and low-contrast ---------- */
@@ -131,8 +128,8 @@
   --shadow-lg: 0 4px 8px rgba(16, 24, 40, 0.05), 0 16px 32px rgba(16, 24, 40, 0.09);
   --shadow-xl: 0 8px 16px rgba(16, 24, 40, 0.06), 0 28px 56px rgba(16, 24, 40, 0.12);
   --shadow-2xl: 0 12px 24px rgba(16, 24, 40, 0.08), 0 40px 80px rgba(16, 24, 40, 0.16);
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.035);
-  --shadow-card-hover: 0 2px 6px rgba(16, 24, 40, 0.07);
+  --shadow-card: 0 2px 8px rgba(25, 42, 89, 0.035), 0 12px 28px rgba(25, 42, 89, 0.035);
+  --shadow-card-hover: 0 7px 20px rgba(25, 42, 89, 0.07), 0 20px 44px rgba(25, 42, 89, 0.06);
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
   /* ---------- Type scale ---------- */
@@ -162,17 +159,17 @@
   /* ---------- Motion ---------- */
   --dur-instant: 90ms;
   --dur-fast: 140ms;
-  --dur-normal: 200ms;
-  --dur-slow: 280ms;
+  --dur-normal: 220ms;
+  --dur-slow: 300ms;
   --dur-slower: 420ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.32, 1.28, 0.62, 1);
 
   /* ---------- Layout ---------- */
-  --sidebar-width: 256px;
-  --sidebar-collapsed: 72px;
-  --header-height: 56px;
+  --sidebar-width: 264px;
+  --sidebar-collapsed: 80px;
+  --header-height: 64px;
   --content-max: 1440px;
   --content-max-wide: 1680px;
   --page-px: 20px;
@@ -1140,3 +1137,204 @@
   [dir="rtl"] .data-table .font-mono { unicode-bidi: isolate; direction: ltr; }
 }
 
+
+/* ============================================================
+   TailGrids-inspired application shell, navigation and feedback.
+   Original Yaseir implementation; TailGrids code is not bundled.
+   Components are shared by the Gateway and the Windows Desktop UI.
+   ============================================================ */
+@layer components {
+  .tg-shell-root {
+    background:
+      radial-gradient(ellipse 56% 43% at 92% 0%, color-mix(in srgb, var(--brand) 5%, transparent), transparent 72%),
+      var(--bg);
+  }
+
+  .tg-console-rail,
+  .tg-desktop-rail {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
+  .tg-console-topbar,
+  .tg-desktop-topbar {
+    background: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(20px) saturate(165%);
+    backdrop-filter: blur(20px) saturate(165%);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tg-sidebar-label {
+    color: var(--text-4);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.075em;
+  }
+
+  .tg-nav-item {
+    min-height: 44px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    transition:
+      background-color var(--dur-normal) var(--ease-out),
+      border-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      color var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-nav-item:hover:not([data-active="true"]) {
+    transform: translateX(2px);
+    background: var(--surface-2);
+  }
+
+  [dir="rtl"] .tg-nav-item:hover:not([data-active="true"]) {
+    transform: translateX(-2px);
+  }
+
+  .tg-nav-item[data-active="true"] {
+    background: var(--brand-subtle);
+    border-color: var(--border-accent);
+    color: var(--brand-subtle-text);
+    box-shadow: inset 3px 0 0 var(--brand), 0 2px 9px var(--brand-ring);
+  }
+
+  [dir="rtl"] .tg-nav-item[data-active="true"] {
+    box-shadow: inset -3px 0 0 var(--brand), 0 2px 9px var(--brand-ring);
+  }
+
+  .tg-nav-item[data-active="true"] .tg-nav-icon {
+    background: var(--surface);
+    color: var(--brand);
+    border-color: var(--border-accent);
+  }
+
+  .tg-nav-item:hover .tg-nav-icon {
+    background: var(--surface);
+    color: var(--brand);
+  }
+
+  .tg-search-trigger:hover {
+    box-shadow: 0 3px 14px var(--brand-ring);
+  }
+
+  .tg-breadcrumb [aria-current="page"] {
+    letter-spacing: -0.012em;
+  }
+
+  .tg-mobile-sheet {
+    box-shadow: var(--shadow-2xl);
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .tg-breadcrumb-bar {
+    background: color-mix(in srgb, var(--surface) 92%, var(--brand) 8%);
+  }
+
+  .tg-page-heading {
+    background:
+      linear-gradient(115deg, color-mix(in srgb, var(--surface) 91%, var(--brand) 9%), var(--surface) 68%);
+  }
+
+  .tg-view-reveal {
+    animation: yz-rise-in 280ms var(--ease-out) both;
+  }
+
+  .tg-tab-list {
+    width: fit-content;
+    max-width: 100%;
+    margin-block: 7px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .tg-tab-trigger {
+    border-radius: var(--r-md);
+    transition:
+      color var(--dur-normal) var(--ease-out),
+      background-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-tab-trigger[data-active="true"] {
+    background: var(--surface);
+    color: var(--brand-subtle-text);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .tg-tab-trigger:hover:not([data-active="true"]) {
+    color: var(--text);
+    background: var(--surface-hover);
+  }
+
+  .tg-card-root {
+    transition:
+      border-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-card-root:focus-within {
+    border-color: var(--border-accent);
+  }
+
+  .tg-action-button {
+    transition:
+      transform var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
+  }
+
+  .tg-action-button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  .tg-action-button[data-appearance="outline"] {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+  }
+
+  .tg-status-pill {
+    border-radius: 9999px;
+    letter-spacing: 0.005em;
+    box-shadow: 0 1px 2px rgba(24, 40, 80, 0.03);
+  }
+
+  .tg-panel-title {
+    letter-spacing: -0.017em;
+  }
+}
+
+@media (min-width: 1024px) {
+  .tg-console-rail {
+    inset-block: 12px;
+    inset-inline-start: 12px;
+    border-radius: var(--r-2xl);
+    overflow: hidden;
+  }
+  .tg-console-content {
+    padding-inline-start: calc(var(--nav-w) + 24px);
+  }
+  .tg-desktop-rail {
+    inset-block: 12px;
+    inset-inline-start: 12px;
+    border-radius: var(--r-2xl);
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-view-reveal {
+    animation: none !important;
+  }
+  .tg-nav-item:hover:not([data-active="true"]),
+  [dir="rtl"] .tg-nav-item:hover:not([data-active="true"]) {
+    transform: none !important;
+  }
+}

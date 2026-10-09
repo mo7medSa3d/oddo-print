@@ -449,6 +449,15 @@ func desiredPrinterConfig(row desiredPrinterRecord) config.PrinterConfig {
 			"supported_protocols": append([]string(nil), row.ObservedSupportedProtocols...),
 		}
 	}
+	// This flag originates only from Manager desired state, not Agent discovery.
+	// Observed status cannot enable printing to a software destination alone.
+	if p.PrinterType == "virtual" && p.ConnectionType == "spooler" &&
+		p.Config["virtual_spooler_test"] == true {
+		if capabilities == nil {
+			capabilities = make(map[string]interface{})
+		}
+		capabilities["virtual_spooler_test"] = true
+	}
 	// Observed capabilities must not override configured paper geometry.
 	// Conversely, a nominal 80mm roll does not establish 576 printable dots:
 	// 180dpi devices can have 512. Apply only explicitly configured hardware

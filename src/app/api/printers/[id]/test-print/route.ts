@@ -13,6 +13,7 @@ import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
 import { databaseNowMs } from "../../../../../lib/database-clock";
 import { getAgentAvailability } from "../../../../../lib/agent-availability";
+import { isApprovedVirtualSpoolerTestRecord } from "../../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 
@@ -107,7 +108,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       isReused: result.isReused,
       ...(physicalOutcome ? { physicalOutcome } : {}),
       virtualCapture: printer.printerType === "virtual" && (printer.capabilities as Record<string, unknown> | null)?.virtual_test_sink === true,
-      note: printer.printerType === "virtual" ? "Virtual test captures a file on the Agent; no physical paper is printed." : undefined,
+      note: printer.printerType === "virtual"
+        ? isApprovedVirtualSpoolerTestRecord(printer)
+          ? "Test submitted to a Windows software queue; inspect its output. Some virtual drivers need an interactive user session. No paper-output claim."
+          : "Yaseir virtual capture stores a file on the Agent; no physical paper is printed."
+        : undefined,
     }, { status: 201 });
   } catch (e) {
     if (e instanceof TenantPrintQuotaExceededError) {

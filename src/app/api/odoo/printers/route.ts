@@ -7,6 +7,7 @@ import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObserv
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { receiptRasterWidthDots } from "../../../../lib/receipt-width";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
+import { isVirtualPrinterRecord, isApprovedVirtualSpoolerTestRecord } from "../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,8 @@ export async function GET(req: Request) {
       connectionType: printers.connectionType,
       protocol: printers.protocol,
       capabilities: printers.capabilities,
+      config: printers.config,
+      managementSource: printers.managementSource,
       agentId: agents.id,
       agentName: agents.name,
       agentStatus: agents.status,
@@ -90,7 +93,8 @@ export async function GET(req: Request) {
     .where(and(...conditions))
     .orderBy(printers.name);
   return NextResponse.json({
-    printers: rows.map((row) => ({
+    printers: rows.filter((row) => !isVirtualPrinterRecord(row) ||
+      (row.managementSource === "manager" && isApprovedVirtualSpoolerTestRecord(row))).map((row) => ({
       id: row.id,
       name: row.name,
       reportedStatus: row.status,

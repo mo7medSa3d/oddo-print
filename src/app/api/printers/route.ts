@@ -139,6 +139,18 @@ export async function POST(req: Request) {
       config.address = config.spooler_name.trim();
     }
 
+    // A Manager may deliberately attach a local software queue for integration
+    // tests. Never accept redirected/fax queues, and never let an Agent
+    // credential register an arbitrary virtual destination via this route.
+    const virtualTest = config.virtual_spooler_test === true;
+    if (virtualTest && (auth.kind !== "manager" || data.printerType !== "virtual" ||
+        connectionType !== "spooler" || protocol !== "spooler" ||
+        !config.spooler_name || config.passthrough_protocols?.length)) {
+      return NextResponse.json({ error: "Virtual test printers require an explicit Manager-owned Windows spooler queue without RAW passthrough", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
+    }
+    if (auth.kind === "manager" && data.printerType === "virtual" && !virtualTest) {
+      return NextResponse.json({ error: "Virtual printer registration requires explicit test opt-in", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
+    }
     const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
     if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
     const error = validateConnectionConfig(connectionType, config, protocol);
@@ -186,6 +198,7 @@ export async function POST(req: Request) {
       if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: "MAX_PRINTERS_EXCEEDED", entitlement: error.entitlement, limit: error.limit, used: error.used, upgradeRequired: true }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
       if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
+      if (error instanceof Error && error.message === "agentId not found") return NextResponse.json({ error: "Agent is not paired with this Gateway workspace", code: "AGENT_NOT_FOUND" }, { status: 404 });
       if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
       throw error;
     }

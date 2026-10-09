@@ -1,18 +1,16 @@
 /* ============================================================
    Virtual / software printer guard (Gateway side)
    ------------------------------------------------------------
-   The authoritative filter runs in the Windows agent: virtual,
-   software and RDP-redirected queues are classified during
-   discovery and never reach the registry, the heartbeat or this
-   Gateway.
+   Automatic discovery still excludes virtual and redirected queues
+   from managed production inventory. A Manager can now register an
+   explicitly approved Windows SOFTWARE spooler queue for local testing;
+   only the matching queue verified by the running Agent may become a
+   Gateway/Odoo destination. This is spooler admission, NOT paper output.
 
-   Deployments upgraded from an earlier version may still carry a
-   virtual printer row. Such a row is NOT deleted (data is
-   preserved) but it must never behave like a production route:
-
-     - never selected by resolvePrinterForJob
-     - never reported as available for a job
-     - never accepted by the legacy printerId print path
+   Legacy virtual rows remain preserved but unusable without both the
+   Manager desired-state authorization and an Agent-reported capability.
+   Synthetic Yaseir capture remains Manager-test-only; redirected and FAX
+   queues never become production destinations.
 
    Detection reads normalized metadata first (printerType,
    connectionType, protocol, capabilities) and only falls back to
@@ -29,6 +27,8 @@ export interface PrinterLike {
   port?: string | null;
   driverName?: string | null;
   capabilities?: unknown;
+  config?: unknown;
+  managementSource?: string | null;
 }
 
 /** Capability keys that mark a queue as software-only. */
@@ -253,4 +253,36 @@ export function isVirtualCaptureTestRecord(printer: PrinterLike | null | undefin
     && caps?.virtual_test_sink === true
     && lower(caps?.registration_source) === "config"
     && isVirtualPrinterRecord(printer);
+}
+
+/**
+ * A deliberately manager-owned Windows software queue permitted for explicit
+ * Gateway and Odoo validation. Both the manager desired-state flag AND the
+ * Agent's observed capability are necessary: a Manager write alone cannot
+ * establish that the executing Agent has validated the local queue.
+ *
+ * Redirected sessions, FAX destinations and synthetic file capture are never
+ * eligible. This remains a virtual queue; successful spooler submission is
+ * not physical-paper evidence, and drivers needing an interactive Save dialog
+ * may fail or remain indeterminate in a Windows service.
+ */
+export function isApprovedVirtualSpoolerTestRecord(printer: PrinterLike | null | undefined): boolean {
+  if (!printer || lower(printer.printerType) !== "virtual" ||
+      lower(printer.connectionType) !== "spooler" || lower(printer.protocol) !== "spooler") return false;
+  const desired = capabilitiesRecord(printer.config);
+  const observed = capabilitiesRecord(printer.capabilities);
+  if (desired?.virtual_spooler_test !== true || observed?.virtual_spooler_test !== true) return false;
+  // Do not ever repurpose Yaseir's separate file-capture backend as a
+  // selectable Odoo printer; it has a Manager-only test-page contract.
+  if (observed.virtual_test_sink === true) return false;
+  const name = lower(printer.name);
+  const spoolerName = lower(desired.spooler_name);
+  const metadata = identityHaystack(observed, printer);
+  const identity = [name, spoolerName, metadata].join(" ");
+  if (identity.includes("(redirected") || identity.includes(" in session ") ||
+      SESSION_REDIRECT_TOKENS.some((token) => identity.includes(token))) return false;
+  if (name === "fax" || name.endsWith(" fax") || name.endsWith(" (fax)") ||
+      spoolerName === "fax" || spoolerName.endsWith(" fax") || spoolerName.endsWith(" (fax)") ||
+      identity.includes("shrfax:") || identity.includes("brfax:")) return false;
+  return !!spoolerName && isVirtualPrinterRecord(printer);
 }

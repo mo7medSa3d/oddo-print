@@ -1,6 +1,6 @@
 import payloadContract from "../../contracts/print-payload-contract.json";
 import { gatewayNow } from "./database-clock";
-import { isVirtualPrinterRecord, type PrinterLike } from "./printer-virtual";
+import { isVirtualPrinterRecord, isApprovedVirtualSpoolerTestRecord, type PrinterLike } from "./printer-virtual";
 import { getAgentAvailability } from "./agent-availability";
 
 export { validatePayloadForPrinter, type CapabilityCheckResult, type PayloadSpec } from "./printer-capability";
@@ -65,7 +65,7 @@ export function isPrinterAvailableForJob(
 ): boolean {
   if (printer.lifecycle !== "active") return false;
   if (printer.inventoryPresent === false) return false;
-  if (isVirtualPrinterRecord(printer)) return false;
+  if (isVirtualPrinterRecord(printer) && (printer.managementSource !== "manager" || !isApprovedVirtualSpoolerTestRecord(printer))) return false;
   if (agent !== undefined && !isAgentAvailableForPrinter(agent, now)) return false;
   return isPrinterStatusExecutable(printer);
 }

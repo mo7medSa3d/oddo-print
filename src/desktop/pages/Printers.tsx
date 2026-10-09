@@ -60,15 +60,30 @@ export function PrintersPage({ s }: { s: DesktopState }) {
             subtitle={t("desktop.printers.virtualBody", { count: s.discoveredVirtualPrinters.length })}
           />
           <ul className="divide-y divide-edge-subtle">
-            {s.discoveredVirtualPrinters.map((p) => (
-              <li key={`virtual-${p.id}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <div className="break-words font-semibold text-ink">{p.name}</div>
-                  <div className="break-all text-xs text-ink-3" dir="ltr">{p.spoolerName ?? p.spooler_name ?? p.id}</div>
-                </div>
-                <StatusBadge tone="neutral" label={t("desktop.printers.localDiagnosticOnly")} />
-              </li>
-            ))}
+            {s.discoveredVirtualPrinters.map((p) => {
+              const linked = s.printers.find((remote) => remote.agentId === p.agentId &&
+                (remote.config?.spooler_name === (p.spoolerName ?? p.spooler_name) ||
+                 remote.spoolerName === (p.spoolerName ?? p.spooler_name)) && remote.lifecycle !== "retired");
+              return (
+                <li key={`virtual-${p.id}`} className="flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words font-semibold text-ink">{p.name}</div>
+                    <div className="break-all text-xs text-ink-3" dir="ltr">{p.spoolerName ?? p.spooler_name ?? p.id}</div>
+                    <div className="mt-1 text-xs text-ink-3">{t("desktop.printers.virtualNotice")}</div>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                    {linked ? (
+                      <>
+                        <StatusBadge tone="warn" label={isProductionPrinter(linked) ? t("desktop.printers.virtualLinked") : t("desktop.printers.waitingForSync")} />
+                        {isProductionPrinter(linked) && <Button size="sm" variant="secondary" disabled={s.busy} onClick={() => s.handleTest(linked.id)} icon={<Play className="h-4 w-4" />}>{t("desktop.printers.test")}</Button>}
+                      </>
+                    ) : (
+                      <Button size="sm" variant="primary" disabled={s.busy || !p.agentId} onClick={() => s.enableVirtualPrinterTest(p)}>{t("desktop.printers.virtualEnable")}</Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
