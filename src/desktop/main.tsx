@@ -253,12 +253,17 @@ export default function App() {
     return () => { managerProbeSeq.current++; stop(); };
   }, [savedGatewayUrl, probeManagerAccount]);
 
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
   const managerAuthenticated = managerAccount.origin === savedGatewayUrl &&
     !!savedGatewayUrl && managerAccount.status === "authenticated" &&
     managerAccount.session?.authenticated === true &&
     !!managerAccount.session.tenantId && !!managerAccount.session.role &&
     !!managerAccount.session.expiresAt &&
-    Date.parse(managerAccount.session.expiresAt) > Date.now();
+    Date.parse(managerAccount.session.expiresAt) > nowMs;
   const managerRole = managerAuthenticated ? managerAccount.session?.role : undefined;
   const managerCanTest = managerRole === "owner" || managerRole === "admin" || managerRole === "operator";
   const managerCanManage = managerRole === "owner" || managerRole === "admin";
@@ -930,11 +935,6 @@ export default function App() {
   // Gateway connectivity refreshes every 10s, but presentation is not tied to
   // a short freshness expiry. Confirmed negative evidence drives disconnect;
   // focus/online events force immediate probes after sleep or network changes.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 15000);
-    return () => clearInterval(timer);
-  }, []);
   // Affirmative observations only: an empty/missing health object, an agent
   // status without running:true, or a probe older than the freshness window
   // must read as unavailable — never as healthy/online (C046).

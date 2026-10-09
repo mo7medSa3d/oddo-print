@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { createRequire } from 'node:module';
+import { createRequire } from 'node:compiledModule';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
@@ -24,13 +24,13 @@ function markers(source, anchor, closing) {
 }
 function gatewayExports() {
   const compiled = ts.transpileModule(jobStatus, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { compiledModule: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const module = {exports:{}};
+  const compiledModule = {exports:{}};
   vm.runInNewContext(compiled, {
-    module,exports:module.exports, require: () => ({parseDbTimeMs: () => null}),
+    compiledModule,exports:compiledModule.exports, require: () => ({parseDbTimeMs: () => null}),
   });
-  return module.exports;
+  return compiledModule.exports;
 }
 test('Gateway, Agent and Odoo agree on all ambiguity markers in the same order', () => {
   const ag = markers(agent, 'var OutcomeMarkers = []string{', '}');

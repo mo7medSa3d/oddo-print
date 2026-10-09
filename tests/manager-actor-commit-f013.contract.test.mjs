@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { createRequire } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -12,7 +12,7 @@ catch { ts = require(join(execFileSync('npm', ['root', '-g'], { encoding: 'utf8'
 const source = resolve('src/lib/manager-mutation-authorization.ts');
 const authSource = resolve('src/lib/authorization.ts');
 const compile = (path) => ts.transpileModule(readFileSync(path, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }, fileName: path,
+  compilerOptions: { testModule: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }, fileName: path,
 }).outputText;
 const events = [];
 let state;
@@ -37,10 +37,10 @@ const schema = new vm.SyntheticModule(['tenantUsers'], function() { this.setExpo
 const auth = new vm.SourceTextModule(compile(authSource), { context });
 await auth.link(() => { throw new Error('Unexpected runtime auth import'); });
 await auth.evaluate();
-const module = new vm.SourceTextModule(compile(source), { context });
-await module.link((name) => name === 'drizzle-orm' ? drizzle : name.endsWith('db/schema') ? schema : name.endsWith('/authorization') ? auth : (() => { throw new Error('Unexpected '+name); })());
-await module.evaluate();
-const { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } = module.namespace;
+const testModule = new vm.SourceTextModule(compile(source), { context });
+await testModule.link((name) => name === 'drizzle-orm' ? drizzle : name.endsWith('db/schema') ? schema : name.endsWith('/authorization') ? auth : (() => { throw new Error('Unexpected '+name); })());
+await testModule.evaluate();
+const { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } = testModule.namespace;
 const tx = {
   query: { tenantUsers: { findFirst: async () => { events.push('membership'); return state.memberRole ? {role:state.memberRole} : null; } } },
   execute: async (query) => {

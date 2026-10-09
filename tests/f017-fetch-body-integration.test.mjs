@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { stripTypeScriptTypes } from 'node:module';
+import { stripTypeScriptTypes } from 'node:test';
 import http from 'node:http';
 import vm from 'node:vm';
 
@@ -14,10 +14,10 @@ async function helper() {
   const context = vm.createContext({
     AbortController, AbortSignal, Error, Promise, URL, fetch, setTimeout, clearTimeout,
   });
-  const module = new vm.SourceTextModule(stripTypeScriptTypes(source, { mode: 'transform' }), {context});
-  await module.link(() => { throw new Error('No dependencies expected'); });
-  await module.evaluate();
-  return module.namespace.fetchWithTimeout;
+  const testModule = new vm.SourceTextModule(stripTypeScriptTypes(source, { mode: 'transform' }), {context});
+  await testModule.link(() => { throw new Error('No dependencies expected'); });
+  await testModule.evaluate();
+  return testModule.namespace.fetchWithTimeout;
 }
 
 async function listenBodyServer() {
