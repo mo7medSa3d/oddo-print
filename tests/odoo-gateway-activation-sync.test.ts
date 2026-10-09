@@ -202,7 +202,7 @@ describe("Odoo Gateway activation synchronization", () => {
     // The save hook must not hand a server "reload" action back to the global
     // action manager: doing so can race the record-level refresh. It must reload
     // the persisted record locally after synchronization completes.
-    expect(client).toContain('if (action?.tag === "display_notification")');
+    expect(client).toContain('if (!this.cancelled && ownsCurrentForm() && action?.tag === "display_notification")');
     expect(client).toContain("await this.controller.model.load({ resId });");
   });
 
