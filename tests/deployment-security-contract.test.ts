@@ -69,7 +69,9 @@ describe("deployment security contracts", () => {
     expect(windowsWorkflow).toContain("NSIS uninstall left per-user state outside its owned machine cleanup scope:");
     expect(windowsWorkflow).toContain("NSIS machine uninstall verified: owned service, install files, and ProgramData removed; per-user cleanup remains separate.");
     expect(windowsWorkflow).not.toContain("current-user data are removed.");
-    expect(nsisHooks).toContain("Do not remove arbitrary profile directories or HKCU run keys here.");
+    expect(nsisHooks).toContain("only the current uninstall caller's product-");
+    expect(nsisHooks).toContain("checking for reparse roots");
+    expect(nsisHooks).toContain("must never recurse over other accounts or HKCU keys.");
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {

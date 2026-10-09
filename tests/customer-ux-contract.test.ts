@@ -48,6 +48,7 @@ describe("customer-facing UX contracts", () => {
     expect(desktop).toContain("https://");
     expect(rust).toContain('.join("api/agent/probe")');
     expect(rust).toContain('format!("https://{url}")');
-    expect(rust).toContain('is_public_gateway_path("/api/agent/probe")');
+    expect(rust).toContain("pub async fn probe_gateway_health");
+    expect(rust).not.toContain("pub async fn gateway_request(");
   });
 });

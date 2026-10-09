@@ -18,7 +18,7 @@ describe("desktop Agent Gateway response contract", () => {
     expect(ipc).not.toContain("return { status: 200, body: responseBody }");
   });
 
-  it("routes physical Test Print through the manager-authenticated Gateway transport", () => {
+  it("routes diagnostic Test Print via the paired Agent CLI without Manager credentials", () => {
     const main = read("src/desktop/main.tsx");
     const ipc = read("src/desktop/lib/ipc.ts");
     const rust = read("src-tauri/src/commands.rs");
@@ -27,10 +27,11 @@ describe("desktop Agent Gateway response contract", () => {
     expect(main).not.toContain("testPrinter(id)");
     expect(ipc).toContain('"/api/printers/" + encodeURIComponent(printerId) + "/test-print"');
     const testPrintBlock = ipc.slice(ipc.indexOf("export async function testGatewayPrinter"), ipc.indexOf("export function cleanupLocalJobs"));
-    expect(testPrintBlock).toContain("await gatewayRequest(");
-    expect(testPrintBlock).not.toContain("gatewayConsoleRequest(");
-    expect(rust).not.toContain('gateway_printer_action_path(path, "test-print")');
-    expect(cli).toContain('gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")');
+    expect(testPrintBlock).toContain("await gatewayConsoleRequest(");
+    expect(testPrintBlock).not.toContain("await gatewayRequest(");
+    expect(rust).toContain('gateway_printer_action_path(path, "test-print")');
+    expect(cli).toContain("gatewayTestPrintPathRe");
+    expect(cli).toContain('req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)');
   });
 
   it("normalizes Gateway printer config metadata for the desktop model", () => {
@@ -57,5 +58,7 @@ describe("desktop Agent Gateway response contract", () => {
     expect(route).toContain('if (auth.kind !== "manager")');
     expect(rust).not.toContain('"PATCH" => {');
     expect(cli).not.toContain('case "PATCH":');
-    expect(printersRoute).toContain('managementSource: auth.kind === "manager" ? "manager" : "agent"');
+    expect(printersRoute).toContain('auth.kind === "manager" || virtualTest ? "manager" : "agent"');
+    expect(printersRoute).toContain('data.agentId !== auth.agent.id');
+    expect(printersRoute).toContain("prohibitedSoftwareQueue");
   });
