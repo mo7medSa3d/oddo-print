@@ -81,6 +81,7 @@ import {
   humanConnection,
   humanType,
   isProductionPrinter,
+  isVirtualPrinter,
   jobDestination,
   jobDocType,
   jobGuidance,
@@ -199,6 +200,7 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
+  const [discoveredVirtualPrinters, setDiscoveredVirtualPrinters] = useState<PrinterInfo[]>([]);
   const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
@@ -593,6 +595,7 @@ export default function App() {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
+      setDiscoveredVirtualPrinters((res.virtualPrinters ?? []).filter(isVirtualPrinter));
       const warning = res.errors.length > 0 ? t("desktop.app.discoveryWarningsSummary", { count: res.errors.length }) : null;
       setDiscoveryWarning(warning);
       const refreshed = await refreshPrinters();
@@ -1150,6 +1153,7 @@ export default function App() {
     pair,
     printers: physicalPrinters,
     discoveredPrinters,
+    discoveredVirtualPrinters,
     discoveryWarning,
     printersLoading,
     printersError,

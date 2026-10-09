@@ -209,3 +209,8 @@ func (p *SpoolerPrinter) Status() string {
 	}
 	return "unknown"
 }
+
+// EnumSpoolerQueuesForDiagnostics has no Windows spooler on this OS.
+func EnumSpoolerQueuesForDiagnostics() ([]DeviceInfo, error) {
+	return nil, nil
+}

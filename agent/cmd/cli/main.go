@@ -87,7 +87,7 @@ func printUsage() {
 	fmt.Println("")
 	fmt.Println("Printer management:")
 	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
-	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [--include-virtual] [-config <path>]")
 	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]  # transport/queue diagnostic; not proof of physical print")
 	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
 	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
@@ -111,6 +111,7 @@ func handlePrintersSubcommand(args []string, defaultConfigPath string) {
 	// Parse --config and --json from rest
 	configPath := defaultConfigPath
 	jsonOutput := false
+	includeVirtual := false
 	filtered := []string{}
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
@@ -121,6 +122,8 @@ func handlePrintersSubcommand(args []string, defaultConfigPath string) {
 			}
 		case "--json", "-json":
 			jsonOutput = true
+		case "--include-virtual":
+			includeVirtual = true
 		default:
 			// For 'test' and 'remove', the printer ID is positional
 			// For 'add', we keep all flags
@@ -132,7 +135,7 @@ func handlePrintersSubcommand(args []string, defaultConfigPath string) {
 	case "list":
 		handlePrintersList(configPath, jsonOutput)
 	case "discover":
-		handlePrintersDiscover(configPath, jsonOutput)
+		handlePrintersDiscover(configPath, jsonOutput, includeVirtual)
 	case "test":
 		if len(filtered) == 0 {
 			log.Fatal("printers test requires <printer-id>")
@@ -217,10 +220,42 @@ func handlePrintersList(configPath string, jsonOutput bool) {
 	}
 }
 
-func handlePrintersDiscover(configPath string, jsonOutput bool) {
+// appendVirtualQueueObservations only changes the CLI response slice.
+// No registry persistence, heartbeat registration or remote print permission
+// is implied by seeing a software queue in the interactive Windows account.
+func appendVirtualQueueObservations(managed, queues []printer.DeviceInfo) []printer.DeviceInfo {
+	seen := make(map[string]bool, len(managed))
+	for _, di := range managed {
+		seen[di.ID] = true
+	}
+	for _, di := range queues {
+		if !printer.IsVirtualDevice(di) {
+			continue
+		}
+		if di.ID == "" {
+			di.ID = printer.StableIDForDevice(di)
+		}
+		if !seen[di.ID] {
+			managed = append(managed, di)
+			seen[di.ID] = true
+		}
+	}
+	return managed
+}
+
+func handlePrintersDiscover(configPath string, jsonOutput bool, includeVirtual bool) {
 	loaded := loadConfigForCLI(configPath)
 	registryPath := config.RegistryPath(loaded.path)
 	printers := discoverHelper(loaded.cfg, registryPath, jsonOutput)
+	// A local desktop may inspect installed virtual/software queues for test
+	// setup. They are NOT merged into registry, Gateway inventory or Agent jobs.
+	if includeVirtual {
+		queues, err := printer.EnumSpoolerQueuesForDiagnostics()
+		if err != nil {
+			log.Printf("Discovery warning: Windows spooler queue inspection: %v", err)
+		}
+		printers = appendVirtualQueueObservations(printers, queues)
+	}
 	if jsonOutput {
 		type ownedPrinter struct {
 			printer.DeviceInfo

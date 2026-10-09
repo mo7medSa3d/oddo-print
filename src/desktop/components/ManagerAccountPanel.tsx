@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Button, Field, Input, StatusBadge } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 import type { ManagerAccountView } from "../types";
@@ -18,6 +18,8 @@ export function ManagerAccountPanel({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // React state does not synchronously fence two form events in one tick.
+  const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const active = account.origin === gatewayUrl && account.status === "authenticated" && account.session?.authenticated === true;
   const unavailable = account.origin === gatewayUrl && account.status === "unavailable";
@@ -25,7 +27,16 @@ export function ManagerAccountPanel({
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (busy || !gatewayUrl || !username.trim() || !password) return;
+    if (submitting.current) return;
+    if (!gatewayUrl) {
+      setError(t("desktop.manager.setGatewayFirst"));
+      return;
+    }
+    if (!username.trim() || !password) {
+      setError(t("desktop.manager.missingCredentials"));
+      return;
+    }
+    submitting.current = true;
     setBusy(true); setError(null);
     try {
       await login(username.trim(), password);
@@ -35,6 +46,7 @@ export function ManagerAccountPanel({
       setError(t("desktop.manager.loginFailed"));
     } finally {
       setPassword("");
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -65,13 +77,13 @@ export function ManagerAccountPanel({
       ) : (
         <form onSubmit={submit} className="space-y-3">
           <Field label={t("desktop.manager.username")} htmlFor="manager-user">
-            <Input id="manager-user" type="email" value={username} autoComplete="username" onChange={e => setUsername(e.target.value)} disabled={!gatewayUrl || busy} required />
+            <Input id="manager-user" type="text" value={username} autoComplete="username" autoCapitalize="none" spellCheck={false} onChange={e => setUsername(e.target.value)} disabled={busy} required />
           </Field>
           <Field label={t("desktop.manager.password")} htmlFor="manager-password">
-            <Input id="manager-password" type="password" value={password} autoComplete="current-password" onChange={e => setPassword(e.target.value)} disabled={!gatewayUrl || busy} required />
+            <Input id="manager-password" type="password" value={password} autoComplete="current-password" onChange={e => setPassword(e.target.value)} disabled={busy} required />
           </Field>
           <div className="flex gap-2">
-            <Button type="submit" variant="primary" loading={busy} disabled={!gatewayUrl || checking || !username.trim() || !password}>{t("desktop.manager.signIn")}</Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={busy}>{t("desktop.manager.signIn")}</Button>
             {unavailable && <Button type="button" variant="ghost" onClick={refresh}>{t("common.retry")}</Button>}
           </div>
         </form>
