@@ -1180,9 +1180,9 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[104px]" : "lg:ps-[288px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[92px]" : "lg:ps-[276px]"}`}
       >
-        <header className="tg-desktop-topbar sticky top-2 z-20 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:ms-0 lg:me-3 lg:px-6">
+        <header className="tg-desktop-topbar sticky top-2 z-20 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
           <button
             type="button"
             onClick={() => { setCollapsed(false); setSidebarOpen(true); }}
