@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../src/db";
-import { tenants, users, tenantInvitations, tenantUsers, plans, tenantSubscriptions, agents, discoverySessions } from "../src/db/schema";
+import { tenants, users, tenantInvitations, tenantUsers, managerSessions, plans, tenantSubscriptions, agents, discoverySessions } from "../src/db/schema";
 import { eq, and } from "drizzle-orm";
 import { hashToken } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
@@ -33,11 +33,12 @@ suite("control-plane concurrency invariants", () => {
   beforeAll(async () => { await applyMigrations(); });
   beforeEach(async () => {
     await truncateAll();
+    const managerExpiry = Math.floor(Date.now() / 1000) + 3600;
     vi.mocked(validateManager).mockResolvedValue({
 
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      exp: managerExpiry,
       sub: "manager",
       tenantId: "tenant_control_plane",
       userId: "user_control_plane",
@@ -46,7 +47,7 @@ suite("control-plane concurrency invariants", () => {
     vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      exp: managerExpiry,
       sub: "manager",
       tenantId: "tenant_control_plane",
       userId: "user_control_plane",
@@ -60,6 +61,12 @@ suite("control-plane concurrency invariants", () => {
       throw new Error(`unexpected Stripe path: ${path}`);
     });
     await db.insert(tenants).values({ id: "tenant_control_plane", name: "Control Plane Tenant" });
+    await db.insert(users).values({ id: "user_control_plane", email: "control-plane@example.test", passwordHash: "unused" });
+    await db.insert(tenantUsers).values({ userId: "user_control_plane", tenantId: "tenant_control_plane", role: "owner" });
+    await db.insert(managerSessions).values({
+      jti: "test-manager-jti-1234567890", tenantId: "tenant_control_plane",
+      userId: "user_control_plane", role: "owner", expiresAt: new Date(managerExpiry * 1000),
+    });
   });
   afterAll(async () => { await closePool(); });
 
@@ -106,6 +113,8 @@ suite("control-plane concurrency invariants", () => {
   });
 
   it("enforces at most one owner membership per tenant at the database boundary", async () => {
+    // Isolate the uniqueness probe from the manager's seeded owner membership.
+    await db.insert(tenants).values({ id: "tenant_owner_constraint", name: "Owner Constraint Tenant" });
     const firstUserId = `owner_a_${nanoid(8)}`;
     const secondUserId = `owner_b_${nanoid(8)}`;
     await db.insert(users).values([
@@ -113,11 +122,11 @@ suite("control-plane concurrency invariants", () => {
       { id: secondUserId, email: `${secondUserId}@example.test`, passwordHash: "unused" },
     ]);
     await db.insert(tenantUsers).values({
-      userId: firstUserId, tenantId: "tenant_control_plane", role: "owner",
+      userId: firstUserId, tenantId: "tenant_owner_constraint", role: "owner",
     });
     await expect(
       db.insert(tenantUsers).values({
-        userId: secondUserId, tenantId: "tenant_control_plane", role: "owner",
+        userId: secondUserId, tenantId: "tenant_owner_constraint", role: "owner",
       }),
     ).rejects.toThrow();
   });

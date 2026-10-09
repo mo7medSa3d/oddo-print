@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db";
-import { tenants, plans, tenantSubscriptions } from "../src/db/schema";
+import { tenants, users, tenantUsers, managerSessions, plans, tenantSubscriptions } from "../src/db/schema";
 import { nanoid } from "../src/lib/nanoid";
 import { POST as checkout } from "../src/app/api/billing/checkout/route";
 import { validateWorkspaceManager } from "../src/lib/manager-auth";
@@ -36,10 +36,11 @@ suite("billing checkout plan-conflict fence", () => {
   beforeAll(async () => { await applyMigrations(); });
   beforeEach(async () => {
     await truncateAll();
+    const managerExpiry = Math.floor(Date.now() / 1000) + 3600;
     vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      exp: managerExpiry,
       sub: "manager",
       tenantId: "tenant_checkout_conflict",
       userId: "user_checkout_conflict",
@@ -57,6 +58,13 @@ suite("billing checkout plan-conflict fence", () => {
       throw new Error(`unexpected Stripe path: ${path}`);
     });
     await db.insert(tenants).values({ id: "tenant_checkout_conflict", name: "Checkout Conflict Tenant" });
+    // Real mutation authority is rechecked inside the transaction, not just at the mocked login boundary.
+    await db.insert(users).values({ id: "user_checkout_conflict", email: "checkout-conflict@example.test", passwordHash: "unused" });
+    await db.insert(tenantUsers).values({ userId: "user_checkout_conflict", tenantId: "tenant_checkout_conflict", role: "owner" });
+    await db.insert(managerSessions).values({
+      jti: "test-manager-jti-1234567890", tenantId: "tenant_checkout_conflict",
+      userId: "user_checkout_conflict", role: "owner", expiresAt: new Date(managerExpiry * 1000),
+    });
   });
   afterAll(async () => { await closePool(); });
 
