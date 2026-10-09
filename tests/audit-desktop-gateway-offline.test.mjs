@@ -73,7 +73,7 @@ test("candidate probe preserves HTTP failure and still rejects non-Gateway respo
     isTauri: true,
     normalizeGatewayUrl: (value) => value,
     invoke: async (command, args) => { requests.push({ command, args }); return response; },
-  }, () => `${slice(ipcSource, "function gatewayErrorMessage", "async function gatewayRequest")}
+  }, () => `${slice(ipcSource, "function gatewayErrorMessage", "async function gatewayConsoleRequest")}
            ${slice(ipcSource, "export async function probeGatewayHealth", "export async function fetchGatewayHealth")}`);
   await assert.rejects(api.probeGatewayHealth("https://print.yaseir.cloud"), (error) => error.status === 500 && error.message === "INTERNAL_ERROR");
   response = { status: 200, body: '{"ok":true}' };
@@ -115,7 +115,7 @@ test("failed candidate check keeps configuration and presents HTTP guidance once
 
 test("native probe records bounded diagnostics without response bodies or credentials", async () => {
   const source = await readFile("src-tauri/src/commands.rs", "utf8");
-  const probe = slice(source, "pub async fn probe_gateway_health", "fn configured_gateway_origin");
+  const probe = slice(source, "pub async fn probe_gateway_health", "pub struct AgentGatewayRequestArgs");
   assert.match(probe, /Gateway probe started/);
   assert.match(probe, /status=\{status\} confirmed=\{confirmed\}/);
   assert.match(probe, /logging::warn/);
@@ -151,13 +151,15 @@ test("legacy trailing-slash Gateway values are canonicalized before connectivity
 });
 
 
-test("desktop reuses one native HTTP client for probe and authenticated Gateway requests", async () => {
+test("desktop reuses one native HTTP client for probe and isolates paired Agent requests", async () => {
   const source = await readFile("src-tauri/src/commands.rs", "utf8");
   assert.match(source, /static GATEWAY_HTTP_CLIENT: OnceLock<reqwest::Client>/);
   assert.match(source, /fn gateway_http_client\(\)/);
   assert.equal((source.match(/reqwest::Client::builder\(\)/g) ?? []).length, 1);
   const probe = slice(source, "pub async fn probe_gateway_health", "fn gateway_request_id");
   assert.match(probe, /gateway_http_client\(\)/);
-  const request = slice(source, "pub async fn gateway_request", "#\[tauri::command\]");
-  assert.match(request, /gateway_http_client\(\)/);
+  assert.doesNotMatch(source, /pub async fn gateway_request\\(/);
+  assert.match(source, /pub async fn gateway_agent_request/);
+  const gateway=await readFile("agent/cmd/cli/gateway.go","utf8");
+  assert.match(gateway, /req.Header.Set\\("Authorization", "Bearer "/);
 });
