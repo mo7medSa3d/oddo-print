@@ -59,6 +59,7 @@ export interface DesktopState {
   printers: PrinterInfo[];
   discoveredPrinters: PrinterInfo[];
   discoveredVirtualPrinters: PrinterInfo[];
+  pendingVirtualGatewayPrinters: PrinterInfo[];
   discoveryWarning: string | null;
   printersLoading: boolean;
   printersError: string | null;
@@ -74,6 +75,7 @@ export interface DesktopState {
   nowMs: number;
   refreshPrinters: () => void;
   handleDiscover: () => void;
+  enableVirtualPrinterTest: (p: PrinterInfo) => void;
   handleTest: (id: string) => void;
   showAdd: boolean;
   setShowAdd: (v: boolean) => void;

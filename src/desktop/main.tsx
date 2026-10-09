@@ -48,6 +48,7 @@ import {
   getGatewayUrl,
   getPrinters,
   fetchGatewayPrinters,
+  fetchGatewayAgents,
   registerGatewayPrinter,
   getRuntimePaths,
   isTauri,
@@ -536,6 +537,64 @@ export default function App() {
       setPrintersLoading(false);
     }
   }, [refreshPrinters, t, locale]);
+
+  const enableVirtualPrinterTest = useCallback(async (candidate: PrinterInfo) => {
+    if (!savedGatewayUrl) {
+      setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
+      return;
+    }
+    if (busyRef.current) return;
+    // Require a real local discovery result; an arbitrary WebView row is
+    // insufficient to request a Gateway test destination.
+    const local = discoveredVirtualPrinters.find((row) => row.id === candidate.id &&
+      (row.spoolerName ?? row.spooler_name) === (candidate.spoolerName ?? candidate.spooler_name));
+    const spoolerName = (local?.spoolerName ?? local?.spooler_name ?? "").trim();
+    if (!isTauri || !local || !isVirtualPrinter(local) || !spoolerName ||
+        /fax|redirected| in session |citrix|thinprint|remote desktop|vmware|yaseir_virtual_test_capture/i.test(spoolerName)) {
+      setMsg({ text: t("desktop.printers.virtualUnavailable"), type: "error" });
+      return;
+    }
+    if (printers.some((remote) =>
+      remote.lifecycle !== "retired" &&
+      (remote.config?.spooler_name === spoolerName || remote.spoolerName === spoolerName))) {
+      setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
+      return;
+    }
+    if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
+
+    setBusyBoth(true);
+    try {
+      // GET /api/agents is fenced by the paired Agent credential, returning
+      // only that Agent. Never trust an Agent ID from UI inventory or user input.
+      const owned = await fetchGatewayAgents(savedGatewayUrl);
+      if (owned.length !== 1 || !owned[0]?.id || owned[0].lifecycle !== "active") {
+        throw Object.assign(new Error("Paired Agent is missing or inactive"), { status: 401 });
+      }
+      await registerGatewayPrinter(savedGatewayUrl, {
+        name: local.name,
+        agentId: owned[0].id,
+        connectionType: "spooler",
+        protocol: "spooler",
+        spoolerName,
+        printerType: "virtual",
+        virtualSpoolerTest: true,
+      });
+      await refreshPrinters();
+      setMsg({ text: t("desktop.printers.virtualRegistered"), type: "success" });
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status;
+      if (status === 409) {
+        await refreshPrinters();
+        setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
+      } else {
+        setMsg({ text: status === 401 || status === 403 || status === 404
+          ? t("desktop.printers.virtualAgentMissing")
+          : friendlyPrinterError(errMsg(error), locale), type: "error" });
+      }
+    } finally {
+      setBusyBoth(false);
+    }
+  }, [savedGatewayUrl, discoveredVirtualPrinters, printers, refreshPrinters, setBusyBoth, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
@@ -1042,6 +1101,7 @@ export default function App() {
     printers: physicalPrinters,
     discoveredPrinters,
     discoveredVirtualPrinters,
+    pendingVirtualGatewayPrinters: printers.filter(isPendingVirtualSpoolerTestPrinter),
     discoveryWarning,
     printersLoading,
     printersError,
@@ -1056,6 +1116,7 @@ export default function App() {
     nowMs,
     refreshPrinters,
     handleDiscover,
+    enableVirtualPrinterTest,
     handleTest,
     showAdd,
     setShowAdd,

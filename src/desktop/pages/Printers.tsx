@@ -61,7 +61,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
           />
           <ul className="divide-y divide-edge-subtle">
             {s.discoveredVirtualPrinters.map((p) => {
-              const linked = s.printers.find((remote) => remote.agentId === p.agentId &&
+              const linked = [...s.printers, ...s.pendingVirtualGatewayPrinters].find((remote) =>
                 (remote.config?.spooler_name === (p.spoolerName ?? p.spooler_name) ||
                  remote.spoolerName === (p.spoolerName ?? p.spooler_name)) && remote.lifecycle !== "retired");
               return (
@@ -78,7 +78,9 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                         {isProductionPrinter(linked) && <Button size="sm" variant="secondary" disabled={s.busy} onClick={() => s.handleTest(linked.id)} icon={<Play className="h-4 w-4" />}>{t("desktop.printers.test")}</Button>}
                       </>
                     ) : (
-                      <span className="text-xs text-ink-3">{t("desktop.printers.virtualGatewayApproval")}</span>
+                      <Button size="sm" variant="primary" disabled={s.busy} onClick={() => s.enableVirtualPrinterTest(p)}>
+                         {t("desktop.printers.virtualEnable")}
+                       </Button>
                     )}
                   </div>
                 </li>
