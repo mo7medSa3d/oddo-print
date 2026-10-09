@@ -123,7 +123,7 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.match(gateway, /<ShellSearchButton/);
   assert.match(gateway, /main className="page-transition min-w-0 max-w-full"/);
   assert.match(desktop, /<header className="tg-desktop-topbar/);
-  assert.match(desktop, /<Modal open=\\{navSearchOpen\\}/);
+  assert.match(desktop, /<Modal open=\{navSearchOpen\}/);
   assert.doesNotMatch(desktop, /<BreadcrumbTrail/);
   assert.match(desktop, /<PrintersPage s=\{state\}/);
   assert.match(desktop, /<JobsPage s=\{state\}/);

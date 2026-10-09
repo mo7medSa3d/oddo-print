@@ -158,8 +158,8 @@ test("desktop reuses one native HTTP client for probe and isolates paired Agent 
   assert.equal((source.match(/reqwest::Client::builder\(\)/g) ?? []).length, 1);
   const probe = slice(source, "pub async fn probe_gateway_health", "fn gateway_request_id");
   assert.match(probe, /gateway_http_client\(\)/);
-  assert.doesNotMatch(source, /pub async fn gateway_request\\(/);
+  assert.doesNotMatch(source, /pub async fn gateway_request\(/);
   assert.match(source, /pub async fn gateway_agent_request/);
   const gateway=await readFile("agent/cmd/cli/gateway.go","utf8");
-  assert.match(gateway, /req.Header.Set\\("Authorization", "Bearer "/);
+  assert.match(gateway, /req.Header.Set\("Authorization", "Bearer "/);
 });
