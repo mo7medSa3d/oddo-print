@@ -393,7 +393,7 @@ function ConsoleShell({
         className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
         {/* Shared TailGrids-style breadcrumb / command navbar for the desktop console. */}
-        <header className="tg-console-topbar sticky top-3 z-30 mb-2 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:me-3 lg:mt-3 lg:flex xl:px-6">
+        <header className="tg-console-topbar sticky top-3 z-30 mb-2 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:mx-3 lg:mt-3 lg:flex xl:px-6">
           <BreadcrumbTrail
             parent={t("nav.section.workspace")}
             current={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
