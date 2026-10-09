@@ -164,7 +164,11 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
   const saved=[];
   let identity={kind:'manager',claims:{tenantId:'tenant-one',userId:'user-one'}};
   const tx={
-    execute:async query=>({rows:query.segments?.join('')?.includes('SELECT lifecycle FROM agents')?[{lifecycle:'active'}]:[]}),
+    execute:async query=>({
+      rows:query.segments?.join('')?.includes('SELECT lifecycle FROM agents')
+        && query.values?.[0]==='agent-one' && query.values?.[1]==='tenant-one'
+        ?[{lifecycle:'active'}]:[],
+    }),
     insert:()=>({values:(data)=>({returning:async()=>{saved.push(data);return [{...data}];}})}),
   };
   const api=actualModule('src/app/api/printers/route.ts',{
@@ -215,7 +219,7 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
   identity={kind:'agent',agent:{id:'other-agent',tenantId:'tenant-one'}};
   assert.equal((await api.POST(req(data))).status,403,'Agent cannot authorize a printer owned by another Agent');
   identity={kind:'agent',agent:{id:'agent-one',tenantId:'other-tenant'}};
-  assert.equal((await api.POST(req(data))).status,403,'cross-tenant Agent identity cannot target this printer');
+  assert.equal((await api.POST(req(data))).status,404,'a foreign-tenant Agent must not find this printer owner');
   identity={kind:'agent',agent:{id:'agent-one',tenantId:'tenant-one'}};
   assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'Fax'}}))).status,400);
   assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'HP (redirected 3)'}}))).status,400);
