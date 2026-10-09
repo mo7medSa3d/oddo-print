@@ -41,7 +41,9 @@ function makeShell({account, currentOrigin=origin, getSession=async()=>sampleMe(
   const snapshots=[];const effects=[];const navigation=[];const messages=[];
   const ctx=vm.createContext({
     savedGatewayUrl:origin,savedOriginRef:{current:currentOrigin},
-    useState:initial=>[account??initial,next=>snapshots.push(next)],
+    useState:initial=>[typeof initial==='function'?initial():initial,next=>snapshots.push(next)],
+    // The isolated shell fragment starts after the clock hook in production.
+    nowMs: Date.now(),
     useRef:initial=>({current:initial}),useCallback:fn=>fn,useEffect:fn=>effects.push(fn),
     onManagerAuthChanged:()=>()=>{},getManagerSession:getSession,
     loginManager:login??(async()=>sampleMe()),logoutManager:logout??(async()=>{}),

@@ -1,4 +1,4 @@
-import { createRequire } from 'node:test';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
