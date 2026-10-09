@@ -17,14 +17,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Moon,
-  Search,
   Sun,
   X,
 } from "lucide-react";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
 import { Avatar, Menu, useDialog, type MenuItemSpec } from "./ui";
-import { CommandHint, CommandPalette, type CommandItem } from "./CommandPalette";
+import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { ensureCustomerSession } from "../lib/session-config";
 import { BrandMark } from "./brand";
@@ -363,15 +362,6 @@ function ConsoleShell({
         <div className="shrink-0 border-t border-edge-subtle p-2.5">
           {collapsed ? (
             <div className="flex flex-col items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setPaletteOpen(true)}
-                aria-label={t("common.search")}
-                title={t("nav.searchHint")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-              >
-                <Search className="h-4 w-4" aria-hidden />
-              </button>
               <LanguageSwitcher align="start" placement="above" compact className="w-auto" />
               <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} compact />
               <button
@@ -386,7 +376,7 @@ function ConsoleShell({
             </div>
           ) : (
             <div className="space-y-2">
-              <CommandHint onOpen={() => setPaletteOpen(true)} />
+
               <div className="flex items-center gap-2">
                 <LanguageSwitcher align="start" placement="above" className="shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -403,7 +393,7 @@ function ConsoleShell({
         className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
         {/* Shared TailGrids-style breadcrumb / command navbar for the desktop console. */}
-        <header className="tg-console-topbar sticky top-0 z-30 hidden h-16 min-w-0 items-center justify-between gap-4 px-5 lg:flex xl:px-8">
+        <header className="tg-console-topbar sticky top-0 z-30 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:flex xl:px-6">
           <BreadcrumbTrail
             parent={t("nav.section.workspace")}
             current={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
@@ -415,7 +405,7 @@ function ConsoleShell({
           </div>
         </header>
         {/* Mobile chrome */}
-        <header className="tg-console-topbar glass-chrome sticky top-0 z-30 flex h-16 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
+        <header className="tg-console-topbar glass-chrome sticky top-0 z-30 flex h-14 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -428,6 +418,7 @@ function ConsoleShell({
             <ConsoleBrand brandSubtitle={t("brand.tagline")} />
           </Link>
           <div className="ms-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} compact onClick={() => setPaletteOpen(true)} />
             <LanguageSwitcher compact />
             <ThemeToggle />
             <span className="hidden min-[400px]:inline-flex"><Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" /></span>
