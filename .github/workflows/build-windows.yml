@@ -336,6 +336,14 @@ jobs:
             if (Test-Path $path) { throw "NSIS uninstall left shared runtime data behind: $path" }
           }
 
+          # The perMachine NSIS hook invokes Agent -service purge in an
+          # elevated installation context. Its ownership-verified removal is
+          # intentionally restricted to SCM services and trusted ProgramData.
+          # Do not demand deletion of an arbitrary interactive user's profile:
+          # the admin/process account need not be that user, and recursively
+          # deleting profiles would violate our ownership / reparse safety rules.
+          # Report user-scoped leftovers explicitly, without treating them as
+          # a successfully performed cleanup.
           $userDataRoots = @(
             (Join-Path $env:LOCALAPPDATA "YaseirManager"),
             (Join-Path $env:LOCALAPPDATA "YasserManager"),
@@ -353,9 +361,11 @@ jobs:
             (Join-Path $env:APPDATA "com.yasser.manager")
           )
           foreach ($path in $userDataRoots) {
-            if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }
+            if (Test-Path -LiteralPath $path) {
+              Write-Warning "NSIS uninstall left per-user state outside its owned machine cleanup scope: $path"
+            }
           }
-          Write-Host "NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed."
+          Write-Host "NSIS machine uninstall verified: owned service, install files, and ProgramData removed; per-user cleanup remains separate."
       - name: Save Rust build and Tauri tooling cache
         if: steps.rust-tauri-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
