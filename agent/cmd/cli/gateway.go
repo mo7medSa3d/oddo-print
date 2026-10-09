@@ -198,6 +198,11 @@ func isAllowedJobsPath(path string) bool {
 }
 
 func isAllowedGatewayConsolePath(path, method string) bool {
+	// Match the Rust WebView boundary: neither direct CLI callers nor decoded
+	// URLs may smuggle dot segments into authenticated Agent operations.
+	if strings.Contains(path, "..") || strings.Contains(path, "\\") {
+		return false
+	}
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
 		return path == "/api/printers" ||
