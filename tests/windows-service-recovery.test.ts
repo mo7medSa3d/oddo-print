@@ -90,11 +90,13 @@ describe("windows-service-recovery", () => {
       "YaseirManager",
       "YasserManager",
       "OdooPrintManager",
-      "Odoo Print Manager",
-      "com.yasser.manager",
+      // Only exact owned directory identities are permitted; names with spaces
+      // and unrelated application identifiers must never be recursively purged.
     ]) {
       expect(windowsInstall).toContain(`"${dir}"`);
     }
+    expect(windowsInstall).not.toContain('"Odoo Print Manager"');
+    expect(windowsInstall).not.toContain('"com.yasser.manager"');
     expect(windowsInstall).toContain('filepath.Join(systemDrive+string(os.PathSeparator), "Users")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Local")');
     expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Roaming")');
