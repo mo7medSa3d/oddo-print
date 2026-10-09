@@ -97,13 +97,12 @@ describe("windows-service-recovery", () => {
     }
     expect(windowsInstall).not.toContain('"Odoo Print Manager"');
     expect(windowsInstall).not.toContain('"com.yasser.manager"');
-    expect(windowsInstall).toContain('filepath.Join(systemDrive+string(os.PathSeparator), "Users")');
-    expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Local")');
-    expect(windowsInstall).toContain('filepath.Join(profile, "AppData", "Roaming")');
-    expect(windowsInstall).toContain('"OdooPrintManager"');
-    expect(windowsInstall).toContain('"Odoo Print Manager"');
-    expect(windowsInstall).toContain("purgeAutostartRegistry");
-    expect(windowsInstall).toContain("registry.USERS");
+    // Machine cleanup uses trusted ProgramData roots; it must not enumerate
+    // profiles or other users' registry hives during elevated uninstall.
+    expect(windowsInstall).toContain("trusted ProgramData");
+    expect(windowsInstall).toContain("func purgeInstallationData() error");
+    expect(windowsInstall).not.toContain("registry.USERS");
+    expect(windowsInstall).not.toContain('filepath.Join(profile, "AppData", "Local")');
     expect(windowsInstall).toContain("func purgeLegacyAgentServices()");
     expect(windowsInstall).toContain('"YasserAgent"');
     expect(windowsInstall).toContain('"OdooPrintAgent"');
