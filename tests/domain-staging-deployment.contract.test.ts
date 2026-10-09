@@ -13,8 +13,10 @@ describe("domain staging deployment contracts", () => {
     expect(domainCompose).toContain("postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea");
     expect(domainCompose).toContain("caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e");
 
-    expect(compose).toContain("${APP_BASE_URL:-https://print.yaseir.cloud}");
-    expect(compose).toContain("${GATEWAY_DOMAIN:-print.yaseir.cloud}");
+    expect(compose).toContain("APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set to the public Gateway URL}");
+    expect(compose).not.toContain("YASEIR_HTTP_TEST_MODE");
+    expect(compose).not.toContain("YASSER_HTTP_TEST_MODE");
+    expect(compose).toContain("GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:?GATEWAY_DOMAIN must be set to a DNS name for production TLS}");
     expect(compose).toContain('COOKIE_SECURE: ${COOKIE_SECURE:-1}');
     expect(compose).toContain('TRUST_PROXY: ${TRUST_PROXY:-1}');
     expect(compose).toContain("expose:");
@@ -24,6 +26,7 @@ describe("domain staging deployment contracts", () => {
 
     expect(domainCompose).toContain("- postgres_http_test_data:/var/lib/postgresql/data");
     expect(domainCompose).toContain("name: ${HTTP_TEST_VOLUME_NAME:?HTTP_TEST_VOLUME_NAME must be set}");
+    expect(domainCompose).toContain('YASEIR_HTTP_TEST_MODE: "1"');
     expect(domainCompose).toContain('"80:80"');
     expect(domainCompose).toContain('"443:443"');
     const domainGatewayBlock = domainCompose.split("\n  caddy:\n")[0].split("\n  gateway:\n")[1];

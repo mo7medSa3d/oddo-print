@@ -2,7 +2,7 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   pull_request:
     branches: [main]
   merge_group:
@@ -336,22 +336,26 @@ jobs:
             if (Test-Path $path) { throw "NSIS uninstall left shared runtime data behind: $path" }
           }
 
-          # A perMachine NSIS uninstall runs under the elevated uninstall identity,
-          # not necessarily the user who launched WebView2. The Agent's owned
-          # service purge intentionally does not traverse user profiles or delete
-          # other users' data. Test machine-scoped cleanup strictly above, and
-          # report user-scoped leftovers without claiming they were removed.
           $userDataRoots = @(
+            (Join-Path $env:LOCALAPPDATA "YaseirManager"),
+            (Join-Path $env:LOCALAPPDATA "YasserManager"),
+            (Join-Path $env:LOCALAPPDATA "Yaseir Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "Yasser Print Manager"),
+            (Join-Path $env:LOCALAPPDATA "OdooPrintManager"),
+            (Join-Path $env:LOCALAPPDATA "Odoo Print Manager"),
             (Join-Path $env:LOCALAPPDATA "com.yasser.manager"),
+            (Join-Path $env:APPDATA "YaseirManager"),
+            (Join-Path $env:APPDATA "YasserManager"),
+            (Join-Path $env:APPDATA "Yaseir Print Manager"),
+            (Join-Path $env:APPDATA "Yasser Print Manager"),
+            (Join-Path $env:APPDATA "OdooPrintManager"),
+            (Join-Path $env:APPDATA "Odoo Print Manager"),
             (Join-Path $env:APPDATA "com.yasser.manager")
           )
           foreach ($path in $userDataRoots) {
-            if (Test-Path -LiteralPath $path) {
-              Write-Warning "User-scoped Tauri data remains after machine uninstall: $path. Per-user cleanup is not part of the privileged NSIS purge."
-            }
+            if (Test-Path $path) { throw "NSIS uninstall left current-user runtime data behind: $path" }
           }
-          Write-Host "NSIS machine uninstall verified: service, install files, and ProgramData removed. User profiles were not traversed."
-
+          Write-Host "NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed."
       - name: Save Rust build and Tauri tooling cache
         if: steps.rust-tauri-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
