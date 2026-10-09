@@ -1157,12 +1157,16 @@
     box-shadow: var(--shadow-md);
   }
 
+  /* Floating app-frame chrome: matches the inset rail's radius, border and
+     elevation instead of looking like a detached full-bleed toolbar. */
   .tg-console-topbar,
   .tg-desktop-topbar {
     background: var(--surface-overlay);
     -webkit-backdrop-filter: blur(20px) saturate(165%);
     backdrop-filter: blur(20px) saturate(165%);
-    border-bottom: 1px solid var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2xl);
+    box-shadow: var(--shadow-md);
   }
 
   .tg-sidebar-label {
@@ -1308,6 +1312,14 @@
 
   .tg-panel-title {
     letter-spacing: -0.017em;
+  }
+}
+
+/* Keep the header compact on narrow screens without sharp corners. */
+@media (max-width: 639.98px) {
+  .tg-console-topbar,
+  .tg-desktop-topbar {
+    border-radius: var(--r-lg);
   }
 }
 

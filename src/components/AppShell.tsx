@@ -334,7 +334,7 @@ function ConsoleShell({
           transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined,
         }}
       >
-        <div className={`flex h-16 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-4"}`}>
+        <div className={`flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-4"}`}>
           <Link
             href="/dashboard"
             aria-label={t("nav.home")}
@@ -393,7 +393,7 @@ function ConsoleShell({
         className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
         {/* Shared TailGrids-style breadcrumb / command navbar for the desktop console. */}
-        <header className="tg-console-topbar sticky top-0 z-30 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:flex xl:px-6">
+        <header className="tg-console-topbar sticky top-3 z-30 mb-2 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:me-3 lg:mt-3 lg:flex xl:px-6">
           <BreadcrumbTrail
             parent={t("nav.section.workspace")}
             current={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
@@ -405,7 +405,7 @@ function ConsoleShell({
           </div>
         </header>
         {/* Mobile chrome */}
-        <header className="tg-console-topbar glass-chrome sticky top-0 z-30 flex h-14 min-w-0 items-center gap-1.5 border-b border-edge/80 px-3 sm:gap-2 lg:hidden">
+        <header className="tg-console-topbar glass-chrome sticky top-2 z-30 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-1.5 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-2 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}

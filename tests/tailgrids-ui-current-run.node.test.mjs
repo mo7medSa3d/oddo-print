@@ -131,6 +131,28 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.match(desktopNav, /<NavIconFrame active=\{active\}/);
 });
 
+test('Gateway and Agent float at matching 12px app-frame insets with a unified surface', () => {
+  const css = read('src/app/globals.css');
+  const gateway = read('src/components/AppShell.tsx');
+  const desktop = read('src/desktop/main.tsx');
+  const rail = read('src/desktop/components/Sidebar.tsx');
+  const floatingCss = css.slice(css.indexOf('  .tg-console-topbar,'));
+  assert.match(floatingCss, /border: 1px solid var\(--border\)/);
+  assert.match(floatingCss, /border-radius: var\(--r-2xl\)/);
+  assert.match(floatingCss, /box-shadow: var\(--shadow-md\)/);
+  assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: calc\(var\(--nav-w\) \+ 24px\)/);
+  assert.match(gateway, /tg-console-topbar sticky top-3/);
+  assert.match(gateway, /lg:me-3 lg:mt-3/);
+  assert.match(gateway, /tg-console-topbar glass-chrome sticky top-2/);
+  assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
+  assert.match(desktop, /tg-desktop-topbar sticky top-2/);
+  assert.match(desktop, /lg:ms-0 lg:me-3/);
+  assert.match(desktop, /lg:ps-\[104px\]/);
+  assert.match(desktop, /lg:ps-\[288px\]/);
+  assert.match(rail, /lg:inset-y-3 lg:start-3/);
+  assert.match(rail, /flex h-14 shrink-0 items-center gap-3 border-b/);
+});
+
 test('motion remains optional and Arabic/English themes share one token layer', () => {
   const css = read('src/app/globals.css');
   const desktopCss = read('src/desktop/theme-light.css');
