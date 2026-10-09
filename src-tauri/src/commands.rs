@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
@@ -368,100 +367,13 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
     Ok(format!("{stdout} (saved; start the agent to activate)"))
 }
 
-#[derive(Clone)]
-struct ManagerSession {
-    access_token: String,
-    refresh_token: String,
-}
-
-#[derive(Default)]
-struct ManagerState {
-    origin: String,
-    generation: u64,
-    session: Option<ManagerSession>,
-}
-
-static MANAGER_SESSION: OnceLock<Mutex<ManagerState>> = OnceLock::new();
-static MANAGER_AUTH_FLIGHT: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
-
-fn manager_session_store() -> &'static Mutex<ManagerState> {
-    MANAGER_SESSION.get_or_init(|| Mutex::new(ManagerState::default()))
-}
-
-fn clear_manager_session_inner() {
-    if let Ok(mut guard) = manager_session_store().lock() {
-        guard.generation = guard.generation.wrapping_add(1);
-        guard.session = None;
-    }
-}
-
-fn manager_snapshot() -> Result<(url::Url, u64, Option<ManagerSession>), String> {
-    let mut guard = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
-    let origin = configured_gateway_origin()?;
-    let identity = origin.as_str().to_string();
-    if guard.origin != identity {
-        guard.origin = identity;
-        guard.generation = guard.generation.wrapping_add(1);
-        guard.session = None;
-    }
-    Ok((origin, guard.generation, guard.session.clone()))
-}
-
-fn current_manager_token() -> Option<String> {
-    manager_snapshot().ok().and_then(|(_, _, session)| session.map(|s| s.access_token))
-}
-
-fn is_public_gateway_path(path: &str) -> bool {
-    path == "/api/health"
-        || path == "/api/agent/probe"
-        || path == "/api/auth/manager/login"
-        || path == "/api/auth/manager/refresh"
-}
-
-fn uses_manager_refresh_credential(path: &str) -> bool {
-    path == "/api/auth/manager/refresh" || path == "/api/auth/manager/logout"
-}
-
-#[tauri::command]
-pub fn clear_manager_session() {
-    clear_manager_session_inner();
-}
-
-#[tauri::command]
-pub fn has_manager_session() -> bool {
-    current_manager_token().is_some()
-}
-
-#[derive(Deserialize)]
-pub struct GatewayRequestArgs {
-    pub expected_origin: String,
-    pub path: String,
-    pub method: String,
-    #[serde(default)]
-    pub headers: HashMap<String, String>,
-    pub body: Option<String>,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct GatewayResponse {
     pub status: u16,
     pub body: String,
 }
 
-fn method_from_str(value: &str) -> Result<reqwest::Method, String> {
-    let method = value
-        .trim()
-        .parse::<reqwest::Method>()
-        .map_err(|_| "unsupported HTTP method".to_string())?;
-    match method {
-        reqwest::Method::GET | reqwest::Method::POST | reqwest::Method::PATCH => Ok(method),
-        _ => Err("HTTP method is not permitted by the desktop Gateway boundary".into()),
-    }
-}
-
-/// Read a Gateway response incrementally. Buffering the complete body before
-/// checking its size would make the advertised limit ineffective for chunked
-/// responses, so the 8 MiB boundary is enforced while reading.
+static GATEWAY_CONFIG_LOCK: Mutex<()> = Mutex::new(());
 static GATEWAY_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn gateway_http_client() -> Result<&'static reqwest::Client, String> {
@@ -587,168 +499,6 @@ fn log_gateway_probe_error(base: &str, started: std::time::Instant, detail: Stri
     let message = format!("Gateway probe failed: {detail}");
     logging::error(&format!("{message} origin={base} elapsed_ms={}", started.elapsed().as_millis()));
     message
-}
-
-fn configured_gateway_origin() -> Result<url::Url, String> {
-    let cfg = get_gateway_config()?;
-    if cfg.url.is_empty() {
-        return Err("Gateway URL is not configured".into());
-    }
-    normalize_gateway_url(&cfg.url)?
-        .parse::<url::Url>()
-        .map_err(|e| format!("invalid configured gateway URL: {e}"))
-}
-
-#[tauri::command]
-pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse, String> {
-    let path = args.path.trim();
-    let base_path = path.split('?').next().unwrap_or("");
-    if path.contains('#') || base_path.contains('%') || path.chars().any(|c| c.is_control()) {
-        return Err("Gateway paths must use literal API segments without fragments or controls".into());
-    }
-    let auth_path = base_path.starts_with("/api/auth/");
-    if auth_path && path != base_path {
-        return Err("Authentication paths do not accept query strings".into());
-    }
-    let _auth_flight = if auth_path {
-        Some(MANAGER_AUTH_FLIGHT.get_or_init(|| tauri::async_runtime::Mutex::new(())).lock().await)
-    } else { None };
-    let (origin, generation, session) = manager_snapshot()?;
-    // A renderer request is bound to the origin captured when the operator
-    // initiated it. Never silently retarget it if Settings changed mid-flight.
-    let expected_origin = normalize_gateway_url(&args.expected_origin)?;
-    if expected_origin != origin.as_str().trim_end_matches('/') {
-        return Err("Gateway origin changed before the request was sent; reconcile the original operation".into());
-    }
-    if !path.starts_with("/api/") || path.contains("..") || path.contains('\\') {
-        return Err("gateway request path must be an API-relative path".into());
-    }
-    let target = origin
-        .join(path.trim_start_matches('/'))
-        .map_err(|e| format!("invalid gateway request path: {e}"))?;
-    if target.scheme() != origin.scheme()
-        || target.host_str() != origin.host_str()
-        || target.port_or_known_default() != origin.port_or_known_default()
-    {
-        return Err("gateway request must stay on the configured Gateway origin".into());
-    }
-
-    if target.path() != base_path || target.query_pairs().any(|(key, _)| matches!(key.to_ascii_lowercase().as_str(), "access_token" | "refresh_token" | "token" | "authorization" | "x-refresh-token")) {
-        return Err("Gateway credential queries or nonliteral paths are forbidden".into());
-    }
-    // The renderer cannot supply its own Authorization header. Manager bearer
-    // credentials are held only in Rust process memory for the packaged app.
-    let mut header_budget = 0usize;
-    for (name, value) in &args.headers {
-        if name.eq_ignore_ascii_case("authorization")
-            || name.eq_ignore_ascii_case("cookie")
-            || name.eq_ignore_ascii_case("x-refresh-token")
-            || name.eq_ignore_ascii_case("origin")
-            || name.eq_ignore_ascii_case("host")
-            || name.eq_ignore_ascii_case("content-length")
-            || name.eq_ignore_ascii_case("transfer-encoding")
-            || name.eq_ignore_ascii_case("connection")
-            || name.eq_ignore_ascii_case("upgrade")
-            || name.eq_ignore_ascii_case("x-forwarded-for")
-            || name.eq_ignore_ascii_case("x-forwarded-host")
-            || name.eq_ignore_ascii_case("x-forwarded-proto")
-            || name.eq_ignore_ascii_case("x-real-ip")
-        {
-            return Err("restricted authentication/proxy/transport headers are managed by the desktop boundary".into());
-        }
-        header_budget = header_budget
-            .saturating_add(name.len())
-            .saturating_add(value.len());
-        if header_budget > 64 * 1024 {
-            return Err("Gateway request headers exceed the 64 KiB limit".into());
-        }
-    }
-    let manager_token = if is_public_gateway_path(path) {
-        None
-    } else {
-        session.as_ref().map(|s| s.access_token.clone())
-    };
-    let manager_refresh_token = if uses_manager_refresh_credential(path) {
-        session.as_ref().map(|s| s.refresh_token.clone())
-    } else {
-        None
-    };
-    if uses_manager_refresh_credential(path) && manager_refresh_token.is_none() {
-        return Ok(GatewayResponse {
-            status: 401,
-            body: "{\"error\":\"manager_refresh_authentication_required\"}".into(),
-        });
-    }
-    if !is_public_gateway_path(path) && manager_token.is_none() {
-        return Ok(GatewayResponse {
-            status: 401,
-            body: "{\"error\":\"manager_authentication_required\"}".into(),
-        });
-    }
-
-    let method = method_from_str(&args.method)?;
-    let client = gateway_http_client()?;
-    let mut request = client.request(method, target);
-    request = request.header("Origin", "tauri://localhost");
-    // Restricted headers (host/cookie/authorization/...) already return Err
-    // in the allowlist filter above, so they can never reach this loop.
-    for (name, value) in args.headers {
-        request = request.header(name, value);
-    }
-    if let Some(token) = manager_token {
-        request = request.bearer_auth(token);
-    }
-    if let Some(refresh_token) = manager_refresh_token {
-        request = request.header("X-Refresh-Token", refresh_token);
-    }
-    if let Some(body) = args.body {
-        if body.len() > 8 * 1024 * 1024 {
-            return Err("gateway request body exceeds 8 MiB".into());
-        }
-        request = request.body(body);
-    }
-    let response = request
-        .send()
-        .await
-        .map_err(|e| {
-            let detail = gateway_http_error_detail(e);
-            logging::error(&format!("Gateway request failed path={base_path} error={detail}"));
-            format!("Gateway request failed: {detail}")
-        })?;
-    let status = response.status().as_u16();
-    let body = read_response_body_limited(response, 8 * 1024 * 1024).await?;
-
-    let safe_body = {
-        let mut guard = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
-        if guard.generation != generation || guard.origin != origin.as_str() {
-            return Err("Gateway origin/session changed while the request was in flight; reconcile the original operation before retrying".into());
-        }
-        if path == "/api/auth/manager/logout" || (path == "/api/auth/manager/refresh" && (status == 401 || status == 403)) {
-            guard.session = None;
-            guard.generation = guard.generation.wrapping_add(1);
-        }
-        if auth_path {
-            let mut value: serde_json::Value = serde_json::from_str(&body)
-                .map_err(|_| "Gateway authentication response was invalid JSON")?;
-            let object = value.as_object_mut().ok_or("Gateway authentication response must be an object")?;
-            let access_token = object.remove("accessToken").and_then(|v| v.as_str().map(str::to_string));
-            let refresh_token = object.remove("refreshToken").and_then(|v| v.as_str().map(str::to_string));
-            if (path == "/api/auth/manager/login" || path == "/api/auth/manager/refresh") && (200..300).contains(&status) && object.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                match (access_token, refresh_token) {
-                    (Some(access_token), Some(refresh_token)) if !access_token.is_empty() && !refresh_token.is_empty() => {
-                        guard.generation = guard.generation.wrapping_add(1);
-                        guard.session = Some(ManagerSession { access_token, refresh_token });
-                    }
-                    _ => return Err("Gateway authentication response omitted credentials".into()),
-                }
-            }
-            serde_json::to_string(&value).map_err(|_| "could not sanitize authentication response")?
-        } else { body }
-    };
-    Ok(GatewayResponse {
-        status,
-        body: safe_body,
-    })
 }
 
 #[derive(Deserialize)]
@@ -1058,7 +808,7 @@ pub fn get_gateway_config() -> Result<GatewayConfig, String> {
 #[tauri::command]
 pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, String> {
     let url = normalize_gateway_url(&url)?;
-    let mut state = manager_session_store().lock().map_err(|_| "manager state lock poisoned")?;
+    let state = GATEWAY_CONFIG_LOCK.lock().map_err(|_| "gateway config lock poisoned")?;
     let previous = get_gateway_config().map(|cfg| cfg.url).unwrap_or_default();
     let root = paths::ensure_manager_data_root()
         .map_err(|e| format!("manager data directory is not secure or accessible: {e}"))?;
@@ -1071,9 +821,6 @@ pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, 
         .map_err(|e| format!("secure manager settings file after save: {e}"))?;
     logging::info(&format!("gateway settings saved to {}", path.display()));
     if previous != url {
-        state.generation = state.generation.wrapping_add(1);
-        state.origin = url.clone();
-        state.session = None;
         drop(state);
         app.emit("gateway:config_changed", &url).map_err(|e| format!("Gateway saved but change notification failed: {e}"))?;
     }
@@ -2000,8 +1747,7 @@ mod agent_console_path_tests {
 #[cfg(test)]
 mod security_tests {
     use super::{
-        gateway_http_client, gateway_request_id, is_public_gateway_path, is_valid_code,
-        normalize_gateway_url, uses_manager_refresh_credential,
+        gateway_http_client, gateway_request_id, is_valid_code, normalize_gateway_url,
     };
 
     #[test]
@@ -2016,17 +1762,6 @@ mod security_tests {
         assert_eq!(gateway_request_id(None), "none");
         assert_eq!(gateway_request_id(Some("req-1\r\nERROR: injected")), "req-1ERROR:injected");
         assert_eq!(gateway_request_id(Some(&"a".repeat(200))).len(), 128);
-    }
-
-    #[test]
-    fn only_probe_health_and_manager_login_are_public_gateway_paths() {
-        assert!(is_public_gateway_path("/api/health"));
-        assert!(is_public_gateway_path("/api/agent/probe"));
-        assert!(is_public_gateway_path("/api/auth/manager/login"));
-        assert!(is_public_gateway_path("/api/auth/manager/refresh"));
-        assert!(uses_manager_refresh_credential("/api/auth/manager/refresh"));
-        assert!(!is_public_gateway_path("/api/auth/manager/me"));
-        assert!(!is_public_gateway_path("/api/jobs"));
     }
 
     #[test]
