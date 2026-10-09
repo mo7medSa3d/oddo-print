@@ -1247,6 +1247,45 @@ class PrintGatewayConfig(models.Model):
                 else:
                     url_migrations[record.id] = None
 
+        # Rotating an installation credential is a change of Gateway API-key
+        # *identity*, even if its base URL stays the same. The Gateway stores
+        # activation per key row. Preserve the old encrypted credential and
+        # fence shutdown BEFORE enabling the replacement, just as URL moves
+        # and key removal already do. Never replace an earlier pending fence.
+        key_migrations = {}
+        if "gateway_api_key" in vals and vals["gateway_api_key"] and not skip_enabled_sync:
+            for record in self:
+                if not record.gateway_api_key:
+                    continue
+                try:
+                    old_key = record._gateway_api_key_plaintext()
+                except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+                    raise ValidationError(
+                        _("Cannot replace the Gateway installation key until the previous credential can be decrypted.")
+                    ) from exc
+                if _same_credential(old_key, vals["gateway_api_key"]):
+                    continue  # Same identity, possibly only re-encrypted.
+                if record.pending_disable_gateway_url:
+                    raise ValidationError(
+                        _("Complete the previous Gateway credential or URL shutdown before replacing the API key again.")
+                    )
+                if record.id in url_migrations:
+                    continue  # The URL migration already fences this old key.
+                remote_may_still_be_enabled = bool(
+                    record.enabled
+                    or record.last_enabled_sync_error
+                    or int(record.last_enabled_sync_revision) != before_revision[record.id]
+                )
+                if remote_may_still_be_enabled and record.last_test_status != "revoked":
+                    try:
+                        old_url = record._gateway_base(for_request=True)
+                        protected_old_key = self._protected_gateway_api_key(old_key)
+                    except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError) as exc:
+                        raise ValidationError(
+                            _("Cannot replace the Gateway installation key until the old key can be safely stored for shutdown.")
+                        ) from exc
+                    key_migrations[record.id] = (old_url, protected_old_key)
+
         if "gateway_api_key" in vals and vals["gateway_api_key"]:
             try:
                 vals["gateway_api_key"] = self._protected_gateway_api_key(vals["gateway_api_key"])
@@ -1276,7 +1315,7 @@ class PrintGatewayConfig(models.Model):
                         # exactly when the revision starts awaiting the
                         # Gateway, cleared when an outcome is recorded.
                         "pending_sync_revision": new_revision,
-                        "pending_sync_started_at": fields.Datetime.now(),
+                        "pending_sync_started_at": db_now_utc(self.env.cr),
                     }
                     if api_key_changed:
                         technical_values.update({
@@ -1285,7 +1324,7 @@ class PrintGatewayConfig(models.Model):
                             "last_test_error": False,
                         })
                     migration = url_migrations.get(record.id)
-                    pending_disable = migration if url_changed else (key_removal_shutdowns.get(record.id) if key_removed else None)
+                    pending_disable = migration if url_changed else (key_removal_shutdowns.get(record.id) if key_removed else key_migrations.get(record.id))
                     if pending_disable:
                         old_url, old_api_key_protected = pending_disable
                         technical_values.update({
@@ -1334,19 +1373,32 @@ class PrintGatewayConfig(models.Model):
                     # fenced reconciliation. Reusing the previous activation
                     # revision can leave the UI stuck on Action needed when
                     # the Gateway never observed the key transition.
-                    record.sudo().write({
-                        "enabled_sync_revision": before_revision[record.id] + 1,
+                    next_revision = before_revision[record.id] + 1
+                    technical_values = {
+                        "enabled_sync_revision": next_revision,
                         "last_enabled_sync_error": False,
-                        "pending_sync_revision": before_revision[record.id] + 1,
-                        "pending_sync_started_at": fields.Datetime.now(),
+                        "pending_sync_revision": next_revision,
+                        "pending_sync_started_at": db_now_utc(self.env.cr),
                         "last_test_status": "draft",
                         "last_test_at": False,
                         "last_test_error": False,
-                    })
+                    }
+                    if record.id in key_migrations:
+                        old_url, old_key_protected = key_migrations[record.id]
+                        technical_values.update({
+                            "pending_disable_gateway_url": old_url,
+                            "pending_disable_gateway_api_key": old_key_protected,
+                            "pending_disable_revision": next_revision,
+                            "last_gateway_migration_sync_error": False,
+                        })
+                    record.sudo().write(technical_values)
                     record.invalidate_recordset([
                         "enabled_sync_revision",
                         "last_enabled_sync_revision",
                         "last_enabled_sync_error",
+                        "pending_disable_gateway_url",
+                        "pending_disable_gateway_api_key",
+                        "pending_disable_revision",
                         "gateway_sync_state",
                         "gateway_sync_message",
                     ])
@@ -1367,7 +1419,7 @@ class PrintGatewayConfig(models.Model):
             vals.setdefault("company_id", (self.env.company.parent_id or self.env.company).id)
             # The initial revision starts awaiting the Gateway immediately.
             vals["pending_sync_revision"] = int(vals.get("enabled_sync_revision") or 0)
-            vals["pending_sync_started_at"] = fields.Datetime.now()
+            vals["pending_sync_started_at"] = db_now_utc(self.env.cr)
             self._validate_gateway_url(vals.get("gateway_url"))
             if vals.get("gateway_api_key"):
                 try:
@@ -2077,7 +2129,7 @@ class PrintGatewayConfig(models.Model):
             "last_gateway_migration_sync_error": False,
             "last_enabled_sync_error": False,
             "pending_sync_revision": int(self.enabled_sync_revision or 0),
-            "pending_sync_started_at": fields.Datetime.now(),
+            "pending_sync_started_at": db_now_utc(self.env.cr),
         })
         self.invalidate_recordset([
             "gateway_sync_state",

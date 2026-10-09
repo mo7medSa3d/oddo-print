@@ -1,3 +1,5 @@
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
+import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -18,6 +20,12 @@ export async function POST(req: Request) {
   }
 
   try {
+    // The provider call is outside any DB lock. Validate before the call and
+    // again before disclosing its short-lived privileged portal URL.
+    await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
+      await requireManagerActorInTransaction(tx, claims, "billing.manage");
+    });
     const sub = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, claims.tenantId),
       columns: {
@@ -52,8 +60,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Stripe did not return a billing portal URL" }, { status: 502 });
     }
 
+    await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
+      await requireManagerActorInTransaction(tx, claims, "billing.manage");
+    });
     return NextResponse.json({ ok: true, url: portal.url });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     const message = error instanceof Error ? error.message : "unknown";
     console.error("billing portal failed", message);
     if (message === "Stripe is not configured") {

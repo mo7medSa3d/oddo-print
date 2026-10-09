@@ -123,13 +123,12 @@ type SpoolerPrinter struct {
 	// sync.Mutex is safe as a zero value, so struct literals in tests and
 	// all constructors behave identically.
 	sessionMu sync.Mutex
-	// lastJobID holds the current attempt's Windows spooler identity
-	// (StartDocPrinterW for RAW/ESC-POS or StartDocW for PDF/image) after a
-	// successful submission. Each new attempt clears it first so a later
-	// document can never report an unrelated previous job ID.
+	// lastJobID is backend-wide diagnostic history, not an invocation identity.
+	// Only a session-owning worker publishes it. Agent dispatch uses separate
+	// context-scoped evidence, since a rejected caller can see the prior ID.
 	lastJobID atomic.Uint64
-	// inflight counts print-session workers that have started but not yet
-	// delivered their result. A worker can outlive Print's return when the
+	// inflight counts reserved RAW/PDF sessions until their worker cleanup
+	// completes (including sessionMu release). A worker can outlive Print's return when the
 	// caller times out and the Win32 session stays active (see the
 	// post-cancel grace path): the counter lets backend replacement defer
 	// while a prior session may still own the physical queue, instead of
@@ -198,18 +197,56 @@ func (p *SpoolerPrinter) boundedPreflight(ctx context.Context, timeout time.Dura
 	})
 }
 
-// runPreflightBounded executes a readiness check on a helper goroutine and
-// bounds the CALLER: it returns when the check completes, when ctx is done,
-// or when the hard timeout elapses — whichever comes first. The helper owns
-// its handle lifecycle end-to-end (opened and closed inside the worker) and
-// reports through a buffered channel, so a stuck check cannot deadlock the
-// caller, cannot be double-closed, and cannot leak shared state; at most one
-// helper exists per Print call, and Print calls are already bounded by the
-// agent's job executor plus the per-printer session mutex.
+// A Win32 driver RPC has no cancellable timeout. An abandoned preflight
+// helper remains owned until *its worker* returns, not until the caller's
+// deadline elapses. This shared, bounded registry covers the PDF render path
+// (which does not own a SpoolerPrinter instance) as well as normal queue
+// probes, so repeated timeouts cannot leave unbounded native worker threads.
+const maxOutstandingSpoolerPreflights = 32
+
+var spoolerPreflightOwnership = struct {
+	sync.Mutex
+	active map[string]struct{}
+}{active: make(map[string]struct{})}
+
+func reserveSpoolerPreflight(displayName string) (func(), error) {
+	key := strings.ToLower(strings.TrimSpace(displayName))
+	spoolerPreflightOwnership.Lock()
+	defer spoolerPreflightOwnership.Unlock()
+	if _, inProgress := spoolerPreflightOwnership.active[key]; inProgress {
+		return nil, fmt.Errorf("%w: %w: readiness probe already in progress for %q", ErrPrinterNotReady, ErrSpoolerUnresponsive, displayName)
+	}
+	if len(spoolerPreflightOwnership.active) >= maxOutstandingSpoolerPreflights {
+		return nil, fmt.Errorf("%w: %w: too many outstanding Windows readiness probes (%d)", ErrPrinterNotReady, ErrSpoolerUnresponsive, maxOutstandingSpoolerPreflights)
+	}
+	spoolerPreflightOwnership.active[key] = struct{}{}
+	return func() {
+		spoolerPreflightOwnership.Lock()
+		delete(spoolerPreflightOwnership.active, key)
+		spoolerPreflightOwnership.Unlock()
+	}, nil
+}
+
+// runPreflightBounded bounds its caller, but continues to own the Win32
+// helper until the actual RPC returns. The ownership slot is never released
+// on timeout or cancellation, preventing repeated abandoned driver calls.
 func runPreflightBounded(displayName string, timeout time.Duration, ctx context.Context, check func() error) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("readiness probe for %q cancelled before dispatch (no bytes sent): %w", displayName, err)
+	}
+	release, err := reserveSpoolerPreflight(displayName)
+	if err != nil {
+		return err
+	}
 	type outcome struct{ err error }
 	done := make(chan outcome, 1)
-	go func() { done <- outcome{check()} }()
+	go func() {
+		// Release native ownership BEFORE notifying a successful caller;
+		// otherwise an immediate next probe could be spuriously refused.
+		result := check()
+		release()
+		done <- outcome{result}
+	}()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
@@ -859,15 +896,20 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	resultCh := make(chan spoolerTaskResult, 1)
 	cancelNotice := make(chan struct{})
 
+	// Reserve liveness before scheduling: even an unscheduled worker owns
+	// this generation once Print can return to its caller on cancellation.
+	p.inflight.Add(1)
 	go func() {
-		p.inflight.Add(1)
 		defer p.inflight.Add(-1)
 		defer p.endSession()
-		resultCh <- currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice, func(jobID uintptr) {
-			if jobID != 0 {
-				p.lastJobID.Store(uint64(jobID))
-			}
+		res := currentExecuteSpoolerSession(p.SpoolerName, data, cancelNotice, func(jobID uintptr) {
+			p.recordSpoolerJobID(ctx, uint64(jobID))
 		}, func() error { return runDispatchAdmission(ctx) })
+		// Publish before releasing this worker's session, even if its caller
+		// already returned UNKNOWN. Do not write backend history in the caller:
+		// a later worker may acquire the session before that caller is scheduled.
+		p.recordSpoolerJobID(ctx, uint64(res.jobID))
+		resultCh <- res
 	}()
 
 	select {
@@ -881,22 +923,11 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 		// not-printed failure, which would invite a duplicate reprint.
 		select {
 		case res := <-resultCh:
-			if res.jobID != 0 {
-				p.lastJobID.Store(uint64(res.jobID))
-			}
 			return res.err
 		case <-time.After(postCancelSpoolerResultGrace):
 			return MarkUnknown("spooler session on %q still active after cancellation (bytes written unknown): %v", p.SpoolerName, ctx.Err())
 		}
 	case res := <-resultCh:
-		// Record the Windows job identity as soon as this attempt reports one,
-		// even when a later WritePrinter/EndDoc failure makes the outcome
-		// unsuccessful or ambiguous. The identity is cleared under session
-		// ownership at the start of each new attempt, so this cannot leak a
-		// previous job's evidence.
-		if res.jobID != 0 {
-			p.lastJobID.Store(uint64(res.jobID))
-		}
 		if res.err != nil {
 			log.Printf("print.trace spooler_session printer=%s latency_ms=%d success=false", p.SpoolerName, time.Since(printStart).Milliseconds())
 			return res.err
@@ -908,7 +939,7 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 }
 
 // SessionMayBeLive implements LiveSessionReporter: true while a print
-// session worker has started but not delivered its result. After the caller
+// session is reserved or its worker has not completed cleanup. After the caller
 // gives up waiting (post-cancel grace expiry), the Win32 session can still
 // own the physical queue — the counter stays raised until that exact worker
 // returns.
@@ -916,10 +947,19 @@ func (p *SpoolerPrinter) SessionMayBeLive() bool {
 	return p.inflight.Load() > 0
 }
 
-// LastSpoolerJobID implements SpoolerJobIDReporter: the StartDocPrinterW/StartDocW
-// identity allocated for the current attempt, including an attempt whose later
-// outcome failed or became unknown. It is cleared under session ownership
-// before every new attempt.
+// recordSpoolerJobID is called only by the native session-owning worker.
+// Diagnostic history and attempt evidence are intentionally separate: history
+// may survive a rejected call, while evidence must never cross invocations.
+func (p *SpoolerPrinter) recordSpoolerJobID(ctx context.Context, jobID uint64) {
+	if jobID == 0 {
+		return
+	}
+	p.lastJobID.Store(jobID)
+	RecordSpoolerJobID(ctx, jobID)
+}
+
+// LastSpoolerJobID implements the legacy diagnostic accessor. It can refer to
+// a previous or still-running session and must not be attributed to a caller.
 func (p *SpoolerPrinter) LastSpoolerJobID() string {
 	if id := p.lastJobID.Load(); id != 0 {
 		return strconv.FormatUint(id, 10)
@@ -958,8 +998,20 @@ func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) err
 		err   error
 	}
 	resultCh := make(chan pdfTaskResult, 1)
+	var attemptJobID atomic.Uint64
+	recordJobID := func(jobID uint64) {
+		if jobID != 0 {
+			attemptJobID.Store(jobID)
+			p.recordSpoolerJobID(ctx, jobID)
+		}
+	}
 
+	// PDF/image workers have the same physical ownership as RAW workers.
+	// Keep the counter raised across timeout, result publication and cleanup;
+	// only this exact worker may release its generation's liveness fence.
+	p.inflight.Add(1)
 	go func() {
+		defer p.inflight.Add(-1)
 		defer p.endSession()
 
 		if p.PDFPrint != nil {
@@ -973,9 +1025,8 @@ func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) err
 				return platformPrintPDFObserved(callCtx, printerName, pdfPath, func(jobID uint32) {
 					if jobID != 0 {
 						// Publish StartDocW identity immediately, before any later GDI
-						// call can block. The Agent reads this atomically when an outer
-						// timeout returns UNKNOWN.
-						p.lastJobID.Store(uint64(jobID))
+						// call can block. Publish only to this invocation's evidence.
+						recordJobID(uint64(jobID))
 					}
 				})
 			}
@@ -992,7 +1043,7 @@ func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) err
 				resultCh <- pdfTaskResult{jobID: spoolerJobID, err: fmt.Errorf("Windows PDF renderer returned invalid spooler job ID %q", spoolerJobID)}
 				return
 			}
-			p.lastJobID.Store(id)
+			recordJobID(id)
 		}
 		resultCh <- pdfTaskResult{jobID: spoolerJobID, err: printErr}
 	}()
@@ -1009,9 +1060,8 @@ func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) err
 		case result := <-resultCh:
 			return result.err
 		case <-time.After(postCancelSpoolerResultGrace):
-			jobID := p.LastSpoolerJobID()
-			if jobID != "" {
-				return MarkUnknown("Windows PDF/GDI session on %q (spooler job %s) is still active after cancellation; physical outcome is unknown: %v", p.SpoolerName, jobID, ctx.Err())
+			if jobID := attemptJobID.Load(); jobID != 0 {
+				return MarkUnknown("Windows PDF/GDI session on %q (spooler job %d) is still active after cancellation; physical outcome is unknown: %v", p.SpoolerName, jobID, ctx.Err())
 			}
 			return MarkUnknown("Windows PDF/GDI session on %q is still active after cancellation; StartDocW may still complete, so physical outcome is unknown: %v", p.SpoolerName, ctx.Err())
 		}

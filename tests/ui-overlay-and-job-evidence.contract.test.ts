@@ -37,9 +37,16 @@ describe("overlay and job evidence contracts", () => {
 
   it("keeps fleet cards aligned to content instead of stretching to the tallest sibling", () => {
     const dashboard = read("src/app/dashboard/dashboard-client.tsx");
-    expect(dashboard).toContain('className="grid items-start gap-5 xl:grid-cols-12"');
+    expect(dashboard).toContain('className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-12"');
   });
 
+
+  it("keeps printer cards on phone layouts even when table is selected", () => {
+    const dashboard = read("src/app/dashboard/dashboard-client.tsx");
+    expect(dashboard).toContain('printerViewMode === "table" ? "xl:hidden" : ""');
+    expect(dashboard).toContain('className="hidden min-w-0 overflow-x-auto xl:block"');
+    expect(dashboard).toContain('className="hidden xl:block"');
+  });
 
   it("keeps platform plan and subscription controls readable on phones", () => {
     const ui = read("src/components/ui.tsx");

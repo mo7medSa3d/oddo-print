@@ -243,7 +243,9 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return fmt.Errorf("%s: IPP submission to %s failed after transmission may have occurred: %w", ErrOutcomeUnknown, p.URL, err)
 	}
 	defer resp.Body.Close()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// Read one byte beyond the budget so a complete-looking prefix at the
+	// boundary cannot hide trailing/truncated response data.
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPPrintResponseBytes+1))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("%s: IPP printer %s returned HTTP %d (submission may have been accepted)", ErrOutcomeUnknown, p.URL, resp.StatusCode)
@@ -253,6 +255,9 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	if readErr != nil {
 		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %w", ErrOutcomeUnknown, p.URL, readErr)
 	}
+	if len(body) > maxIPPPrintResponseBytes {
+		return MarkUnknown("IPP response from %s exceeds the response budget (job state unknown)", p.URL)
+	}
 	status, msg := parseIPPStatus(body)
 	if status == 0xFFFF {
 		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %s", ErrOutcomeUnknown, p.URL, msg)
@@ -261,6 +266,9 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		return fmt.Errorf("%s: IPP printer %s returned server error 0x%04x (%s); the job may be queued (physical outcome unknown)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
 	}
 	if status >= 0x0400 && status <= 0x04ff {
+		if envelopeErr := validateIPPPrintResponseEnvelope(body, binary.BigEndian.Uint32(ippReq[4:8])); envelopeErr != nil {
+			return MarkUnknown("IPP response from %s has unusable refusal evidence after submission: %v", p.URL, envelopeErr)
+		}
 		if status == 0x040A {
 			return fmt.Errorf("IPP printer %s rejected document-format %s (0x040A: %s): %s. Verify document-format-supported and use the Windows spooler driver if necessary", p.URL, documentFormat, ippStatusText(status), msg)
 		}
@@ -269,7 +277,13 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	if status > 0x00ff {
 		return fmt.Errorf("%s: IPP printer %s returned unknown status 0x%04x (%s)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
 	}
-	log.Printf("IPP accepted %d bytes (%s) at %s (IPP 0x%04x; physical output not confirmed)", len(data), documentFormat, p.URL, status)
+	job, evidenceErr := parseIPPPrintJobEvidence(body, binary.BigEndian.Uint32(ippReq[4:8]))
+	if evidenceErr != nil {
+		// The document has already been transmitted. Incomplete, malformed,
+		// canceled or aborted Job evidence is never a safely retryable refusal.
+		return MarkUnknown("IPP response from %s has unusable submitted Job evidence: %v", p.URL, evidenceErr)
+	}
+	log.Printf("IPP accepted %d bytes (%s) at %s (IPP 0x%04x, job-id %d, state %d; physical output not confirmed)", len(data), documentFormat, p.URL, status, job.ID, job.State)
 	return nil
 }
 

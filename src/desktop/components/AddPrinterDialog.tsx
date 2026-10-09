@@ -9,7 +9,7 @@ import {
   Checkbox,
   ErrorState,
 } from "../../components/ui";
-import { fetchGatewayAgents, registerGatewayPrinter, type GatewayApiError, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
+import { fetchGatewayAgents, registerGatewayPrinter, normalizeGatewayUrl, type GatewayApiError, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
 import { agentLiveView, errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 import { useI18n } from "../../i18n/react";
@@ -59,6 +59,13 @@ export function AddPrinterDialog({
     return () => clearInterval(timer);
   }, []);
   const [agentId, setAgentId] = useState("");
+  // Only a canonical saved Gateway origin can produce a billing destination.
+  // Desktop copies the URL for the system browser; never navigate the WebView.
+  const billingUrl = useMemo(() => {
+    try { return gatewayUrl ? `${normalizeGatewayUrl(gatewayUrl)}/billing` : null; }
+    catch { return null; }
+  }, [gatewayUrl]);
+
   const [upgradeLimit, setUpgradeLimit] = useState<{
     resource: UpgradeLimitResource;
     used?: number | null;
@@ -459,6 +466,7 @@ export function AddPrinterDialog({
       </Modal>
 
       <UpgradeLimitDialog
+        copyBillingDestination={{ url: billingUrl }}
       open={upgradeLimit !== null}
       onClose={() => setUpgradeLimit(null)}
       resource={upgradeLimit?.resource ?? "printers"}

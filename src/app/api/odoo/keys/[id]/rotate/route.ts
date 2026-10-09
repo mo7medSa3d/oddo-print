@@ -1,3 +1,5 @@
+import { requireActiveTenantInTransaction } from "../../../../../../lib/tenant-guard";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../../../lib/manager-mutation-authorization";
 import { logError } from "../../../../../../lib/log";
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -44,6 +46,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       } | undefined;
       if (!old) return { kind: "not_found" as const };
       if (old.revoked_at) return { kind: "revoked" as const };
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
+      await requireManagerActorInTransaction(tx, manager, "integrations.manage");
 
       const { raw, hashed, id: newId } = generateOdooApiKey();
       await tx.insert(apiKeys).values({
@@ -91,6 +95,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       note: "Update Odoo with this new key within 60 minutes. The previous key is read-only during that grace window for status reconciliation and cannot create or change jobs. It then becomes fully unusable.",
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     logError("[odoo] API key rotation failed", { error: error instanceof Error ? error.message : error });
     return NextResponse.json({ error: "Internal server error", code: "INTERNAL_ERROR" }, { status: 500 });
   }

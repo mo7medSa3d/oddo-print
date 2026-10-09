@@ -13,7 +13,6 @@ import (
 
 	"github.com/kardianos/service"
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -372,42 +371,10 @@ func purgeLegacyAgentServices() error {
 	return nil
 }
 
-func purgeRunValues(root registry.Key, path string) {
-	key, err := registry.OpenKey(root, path, registry.SET_VALUE)
-	if err != nil {
-		return
-	}
-	defer key.Close()
-	for _, value := range []string{
-		"Yaseir Print Manager",
-		"Yasser Print Manager",
-		"YaseirManager",
-		"YasserManager",
-		"OdooPrintManager",
-		"Odoo Print Manager",
-		"com.yasser.manager",
-	} {
-		_ = key.DeleteValue(value)
-	}
-}
-
-func purgeAutostartRegistry() {
-	const runPath = `Software\Microsoft\Windows\CurrentVersion\Run`
-	purgeRunValues(registry.CURRENT_USER, runPath)
-
-	users, err := registry.OpenKey(registry.USERS, "", registry.READ)
-	if err != nil {
-		return
-	}
-	defer users.Close()
-	sids, err := users.ReadSubKeyNames(-1)
-	if err != nil {
-		return
-	}
-	for _, sid := range sids {
-		purgeRunValues(registry.USERS, sid+`\`+runPath)
-	}
-}
+// Do not sweep HKU/HKCU autorun values here: the elevated service process
+// does not own the interactive users' profiles, and matching a Run *name*
+// does not prove that its executable belongs to this installation. An
+// authenticated per-user uninstall helper may remove a validated exact value.
 
 func purgePaths(roots []string) error {
 	const attempts = 3
@@ -425,6 +392,26 @@ func purgePaths(roots []string) error {
 			continue
 		}
 		seen[key] = struct{}{}
+
+		// A product-named junction can redirect deletion out of the
+		// trusted Known Folder. Refuse it instead of traversing it.
+		ptr, err := windows.UTF16PtrFromString(root)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: invalid path: %v", root, err))
+			continue
+		}
+		attrs, err := windows.GetFileAttributes(ptr)
+		if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
+			continue
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: attributes: %v", root, err))
+			continue
+		}
+		if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			failures = append(failures, fmt.Sprintf("%s: refusing reparse/junction root", root))
+			continue
+		}
 
 		var lastErr error
 		for attempt := 0; attempt < attempts; attempt++ {
@@ -446,75 +433,62 @@ func purgePaths(roots []string) error {
 	return nil
 }
 
-func agentDataRoots() []string {
-	var roots []string
-	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
-		for _, name := range []string{"YaseirAgent", "YasserAgent", "OdooPrintAgent"} {
-			roots = append(roots, filepath.Join(programData, name))
-		}
+// Use OS Known Folders rather than environment variables inherited by an
+// elevated uninstaller. The ProgramData root is resolved by Windows, not by
+// an arbitrary inherited string. Never recursively enumerate C:\Users.
+func agentDataRoots() ([]string, error) {
+	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if err != nil {
+		return nil, fmt.Errorf("resolve trusted ProgramData for Agent purge: %w", err)
 	}
-	return roots
+	if strings.TrimSpace(programData) == "" {
+		return nil, fmt.Errorf("trusted ProgramData for Agent purge returned an empty path")
+	}
+	var roots []string
+	for _, name := range []string{"YaseirAgent", "YasserAgent", "OdooPrintAgent"} {
+		roots = append(roots, filepath.Join(programData, name))
+	}
+	return roots, nil
 }
 
-func managerDataRoots() []string {
+func managerDataRoots() ([]string, error) {
+	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
+	if err != nil {
+		return nil, fmt.Errorf("resolve trusted ProgramData for Manager purge: %w", err)
+	}
+	if strings.TrimSpace(programData) == "" {
+		return nil, fmt.Errorf("trusted ProgramData for Manager purge returned an empty path")
+	}
 	var roots []string
-	if programData := strings.TrimSpace(os.Getenv("PROGRAMDATA")); programData != "" {
-		for _, name := range []string{"YaseirManager", "YasserManager", "OdooPrintManager"} {
-			roots = append(roots, filepath.Join(programData, name))
-		}
+	for _, name := range []string{"YaseirManager", "YasserManager", "OdooPrintManager"} {
+		roots = append(roots, filepath.Join(programData, name))
 	}
-
-	userDataNames := []string{
-		"YaseirManager",
-		"YasserManager",
-		"Yaseir Print Manager",
-		"Yasser Print Manager",
-		"OdooPrintManager",
-		"Odoo Print Manager",
-		"com.yasser.manager",
-	}
-	for _, envName := range []string{"LOCALAPPDATA", "APPDATA"} {
-		if root := strings.TrimSpace(os.Getenv(envName)); root != "" {
-			for _, name := range userDataNames {
-				roots = append(roots, filepath.Join(root, name))
-			}
-		}
-	}
-
-	// MSI deferred custom actions run as LocalSystem, whose LOCALAPPDATA is not
-	// the interactive user's profile. Enumerate only fixed product subpaths
-	// beneath each local profile so no unrelated user data can be removed.
-	if systemDrive := strings.TrimSpace(os.Getenv("SystemDrive")); systemDrive != "" {
-		usersRoot := filepath.Join(systemDrive+string(os.PathSeparator), "Users")
-		if entries, err := os.ReadDir(usersRoot); err == nil {
-			for _, entry := range entries {
-				if !entry.IsDir() {
-					continue
-				}
-				profile := filepath.Join(usersRoot, entry.Name())
-				for _, base := range []string{
-					filepath.Join(profile, "AppData", "Local"),
-					filepath.Join(profile, "AppData", "Roaming"),
-				} {
-					for _, name := range userDataNames {
-						roots = append(roots, filepath.Join(base, name))
-					}
-				}
-			}
-		}
-	}
-	return roots
+	// Elevated uninstall may run under LocalSystem or another administrator.
+	// Its current-user Known Folders cannot prove ownership of the actual
+	// interactive user's profile. Leave per-user state for an authenticated
+	// per-user cleanup, not a machine-wide directory walk.
+	return roots, nil
 }
 
 func purgeAgentData() error {
-	return purgePaths(agentDataRoots())
+	roots, err := agentDataRoots()
+	if err != nil {
+		return err
+	}
+	return purgePaths(roots)
 }
 
 func purgeInstallationData() error {
-	roots := append(agentDataRoots(), managerDataRoots()...)
-	if err := purgePaths(roots); err != nil {
+	agentRoots, err := agentDataRoots()
+	if err != nil {
 		return err
 	}
-	purgeAutostartRegistry()
+	managerRoots, err := managerDataRoots()
+	if err != nil {
+		return err
+	}
+	if err := purgePaths(append(agentRoots, managerRoots...)); err != nil {
+		return err
+	}
 	return nil
 }

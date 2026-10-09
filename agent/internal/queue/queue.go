@@ -183,8 +183,23 @@ func (q *Queue) Push(id, printerID string, payload []byte) error {
 	return err
 }
 
+// validLocalLedgerStatus is an application-layer guard for legacy SQLite
+// queue files. CREATE TABLE IF NOT EXISTS does not retrofit CHECK constraints
+// onto an existing table, so the SQL schema alone is not a reliable boundary.
+func validLocalLedgerStatus(status string) bool {
+	switch status {
+	case "queued", "printing", "success", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
 // UpdateStatus sets a simple status (queued/printing/success/failed) and bumps updated_at.
 func (q *Queue) UpdateStatus(id, status string) error {
+	if !validLocalLedgerStatus(status) {
+		return fmt.Errorf("invalid local queue status %q", status)
+	}
 	if status == "success" || status == "failed" {
 		// Keep the execution claim token until the Gateway acknowledges the
 		// terminal report. Clearing it here creates a crash window where the
@@ -201,6 +216,9 @@ func (q *Queue) UpdateStatus(id, status string) error {
 // durable outbox record for the Gateway status report. Preserve claim_token
 // until that report receives a 2xx response (see ClearClaimToken).
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
+	if !validLocalLedgerStatus(status) {
+		return fmt.Errorf("invalid local queue status %q", status)
+	}
 	if status == "success" || status == "failed" {
 		// The terminal state is a durable outbox record for the Gateway status
 		// report. Preserve claim_token until a validated terminal acknowledgement.

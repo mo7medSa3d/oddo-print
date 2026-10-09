@@ -1125,3 +1125,18 @@
     text-align: start;
   }
 }
+
+/* Small-viewport resilience: keep long printer identifiers and translated labels
+   inside their own layout tracks, while preserving fixed/portal popovers. */
+@layer base {
+  html, body { max-width: 100%; }
+  @media (max-width: 767.98px) {
+    html, body { overflow-x: clip; }
+  }
+}
+@layer components {
+  .card { min-width: 0; }
+  .data-table td { overflow-wrap: anywhere; }
+  [dir="rtl"] .data-table .font-mono { unicode-bidi: isolate; direction: ltr; }
+}
+

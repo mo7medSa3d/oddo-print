@@ -11,15 +11,11 @@ type Printer interface {
 	Status() string
 }
 
-// SpoolerJobIDReporter is an OPTIONAL interface for printers that receive
-// a platform job identity once Windows allocates a spool document
-// (StartDocPrinterW/StartDocW return value). It is deliberately optional —
-// not part of Printer — so network/USB/IPP backends do not change. The ID is
-// evidence, not a success signal: later submission may still fail or become
-// ambiguous. Use SpoolerJobIDOf without type switches at every call site.
+// SpoolerJobIDReporter exposes legacy backend-wide diagnostic history. The
+// value can belong to an earlier or still-running session when a new call is
+// rejected. Never use it to identify a Gateway dispatch; attach fresh
+// WithSpoolerJobEvidence and let that invocation's worker publish its allocation.
 type SpoolerJobIDReporter interface {
-	// LastSpoolerJobID returns the platform job ID allocated for the current
-	// print attempt, or "" when no platform identity was allocated.
 	LastSpoolerJobID() string
 }
 
@@ -38,7 +34,7 @@ type LiveSessionReporter interface {
 }
 
 // SpoolerJobIDOf returns the printer's last platform job ID, or "" when
-// the printer does not report one. Safe to call on any Printer.
+// the printer does not report one. This does not identify a particular call.
 func SpoolerJobIDOf(p Printer) string {
 	if r, ok := p.(SpoolerJobIDReporter); ok {
 		return r.LastSpoolerJobID()

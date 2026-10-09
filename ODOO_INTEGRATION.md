@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.11.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.13.0 | Odoo: 19 Community Edition
 
 ## Overview
 
@@ -139,3 +139,13 @@ Discovery reports use the additive `errors: string[]` contract in `contracts/pri
 `Send Test Page` treats the explicitly selected valid binding as authoritative: it validates that binding and its current runtime Agent/printer identity and does **not** independently resolve a second binding to compare against it. The test uses the binding's real document type, then chooses the payload from the printer's current runtime transport—not from a stale protocol field or marketing device class. A Windows-installed queue (`connectionType=spooler`) receives a real PDF through the Agent's Windows document-rendering path, so laser, inkjet, thermal, USB, WSD, and network printers are testable when they are installed as a working Windows queue with a usable driver. IPP/IPPS printers receive PDF through IPP. ESC/POS, ZPL, TSPL, and explicit raw byte transports receive protocol-specific diagnostics. Direct USB/TCP devices with an unknown byte language remain intentionally non-routable: the system will not guess a language or send arbitrary PDF bytes to them.
 
 Printer status and Agent connectivity are separate evidence. A lost/stale Agent heartbeat is displayed as an Agent connectivity problem; it does not rewrite the last printer observation to physical `offline`. Stale printer observations become `unknown` until fresh evidence arrives. Odoo runtime pickers render the Gateway `status` as the current state; `reportedStatus` is retained only for diagnostics/history and is never promoted to current Online/Offline once `freshness` is stale or missing.
+
+### Upgrade gate for print status fairness (19.0.2.13.0)
+
+The `print_gateway.print_job` model now stores and indexes `last_status_polled_at`
+to fairly reconcile active Gateway jobs instead of repeatedly polling an oldest-ID
+prefix. Existing installations **must upgrade** the addon (`-u print_gateway`)
+against a backed-up Odoo 19 database before activating the updated polling cron.
+Confirm schema/index creation and test concurrent cron polling, job status
+reconciliation, all supported print routes, and rollback in staging. The standalone
+source tests do not establish PostgreSQL migration or native Odoo acceptance.

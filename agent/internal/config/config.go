@@ -442,7 +442,10 @@ func (p PrinterConfig) IsEnabled() bool {
 	return true
 }
 
-func isAllowedPrinterIP(ip net.IP) bool {
+// IsAllowedPrinterIP applies the destination-address policy shared by configured
+// printers and discovery. A permitted address is not evidence of device identity
+// or authorization; callers must still validate the endpoint and its owner.
+func IsAllowedPrinterIP(ip net.IP) bool {
 	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() {
 		return false
 	}
@@ -509,6 +512,43 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 			return fmt.Errorf("printer %s: protocol %q is incompatible with usb connection", p.ID, proto)
 		}
 	}
+	if err := ValidatePrinterEndpoint(p); err != nil {
+		return err
+	}
+	if nt == "usb" {
+		// USB entries backed by an explicitly named Windows spooler queue are
+		// executed through the spooler backend and therefore do not require raw
+		// USB VID/PID identifiers. Direct USB transport still requires both.
+		if strings.TrimSpace(p.SpoolerName) == "" {
+			if p.USBVID == "" || p.USBPID == "" {
+				return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
+			}
+			ep := strings.TrimSpace(p.Endpoint)
+			if !strings.HasPrefix(ep, `\\?\`) && !strings.HasPrefix(ep, `\\.\`) {
+				return fmt.Errorf("printer %s: direct USB endpoint must be a Windows device path (\\?\\... or \\.\\...)", p.ID)
+			}
+		}
+	}
+	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
+		return fmt.Errorf("printer %s: spooler_name required", p.ID)
+	}
+	return nil
+}
+
+// ValidatePrinterEndpoint checks network destinations independently of display
+// names and inventory IDs. Config validation, discovered inventory and backend
+// construction all call this same policy; discovery evidence cannot override
+// private/link-local IP, port, credential, query or TLS-scheme restrictions.
+// Non-network transports have their own device/queue validation.
+func ValidatePrinterEndpoint(p PrinterConfig) error {
+	nt := p.NormalizedType()
+	if nt != "network" && nt != "ipp" && nt != "ipps" {
+		return nil
+	}
+	proto, err := p.NormalizedProtocol()
+	if err != nil {
+		return err
+	}
 	if nt == "network" || nt == "ipp" || nt == "ipps" {
 		ep := strings.TrimSpace(p.Endpoint)
 		if ep == "" {
@@ -536,7 +576,7 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				return fmt.Errorf("printer %s: IPPS endpoint must use https:// or ipps://", p.ID)
 			}
 			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
-			if ip == nil || !isAllowedPrinterIP(ip) {
+			if ip == nil || !IsAllowedPrinterIP(ip) {
 				return fmt.Errorf("printer %s: IPP endpoint host must be a private or link-local IP", p.ID)
 			}
 			port := 631
@@ -556,7 +596,7 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				return fmt.Errorf("printer %s: network endpoint must be host:port", p.ID)
 			}
 			ip := net.ParseIP(strings.Trim(host, "[]"))
-			if ip == nil || !isAllowedPrinterIP(ip) {
+			if ip == nil || !IsAllowedPrinterIP(ip) {
 				return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
 			}
 			parsed, err := strconv.Atoi(port)
@@ -568,23 +608,6 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 				return fmt.Errorf("printer %s: network endpoint port must be 9100", p.ID)
 			}
 		}
-	}
-	if nt == "usb" {
-		// USB entries backed by an explicitly named Windows spooler queue are
-		// executed through the spooler backend and therefore do not require raw
-		// USB VID/PID identifiers. Direct USB transport still requires both.
-		if strings.TrimSpace(p.SpoolerName) == "" {
-			if p.USBVID == "" || p.USBPID == "" {
-				return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
-			}
-			ep := strings.TrimSpace(p.Endpoint)
-			if !strings.HasPrefix(ep, `\\?\`) && !strings.HasPrefix(ep, `\\.\`) {
-				return fmt.Errorf("printer %s: direct USB endpoint must be a Windows device path (\\?\\... or \\.\\...)", p.ID)
-			}
-		}
-	}
-	if nt == "spooler" && strings.TrimSpace(p.SpoolerName) == "" {
-		return fmt.Errorf("printer %s: spooler_name required", p.ID)
 	}
 	return nil
 }

@@ -231,10 +231,22 @@ func jpegToPDFWithReceiptPaper(data []byte, paperWidthMM, printableDots, dpi int
 
 	w, h := cfg.Width, cfg.Height
 
-	// Determine color space based on JPEG color model
+	// Preserve the encoded channel count. Go's supported four-component
+	// JPEGs carry Adobe APP14 metadata and inverted CMYK samples (including
+	// YCCK, whose transform is selected by DCTDecode from that marker).
 	colorSpace := "/DeviceRGB"
+	imageDecode := ""
 	if cfg.ColorModel == color.GrayModel {
 		colorSpace = "/DeviceGray"
+	} else if cfg.ColorModel == color.CMYKModel {
+		// Decode once to verify the supported Adobe color convention and the
+		// complete image body. DecodeConfig alone only validates its header.
+		// Keep the original JPEG stream; re-encoding could degrade barcodes.
+		if _, err := jpeg.Decode(bytes.NewReader(data)); err != nil {
+			return nil, fmt.Errorf("decode CMYK JPEG: %w", err)
+		}
+		colorSpace = "/DeviceCMYK"
+		imageDecode = " /Decode [1 0 1 0 1 0 1 0]"
 	}
 
 	// Non-receipt documents keep the legacy 96-DPI image geometry.
@@ -276,7 +288,7 @@ func jpegToPDFWithReceiptPaper(data []byte, paperWidthMM, printableDots, dpi int
 	pageBody := fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>", pageW, pageH)
 	writeObj(3, []byte(pageBody))
 
-	imageHeader := fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n", w, h, colorSpace, len(data))
+	imageHeader := fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s%s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n", w, h, colorSpace, imageDecode, len(data))
 	offsets[4] = b.Len()
 	fmt.Fprintf(&b, "4 0 obj\n%s", imageHeader)
 	b.Write(data)

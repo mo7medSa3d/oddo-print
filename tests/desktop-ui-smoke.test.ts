@@ -94,7 +94,7 @@ async function invoke<T>(
       const body = path === "/api/health"
         ? { ok: true }
         : path === "/api/auth/manager/me"
-          ? { authenticated: true, exp: Math.floor(Date.now() / 1000) + 3600 }
+          ? { authenticated: true, exp: Math.floor(Date.now() / 1000) + 3600, tenantId: "smoke-workspace", userId: "smoke-user", role: "owner" }
           : path === "/api/agents"
             ? [{ id: "agent-1", name: "Reception Agent", status: "online", lifecycle: "active" }]
             : path === "/api/printers"

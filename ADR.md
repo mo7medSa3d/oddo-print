@@ -103,8 +103,8 @@
 * **Context**: Low-latency print delivery is essential for POS counters, but WebSockets can be dropped by NAT firewalls, proxies, or network switches.
 * **Decision**: Use **WebSocket** (`/api/agent/ws`) as the primary real-time push transport, backed by an autonomous **HTTP Polling** loop (every 5s when offline, safety poll every 30s when online).
 * **Rationale**:
-  * Sub-100ms real-time delivery during normal operation.
-  * 100% reliable job delivery even under hostile corporate firewalls that terminate long-lived WebSocket connections.
+  * Aim for low-latency real-time dispatch when the path supports WebSockets; actual percentiles require workload-specific measurements.
+  * Provide a polling recovery channel when WebSockets are disrupted, subject to routing, credentials, retention, outage duration, and operational limits; successful physical output is never absolutely guaranteed.
 * **Rejected Alternative**: WebSocket-only transport (causes silent outage on proxy WebSocket drop).
 
 ---
@@ -114,7 +114,7 @@
 * **Context**: Industry hype often pushes microservices and complex distributed messaging layers for SaaS startups.
 * **Decision**: Explicitly prohibit Kafka, RabbitMQ, Redis, Kubernetes, or service meshes until concrete telemetry demonstrates PostgreSQL/Next.js capacity limits.
 * **Rationale**:
-  * Standard PostgreSQL 16 on a modern multi-core instance easily handles 1,000+ print jobs per second with sub-10ms query latency.
+  * PostgreSQL-only infrastructure avoids an extra broker until representative load tests, query percentiles, lock contention, resource usage and queue-backlog evidence justify a different design. Any throughput and latency target is not a production benchmark.
   * Dramatically reduces operational burden, infrastructure costs, and failure modes.
 * **Rejected Alternative**: Introducing Kafka/RabbitMQ for event streaming.
 
@@ -125,7 +125,7 @@
 | Decision | Chosen Architecture | Rejected Alternative | Primary Advantage | Accepted Tradeoff |
 | :--- | :--- | :--- | :--- | :--- |
 | **App Topology** | Modular Monolith | Microservices | High velocity, simple transactions | Shared deployment lifecycle |
-| **Data Plane** | Go Native Service | Electron / Node Agent | 15MB RAM footprint, robust Win32 SCM | Cross-compilation toolchain required |
+| **Data Plane** | Go Native Service | Electron / Node Agent | small native memory footprint (measure on target Windows), Win32 SCM integration | Cross-compilation toolchain required |
 | **Storage** | PostgreSQL + Drizzle | Polyglot (Mongo + Redis) | Single source of truth, ACID transactions | Database CPU scales with throughput |
 | **Queue** | DB `SKIP LOCKED` | Kafka / RabbitMQ | Zero extra infrastructure, transactional | Table vacuuming needed at high volume |
 | **Real-time** | WS + Polling Fallback | Long-polling only / WS only | Low latency + firewall resilience | Must maintain two delivery code paths |

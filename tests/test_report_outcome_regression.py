@@ -58,11 +58,11 @@ def test_backend_report_never_reports_unconfirmed_status_as_success(status):
     assert result["params"]["message"] != "Accepted"
 
 
-@pytest.mark.parametrize("status", ["queued", "submitted", "claimed", "printing", "success"])
+@pytest.mark.parametrize("status", ["submitted", "claimed", "printing", "success"])
 def test_backend_report_acceptance_uses_allowlisted_status(status):
     report, records = report_hook({"native": False, "status": status, "message": "Accepted"})
     result = report.report_action(records)
-    assert result["params"]["type"] == "success"
+    assert result["params"]["type"] == "info"
     assert result["params"]["message"] == "Accepted"
 
 

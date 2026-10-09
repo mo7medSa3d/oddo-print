@@ -230,12 +230,12 @@ class TestBranchRuntimeBinding(TransactionCase):
             "agent": {"id": binding.runtime_agent_id},
         }
         with patch.object(BindingClass, "_validate_runtime_target", return_value=runtime) as validate, \
-             patch.object(RouterClass, "route_test_page", return_value={"message": "accepted"}) as route:
+             patch.object(RouterClass, "route_test_page", return_value={"status": "submitted", "message": "processing"}) as route:
             result = binding.action_send_test_print()
         validate.assert_called_once_with(enforce_destination_compatibility=False)
         route.assert_called_once()
         self.assertEqual(binding.printer_protocol, "escpos")
-        self.assertEqual(result.get("params", {}).get("type"), "success")
+        self.assertEqual(result.get("params", {}).get("type"), "info")
 
     def test_test_print_refuses_unknown_direct_byte_language_instead_of_guessing(self):
         binding = self.env["print_gateway.binding"].create(self._values(priority=96, printer_protocol="escpos"))
@@ -346,6 +346,57 @@ class TestBranchRuntimeBinding(TransactionCase):
         binding._check_company_hierarchy()
         binding._check_runtime_scope()
         binding._check_binding()
+
+    def test_raw_label_bindings_save_and_resolve_without_qweb_report(self):
+        """Native Odoo 19 ORM coverage (requires installed stock/POS modules)."""
+        picking_type = self.env["stock.picking.type"].search([
+            ("company_id", "in", [False, self.company.id]),
+        ], limit=1)
+        self.assertTrue(picking_type, "Odoo stock must supply a picking type")
+        self._ensure_assignment("agent-a")
+
+        for offset, protocol in enumerate(("zpl", "tspl", "escpos", "raw")):
+            binding = self.env["print_gateway.binding"].create({
+                "company_id": self.company.id,
+                "branch_id": False,
+                "destination_type": "picking_type",
+                "destination_picking_type_id": picking_type.id,
+                "report_id": False,
+                "printer_protocol": protocol,
+                "runtime_agent_id": "agent-a",
+                "printer_id": "printer-a",
+                "priority": 700 + offset,
+            })
+            self.assertEqual(binding.document_type, "label")
+            self.assertEqual(binding.destination_ref, picking_type)
+            self.assertEqual(self.env["print_gateway.binding"].find_for(
+                self.company, "label", explicit_destination=picking_type,
+            ), self.env["print_gateway.binding"].search([
+                ("destination_ref", "=", "stock.picking.type,%s" % picking_type.id),
+                ("document_type", "=", "label"),
+            ], order="priority, id", limit=1))
+
+    def test_raw_label_protocol_change_cannot_turn_into_pdf_or_unknown(self):
+        picking_type = self.env["stock.picking.type"].search([
+            ("company_id", "in", [False, self.company.id]),
+        ], limit=1)
+        self.assertTrue(picking_type)
+        self._ensure_assignment("agent-a")
+        binding = self.env["print_gateway.binding"].create({
+            "company_id": self.company.id,
+            "destination_type": "picking_type",
+            "destination_picking_type_id": picking_type.id,
+            "report_id": False,
+            "printer_protocol": "zpl",
+            "runtime_agent_id": "agent-a",
+            "printer_id": "printer-a",
+            "priority": 711,
+        })
+        for protocol in ("spooler", "ipp", "ipps", "unknown"):
+            with self.assertRaisesRegex(ValidationError, "raw label.*protocol"):
+                with self.env.cr.savepoint():
+                    binding.write({"printer_protocol": protocol})
+        self.assertEqual(binding.printer_protocol, "zpl")
 
     def _link_printer_as_preparation_destination(self, printer):
         config = self.pos_config

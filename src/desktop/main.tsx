@@ -57,6 +57,10 @@ import {
   onGatewayConfigChanged,
   pairAgent,
   clearManagerSession,
+  getManagerSession,
+  loginManager,
+  logoutManager,
+  onManagerAuthChanged,
   restartAgent as ipcRestartAgent,
   setGatewayUrl,
   startAgent as ipcStartAgent,
@@ -89,17 +93,21 @@ import {
   toneJob,
   labelPrinter,
   printerDisplayStatus,
+  printerHealthCounts,
   printerEndpoint,
   printerIsStale,
   printerTone,
   jobTimeMs,
   jobTimestamp,
 } from "./lib/printers";
+import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType } from "../shared/diagnostic-test";
+import { generateIdempotencyKey } from "../lib/idempotency";
 import type {
   AgentStatusView,
   DesktopState,
   JobRecord,
   JobTab,
+  ManagerAccountView,
   Page,
   PrinterStatusFilter,
   ToastMessage,
@@ -182,13 +190,9 @@ export default function App() {
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
   const busyRef = useRef(false);
-  // Per-printer test-print operation state (C047): one in-flight request per
-  // printer, and one operation key preserved across ambiguous transport
-  // failures so a retry reconciles the same Gateway operation instead of
-  // printing again. Any observed outcome (HTTP response, success or error)
-  // clears the key: the next click is then a distinct explicit repeat.
-  const testFlightRef = useRef(new Set<string>());
-  const testOpKeyRef = useRef(new Map<string, string>());
+  // One synchronous operation owner: uncertain Gateway outcomes preserve the
+  // key across retries, scoped to a verified Manager actor and saved origin.
+  const diagnosticOps = useRef(new DiagnosticOperations(generateIdempotencyKey));
   const setBusyBoth = useCallback((v: boolean) => {
     busyRef.current = v;
     setBusy(v);
@@ -216,6 +220,94 @@ export default function App() {
   const [checkedGatewayUrl, setCheckedGatewayUrl] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const [jobPrinterFilter, setJobPrinterFilter] = useState<string | null>(null);
+
+  // A Gateway probe proves connectivity, not an authenticated Manager. Never
+  // infer a Manager role from Agent pairing or from a locally cached JWT.
+  const [managerAccount, setManagerAccount] = useState<ManagerAccountView>({
+    origin: "", status: "unconfigured", session: null,
+  });
+  const managerProbeSeq = useRef(0);
+  const probeManagerAccount = useCallback(async (origin: string): Promise<void> => {
+    const generation = ++managerProbeSeq.current;
+    if (!origin) {
+      setManagerAccount({ origin: "", status: "unconfigured", session: null });
+      return;
+    }
+    setManagerAccount({ origin, status: "checking", session: null });
+    try {
+      const session = await getManagerSession(origin);
+      if (generation !== managerProbeSeq.current || savedOriginRef.current !== origin) return;
+      setManagerAccount({ origin, status: session.authenticated ? "authenticated" : "signed-out",
+        session: session.authenticated ? session : null });
+    } catch {
+      // A transient identity-check failure is NOT proof that the user signed
+      // out. Fail closed for privileged controls and expose a retry in Settings.
+      if (generation !== managerProbeSeq.current || savedOriginRef.current !== origin) return;
+      setManagerAccount({ origin, status: "unavailable", session: null });
+    }
+  }, []);
+  useEffect(() => {
+    const origin = savedGatewayUrl;
+    const stop = onManagerAuthChanged(() => { void probeManagerAccount(origin); });
+    void probeManagerAccount(origin);
+    return () => { managerProbeSeq.current++; stop(); };
+  }, [savedGatewayUrl, probeManagerAccount]);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+  const managerAuthenticated = managerAccount.origin === savedGatewayUrl &&
+    !!savedGatewayUrl && managerAccount.status === "authenticated" &&
+    managerAccount.session?.authenticated === true &&
+    !!managerAccount.session.tenantId && !!managerAccount.session.role &&
+    !!managerAccount.session.expiresAt &&
+    Date.parse(managerAccount.session.expiresAt) > nowMs;
+  const managerRole = managerAuthenticated ? managerAccount.session?.role : undefined;
+  const managerCanTest = managerRole === "owner" || managerRole === "admin" || managerRole === "operator";
+  const managerCanManage = managerRole === "owner" || managerRole === "admin";
+  useEffect(() => {
+    if (!managerCanManage) { setShowAdd(false); setEditingPrinter(null); }
+  }, [managerCanManage]);
+  const managerActorScope = managerAuthenticated
+    ? `${managerAccount.session!.tenantId}:${managerAccount.session!.userId ?? "legacy"}:${managerRole}`
+    : "unauthenticated";
+
+  const managerLogin = useCallback(async (username: string, password: string) => {
+    const origin = savedGatewayUrl;
+    if (!origin || savedOriginRef.current !== origin) throw new Error("Gateway origin is not configured");
+    const session = await loginManager(origin, username, password);
+    // Cross-origin configuration changes invalidate the attempted login;
+    // never relabel that credential as belonging to the new Gateway.
+    if (savedOriginRef.current !== origin || !session.authenticated || !session.tenantId) {
+      throw new Error("Manager session changed while signing in");
+    }
+    ++managerProbeSeq.current;
+    setManagerAccount({ origin, status: "authenticated", session });
+  }, [savedGatewayUrl]);
+  const managerLogout = useCallback(async () => {
+    const origin = savedGatewayUrl;
+    if (!origin) return;
+    try {
+      await logoutManager(origin);
+    } finally {
+      ++managerProbeSeq.current;
+      if (savedOriginRef.current === origin) {
+        setManagerAccount({ origin, status: "signed-out", session: null });
+      }
+    }
+  }, [savedGatewayUrl]);
+  const managerRefresh = useCallback(() => { void probeManagerAccount(savedGatewayUrl); },
+    [savedGatewayUrl, probeManagerAccount]);
+  const managerAuthorityError = useCallback((permission: "test" | "manage") => {
+    setMsg({ text: t(managerAuthenticated ? "desktop.manager.roleDenied" : "desktop.manager.requireSignIn"), type: "error" });
+    navigate("settings");
+  }, [managerAuthenticated, navigate, t]);
+  const requestAddPrinter = useCallback((open: boolean) => {
+    if (open && !managerCanManage) { managerAuthorityError("manage"); return; }
+    setShowAdd(open);
+  }, [managerCanManage, managerAuthorityError]);
 
   const savedOriginMatches = useCallback((targetUrl: string): boolean => {
     try {
@@ -520,6 +612,7 @@ export default function App() {
   }, [refreshPrinters, t, locale]);
 
   const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
+    if (!managerCanManage) { managerAuthorityError("manage"); return; }
     if (!savedGatewayUrl) {
       setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
       return;
@@ -536,55 +629,49 @@ export default function App() {
     } finally {
       setBusyBoth(false);
     }
-  }, [savedGatewayUrl, refreshPrinters, setBusyBoth, t, locale]);
+  }, [savedGatewayUrl, refreshPrinters, setBusyBoth, t, locale, managerCanManage, managerAuthorityError]);
 
   const handleTest = useCallback(
     async (id: string) => {
-      if (testFlightRef.current.has(id)) return;
-      testFlightRef.current.add(id);
+      if (!managerCanTest) { managerAuthorityError("test"); return; }
+      if (!savedGatewayUrl) {
+        setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
+        return;
+      }
+      const scope = diagnosticScope(savedGatewayUrl, managerActorScope, id);
+      if (diagnosticOps.current.observed(scope)) {
+        if (!window.confirm(t("diagnostic.repeatConfirm"))) return;
+        diagnosticOps.current.confirmRepeat(scope);
+      }
+      const key = diagnosticOps.current.begin(scope);
+      if (!key) return; // same-tick or overlapping UI calls share one owner
       try {
         setBusyBoth(true);
-        if (!savedGatewayUrl) {
-          throw new Error(t("desktop.app.gatewayUrlMissing"));
-        }
-        let key = testOpKeyRef.current.get(id);
-        if (!key) {
-          key = typeof crypto !== "undefined" && "randomUUID" in crypto
-            ? crypto.randomUUID()
-            : `${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffffffff).toString(36)}`;
-          testOpKeyRef.current.set(id, key);
-        }
-        let result: Record<string, unknown>;
-        try {
-          result = await testGatewayPrinter(savedGatewayUrl, id, key);
-        } catch (e) {
-          // No HTTP response was observed: the Gateway may or may not have
-          // accepted the operation. Keep the key so a retry reconciles the
-          // same operation instead of creating a second physical print.
-          if (e instanceof Error && typeof (e as Error & { status?: unknown }).status === "number") {
-            testOpKeyRef.current.delete(id);
-          }
-          throw e;
-        }
-        // Observed outcome (queued, terminal, or UNKNOWN): the next click is
-        // a distinct explicit repeat, so the key must not be reused.
-        testOpKeyRef.current.delete(id);
-        const jobId = typeof result.jobId === "string" ? result.jobId : null;
+        const result = await testGatewayPrinter(savedGatewayUrl, id, key);
+        diagnosticOps.current.accept(scope, result);
         setMsg({
-          text: jobId
-            ? t("desktop.app.testQueuedWithJobs")
-            : t("desktop.app.testQueued"),
-          type: "success",
+          text: t(diagnosticMessageKey(result), { printer: "" }),
+          type: diagnosticMessageType(result) === "ok" ? "success" : "error",
         });
-        if (jobId) void refreshJobs();
+        if (result.jobId) void refreshJobs();
       } catch (e) {
-        setMsg({ text: friendlyPrinterError(errMsg(e), locale), type: "error" });
+        // HTTP errors, JSON errors and transport loss are all inconclusive
+        // about a prior committed job. Keep the identical key for retry.
+        diagnosticOps.current.uncertain(scope);
+        const status = (e as { status?: unknown } | null)?.status;
+        setMsg({
+          text: status === 401 ? t("diagnostic.authRequired") :
+                status === 403 ? t("diagnostic.permissionDenied") :
+                status === 429 ? friendlyPrinterError(errMsg(e), locale) :
+                t("diagnostic.admissionUnknown"),
+          type: "error",
+        });
       } finally {
-        testFlightRef.current.delete(id);
+        diagnosticOps.current.uncertain(scope);
         setBusyBoth(false);
       }
     },
-    [savedGatewayUrl, refreshJobs, setBusyBoth, t, locale]
+    [savedGatewayUrl, managerCanTest, managerActorScope, managerAuthorityError, refreshJobs, setBusyBoth, t, locale]
   );
 
   const handleEditSaved = useCallback(async () => {
@@ -848,11 +935,6 @@ export default function App() {
   // Gateway connectivity refreshes every 10s, but presentation is not tied to
   // a short freshness expiry. Confirmed negative evidence drives disconnect;
   // focus/online events force immediate probes after sleep or network changes.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 15000);
-    return () => clearInterval(timer);
-  }, []);
   // Affirmative observations only: an empty/missing health object, an agent
   // status without running:true, or a probe older than the freshness window
   // must read as unavailable — never as healthy/online (C046).
@@ -900,10 +982,7 @@ export default function App() {
   // Counts are liveness evidence, not snapshot status: a printer whose
   // observations went stale while the screen stays open must not count as
   // online (C045). nowMs ticks every 15s to re-derive these on open screens.
-  const onlinePrinters = physicalPrinters.filter((p) => p.status === "online" && !printerIsStale(p, nowMs)).length;
-  const offlinePrinters = physicalPrinters.filter(
-    (p) => p.status === "offline" || p.status === "error"
-  ).length;
+  const { online: onlinePrinters, offline: offlinePrinters } = printerHealthCounts(physicalPrinters, nowMs);
   // Single predicate behind the jobs tab filter, the tab counters, and the
   // failed-jobs attention count: one definition keeps filter/count semantics
   // identical by construction (C052).
@@ -956,7 +1035,7 @@ export default function App() {
       );
     }
     if (statusFilter !== "all") {
-      list = list.filter((p) => statusFilter === "stale" ? printerIsStale(p, nowMs) : p.status === statusFilter);
+      list = list.filter((p) => statusFilter === "stale" ? printerIsStale(p, nowMs) : printerDisplayStatus(p, nowMs) === statusFilter);
     }
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [physicalPrinters, printersFilter, statusFilter, nowMs]);
@@ -1052,6 +1131,10 @@ export default function App() {
     requestStopAgent: () => setConfirmStop(true),
     restartAgent,
     gatewayUrl: savedGatewayUrl,
+    managerAccount,
+    managerLogin,
+    managerLogout,
+    managerRefresh,
     gatewayDraftUrl: gatewayUrl,
     setGatewayDraftUrl: (value: string) => { setGw(value); setGatewayDraftError(null); },
     checkedGatewayUrl,
@@ -1084,7 +1167,7 @@ export default function App() {
     handleTest,
     updatePrinterLifecycle,
     showAdd,
-    setShowAdd,
+    setShowAdd: requestAddPrinter,
     selectedPrinter: resolvedSelectedPrinter,
     setSelectedPrinter,
     jobs,
@@ -1147,7 +1230,7 @@ export default function App() {
       <div
         className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-180 ${collapsed ? "lg:ps-[72px]" : "lg:ps-[248px]"}`}
       >
-        <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-4 py-4 backdrop-blur-xl lg:px-7">
+        <header className="sticky top-0 z-20 border-b border-edge/80 bg-surface/88 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-7">
           <div className="flex items-center gap-4">
             <button
               onClick={() => {
@@ -1242,7 +1325,7 @@ export default function App() {
           </div>
         )}
 
-        <main className="w-full flex-1 px-5 py-7 lg:px-8 lg:py-8">
+        <main className="w-full min-w-0 max-w-full flex-1 px-3 py-5 sm:px-5 sm:py-7 lg:px-8 lg:py-8">
           {page === "dashboard" && <OverviewPage s={state} />}
           {page === "printers" && <PrintersPage s={state} />}
           {page === "jobs" && <JobsPage s={state} />}
@@ -1252,7 +1335,7 @@ export default function App() {
       </div>
 
       <AddPrinterDialog
-        open={showAdd}
+        open={showAdd && managerCanManage}
         onClose={() => setShowAdd(false)}
         onSuccess={() => {
           refreshPrinters();
@@ -1264,7 +1347,7 @@ export default function App() {
 
       <EditPrinterDialog
         key={editingPrinter ? `edit-${editingPrinter.id}-${editingPrinter.desiredRevision ?? 0}` : "edit-none"}
-        open={!!editingPrinter}
+        open={!!editingPrinter && managerCanManage}
         printer={editingPrinter}
         gatewayUrl={savedGatewayUrl}
         onClose={() => setEditingPrinter(null)}
@@ -1307,11 +1390,11 @@ export default function App() {
         {selectedPrinter && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2 px-4 py-4">
-              <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter))} />
+              <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter, nowMs))} />
               <span className="text-lg font-semibold text-ink">
-                {labelPrinter(printerDisplayStatus(selectedPrinter), locale)}
+                {labelPrinter(printerDisplayStatus(selectedPrinter, nowMs), locale)}
               </span>
-              {printerIsStale(selectedPrinter) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}
+              {printerIsStale(selectedPrinter, nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}
               <span className="ms-auto text-sm text-ink-3">
                 {humanType(selectedPrinter, locale)}
               </span>
@@ -1364,7 +1447,10 @@ export default function App() {
                 selectedPrinter.lifecycle !== "retired" && (
                 <Button
                   variant="secondary"
-                  onClick={() => setEditingPrinter(selectedPrinter)}
+                  onClick={() => {
+                    if (!managerCanManage) { managerAuthorityError("manage"); return; }
+                    setEditingPrinter(selectedPrinter);
+                  }}
                 >
                   {t("desktop.drawer.editConfig")}
                 </Button>

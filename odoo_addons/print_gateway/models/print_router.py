@@ -50,6 +50,27 @@ class PrintGatewayRouter(models.AbstractModel):
     _name = "print_gateway.print_router"
     _description = "Print Gateway Central Router"
 
+    @api.private
+    def _submission_message(self, job_id, status):
+        """Explain durable delivery status without claiming physical paper output.
+
+        Gateway admission, agent execution and actual paper ejection are distinct
+        events. Current transports have no independent paper-out sensor.
+        """
+        if status == "queued":
+            return _("Print job %s is queued for Gateway submission. Check Print Activity before reprinting.") % job_id
+        if status == "submitted":
+            return _("Print job %s submitted to the Gateway; printer output is not confirmed.") % job_id
+        if status == "claimed":
+            return _("Print job %s claimed by an agent; printer output is not confirmed.") % job_id
+        if status == "printing":
+            return _("Print job %s is processing on an agent; printer output is not confirmed.") % job_id
+        if status == "success":
+            return _("Print job %s completed by the agent; physical paper output is not independently confirmed.") % job_id
+        if status == "failed":
+            return _("Print job %s failed. Check Print Activity and the printer before trying again.") % job_id
+        return _("Print job %s has an unknown outcome. Check the printer and Print Activity before trying again.") % job_id
+
     @api.model
     def _binding_scope(self, company=None):
         """Return (Odoo company owning the Gateway config, branch context)."""
@@ -151,6 +172,13 @@ class PrintGatewayRouter(models.AbstractModel):
         elif explicit_binding and getattr(explicit_binding, "destination_ref", False):
             destination = explicit_binding.destination_ref
         binding_model = self.env["print_gateway.binding"].sudo()
+        if explicit_binding and report and not explicit_destination:
+            # An explicitly selected report-action destination is valid even
+            # when a record also has an operational destination. Only the
+            # actual report (or a matching operational destination) is allowed.
+            selected_destination = explicit_binding.destination_ref
+            if selected_destination == report:
+                destination = report
         if explicit_binding:
             binding = binding_model.resolve_explicit(
                 explicit_binding,
@@ -189,6 +217,9 @@ class PrintGatewayRouter(models.AbstractModel):
                 _("Gateway printing is enabled, but no Print Binding exists for %s (%s) in %s.")
                 % (destination.display_name, dtype, branch.display_name if branch else gateway_company.display_name)
             )
+        # Persist the identity actually resolved, not merely the first
+        # operational candidate used to search for a report binding.
+        destination = binding.destination_ref
         self._assert_branch_agent_assignment(gateway_company, binding.branch_id or False, binding.runtime_agent_id)
         return {
             "gateway_enabled": True,
@@ -314,9 +345,38 @@ class PrintGatewayRouter(models.AbstractModel):
             cr.close()
         return job_id
 
+    def _durable_submission_outcome(self, job, message=None):
+        """Expose persisted evidence, never infer safe retry from an RPC error."""
+        status = job.status
+        uncertain = (
+            status not in ("queued", "submitted", "claimed", "printing", "success", "failed")
+            or (status == "failed" and str(job.last_error or "").startswith(job._GATEWAY_UNKNOWN_MARKERS))
+        )
+        if uncertain:
+            status = "unknown"
+            message = _("Print status is unknown. Check the printer before trying again.")
+        elif status == "failed":
+            message = message or _("Kitchen / Preparation printing failed.")
+        elif status == "queued" and not job.gateway_job_id:
+            # The committed Odoo outbox owns delivery, but Gateway admission
+            # has not happened yet (backoff or another submission worker).
+            message = message or _("Queued")
+        else:
+            message = message or self._submission_message(job.id, status)
+        return {
+            "status": status,
+            "outcome": (
+                "unknown" if uncertain else "failed" if status == "failed"
+                else "queued" if status == "queued" and not job.gateway_job_id else "accepted"
+            ),
+            "can_retry": status == "failed" and not uncertain,
+            "gateway_job_id": job.gateway_job_id or False,
+            "message": message,
+        }
+
     @api.model
-    def _submit_durable_job(self, job_id):
-        """Submit a durable job using a fresh PostgreSQL transaction."""
+    def _submit_durable_job(self, job_id, *, structured_outcome=False):
+        """Submit on a fresh transaction; opt-in clients retain durable outcome evidence."""
         cr = self.env.registry.cursor()
         try:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
@@ -329,18 +389,33 @@ class PrintGatewayRouter(models.AbstractModel):
                 # for the print operator (see _action_submit_trusted); the
                 # guarded public action_submit() would AccessError here.
                 job._action_submit_trusted(raise_on_failure=True)
-                status = job.status
+                result = self._durable_submission_outcome(job) if structured_outcome else job.status
                 cr.commit()
-                return status
-            except Exception:
+                return result
+            except Exception as error:
                 cr.rollback()
+                if structured_outcome:
+                    # Submission persists refusal/unknown/backoff on its own
+                    # cursor before raising. Re-fetch after rollback so the
+                    # RPC can distinguish that evidence from a lost response.
+                    job = env["print_gateway.print_job"].browse(job_id).exists()
+                    if job:
+                        job.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id"])
+                        if (
+                            job.status in ("failed", "unknown", "partial")
+                            or job.gateway_job_id
+                            or (job.status == "queued" and job.last_error and job.next_retry_at)
+                        ):
+                            return self._durable_submission_outcome(job, message=str(error))
+                # No authoritative outcome was recorded. Preserve the RPC
+                # exception; the client must treat submission as uncertain.
                 raise
         finally:
             cr.close()
 
     def _submit_route(
         self, *, route, payload, company, report=None, source_model=None,
-        source_record_id=None, idempotency_key=None,
+        source_record_id=None, idempotency_key=None, structured_outcome=False,
     ):
         self._assert_current_company(company)
         binding = route.get("binding")
@@ -364,6 +439,7 @@ class PrintGatewayRouter(models.AbstractModel):
             "gateway_config": route["config"],
             "printer_id": route["binding"].printer_id,
             "destination": route["destination"].display_name,
+            "destination_key": "%s,%s" % (route["destination"]._name, route["destination"].id),
             # Persist the semantic document type that was actually validated
             # against the selected binding. Diagnostic provenance lives in
             # source_model/source_record_id rather than a synthetic document type.
@@ -377,7 +453,8 @@ class PrintGatewayRouter(models.AbstractModel):
         })
         persist_ms = int((time.monotonic() - persist_start) * 1000)
         submit_start = time.monotonic()
-        status = self._submit_durable_job(job_id)
+        outcome = self._submit_durable_job(job_id, structured_outcome=True) if structured_outcome else None
+        status = outcome["status"] if structured_outcome else self._submit_durable_job(job_id)
         submit_ms = int((time.monotonic() - submit_start) * 1000)
         _logger.info(
             "print.trace odoo_route job_id=%s printer_id=%s persist_ms=%d gateway_submit_ms=%d total_ms=%d",
@@ -392,7 +469,8 @@ class PrintGatewayRouter(models.AbstractModel):
             "native": False,
             "status": status,
             "job_id": job_id,
-            "message": _("Print job %s accepted by the Gateway.") % job_id,
+            "message": self._submission_message(job_id, status),
+            **(outcome or {}),
         }
 
     @api.model
@@ -401,20 +479,21 @@ class PrintGatewayRouter(models.AbstractModel):
         report.ensure_one()
         report = _assert_report_usage_access(self.env, report)
         records = records.exists()
-        if not records:
-            if self._gateway_config(self.env.company):
-                raise ValidationError(_("Gateway printing requires at least one report record."))
-            return {"gateway_enabled": False, "native": True}
-
+        # Optional report interception must not break native Odoo when there
+        # is no matching exact report binding. An explicit operator-selected
+        # binding remains strict and never silently falls back to native.
         route = self.resolve_binding(
             report=report,
-            record=records[0],
+            record=records[0] if records else None,
             company=self.env.company,
             explicit_binding=explicit_binding or None,
             payload_type="pdf",
+            raise_if_not_found=bool(explicit_binding),
         )
         if route.get("native"):
             return route
+        if not records:
+            raise ValidationError(_("Gateway printing requires at least one report record."))
 
         selected_binding_id = route["binding"].id
         for record in records[1:]:
@@ -515,6 +594,9 @@ class PrintGatewayRouter(models.AbstractModel):
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=order._name, source_record_id=order.id,
             idempotency_key=idempotency_key,
+            # Preserve unknown physical-outcome markers from the durable Odoo
+            # outbox. A plain failed status can hide possible paper output.
+            structured_outcome=True,
         )
 
     @api.model
@@ -546,6 +628,7 @@ class PrintGatewayRouter(models.AbstractModel):
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
+            structured_outcome=True,
         )
 
     @api.model
@@ -578,6 +661,9 @@ class PrintGatewayRouter(models.AbstractModel):
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=self.env.company, source_model=session._name, source_record_id=session.id,
             idempotency_key=idempotency_key,
+            # Preserve unknown physical-outcome markers from the durable Odoo
+            # outbox. A plain failed status can hide possible paper output.
+            structured_outcome=True,
         )
 
     @api.model
@@ -745,6 +831,7 @@ class PrintGatewayRouter(models.AbstractModel):
             "gateway_config": config,
             "printer_id": target_binding.printer_id,
             "destination": target_destination.display_name if hasattr(target_destination, "display_name") else str(target_destination),
+            "destination_key": "%s,%s" % (target_destination._name, target_destination.id) if hasattr(target_destination, "_name") and getattr(target_destination, "id", False) else False,
             "document_type": document_type,
             "payload": payload,
             "payload_type": "raw_cmd",
@@ -761,7 +848,7 @@ class PrintGatewayRouter(models.AbstractModel):
             "native": False,
             "status": status,
             "job_id": job_id,
-            "message": _("Raw %s print job %s accepted.") % (protocol.upper(), job_id),
+            "message": self._submission_message(job_id, status),
         }
 
     @api.model

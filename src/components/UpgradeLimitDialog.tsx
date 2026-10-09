@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpRight, CircleAlert } from "lucide-react";
+import { useState } from "react";
 import { Button, Modal } from "./ui";
 import { useI18n } from "../i18n/react";
 import type { MessageKey } from "../i18n/messages/en";
@@ -43,6 +44,7 @@ export default function UpgradeLimitDialog({
   limit,
   periodEnd,
   retryAfterSeconds,
+  copyBillingDestination,
 }: {
   open: boolean;
   onClose: () => void;
@@ -51,9 +53,13 @@ export default function UpgradeLimitDialog({
   limit?: number | "unlimited" | null;
   periodEnd?: string | Date | null;
   retryAfterSeconds?: number | null;
+  /** Desktop: never navigate WebView to /billing; give a validated copyable origin URL. */
+  copyBillingDestination?: { url: string | null };
 }) {
   const { t, tc, formatNumber, formatDate } = useI18n();
   const copy = COPY[resource];
+  const billingUrl = copyBillingDestination?.url ?? null;
+  const [copiedUrl, setCopiedUrl] = useState("");
   const usedText = typeof used === "number" ? formatNumber(used) : "—";
   const limitText = limit === "unlimited" ? t("limit.unlimited") : typeof limit === "number" ? formatNumber(limit) : "—";
   const end = periodEnd ? new Date(periodEnd) : null;
@@ -102,14 +108,42 @@ export default function UpgradeLimitDialog({
           <Button variant="secondary" onClick={onClose}>
             {t("ui.closeDialog")}
           </Button>
-          <Button
-            variant="primary"
-            href="/billing"
-            onClick={onClose}
-            icon={<ArrowUpRight className="h-4 w-4" aria-hidden />}
-          >
-            {t("limit.upgradePlan")}
-          </Button>
+          {copyBillingDestination ? (
+            billingUrl ? (
+              <div className="flex min-w-0 flex-1 flex-col gap-2 sm:items-end">
+                {/* A read-only selectable URL remains usable even if clipboard permission is denied. */}
+                <input
+                  className="w-full min-w-0 rounded-sm border border-edge bg-surface-2 px-2 py-1.5 text-xs text-ink"
+                  aria-label={t("limit.copyBillingLink")}
+                  value={billingUrl}
+                  readOnly
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(billingUrl).then(
+                      () => setCopiedUrl(billingUrl),
+                      () => setCopiedUrl(""),
+                    );
+                  }}
+                >
+                  {copiedUrl === billingUrl ? t("limit.linkCopied") : t("limit.copyBillingLink")}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-warn">{t("limit.configureGatewayFirst")}</p>
+            )
+          ) : (
+            <Button
+              variant="primary"
+              href="/billing"
+              onClick={onClose}
+              icon={<ArrowUpRight className="h-4 w-4" aria-hidden />}
+            >
+              {t("limit.upgradePlan")}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

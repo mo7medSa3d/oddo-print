@@ -685,8 +685,8 @@ func TestMDNSTXTAttributeExtraction(t *testing.T) {
 	if di.Endpoint != "ipp://192.168.1.150:631/ipp/print" {
 		t.Errorf("expected endpoint 'ipp://192.168.1.150:631/ipp/print', got %q", di.Endpoint)
 	}
-	if di.Capabilities["mdns_verified"] != true {
-		t.Errorf("expected mdns_verified=true")
+	if di.Capabilities["mdns_verified"] != false || di.Capabilities["verification"] != "candidate" {
+		t.Errorf("DNS-SD announcement must be a candidate until its IPP endpoint answers")
 	}
 	if di.Capabilities["discovered_via"] != "mdns" {
 		t.Errorf("expected discovered_via='mdns'")
@@ -771,7 +771,7 @@ func TestRuntimeDiscoveryPrintersExcludesCandidateOnlyLPR(t *testing.T) {
 	input := []DeviceInfo{
 		{ID: "spooler-1", Name: "Office", ConnectionType: "spooler", Protocol: "spooler"},
 		{ID: "lpr-1", Name: "LPD candidate", ConnectionType: "network", Protocol: "lpr", Capabilities: map[string]interface{}{"verification": "candidate_only"}},
-		{ID: "network-1", Name: "Raw printer", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"verification": "verified"}},
+		{ID: "network-1", Endpoint: "192.168.1.21:9100", Name: "Raw printer", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"verification": "verified"}},
 	}
 	got := RuntimeDiscoveryPrinters(input)
 	if len(got) != 2 {
@@ -790,8 +790,8 @@ func TestRuntimeDiscoveryPrintersExcludesAutomaticUnknownNetworkEvidence(t *test
 		{ID: "tcp-candidate", Name: "Open 9100", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"discovered_via": "tcp_port_scan", "verification": "print_endpoint_verified"}},
 		{ID: "wsd-candidate", Name: "WSD", ConnectionType: "network", Protocol: "", Capabilities: map[string]interface{}{"discovered_via": SourceWSD, "verification": "device_detected_only"}},
 		{ID: "snmp-candidate", Name: "SNMP", ConnectionType: "network", Protocol: "", Capabilities: map[string]interface{}{"discovered_via": SourceSNMP, "verification": "device_detected_only"}},
-		{ID: "manual-unknown", Name: "Operator inventory", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"registration_source": "manual"}},
-		{ID: "raw-runtime", Name: "Declared RAW", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"discovered_via": SourceSNMP, "verification": "verified"}},
+		{ID: "manual-unknown", Endpoint: "192.168.1.22:9100", Name: "Operator inventory", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"registration_source": "manual"}},
+		{ID: "raw-runtime", Endpoint: "192.168.1.23:9100", Name: "Declared RAW", ConnectionType: "network", Protocol: "raw", Capabilities: map[string]interface{}{"discovered_via": SourceSNMP, "verification": "verified"}},
 		{ID: "ipp-port-only", Name: "TCP 631 candidate", ConnectionType: "network", Protocol: "unknown", Capabilities: map[string]interface{}{"discovered_via": "ipp_tcp_scan", "candidate_protocol": "ipp", "verification": "candidate_only", "ipp_verified": false}},
 		{ID: "usb-needs-spooler", Name: "USB without path", ConnectionType: "usb", Protocol: "unknown", Capabilities: map[string]interface{}{"discovered_via": SourceUSB, "verification": "candidate_only", "requires_spooler": true}},
 	}

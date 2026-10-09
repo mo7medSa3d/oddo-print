@@ -261,7 +261,7 @@
         border-bottom: 1px solid var(--pg-border-strong) !important; padding: 10px 12px !important;
     }
     tbody tr.o_data_row { &:hover { background-color: var(--pg-surface-accent) !important; } td { border-bottom: 1px solid var(--pg-border); padding: 10px 12px; } }
-    tbody tr.o_data_row + tr.o_data_row { border-top: 1px solid var(--pg-border-subtle); }
+    tbody tr.o_data_row + tr.o_data_row { border-top: 1px solid var(--pg-border); }
     .form-switch .form-check-input, .o_boolean_toggle .form-check-input {
         width: 2.25rem !important; height: 1.25rem !important; min-width: 2.25rem !important; border-radius: var(--pg-r-pill) !important;
         border: 1.5px solid var(--pg-border-strong) !important; background-color: var(--pg-surface-3) !important;
@@ -353,3 +353,66 @@
 .o_pg_view.o_form_view:not(.o_pg_pairing_wizard) .o_form_sheet_bg .o_form_sheet {
     max-width: 100%;
 }
+
+/* Scoped small-screen form/list rules for the Print Gateway addon.
+   Do not alter Odoo's other backend applications or break table semantics. */
+.o_pg_view,
+.o_pg_list,
+.o_pg_kanban {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.o_pg_view .o_pg_mono,
+.o_pg_list .o_pg_mono {
+    overflow-wrap: anywhere;
+    unicode-bidi: isolate;
+}
+@media (max-width: 767.98px) {
+    .o_pg_view {
+        .o_form_sheet_bg {
+            padding-inline: 10px;
+        }
+        .o_form_sheet {
+            min-width: 0;
+            max-width: 100%;
+            padding-inline: 12px;
+            border-radius: var(--pg-r-lg);
+        }
+        .o_group, .o_inner_group, .o_field_widget {
+            min-width: 0;
+            max-width: 100%;
+        }
+        .o_field_widget input:not([type="checkbox"]):not([type="radio"]),
+        .o_field_widget select,
+        .o_field_widget textarea {
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .o_pg_record_header,
+        .o_pg_step_header,
+        .o_pg_partial_alert {
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }
+        .o_pg_step_header .o_pg_step_subtitle {
+            flex-basis: 100%;
+            margin-inline-start: 0;
+        }
+        .o_pg_step_card {
+            padding: 14px;
+        }
+        .o_notebook .nav-tabs {
+            flex-wrap: nowrap;
+            max-width: 100%;
+            overflow-x: auto;
+            overscroll-behavior-inline: contain;
+        }
+    }
+    .o_pg_list {
+        .o_list_renderer { max-width: 100%; overflow-x: auto; }
+        .o_list_table { width: max-content; min-width: 100%; }
+        th, td { white-space: normal; overflow-wrap: anywhere; }
+    }
+}
+

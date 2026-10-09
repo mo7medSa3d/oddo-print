@@ -86,6 +86,7 @@ import {
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
+import { DiagnosticOperations, decodeDiagnosticResult, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, type DiagnosticResult } from "../../shared/diagnostic-test";
 import { shortId } from "../../lib/utils";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
@@ -169,6 +170,7 @@ class DashboardApiError extends Error {
     public readonly key: MessageKey,
     public readonly code: string,
     public readonly details: Record<string, unknown> = {},
+    public readonly httpStatus?: number,
   ) {
     // `super` stays debug-only: the operator reads `key` through `t()`, never
     // the English string the Gateway put in the body.
@@ -306,20 +308,20 @@ function upgradeLimitFromLimitSignal(limit: {
   };
 }
 
-async function sendGatewayTestPage(printerId: string): Promise<{ virtualCapture: boolean }> {
+async function sendGatewayTestPage(printerId: string, operationKey: string): Promise<DiagnosticResult> {
   const response = await fetchWithTimeout(`/api/printers/${encodeURIComponent(printerId)}/test-print`, {
     method: "POST",
     credentials: "same-origin",
     headers: {
       "content-type": "application/json",
-      "Idempotency-Key": generateIdempotencyKey(),
+      "Idempotency-Key": operationKey,
     },
   });
   const body = await response.json().catch(() => null) as Record<string, unknown> | null;
-  if (response.ok) return { virtualCapture: body?.virtualCapture === true };
+  if (response.ok) return decodeDiagnosticResult(body, printerId);
   const obj = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const code = typeof obj.code === "string" ? obj.code : "HTTP_ERROR";
-  throw new DashboardApiError(apiMessageKey(code, response.status, "errors.testPageFailed"), code, obj);
+  throw new DashboardApiError(apiMessageKey(code, response.status, "errors.testPageFailed"), code, obj, response.status);
 }
 
 /* ---------- Local presentational helpers ---------- */
@@ -338,12 +340,12 @@ function KpiCell({
   progress?: number;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 bg-surface p-4">
-      <span className="text-xs font-[550] text-ink-3">{label}</span>
+    <div className="flex min-w-0 flex-col gap-1.5 bg-surface p-3.5 sm:p-4">
+      <span className="min-w-0 text-xs font-[550] leading-relaxed text-ink-3">{label}</span>
       <span className="text-2xl font-[640] leading-none tracking-[-0.02em] text-ink tabular">
         {value}
       </span>
-      <span className="flex min-h-[16px] items-center gap-1.5 text-xs text-ink-3">
+      <span className="flex min-h-[16px] min-w-0 flex-wrap items-center gap-1.5 text-xs leading-relaxed text-ink-3">
         {tone && (
           <span
             aria-hidden
@@ -402,6 +404,7 @@ export default function DashboardClient({
   initialFleet,
   databaseError,
   canMutate,
+  diagnosticActorScope,
 }: {
   initialAgents: Agent[];
   initialPrinters: Printer[];
@@ -409,6 +412,7 @@ export default function DashboardClient({
   initialFleet: FleetMeta;
   databaseError: string | null;
   canMutate: { printers: boolean; printersTest: boolean; agentsLifecycle: boolean; jobsCancel: boolean; jobsRetry: boolean };
+  diagnosticActorScope: string;
 }) {
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
   const [printers, setPrinters] = useState<Printer[]>(initialPrinters);
@@ -454,6 +458,7 @@ export default function DashboardClient({
   const [agentName, setAgentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
+  const diagnosticOps = React.useRef(new DiagnosticOperations(generateIdempotencyKey));
   const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
@@ -917,27 +922,43 @@ export default function DashboardClient({
   };
 
   const handleGatewayTestPrint = async (printerId: string, printerName: string) => {
+    const scope = diagnosticScope(window.location.origin, diagnosticActorScope, printerId);
+    // A subsequent physical print after a verified Gateway outcome is NEVER
+    // a silent click/retry. A lost response retries the same existing key.
+    if (diagnosticOps.current.observed(scope)) {
+      if (!window.confirm(t("diagnostic.repeatConfirm"))) return;
+      diagnosticOps.current.confirmRepeat(scope);
+    }
+    const key = diagnosticOps.current.begin(scope);
+    if (!key) return; // synchronous flight owner, including same-tick clicks
     setTestingPrinterId(printerId);
     setMessage(null);
     try {
-      const { virtualCapture } = await sendGatewayTestPage(printerId);
+      const result = await sendGatewayTestPage(printerId, key);
+      diagnosticOps.current.accept(scope, result);
       setMessage({
-        text: t(virtualCapture ? "success.virtualTestQueued" : "success.testPageSubmitted", { printer: printerName }),
-        type: "ok",
+        text: t(diagnosticMessageKey(result), { printer: printerName }),
+        type: diagnosticMessageType(result),
       });
       void refreshData();
     } catch (error) {
+      // A timeout/5xx/4xx or malformed 2xx is not proof of no persistence.
+      // Retain the key for explicit reconciliation via the same idempotent POST.
+      diagnosticOps.current.uncertain(scope);
       if (error instanceof DashboardApiError) {
         const limit = upgradeLimitFromApiError(error);
         if (limit) {
           setUpgradeLimit(limit);
           return;
         }
-        setMessage({ text: t(error.key), type: "err" });
+        const errorKey = error.httpStatus === 401 ? "diagnostic.authRequired"
+          : error.httpStatus === 403 ? "diagnostic.permissionDenied" : "diagnostic.admissionUnknown";
+        setMessage({ text: t(errorKey), type: "err" });
       } else {
-        setMessage({ text: t("errors.testPageFailed"), type: "err" });
+        setMessage({ text: t("diagnostic.admissionUnknown"), type: "err" });
       }
     } finally {
+      diagnosticOps.current.uncertain(scope);
       setTestingPrinterId(null);
     }
   };
@@ -1301,7 +1322,7 @@ export default function DashboardClient({
             edge after the third cell — stray lines hugging the card frame,
             which read as a broken border. 1px grid gaps are column-count
             agnostic, so no breakpoint can produce a stray edge. */}
-        <div className="overflow-hidden rounded-b-lg"><div className="grid grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
+        <div className="overflow-hidden rounded-b-lg"><div className="grid min-w-0 grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
             label={t("dashboard.agentsOnline")}
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}
@@ -1435,8 +1456,8 @@ export default function DashboardClient({
       )}
 
       {/* ── Fleet ─────────────────────────────────────────────────── */}
-      <div className="grid items-start gap-5 xl:grid-cols-12">
-        <Card className="xl:col-span-4">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-12">
+        <Card className="overflow-hidden xl:col-span-4">
           {/* Heading literals ("Agents" / "Printers" / "Recent Print Jobs") are part of the
               operator vocabulary contracts asserted by the integration suite. */}
           <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
@@ -1570,7 +1591,7 @@ export default function DashboardClient({
           )}
         </Card>
 
-        <Card className="xl:col-span-8">
+        <Card className="overflow-hidden xl:col-span-8">
           <div className="flex flex-col gap-3 border-b border-edge-subtle px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-2.5">
               <PrinterIcon className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" aria-hidden />
@@ -1586,6 +1607,7 @@ export default function DashboardClient({
                 </p>
               </div>
             </div>
+            <div className="hidden xl:block">
             <SegmentedControl
               label={t("printer.viewToggle")}
               size="sm"
@@ -1596,6 +1618,7 @@ export default function DashboardClient({
                 { value: "table", label: t("printer.view.list"), icon: <List className="h-3.5 w-3.5" /> },
               ]}
             />
+            </div>
           </div>
 
           {fleet.totalPrinters > 0 && (
@@ -1651,8 +1674,9 @@ export default function DashboardClient({
                 </Button>
               }
             />
-          ) : printerViewMode === "grid" ? (
-            <ul className="grid gap-3 p-4 sm:grid-cols-2">
+          ) : (
+            <>
+            <ul className={`grid min-w-0 gap-3 p-3 sm:grid-cols-2 sm:p-4 ${printerViewMode === "table" ? "xl:hidden" : ""}`}>
               {filteredPrinters.map((printer) => {
                 const parentAgent = agentById.get(printer.agentId);
                 const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
@@ -1662,9 +1686,9 @@ export default function DashboardClient({
                 return (
                   <li
                     key={printer.id}
-                    className="flex flex-col gap-3 rounded-md border border-edge-subtle bg-surface-2/35 p-3.5 transition-colors duration-150 hover:border-edge hover:bg-surface-hover"
+                    className="flex min-w-0 flex-col gap-3 rounded-lg border border-edge bg-surface p-3.5 shadow-xs transition-[border-color,box-shadow] duration-150 hover:border-edge-strong hover:shadow-sm focus-within:border-brand"
                   >
-                    <div className="flex items-start gap-2.5">
+                    <div className="flex min-w-0 flex-wrap items-start gap-2.5">
                       <PrinterIcon className="mt-1 h-4 w-4 shrink-0 text-ink-4" aria-hidden />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-[600] text-ink">{printer.name}</div>
@@ -1679,6 +1703,7 @@ export default function DashboardClient({
                           )}
                         </div>
                       </div>
+                      <div className="flex max-w-full flex-wrap items-center gap-1.5">
                       <StatusBadge
                         tone={sharedPrinterTone(displayStatus)}
                         label={printerLabel(displayStatus, locale)}
@@ -1686,6 +1711,7 @@ export default function DashboardClient({
                         pulse={displayStatus === "online" && freshness === "fresh"}
                       />
                       {freshness === "stale" ? <StatusBadge tone="warn" label={t("status.stale")} size="sm" /> : null}
+                      </div>
                     </div>
 
                     <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
@@ -1703,7 +1729,7 @@ export default function DashboardClient({
                       </div>
                     </dl>
 
-                    <div className="mt-auto flex items-center justify-between gap-2 border-t border-edge-subtle pt-3">
+                    <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-edge-subtle pt-3">
                       <Button
                         size="sm"
                         variant="secondary"
@@ -1714,7 +1740,7 @@ export default function DashboardClient({
                       >
                         {testingPrinterId === printer.id ? t("printer.sending") : t("printer.sendTestPage")}
                       </Button>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -1738,8 +1764,8 @@ export default function DashboardClient({
                 );
               })}
             </ul>
-          ) : (
-            <div className="overflow-x-auto">
+            {printerViewMode === "table" && (
+            <div className="hidden min-w-0 overflow-x-auto xl:block">
               <table className="data-table min-w-[720px]">
                 <caption className="sr-only">{t("printer.tableCaption")}</caption>
                 <thead>
@@ -1809,6 +1835,8 @@ export default function DashboardClient({
                 </tbody>
               </table>
             </div>
+            )}
+            </>
           )}
           {(fleet.printerOffset > 0 || fleet.printerHasMore) && (
             <div className="flex items-center justify-end gap-2 border-t border-edge-subtle px-4 py-3">
@@ -1850,7 +1878,7 @@ export default function DashboardClient({
             className="min-w-0"
           />
           <div className="flex items-center gap-2 lg:shrink-0">
-            <div className="relative flex-1 lg:w-[240px]">
+            <div className="relative min-w-0 flex-1 lg:w-[240px]">
               <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
               <Input
                 type="search"
@@ -1987,7 +2015,7 @@ export default function DashboardClient({
                 const printer = printerById.get(job.printerId);
                 return (
                   <li key={job.id} className="px-4 py-3.5">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                       <button
                         type="button"
                         onClick={() => openJobDetails(job)}
@@ -2007,7 +2035,7 @@ export default function DashboardClient({
                       <span aria-hidden>·</span>
                       <span>{job.documentType?.replace(/_/g, " ") ?? t("job.unknownType")}</span>
                     </div>
-                    <div className="mt-2.5 flex items-center gap-1.5">
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="secondary" onClick={() => openJobDetails(job)} icon={<Eye className="h-3.5 w-3.5" />}>
                         {t("job.inspect")}
                       </Button>

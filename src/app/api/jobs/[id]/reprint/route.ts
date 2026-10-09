@@ -47,6 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const result = await createPrintJobForPrinter(job.printerId, job.payload, {
       requestedBy: "manager-reprint",
+      managerAuthority: { claims: auth.claims, permission: "jobs.retry" },
       reprintOfJobId: job.id,
       destination: job.destination,
       documentType: job.documentType ?? undefined,

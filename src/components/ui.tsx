@@ -325,7 +325,7 @@ export function Card({
   id?: string;
 }) {
   return (
-    <div id={id} className={`card ${className}`}>
+    <div id={id} className={`card min-w-0 max-w-full ${className}`}>
       {children}
     </div>
   );
@@ -355,13 +355,13 @@ export function CardHeader({
           </span>
         )}
         <div className="min-w-0">
-          <h2 className="truncate text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
+          <h2 className="break-words text-md font-[600] leading-snug tracking-[-0.012em] text-ink">
             {title}
           </h2>
           {subtitle && <p className="mt-0.5 text-sm leading-snug text-ink-3">{subtitle}</p>}
         </div>
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -1519,7 +1519,7 @@ export function Tabs<T extends string>({
       role="tablist"
       aria-label={ariaLabel ?? t("ui.filterOptions")}
       onKeyDown={onListKeyDown}
-      className={`flex items-center gap-1 overflow-x-auto ${className}`}
+      className={`flex min-w-0 max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain [scrollbar-width:thin] ${className}`}
     >
       {tabs.map((t) => {
         const selected = t === active;
@@ -1937,7 +1937,7 @@ export function PageContainer({
   const max =
     width === "wide" ? "max-w-[1680px]" : width === "narrow" ? "max-w-[960px]" : "max-w-[1440px]";
   return (
-    <div className={`mx-auto w-full ${max} px-4 py-6 sm:px-6 sm:py-7 lg:px-8 lg:py-8 ${className}`}>
+    <div className={`mx-auto w-full min-w-0 max-w-full ${max} px-3 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8 ${className}`}>
       {children}
     </div>
   );
@@ -1984,7 +1984,7 @@ export function PageHeader({
         className,
       ].join(" ")}
     >
-      <div className={variant === "band" ? `mx-auto w-full ${max} px-4 py-5 sm:px-6 lg:px-8` : ""}>
+      <div className={variant === "band" ? `mx-auto w-full min-w-0 max-w-full ${max} px-3 py-5 sm:px-6 lg:px-8` : ""}>
         {breadcrumbs && <div className="mb-2 text-sm text-ink-3">{breadcrumbs}</div>}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -2007,7 +2007,7 @@ export function PageHeader({
             </div>
           </div>
           {actions && (
-            <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>
           )}
         </div>
       </div>

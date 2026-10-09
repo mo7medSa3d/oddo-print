@@ -4,14 +4,14 @@ import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, Sta
 import { DetailList, StatItem, StatStrip } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { agentStatusNoteKey, friendlyAgentError, isProductionPrinter, printerIsStale } from "../lib/printers";
+import { agentStatusNoteKey, friendlyAgentError, isProductionPrinter, printerHealthCounts } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const { t, locale, formatDateTime } = useI18n();
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
   const physical = s.printers.filter(isProductionPrinter);
-  const online = physical.filter((p) => p.status === "online").length;
-  const attention = physical.filter((p) => p.status === "offline" || p.status === "error" || p.status === "unknown" || printerIsStale(p)).length;
+  const { online, offline, unknown } = printerHealthCounts(physical, s.nowMs);
+  const attention = offline + unknown;
 
   return (
     <div className="space-y-5">

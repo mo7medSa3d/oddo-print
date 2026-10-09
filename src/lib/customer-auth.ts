@@ -45,9 +45,10 @@ export type TenantSelectionClaims = {
   sub: "tenant_selection";
   userId: string;
   email: string;
+  credentialVersion: string;
 };
 
-export async function createTenantSelectionToken(userId: string, email: string): Promise<string> {
+export async function createTenantSelectionToken(userId: string, email: string, credentialVersion: string): Promise<string> {
   const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
   const now = Number(clock.rows[0]?.now_sec);
   if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
@@ -58,6 +59,7 @@ export async function createTenantSelectionToken(userId: string, email: string):
     sub: "tenant_selection",
     userId,
     email,
+    credentialVersion,
   };
   const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = b64urlEncode(JSON.stringify(claims));
@@ -91,6 +93,7 @@ export async function verifyTenantSelectionToken(token: string): Promise<TenantS
       !claims.jti.startsWith("tsel_") ||
       typeof claims.userId !== "string" ||
       typeof claims.email !== "string" ||
+      typeof claims.credentialVersion !== "string" || !/^[0-9a-f]{64}$/.test(claims.credentialVersion) ||
       typeof claims.iat !== "number" ||
       typeof claims.exp !== "number" ||
       !Number.isSafeInteger(claims.iat) ||
@@ -114,6 +117,7 @@ export async function issueCustomerSession(
   role: ManagerRole,
   context?: SessionRequestContext,
   email?: string | null,
+  credentialVersion?: string,
 ) {
   const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
   if (!tenantLifecycle) return null;
@@ -123,6 +127,7 @@ export async function issueCustomerSession(
     tenantId,
     role,
     email: email ?? null,
+    credentialVersion,
   }, context);
 }
 
@@ -196,7 +201,7 @@ export async function authenticateForTenant(email: string, password: string, ten
     return { ...identity, multipleTenants: false, memberships: [] };
   }
   if (memberships.length > 1) {
-    const selectionToken = await createTenantSelectionToken(identity.userId, identity.email);
+    const selectionToken = await createTenantSelectionToken(identity.userId, identity.email, identity.credentialVersion);
     return { ...identity, multipleTenants: true, selectionToken, memberships };
   }
   if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;

@@ -1,3 +1,4 @@
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../lib/manager-mutation-authorization";
 import { NextResponse } from "next/server";
 import { db } from "../../../db";
 import { plans, tenantSubscriptions, tenants } from "../../../db/schema";
@@ -48,12 +49,15 @@ export async function POST(req: Request) {
     // two concurrent first-time trial requests can both observe no
     // trialStartedAt before either transaction commits.
     const lockedTenant = await tx.execute(sql`
-      SELECT id
+      SELECT id, lifecycle
       FROM tenants
       WHERE id = ${claims.tenantId}
       FOR UPDATE
     `);
     if (lockedTenant.rows.length !== 1) throw new Error("TENANT_NOT_FOUND");
+    if (lockedTenant.rows[0]?.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
+    await requireManagerActorInTransaction(tx, claims, "tenant.update");
+    if (trial) await requireManagerActorInTransaction(tx, claims, "billing.manage");
     await tx.update(tenants).set({ name, updatedAt: sql`now()` }).where(eq(tenants.id, claims.tenantId));
     if (!trial) return;
     await tx.execute(sql`SELECT tenant_id FROM tenant_subscriptions WHERE tenant_id = ${claims.tenantId} FOR UPDATE`);
@@ -67,6 +71,8 @@ export async function POST(req: Request) {
     }
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof Error && error.message === "TENANT_NOT_ACTIVE") return NextResponse.json({ error: "Workspace unavailable" }, { status: 403 });
     if (error instanceof Error && error.message === "TENANT_NOT_FOUND") return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     if (error instanceof Error && error.message === "Workspace already has billing state") return NextResponse.json({ error: "Trial is unavailable for a workspace with an existing subscription or checkout", code: "TRIAL_NOT_AVAILABLE" }, { status: 409 });
     if (error instanceof Error && error.message === "Trial has already been used for this workspace") return NextResponse.json({ error: "This workspace has already used its trial" }, { status: 409 });

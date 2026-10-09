@@ -6,6 +6,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { decodeDiagnosticResult, type DiagnosticResult } from "../../shared/diagnostic-test";
 
 /** Tauri v2 injects __TAURI_INTERNALS__ only inside the real desktop shell. */
 export const isTauri =
@@ -93,9 +94,28 @@ export function clearManagerToken(): void {
   }
 }
 
+export type ManagerRole = "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin";
 export interface ManagerSessionStatus {
   authenticated: boolean;
   expiresAt?: string;
+  tenantId?: string;
+  userId?: string | null;
+  role?: ManagerRole;
+}
+
+const MANAGER_ROLES: readonly string[] = ["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"];
+function decodeManagerMe(body: string): ManagerSessionStatus {
+  const data = JSON.parse(body) as Record<string, unknown>;
+  if (!data || typeof data !== "object" || data.authenticated !== true ||
+      typeof data.exp !== "number" || !Number.isFinite(data.exp) || data.exp <= 0 ||
+      typeof data.tenantId !== "string" || !data.tenantId.trim() ||
+      typeof data.role !== "string" || !MANAGER_ROLES.includes(data.role) ||
+      (data.userId != null && (typeof data.userId !== "string" || !data.userId.trim()))) {
+    throw new Error("Gateway Manager identity response is invalid");
+  }
+  return { authenticated: true, tenantId: data.tenantId,
+    userId: (data.userId ?? null) as string | null, role: data.role as ManagerRole,
+    expiresAt: new Date(data.exp * 1000).toISOString() };
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -194,7 +214,7 @@ async function gatewayRequest(
     response = { status: browserResponse.status, body: await browserResponse.text() };
   } else {
     response = await invoke<GatewayResponse>("gateway_request", {
-      args: { path, method, headers, body: body ?? null },
+      args: { path, method, headers, body: body ?? null, expected_origin: base },
     });
   }
 
@@ -271,9 +291,14 @@ export async function loginManager(
   // gateway_request) stores accessToken/refreshToken Rust-side and strips them
   // from the renderer-visible body, so data.accessToken must NOT be required
   // here. The browser path keeps its cookie-based marker instead.
+  // The sanitized /me contract, not a mere login HTTP 200, establishes the
+  // visible Manager workspace and role for privileged controls. A failed
+  // verification must never mark the browser preview authenticated.
+  const verified = await getManagerSession(base);
+  if (!verified.authenticated) throw new Error("Manager login did not establish an authorized session");
   if (!isTauri) browserManagerAuthenticated = true;
   if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  return { authenticated: true, expiresAt: data.expiresAt };
+  return verified;
 }
 
 const refreshFlights = new Map<string, Promise<ManagerSessionStatus>>();
@@ -319,29 +344,16 @@ export async function clearManagerSessionUnlessTransient(error: unknown): Promis
 
 export async function getManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
   const base = normalizeGatewayUrl(gatewayUrl);
+  // gatewayRequest already performs one origin-bound refresh for a 401. The
+  // final /me result (not a refresh token alone) must prove actor and role.
   const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET");
-  if (status === 401 || status === 403) {
-    if (status === 401) {
-      try {
-        return await refreshManagerSession(base);
-      } catch (e) {
-        await clearManagerSessionUnlessTransient(e);
-        return { authenticated: false };
-      }
-    }
-    return { authenticated: false };
+  if (status === 401 || status === 403) return { authenticated: false };
+  if (status < 200 || status >= 300) {
+    const error = new Error(`Manager identity check failed (${status})`) as GatewayApiError;
+    error.status = status;
+    throw error;
   }
-  if (status < 200 || status >= 300) throw new Error(`Manager session check failed (${status})`);
-  const data = JSON.parse(body) as { authenticated?: boolean; exp?: number };
-  if (!data.authenticated || typeof data.exp !== "number") {
-    try {
-      return await refreshManagerSession(base);
-    } catch (e) {
-      await clearManagerSessionUnlessTransient(e);
-      return { authenticated: false };
-    }
-  }
-  return { authenticated: true, expiresAt: new Date(data.exp * 1000).toISOString() };
+  return decodeManagerMe(body);
 }
 
 export async function logoutManager(gatewayUrl: string): Promise<void> {
@@ -661,7 +673,7 @@ export async function testGatewayPrinter(
   gatewayUrl: string,
   printerId: string,
   idempotencyKey?: string,
-): Promise<Record<string, unknown>> {
+): Promise<DiagnosticResult> {
   const base = normalizeGatewayUrl(gatewayUrl);
   const { status, body } = await gatewayRequest(
     base,
@@ -675,7 +687,7 @@ export async function testGatewayPrinter(
     // preserved (transient-failure) session would sign the operator out.
     throw gatewayHttpError(status, body, "Gateway test print failed (" + status + ")");
   }
-  return JSON.parse(body) as Record<string, unknown>;
+  return decodeDiagnosticResult(JSON.parse(body), printerId);
 }
 
 export function cleanupLocalJobs(): Promise<number> {

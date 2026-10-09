@@ -3,6 +3,8 @@ import { db } from "../../../../../db";
 import { agents, discoverySessions } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../../lib/manager-mutation-authorization";
+import { requireActiveTenantInTransaction } from "../../../../../lib/tenant-guard";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
@@ -44,6 +46,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!lockedAgent?.id) throw new Error("AGENT_NOT_FOUND");
       if (lockedAgent.lifecycle !== "active") throw new Error("AGENT_NOT_ACTIVE");
 
+      // A stale preflight session cannot start a new scan after an admin is
+      // demoted or the session family is revoked while the body is in flight.
+      // Keep Agent -> Tenant -> Actor -> session ordering until commit.
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
+      await requireManagerActorInTransaction(tx, claims, "agents.pair");
+
       const active = await tx.query.discoverySessions.findFirst({
         where: and(
           eq(discoverySessions.agentId, agentId),
@@ -67,6 +75,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await tx.execute(sql`SELECT pg_notify('print_gateway_discovery', ${JSON.stringify({ agentId, discoveryId })}::text)`);
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message === "AGENT_NOT_FOUND") {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }

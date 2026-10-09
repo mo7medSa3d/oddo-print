@@ -12,6 +12,9 @@ import { MAX_AGENT_IN_FLIGHT_JOBS } from "./job-delivery";
 import { enforceTenantJobEntitlements, reserveTenantPrintCredit } from "./entitlements";
 import { logInfo, logWarn } from "./log";
 import { recordJobEvent } from "./job-timeline";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "./manager-mutation-authorization";
+import type { ManagerClaims } from "./manager-auth";
+import type { ManagerPermission } from "./authorization";
 
 export const MAX_AGENT_QUEUED_JOBS = 256;
 export const MAX_AGENT_QUEUED_PAYLOAD_BYTES = 128 * 1024 * 1024;
@@ -76,6 +79,9 @@ export function idempotencyDigest(input: Parameters<typeof idempotencyFingerprin
 }
 
 export type CreatePrintJobOptions = {
+  /** Manager-authenticated jobs require a live commit-point authority fence;
+   * API key jobs must not fake a Manager principal. */
+  managerAuthority?: { claims: ManagerClaims; permission: ManagerPermission };
   requestedBy: string;
   idempotencyKey?: string | null;
   tenantId: string;
@@ -106,7 +112,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture, managerAuthority,
 }: {
   jobId: string;
   printerId: string;
@@ -122,6 +128,7 @@ async function insertQueuedJobAtomically({
   requestId?: string | null;
   reprintOfJobId?: string | null;
   allowVirtualTestCapture?: boolean;
+  managerAuthority?: { claims: ManagerClaims; permission: ManagerPermission };
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
@@ -145,6 +152,33 @@ async function insertQueuedJobAtomically({
     // max_concurrent_jobs cannot be exceeded by racing requests.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
+
+    if (managerAuthority) {
+      // Identity reuse can disclose a job ID and requestedBy even without a
+      // new insert. Fence the live principal BEFORE all idempotency/reprint
+      // reuse paths. Preserve Agent -> Tenant -> Actor -> session lock order.
+      if (managerAuthority.claims.tenantId !== tenantId) {
+        throw new PrintJobInputError("Workspace session does not own this job", "MANAGER_TENANT_MISMATCH", 403);
+      }
+      const guardedAgent = await tx.execute(sql`
+        SELECT id FROM agents WHERE id = ${agentId} AND tenant_id = ${tenantId} FOR UPDATE
+      `);
+      if (!guardedAgent.rows.length) throw new PrintJobInputError("Agent no longer exists", "AGENT_NOT_FOUND", 404);
+      const guardedTenant = await tx.execute(sql`
+        SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR UPDATE
+      `);
+      if ((guardedTenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
+        throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
+      }
+      try {
+        await requireManagerActorInTransaction(tx, managerAuthority.claims, managerAuthority.permission);
+      } catch (error) {
+        if (error instanceof ManagerMutationAuthorityChangedError) {
+          throw new PrintJobInputError(error.message, "MANAGER_AUTH_CHANGED", 403);
+        }
+        throw error;
+      }
+    }
 
     // Reprint coordination happens only after the tenant enqueue lock is
     // held. While an earlier reprint of the same original job is still active,
@@ -193,12 +227,14 @@ async function insertQueuedJobAtomically({
     if (effectiveIdempotencyKey) {
       const receipt = await tx.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.idempotencyKey, effectiveIdempotencyKey)) });
       if (receipt) {
-        if ((rateLimitKeyId && receipt.apiKeyId === null) || receipt.fingerprint !== idempotencyDigest({ printerId, documentType, destination, payload: validatedPayload })) {
+        if ((rateLimitKeyId && receipt.apiKeyId === null) ||
+            (managerAuthority && receipt.requestedBy !== requestedBy) ||
+            receipt.fingerprint !== idempotencyDigest({ printerId, documentType, destination, payload: validatedPayload })) {
           throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
         }
         return { jobId: receipt.id, status: receipt.status, agentId: receipt.agentId, printerId: receipt.printerId, isReused: true };
       }
-      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status, api_key_id FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
+      const existing = await tx.execute(sql`SELECT id, printer_id, destination, document_type, payload, agent_id, status, api_key_id, requested_by FROM print_jobs WHERE tenant_id = ${tenantId} AND idempotency_key = ${effectiveIdempotencyKey} LIMIT 1 FOR UPDATE`);
       if (existing.rows.length > 0) {
         const row = existing.rows[0] as {
           id: string;
@@ -209,13 +245,15 @@ async function insertQueuedJobAtomically({
           agent_id: string;
           status: string;
           api_key_id: string | null;
+          requested_by: string | null;
         };
         // Odoo status APIs intentionally exclude internal Manager jobs. The
         // same boundary must apply to Odoo idempotency: never return an
         // internal job identity to an Odoo caller. Because the database uses a
         // tenant-wide idempotency uniqueness constraint, a collision with an
         // internal key is a deterministic conflict, not a reusable Odoo job.
-        if (rateLimitKeyId && row.api_key_id === null) {
+        if ((rateLimitKeyId && row.api_key_id === null) ||
+            (managerAuthority && row.requested_by !== requestedBy)) {
           const conflictErr = new Error("IDEMPOTENCY_CONFLICT");
           Object.assign(conflictErr, { code: "IDEMPOTENCY_CONFLICT" });
           throw conflictErr;
@@ -479,7 +517,9 @@ export async function createPrintJobForPrinter(
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 400);
   const requestedBy = normalizeRequestedBy(options.requestedBy);
   const validatedPayload = validatePrintJobPayload(payload);
-  if (options.idempotencyKey) {
+  // Manager idempotency is verified only inside the owning transaction; an
+  // optimistic read here would disclose a prior job after the actor was demoted.
+  if (!options.managerAuthority && options.idempotencyKey) {
     const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, options.tenantId), eq(printJobReceipts.idempotencyKey, options.idempotencyKey)) });
     if (receipt) {
       if ((options.rateLimitKeyId && receipt.apiKeyId === null) || receipt.fingerprint !== idempotencyDigest({ printerId: normalizedPrinterId, documentType: options.documentType, destination: options.destination, payload: validatedPayload })) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
@@ -512,6 +552,7 @@ export async function createPrintJobForPrinter(
     requestId: options.requestId ?? null,
     reprintOfJobId: options.reprintOfJobId ?? null,
     allowVirtualTestCapture: options.allowVirtualTestCapture === true,
+    managerAuthority: options.managerAuthority,
     tenantId: options.tenantId,
   });
   logInfo("print.trace.gateway_enqueue", {

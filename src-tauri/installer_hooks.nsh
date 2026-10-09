@@ -126,10 +126,6 @@ ${StrStr}
 
 !macro NSIS_HOOK_POSTINSTALL
   DetailPrint "Configuring Yaseir Agent Windows Service..."
-  ReadEnvStr $0 "PROGRAMDATA"
-  StrCmp $0 "" 0 +2
-    StrCpy $0 "C:\ProgramData"
-
   StrCpy $1 "$INSTDIR\resources\YaseirAgent.exe"
   IfFileExists "$1" agent_resource_found 0
   StrCpy $1 "$INSTDIR\YaseirAgent.exe"
@@ -189,41 +185,14 @@ ${StrStr}
   Abort "Yaseir cleanup failed. See installer details."
 
   agent_removed:
-  ; The Agent helper has now exited. Retry fixed ProgramData product roots in
-  ; the uninstaller process itself: this catches transient locks caused by the
-  ; helper, WebView/cache teardown or antivirus scanning. Data cleanup is
-  ; best-effort here; ownership-safe service removal above is the fatal gate.
-  DetailPrint "Retrying residual Yaseir runtime-data cleanup after Agent helper exit..."
+  ; The Agent owns machine-data removal. Do not add a second elevated
+  ; recursive deletion rooted in inherited PROGRAMDATA/LOCALAPPDATA/APPDATA:
+  ; these variables can be redirected, and NSIS cannot authenticate junction
+  ; or reparse-point ownership after the helper has exited.
+  ; A locked residual file is intentionally left for explicit privileged
+  ; cleanup from a trusted location, not wiped by a broader fallback.
+  DetailPrint "Owned service purge completed. If files were locked, use the secure cleanup runbook."
   DetailPrint "Agent cleanup result: $R1"
-  ReadEnvStr $0 "PROGRAMDATA"
-  StrCmp $0 "" 0 +2
-    StrCpy $0 "C:\ProgramData"
-  RMDir /r "$0\YaseirAgent"
-  RMDir /r "$0\YasserAgent"
-  RMDir /r "$0\OdooPrintAgent"
-  RMDir /r "$0\YaseirManager"
-  RMDir /r "$0\YasserManager"
-  RMDir /r "$0\OdooPrintManager"
-
-  ; Per-user state is outside ProgramData and may not be visible to the
-  ; elevated Agent helper, so remove it explicitly in the uninstaller context.
-  RMDir /r "$LOCALAPPDATA\YaseirManager"
-  RMDir /r "$LOCALAPPDATA\YasserManager"
-  RMDir /r "$LOCALAPPDATA\Yaseir Print Manager"
-  RMDir /r "$LOCALAPPDATA\Yasser Print Manager"
-  RMDir /r "$LOCALAPPDATA\OdooPrintManager"
-  RMDir /r "$LOCALAPPDATA\Odoo Print Manager"
-  RMDir /r "$LOCALAPPDATA\com.yasser.manager"
-  RMDir /r "$APPDATA\YaseirManager"
-  RMDir /r "$APPDATA\YasserManager"
-  RMDir /r "$APPDATA\Yaseir Print Manager"
-  RMDir /r "$APPDATA\Yasser Print Manager"
-  RMDir /r "$APPDATA\OdooPrintManager"
-  RMDir /r "$APPDATA\Odoo Print Manager"
-  RMDir /r "$APPDATA\com.yasser.manager"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yaseir Print Manager"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Yasser Print Manager"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "OdooPrintManager"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Odoo Print Manager"
-  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "com.yasser.manager"
+  ; Per-user profiles may not belong to the elevated uninstall identity.
+  ; Do not remove arbitrary profile directories or HKCU run keys here.
 !macroend

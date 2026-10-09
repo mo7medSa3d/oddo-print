@@ -1,13 +1,28 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { db } from "../src/db";
-import { agents, auditEvents, printers, tenants } from "../src/db/schema";
+import { agents, auditEvents, managerSessions, printers, tenantUsers, tenants, users } from "../src/db/schema";
 import { and, eq } from "drizzle-orm";
 import { applyMigrations, closePool, hasTestDatabase, seedFixture } from "./helpers/pg";
 import { hashPairingCode } from "../src/lib/agent-auth";
 import { transitionAgentLifecycle, LifecycleConflict, type AgentLifecycleResult } from "../src/lib/agent-lifecycle";
+import type { ManagerClaims } from "../src/lib/manager-auth";
 import { nanoid } from "../src/lib/nanoid";
 
 const suite = describe.skipIf(!hasTestDatabase);
+
+// Exercise the real transaction-time manager membership and session guards;
+// the lifecycle API no longer accepts unvalidated four-argument calls.
+async function createLifecycleManager(tenantId: string): Promise<ManagerClaims> {
+  const suffix = nanoid(12);
+  const userId = `lifecycle_user_${suffix}`;
+  const jti = `lifecycle_session_${nanoid(24)}`;
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 3600;
+  await db.insert(users).values({ id: userId, email: `lifecycle_${suffix}@example.test`, passwordHash: "test-only" });
+  await db.insert(tenantUsers).values({ userId, tenantId, role: "owner" });
+  await db.insert(managerSessions).values({ jti, tenantId, userId, role: "owner", expiresAt: new Date(exp * 1000) });
+  return { jti, iat: now, exp, sub: "manager", tenantId, userId, role: "owner" };
+}
 
 suite("Agent Lifecycle", () => {
   beforeAll(async () => { await applyMigrations(); });
@@ -15,9 +30,10 @@ suite("Agent Lifecycle", () => {
 
   it("returns the persisted pairing expiry when reenabling and no credentials on an unchanged transition", async () => {
     const fixture = await seedFixture();
-    const actor = { type: "user" as const, id: "reenable-user" };
-    await transitionAgentLifecycle(fixture.agentId, "disabled", fixture.tenantId, actor);
-    const result = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor);
+    const manager = await createLifecycleManager(fixture.tenantId);
+    const actor = { type: "user" as const, id: manager.userId! };
+    await transitionAgentLifecycle(fixture.agentId, "disabled", fixture.tenantId, actor, manager);
+    const result = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor, manager);
     expect(result?.changed).toBe(true);
     expect(result?.pairingCode).toBeTruthy();
     expect(result?.pairingCodeExpiresAt).toBeInstanceOf(Date);
@@ -26,7 +42,7 @@ suite("Agent Lifecycle", () => {
     expect(row?.pairingCodeHash).toBe(hashPairingCode(result!.pairingCode!));
     expect(row?.secret).toBeNull();
     expect(row?.status).toBe("offline");
-    const unchanged = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor);
+    const unchanged = await transitionAgentLifecycle(fixture.agentId, "active", fixture.tenantId, actor, manager);
     expect(unchanged).toEqual({ changed: false, lifecycle: "active", pairingCode: null, pairingCodeExpiresAt: null });
   });
 
@@ -54,9 +70,11 @@ suite("Agent Lifecycle", () => {
       observedDesiredRevision: 0,
     });
 
+    const manager = await createLifecycleManager(tenantId);
+    const actor = { type: "user" as const, id: manager.userId! };
     const [retired, disabled] = await Promise.allSettled([
-      transitionAgentLifecycle(agentId, "retired", tenantId, { type: "user", id: "retire-user" }),
-      transitionAgentLifecycle(agentId, "disabled", tenantId, { type: "user", id: "disable-user" }),
+      transitionAgentLifecycle(agentId, "retired", tenantId, actor, manager),
+      transitionAgentLifecycle(agentId, "disabled", tenantId, actor, manager),
     ]);
 
     const row = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)) });

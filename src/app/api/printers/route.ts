@@ -3,6 +3,8 @@ import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
 import { validateConsoleAuth } from "../../../lib/console-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../lib/manager-mutation-authorization";
+import { requireActiveTenantInTransaction } from "../../../lib/tenant-guard";
 import { and, desc, eq, lt, or, sql } from "drizzle-orm";
 import { clampListLimit } from "../../../lib/request-limits";
 import { fleetCursorIdHeaders, readFleetCursorId } from "../../../lib/fleet-cursor";
@@ -150,6 +152,10 @@ export async function POST(req: Request) {
         const agentLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
         if (!agentLifecycle) throw new Error("agentId not found");
         if (agentLifecycle !== "active") throw new Error(`agent is ${agentLifecycle}`);
+        if (auth.kind === "manager") {
+          await requireActiveTenantInTransaction(tx, tenantId);
+          await requireManagerActorInTransaction(tx, auth.claims, "printers.manage");
+        }
         await enforceTenantResourceEntitlement(tx, tenantId, "max_printers",
           sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`);
         const inserted = await tx.insert(printers).values({
@@ -177,6 +183,7 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(row, { status: 201 });
     } catch (error) {
+      if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: "MAX_PRINTERS_EXCEEDED", entitlement: error.entitlement, limit: error.limit, used: error.used, upgradeRequired: true }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
       if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
       if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });

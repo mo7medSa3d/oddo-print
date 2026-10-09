@@ -1,3 +1,4 @@
+import { requireTeamActorInTransaction, TeamAuthorizationChangedError } from "../../../../lib/team-authorization";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, users } from "../../../../db/schema";
@@ -74,7 +75,7 @@ export async function PATCH(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
+      await requireTeamActorInTransaction(tx, claims, [userId]);
       const target = await tx.query.tenantUsers.findFirst({
         where: and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)),
         columns: { role: true },
@@ -110,6 +111,7 @@ export async function PATCH(req: Request) {
       }, tx);
     });
   } catch (error) {
+    if (error instanceof TeamAuthorizationChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof TeamMemberConflict) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
   }
@@ -126,7 +128,7 @@ export async function DELETE(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
+      await requireTeamActorInTransaction(tx, claims, [userId]);
       const target = await tx.query.tenantUsers.findFirst({
         where: and(eq(tenantUsers.tenantId, claims.tenantId), eq(tenantUsers.userId, userId)),
         columns: { role: true },
@@ -160,6 +162,7 @@ export async function DELETE(req: Request) {
       }, tx);
     });
   } catch (error) {
+    if (error instanceof TeamAuthorizationChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof TeamMemberConflict) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
   }

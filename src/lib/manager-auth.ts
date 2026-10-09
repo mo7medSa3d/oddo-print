@@ -14,6 +14,7 @@ import {
   getAccessTokenFromRequest,
   isSessionFamilyActive,
   issueSessionPair,
+  credentialVersionFor,
   verifyAccessTokenSignature,
   refreshCookieHeader,
   ACCESS_TOKEN_TTL_SECONDS,
@@ -217,7 +218,7 @@ export async function resolveManagerTenantId(req: Request): Promise<string | nul
 
 export async function createManagerSession(
   tenantId: string,
-  identity?: { userId?: string; role?: ManagerRole },
+  identity?: { userId?: string; role?: ManagerRole; credentialVersion?: string },
   context?: SessionRequestContext & { email?: string | null },
 ): Promise<{
   token: string;
@@ -232,6 +233,7 @@ export async function createManagerSession(
     kind: "manager",
     tenantId,
     userId: identity?.userId ?? null,
+    credentialVersion: identity?.credentialVersion,
     role: identity?.role ?? "owner",
     email: context?.email ?? null,
   }, context);
@@ -424,7 +426,7 @@ export async function verifyScryptPasswordHash(input: string, stored: string | n
   return compareStringsSafe(derived.toString("hex"), hash.toLowerCase());
 }
 
-export async function authenticateManagerUser(username: string, password: string, tenantId: string): Promise<{ userId: string; role: ManagerRole } | null> {
+export async function authenticateManagerUser(username: string, password: string, tenantId: string): Promise<{ userId: string; role: ManagerRole; credentialVersion: string } | null> {
   const normalized = normalizeEmail(username);
   if (!normalized || typeof password !== "string") return null;
   const row = await db.query.users.findFirst({
@@ -451,6 +453,7 @@ export async function authenticateManagerUser(username: string, password: string
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
+    row.passwordHash = upgraded;
   }
   const membership = await db.query.tenantUsers.findFirst({
     where: and(eq(tenantUsers.userId, row.id), eq(tenantUsers.tenantId, tenantId)),
@@ -458,10 +461,10 @@ export async function authenticateManagerUser(username: string, password: string
   });
   if (!membership) return null;
   if (!( ["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(membership.role)) return null;
-  return { userId: row.id, role: membership.role as ManagerRole };
+  return { userId: row.id, role: membership.role as ManagerRole, credentialVersion: credentialVersionFor(row.id, row.passwordHash) };
 }
 
-export async function authenticateCustomer(email: string, password: string): Promise<{ userId: string; email: string } | null> {
+export async function authenticateCustomer(email: string, password: string): Promise<{ userId: string; email: string; credentialVersion: string } | null> {
   const normalized = normalizeEmail(email);
   const row = await db.query.users.findFirst({
     where: eq(users.email, normalized),
@@ -485,8 +488,9 @@ export async function authenticateCustomer(email: string, password: string): Pro
       .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
       .returning({ id: users.id });
     if (upgradedRows.length !== 1) return null;
+    row.passwordHash = upgraded;
   }
-  return { userId: row.id, email: row.email };
+  return { userId: row.id, email: row.email, credentialVersion: credentialVersionFor(row.id, row.passwordHash) };
 }
 
 export async function getAuthenticatedUserClaims(req: Request): Promise<ManagerClaims | null> {

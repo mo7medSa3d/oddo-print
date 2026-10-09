@@ -193,7 +193,7 @@ describe("Odoo Gateway activation synchronization", () => {
     expect(model).not.toMatch(/["'][^\n]*%s[^\n]*["']\s*%\s*self\._table/);
     expect(model).toContain("int(row[0] or 0) != guard_revision");
     expect(model).toContain('"pending_sync_revision": next_revision');
-    expect(model).toContain('"pending_sync_started_at": fields.Datetime.now()');
+    expect(model).toContain('"pending_sync_started_at": db_now_utc(self.env.cr)');
     expect(model).toContain('expected_revision=revision');
     expect(model).toContain('def _write_test_result_if_current');
     expect(model).toContain('int(row[0] or 0) != int(expected_revision)');
@@ -202,8 +202,8 @@ describe("Odoo Gateway activation synchronization", () => {
     // The save hook must not hand a server "reload" action back to the global
     // action manager: doing so can race the record-level refresh. It must reload
     // the persisted record locally after synchronization completes.
-    expect(client).toContain('if (action?.tag === "display_notification")');
-    expect(client).toContain("await this.model.load({ resId });");
+    expect(client).toContain('if (!this.cancelled && ownsCurrentForm() && action?.tag === "display_notification")');
+    expect(client).toContain("await this.controller.model.load({ resId });");
   });
 
   it("pushes the Odoo checkbox after commit and retries failed replication", () => {
@@ -254,7 +254,7 @@ describe("Odoo Gateway auto-sync client record identity", () => {
     // The A168 rewrite inlined the action choice instead of passing a
     // `method` variable; both post-save actions and the resId identity stay pinned.
     expect(source).toContain('"action_test_connection" : "action_retry_enabled_sync"');
-    expect(source).toContain("await this.model.load({ resId });");
+    expect(source).toContain("await this.controller.model.load({ resId });");
     expect(source).not.toContain("record.id");
     expect(source).not.toContain("[[record.id]]");
   });

@@ -298,7 +298,11 @@ def test_failover_binding_is_same_route_scope_and_execution_rechecks_it():
 
     job = read("odoo_addons/print_gateway/models/print_job.py")
     assert "route_compatible = bool(" in job
-    assert "current_binding.destination_ref.display_name == job.destination" in job
+    # Durable identity is model+record ID, not a mutable/display-localized name.
+    assert 'job.destination_key == "%s,%s"' in job
+    assert 'current_binding.destination_ref._name' in job
+    assert 'current_binding.destination_ref.id' in job
+    assert 'current_binding.report_id == job.report_id' in job
     assert "current_binding.document_type == job.document_type" in job
     assert "and route_compatible" in job
 

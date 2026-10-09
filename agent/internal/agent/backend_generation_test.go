@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/yaseir-agent/agent/internal/config"
@@ -76,7 +77,9 @@ func TestWatchSpoolerJobIDPersistsMidPhaseEvidence(t *testing.T) {
 		t.Fatalf("BeginPrint: %v", err)
 	}
 	// Mid-phase observation (as during hardware dispatch), then dispatch end.
-	stop := ag.watchSpoolerJobID("watch-1", p)
+	ctx, evidence := printer.WithSpoolerJobEvidence(context.Background())
+	printer.RecordSpoolerJobID(ctx, 555)
+	stop := ag.watchSpoolerJobID("watch-1", evidence)
 	stop()
 	// A crash after StartDoc but before the terminal write must still leave
 	// the platform identity for recovery: read it through the crash path.

@@ -11,40 +11,59 @@ import (
 	"time"
 
 	"github.com/grandcat/zeroconf"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
-// discoverIPPPrinters performs IPP/IPPS discovery via TCP 631 scan and mDNS.
-// It is additive and bounded. Currently TCP 631 scan is primary; mDNS is best-effort.
+// discoverIPPPrinters probes DNS-SD and subnet TCP concurrently. They share an
+// overall deadline but never consume each other's discovery budget: a slow
+// multicast network must not prevent direct IPP printers from being scanned.
 func discoverIPPPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-
-	// First, try mDNS for _ipp._tcp.local and _ipps._tcp.local
-	mdnsFound, mdnsErr := discoverMDNSPrinters(ctx)
-
-	// Then TCP 631 scan of local private subnets (similar to 9100)
-	tcpFound, err := discoverIPPviaTCP(ctx)
-	if err != nil {
-		log.Printf("[discovery] IPP TCP scan error: %v", err)
+	mdnsResultCh := make(chan ippSourceResult, 1)
+	go func() {
+		devices, err := discoverMDNSPrinters(ctx)
+		mdnsResultCh <- ippSourceResult{devices: devices, err: err}
+	}()
+	tcpFound, tcpErr := discoverIPPviaTCP(ctx)
+	mdns := <-mdnsResultCh
+	if tcpErr != nil {
+		log.Printf("[discovery] IPP TCP scan warning: %v", tcpErr)
 	}
+	out := mergeIPPSourceObservations(mdns.devices, tcpFound)
+	log.Printf("[discovery] IPP discovery found %d printers (mDNS %d, TCP %d)", len(out), len(mdns.devices), len(tcpFound))
+	return out, errors.Join(mdns.err, tcpErr)
+}
 
-	// Merge mDNS and TCP results with dedup by host:port
-	seen := make(map[string]bool)
-	var out []DeviceInfo
-	for _, di := range append(mdnsFound, tcpFound...) {
-		key := di.Endpoint
-		if seen[key] {
-			continue
+type ippSourceResult struct {
+	devices []DeviceInfo
+	err     error
+}
+
+// mergeIPPSourceObservations preserves the single best observation per actual
+// destination. A responding TCP/IPP probe must never be hidden by an earlier
+// DNS-SD *advertisement* for the same endpoint. Ties retain DNS-SD metadata
+// (notably the advertised rp path) rather than silently overriding it.
+func mergeIPPSourceObservations(sources ...[]DeviceInfo) []DeviceInfo {
+	out := make([]DeviceInfo, 0)
+	indexes := make(map[string]int)
+	for _, source := range sources {
+		for _, di := range source {
+			if di.Endpoint == "" {
+				continue
+			}
+			if idx, ok := indexes[di.Endpoint]; ok {
+				if isCapabilityVerified(di.Capabilities, "ipp_verified") &&
+					!isCapabilityVerified(out[idx].Capabilities, "ipp_verified") {
+					out[idx] = di
+				}
+				continue
+			}
+			indexes[di.Endpoint] = len(out)
+			out = append(out, di)
 		}
-		seen[key] = true
-		out = append(out, di)
 	}
-	if len(out) > 0 {
-		log.Printf("[discovery] IPP discovery found %d printers (mDNS %d, TCP %d)", len(out), len(mdnsFound), len(tcpFound))
-	} else {
-		log.Printf("[discovery] IPP discovery: no printers found (mDNS %d, TCP %d)", len(mdnsFound), len(tcpFound))
-	}
-	return out, errors.Join(mdnsErr, err)
+	return out
 }
 
 func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
@@ -109,7 +128,7 @@ func discoverIPPviaTCP(ctx context.Context) ([]DeviceInfo, error) {
 					// interpreter (no second probe): a reachable IPP endpoint
 					// whose printer-state is stopped/paused/rejecting must
 					// not be reported online.
-					if attrs, probeErr := ippProbe.getPrinterAttributes(probeCtx); probeErr == nil {
+					if attrs, probeErr := ippProbe.getPrinterAttributes(probeCtx); probeErr == nil && hasUsableIPPPrinterState(attrs) {
 						status, statusDetail = interpretIPPPrinterStatus(attrs)
 						verified = true
 					}
@@ -204,6 +223,22 @@ targetLoop:
 	return out, errors.Join(sourceErr, discoveryScanError("IPP TCP", dispatched, len(targets), ctx.Err()))
 }
 
+// maxMDNSDiscoveryResults bounds memory under a noisy or hostile LAN.
+// Browse still drains announcements after this limit so the resolver can
+// close cleanly; no unknown printer is promoted just because the cap is hit.
+const maxMDNSDiscoveryResults = 256
+
+// appendMDNSDiscoveryResult is called with the shared collector mutex held.
+// Only accepted endpoint keys consume memory; duplicate announcements do not.
+func appendMDNSDiscoveryResult(out *[]DeviceInfo, seen map[string]bool, di DeviceInfo, limit int) bool {
+	if limit <= 0 || len(*out) >= limit || di.Endpoint == "" || seen[di.Endpoint] {
+		return false
+	}
+	seen[di.Endpoint] = true
+	*out = append(*out, di)
+	return true
+}
+
 // discoverMDNSPrinters performs mDNS query for _ipp._tcp, _ipps._tcp, and _printer._tcp.
 func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
 
@@ -213,9 +248,10 @@ func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	services := []string{"_ipp._tcp", "_ipps._tcp", "_printer._tcp"}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var out []DeviceInfo
+	out := make([]DeviceInfo, 0, 32)
 	var diagnostics []error
 	seen := make(map[string]bool)
+	truncated := false
 
 	for _, svc := range services {
 		wg.Add(1)
@@ -234,16 +270,23 @@ func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
 			go func() {
 				defer close(doneCh)
 				for entry := range ch {
+					mu.Lock()
+					full := len(out) >= maxMDNSDiscoveryResults
+					if full {
+						truncated = true
+					}
+					mu.Unlock()
+					if full {
+						// Keep draining the resolver's channel without allocating
+						// more parsed metadata or retaining another endpoint.
+						continue
+					}
 					di, ok := parseMDNSServiceEntry(entry)
 					if !ok {
 						continue
 					}
-					key := di.Endpoint
 					mu.Lock()
-					if !seen[key] {
-						seen[key] = true
-						out = append(out, di)
-					}
+					appendMDNSDiscoveryResult(&out, seen, di, maxMDNSDiscoveryResults)
 					mu.Unlock()
 				}
 			}()
@@ -258,7 +301,103 @@ func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	}
 
 	wg.Wait()
+	if truncated {
+		diagnostics = append(diagnostics, fmt.Errorf("mDNS results reached limit %d; further advertisements were ignored", maxMDNSDiscoveryResults))
+	}
+	// TXT service records only advertise an address. A device is verified
+	// only after a bounded Get-Printer-Attributes exchange, and candidates
+	// remain visible if a firewall or sleepy printer prevents the probe.
+	verifyMDNSIPPCandidates(ctx, out)
+	if err := ctx.Err(); err != nil {
+		diagnostics = append(diagnostics, fmt.Errorf("mDNS IPP verification incomplete: %w", err))
+	}
 	return out, errors.Join(diagnostics...)
+}
+
+const (
+	maxMDNSVerificationWorkers = 12
+	mdnsVerificationTimeout    = 1500 * time.Millisecond
+)
+
+// A complete IPP response without a usable printer-state proves only that
+// something answered over HTTP. Both DNS-SD and port-scan discovery must
+// require the same protocol-level state before declaring the IPP endpoint
+// verified; 3/4/5 are the only defined printer-state values (RFC 8011).
+func hasUsableIPPPrinterState(attrs map[string]string) bool {
+	switch attrs["printer-state"] {
+	case "3", "4", "5":
+		return true
+	default:
+		return false
+	}
+}
+
+// verifyMDNSIPPCandidates never sends a document. It has independent bounded
+// read-only probes and never treats DNS-SD TXT claims as IPP protocol proof.
+// Concurrent workers each own a distinct result row; the input slice is not
+// shared with the mDNS collector once the browse has finished.
+func verifyMDNSIPPCandidates(ctx context.Context, candidates []DeviceInfo) {
+	verifyMDNSIPPCandidatesWithProbe(ctx, candidates, func(probeCtx context.Context, di DeviceInfo) (map[string]string, error) {
+		p, err := NewIPPPrinter(di.Endpoint, di.Name)
+		if err != nil {
+			return nil, err
+		}
+		return p.getPrinterAttributes(probeCtx)
+	})
+}
+
+// verifyMDNSIPPCandidatesWithProbe isolates the read-only network exchange for
+// deterministic concurrency/cancellation testing. The endpoint destination
+// policy is enforced here regardless of the supplied probe implementation.
+func verifyMDNSIPPCandidatesWithProbe(ctx context.Context, candidates []DeviceInfo, probe func(context.Context, DeviceInfo) (map[string]string, error)) {
+	jobs := make(chan int)
+	workers := len(candidates)
+	if workers > maxMDNSVerificationWorkers {
+		workers = maxMDNSVerificationWorkers
+	}
+	var wg sync.WaitGroup
+	for n := 0; n < workers; n++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				di := &candidates[idx]
+				if di.Protocol != "ipp" && di.Protocol != "ipps" {
+					continue
+				}
+				// Untrusted multicast records cannot bypass the same policy as a
+				// configured printer, even for this read-only HTTP request.
+				pc := config.PrinterConfig{ID: di.ID, Type: di.Type, ConnectionType: di.ConnectionType, Protocol: di.Protocol, Endpoint: di.Endpoint}
+				if err := config.ValidatePrinterEndpoint(pc); err != nil {
+					continue
+				}
+				probeCtx, cancel := context.WithTimeout(ctx, mdnsVerificationTimeout)
+				attrs, err := probe(probeCtx, *di)
+				if err == nil && hasUsableIPPPrinterState(attrs) {
+					status, detail := interpretIPPPrinterStatus(attrs)
+					di.Status = status
+					if di.Capabilities == nil {
+						di.Capabilities = make(map[string]interface{})
+					}
+					di.Capabilities["ipp_verified"] = true
+					di.Capabilities["mdns_verified"] = true
+					di.Capabilities["verification"] = "verified"
+					di.Capabilities["ipp_status_detail"] = detail
+				}
+				cancel()
+			}
+		}()
+	}
+submit:
+	for idx := range candidates {
+		select {
+		case jobs <- idx:
+		case <-ctx.Done():
+			break submit
+		}
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 func parseMDNSServiceEntry(entry *zeroconf.ServiceEntry) (DeviceInfo, bool) {
@@ -266,13 +405,16 @@ func parseMDNSServiceEntry(entry *zeroconf.ServiceEntry) (DeviceInfo, bool) {
 		return DeviceInfo{}, false
 	}
 	var address net.IP
-	if len(entry.AddrIPv4) > 0 {
-		address = entry.AddrIPv4[0]
+	for _, candidate := range entry.AddrIPv4 {
+		if config.IsAllowedPrinterIP(candidate) {
+			address = candidate
+			break
+		}
 	}
 	if address == nil {
 		for _, candidate := range entry.AddrIPv6 {
 			// Link-local IPv6 requires an interface zone absent from ServiceEntry.
-			if candidate != nil && !candidate.IsLinkLocalUnicast() {
+			if config.IsAllowedPrinterIP(candidate) && !candidate.IsLinkLocalUnicast() {
 				address = candidate
 				break
 			}
@@ -330,7 +472,11 @@ func parseMDNSServiceEntry(entry *zeroconf.ServiceEntry) (DeviceInfo, bool) {
 	}
 
 	caps := map[string]interface{}{
-		"mdns_verified":  protocol != "lpr",
+		// DNS-SD announcement is discovery evidence, NOT a verified IPP
+		// protocol exchange. verifyMDNSIPPCandidates can promote later.
+		"mdns_verified":  false,
+		"ipp_verified":   false,
+		"verification":   "candidate",
 		"discovered_via": SourceMDNS,
 		"pdl":            txtMeta.pdlList,
 	}
@@ -364,6 +510,13 @@ func parseMDNSServiceEntry(entry *zeroconf.ServiceEntry) (DeviceInfo, bool) {
 	}
 	if protocol == "lpr" {
 		di.ID = StableIDFromNetwork(ip, port)
+	} else if err := config.ValidatePrinterEndpoint(config.PrinterConfig{
+		ID: di.ID, Type: di.ConnectionType, Protocol: di.Protocol, Endpoint: di.Endpoint,
+	}); err != nil {
+		// An mDNS packet is untrusted discovery evidence, not permission to
+		// contact an otherwise forbidden destination. Keep LPR as its existing
+		// non-executable candidate path; only supported IPP endpoints promote.
+		return DeviceInfo{}, false
 	}
 	return di, true
 }

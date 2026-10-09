@@ -93,6 +93,7 @@ export default async function DashboardPage() {
           </Callout>
         ) : (
           <DashboardClient
+            diagnosticActorScope={`${claims.tenantId}:${claims.userId ?? "legacy"}:${claims.role}`}
             initialAgents={dashboardState!.agents}
             initialPrinters={dashboardState!.printers}
             initialJobs={dashboardState!.jobs}

@@ -64,9 +64,9 @@ def test_pending_bookkeeping_is_stamped_on_every_revision_bump_and_cleared_on_su
     source = read("models/gateway_config.py")
     # Enable/URL bumps stamp both fields in the technical write.
     assert '"pending_sync_revision": new_revision,' in source
-    assert '"pending_sync_started_at": fields.Datetime.now(),' in source
+    assert '"pending_sync_started_at": db_now_utc(self.env.cr),' in source
     # Credential rotation/restore bumps stamp as well.
-    assert '"pending_sync_revision": before_revision[record.id] + 1,' in source
+    assert '"pending_sync_revision": next_revision,' in source
     # Creation stamps the initial pending revision.
     assert 'vals["pending_sync_revision"] = int(vals.get("enabled_sync_revision") or 0)' in source
     # Recording a successful outcome ends the staleness window.

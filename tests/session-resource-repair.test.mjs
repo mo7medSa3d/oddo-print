@@ -65,7 +65,15 @@ function fixture() {
   const globals={...tables,sql,eq,and,or,inArray,createHash,db:{async transaction(fn){const before=structuredClone(rows),eventCount=events.length;try{return await fn(tx);}catch(e){Object.assign(rows,before);events.length=eventCount;throw e;}}},
     requireManager:async()=>{if(!claims)throw new ActionError('expired',401);return claims;},validateWorkspaceManager:async()=>claims,
     requireManagerPermission:()=>{if(claims?.role==='viewer')throw Object.assign(new Error('denied'),{status:403,code:'FORBIDDEN'});},
-    requireActiveTenantInTransaction:async()=>{},getServerLocale:async()=> 'en',makeT:()=>key=>key,
+    requireActiveTenantInTransaction:async()=>{},
+    // This older projection models the post-authorization resource mutation;
+    // the actual guard and demotion are covered by manager-actor-commit-f013.
+    requireManagerActorInTransaction:async(_tx,actor,permission)=>{
+      if(actor!==claims || !actor?.userId || !['owner','admin'].includes(actor.role) || !permission)
+        throw new ManagerMutationAuthorityChangedError();
+    },
+    ManagerMutationAuthorityChangedError:class ManagerMutationAuthorityChangedError extends Error {},
+    getServerLocale:async()=> 'en',makeT:()=>key=>key,
     isTerminal:status=>['success','failed','expired'].includes(status),idempotencyDigest:input=>createHash('sha256').update(JSON.stringify(input)).digest('hex'),
     revalidatePath:()=>{},writeAuditEvent:async event=>events.push(event),logError:()=>{},ActionError,RECEIPT_MATERIALIZE_BATCH_ROWS,
     NextResponse:{json:(body,opts)=>response(opts?.status??200,body)},
@@ -131,10 +139,12 @@ async function odooSave(changes,{removeKey=false,navigate=false}={}) {
     async _save(){await controller.onRecordSaved(this,changes);calls.push('core-snapshot');this.data={gateway_api_key:removeKey?false:'encrypted',gateway_sync_state:'not_configured'};return true;}}
   class FormController {async onRecordSaved() {}}
   const patch=(prototype,extension)=>{Object.setPrototypeOf(extension,Object.create(Object.getPrototypeOf(prototype),Object.getOwnPropertyDescriptors(prototype)));Object.defineProperties(prototype,Object.getOwnPropertyDescriptors(extension));};
-  const context=vm.createContext({WeakMap});
-  const common=new vm.SyntheticModule(['Record','FormController','patch'],function(){this.setExport('Record',Record);this.setExport('FormController',FormController);this.setExport('patch',patch);},{context});
+  const context=vm.createContext({WeakMap, console, setTimeout, clearTimeout});
+  const common=new vm.SyntheticModule(['Record','FormController','patch','_t'],function(){this.setExport('Record',Record);this.setExport('FormController',FormController);this.setExport('patch',patch);this.setExport('_t',text=>text);},{context});
+  const controlSource=await readFile('odoo_addons/print_gateway/static/src/js/async_control.js','utf8');
+  const control=new vm.SourceTextModule(controlSource,{context});await control.link(()=>{throw Error('Unexpected async-control import');});
   const source=await readFile('odoo_addons/print_gateway/static/src/js/gateway_config_auto_sync.js','utf8');
-  const loadedModule=new vm.SourceTextModule(source,{context});await loadedModule.link(()=>common);await loadedModule.evaluate();
+  const loadedModule=new vm.SourceTextModule(source,{context});await loadedModule.link(name=>name==='./async_control'?control:common);await loadedModule.evaluate();
   const record=new Record();controller=new FormController();controller.model={root:record,load:async()=>{calls.push('reload');controller.model.root={...record,data:{gateway_sync_state:'active'}};}};
   controller.orm={call:async(_model,method,ids)=>{calls.push(method);assert.equal(ids[0][0],7);if(navigate)controller.model.root={resModel:'different',resId:8};return {};}};controller.actionService={doAction:async()=>{}};
   await record._save();return {calls,controller};

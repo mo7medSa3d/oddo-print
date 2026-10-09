@@ -434,6 +434,7 @@ pub fn has_manager_session() -> bool {
 
 #[derive(Deserialize)]
 pub struct GatewayRequestArgs {
+    pub expected_origin: String,
     pub path: String,
     pub method: String,
     #[serde(default)]
@@ -613,6 +614,12 @@ pub async fn gateway_request(args: GatewayRequestArgs) -> Result<GatewayResponse
         Some(MANAGER_AUTH_FLIGHT.get_or_init(|| tauri::async_runtime::Mutex::new(())).lock().await)
     } else { None };
     let (origin, generation, session) = manager_snapshot()?;
+    // A renderer request is bound to the origin captured when the operator
+    // initiated it. Never silently retarget it if Settings changed mid-flight.
+    let expected_origin = normalize_gateway_url(&args.expected_origin)?;
+    if expected_origin != origin.as_str().trim_end_matches('/') {
+        return Err("Gateway origin changed before the request was sent; reconcile the original operation".into());
+    }
     if !path.starts_with("/api/") || path.contains("..") || path.contains('\\') {
         return Err("gateway request path must be an API-relative path".into());
     }

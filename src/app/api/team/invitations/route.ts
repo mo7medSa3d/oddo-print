@@ -1,3 +1,4 @@
+import { requireTeamActorInTransaction, TeamAuthorizationChangedError } from "../../../../lib/team-authorization";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantInvitations } from "../../../../db/schema";
@@ -89,7 +90,8 @@ export async function POST(req: Request) {
     await db.transaction(async (tx) => {
       // Lock the tenant row before checking for another active invitation so
       // concurrent invitation requests for the same email cannot both pass the
-      // preflight and create duplicate live tokens.
+      // preflight and create duplicate live tokens. Suspension also locks the
+      // tenant before revoking sessions; preserve that order to avoid a cycle.
     const tenant = await tx.execute(sql`
       SELECT id, lifecycle
       FROM tenants
@@ -99,6 +101,7 @@ export async function POST(req: Request) {
     const tenantRow = tenant.rows[0] as { id?: string; lifecycle?: string } | undefined;
     if (!tenantRow?.id) throw new Error("TENANT_NOT_FOUND");
     if (tenantRow.lifecycle !== "active") throw new Error("TENANT_NOT_ACTIVE");
+    await requireTeamActorInTransaction(tx, claims);
 
     const existing = await tx.query.tenantInvitations.findFirst({
       where: and(
@@ -131,6 +134,7 @@ export async function POST(req: Request) {
     }, tx);
     });
   } catch (error) {
+    if (error instanceof TeamAuthorizationChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof Error && error.message === "INVITATION_ALREADY_EXISTS") {
       return NextResponse.json({ error: "An active invitation already exists for this email" }, { status: 409 });
     }
@@ -182,11 +186,13 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   try {
     await db.transaction(async (tx) => {
+      await requireTeamActorInTransaction(tx, claims);
       const result = await tx.update(tenantInvitations).set({ revokedAt: sql`now()` }).where(and(eq(tenantInvitations.id, id), eq(tenantInvitations.tenantId, claims.tenantId), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt))).returning({ id: tenantInvitations.id });
       if (result.length !== 1) throw new Error("INVITATION_NOT_FOUND");
       await writeAuditEvent({ tenantId: claims.tenantId, actorType: "user", actorId: claims.userId, action: "team.invitation.revoked", resourceType: "tenant_invitation", resourceId: id }, tx);
     });
   } catch (error) {
+    if (error instanceof TeamAuthorizationChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof Error && error.message === "INVITATION_NOT_FOUND") {
       return NextResponse.json({ error: "Invitation not found" }, { status: 404 });
     }

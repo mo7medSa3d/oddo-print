@@ -1,0 +1,12 @@
+# Explicit printer discovery approval: current observation contract
+
+The Agent's discovery report is **observation only**, never approval. The Manager must review a specific observation before provisioning it as a printer. Approval is now conditional on the exact committed observation selected by the operator.
+
+1. Authenticate a Manager with `printers.manage` permission.
+2. `GET /api/agents/{agentId}/discovery/{discoveryId}`; the returned `devices[]` each include `observationFingerprint` (64 lowercase hexadecimal SHA256 characters). Display the executable endpoint (protocol, IP/URI/port or exact spooler queue), name/class and capabilities before approval.
+3. `POST /api/agents/{agentId}/discovered-printers/{deviceId}/verify`, with header `If-Match: "{observationFingerprint}"` (a **single strong quoted** value). Authorization is checked again inside the database transaction while the Agent and discovery row are locked. Missing fingerprint returns 428; malformed returns 400; mismatch/replaced endpoint returns 409 with `DISCOVERY_OBSERVATION_CHANGED` and MUST cause a fresh GET/operator review.
+4. Only after successful approval may the existing `/provision` POST create or reuse a printer. Provisioning still performs lifecycle and approval-state checks inside a transaction. A new observation that changes executable endpoint or capabilities invalidates existing approval. An unchanged rescan preserves already-verified state, although a pending approval referencing a prior scan ID must be refreshed.
+
+**API compatibility:** Legacy callers that POST `/verify` with no `If-Match` now receive **428**. Update clients to GET the observation, show the current executable endpoint to the operator and submit the returned fingerprint. Do not synthesize fingerprints client-side. No schema migration is required by this fingerprint implementation; it is computed over the committed row. Avoid caching discovery GET across operator approval without revalidation.
+
+**Verification limits:** Standalone tests run the actual compiled verify and GET handlers with simulated authentication and database boundaries. They do **not** replace PostgreSQL concurrent report/verify/provision transactions, installed Manager browser flow, live Windows Agent discovery, or physical-printer acceptance. On-site regression must exercise two Manager sessions, an Agent rescan changing the endpoint while approval is pending, and a separate Agent retirement/demotion/revocation during the approval transaction; measure locking and deadlock ordering in PostgreSQL.

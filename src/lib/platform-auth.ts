@@ -13,6 +13,7 @@ import {
   clearRefreshCookieHeader,
   getAccessTokenFromRequest,
   issueSessionPair,
+  credentialVersionFor,
   isSessionFamilyActive,
   verifyAccessTokenSignature,
   refreshCookieHeader,
@@ -114,6 +115,7 @@ export async function createPlatformSession(
   userId: string,
   email: string,
   context?: SessionRequestContext,
+  credentialVersion?: string,
 ): Promise<{
   token: string;
   jti: string;
@@ -126,6 +128,7 @@ export async function createPlatformSession(
   const pair = await issueSessionPair({
     kind: "platform",
     userId,
+    credentialVersion,
     email,
     tenantId: null,
     role: null,
@@ -196,7 +199,7 @@ export async function requirePlatformOwner(req: Request): Promise<PlatformOwnerC
 export async function authenticatePlatformOwner(
   emailInput: string,
   passwordInput: string
-): Promise<{ userId: string; email: string } | null> {
+): Promise<{ userId: string; email: string; credentialVersion: string } | null> {
   const normalized = normalizeEmail(emailInput);
   if (!normalized || typeof passwordInput !== "string") return null;
 
@@ -211,7 +214,7 @@ export async function authenticatePlatformOwner(
     : await verifyScryptPasswordHash(passwordInput, user.passwordHash);
 
   if (!valid) return null;
-  return { userId: user.id, email: user.email };
+  return { userId: user.id, email: user.email, credentialVersion: credentialVersionFor(user.id, user.passwordHash) };
 }
 
 /* LegacyPlatformAuthTx folded into the canonical DbTx from src/db (single definition). */

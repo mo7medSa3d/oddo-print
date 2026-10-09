@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../src/db";
-import { tenants, plans, tenantSubscriptions } from "../src/db/schema";
+import { tenants, users, tenantUsers, managerSessions, plans, tenantSubscriptions } from "../src/db/schema";
 import { nanoid } from "../src/lib/nanoid";
 import { POST as checkout } from "../src/app/api/billing/checkout/route";
 import { validateWorkspaceManager } from "../src/lib/manager-auth";
@@ -72,10 +72,11 @@ suite("platform-trial to paid conversion invariants", () => {
   });
   beforeEach(async () => {
     await truncateAll();
+    const managerExpiry = Math.floor(Date.now() / 1000) + 3600;
     vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",
       iat: Math.floor(Date.now() / 1000) - 10,
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      exp: managerExpiry,
       sub: "manager",
       tenantId: TENANT,
       userId: "user_trial_convert",
@@ -100,6 +101,12 @@ suite("platform-trial to paid conversion invariants", () => {
       throw new Error(`unexpected Stripe path: ${path}`);
     });
     await db.insert(tenants).values({ id: TENANT, name: "Trial Convert Tenant" });
+    await db.insert(users).values({ id: "user_trial_convert", email: "trial-convert@example.test", passwordHash: "unused" });
+    await db.insert(tenantUsers).values({ userId: "user_trial_convert", tenantId: TENANT, role: "owner" });
+    await db.insert(managerSessions).values({
+      jti: "test-manager-jti-1234567890", tenantId: TENANT,
+      userId: "user_trial_convert", role: "owner", expiresAt: new Date(managerExpiry * 1000),
+    });
   });
   afterAll(async () => { await closePool(); });
 

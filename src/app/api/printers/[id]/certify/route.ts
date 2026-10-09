@@ -223,6 +223,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // Canonical admission path — same as production
       const result = await createPrintJobForPrinter(printerId, payload, {
         requestedBy: `certification:${claims.userId ?? "manager"}`,
+        managerAuthority: { claims, permission: "printers.test" },
         documentType,
         idempotencyKey,
         tenantId,

@@ -489,8 +489,7 @@ func (a *Agent) removeGatewayRuntime(id string) {
 	defer lock.Unlock()
 
 	a.printersMu.Lock()
-	delete(a.printers, id)
-	delete(a.printerConfigs, id)
+	a.retirePrinterLocked(id)
 	a.printersMu.Unlock()
 	a.deleteProbeState(id)
 }
@@ -511,10 +510,14 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 	lock := a.getPrinterLock(pc.ID)
 	lock.Lock()
 	defer lock.Unlock()
-	a.printersMu.RLock()
+	a.printersMu.Lock()
+	if a.retiredSessionMayBeLiveLocked(pc.ID) {
+		a.printersMu.Unlock()
+		return fmt.Errorf("defer printer %s desired revision %d: a retired print session may still own the transport", pc.ID, row.Desired.DesiredRevision)
+	}
 	_, initialized := a.printers[pc.ID]
 	unchanged := initialized && reflect.DeepEqual(a.printerConfigs[pc.ID], pc)
-	a.printersMu.RUnlock()
+	a.printersMu.Unlock()
 	if unchanged {
 		return nil
 	}

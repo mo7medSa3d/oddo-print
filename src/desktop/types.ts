@@ -1,4 +1,4 @@
-import type { AgentStatus, PrinterInfo, RuntimePaths } from "./lib/ipc";
+import type { AgentStatus, PrinterInfo, RuntimePaths, ManagerSessionStatus } from "./lib/ipc";
 
 export type Page = "dashboard" | "printers" | "jobs" | "agents" | "settings";
 export type JobTab = "all" | "in_flight" | "queued" | "unassigned" | "delivered" | "failed" | "unknown" | "expired";
@@ -13,6 +13,12 @@ export type JobRecord = Record<string, unknown>;
  * IPC effects; pages are pure presentation over this bag, which keeps the
  * five screens consistent and makes each one readable on its own.
  */
+export interface ManagerAccountView {
+  origin: string;
+  status: "unconfigured" | "checking" | "signed-out" | "authenticated" | "unavailable";
+  session: ManagerSessionStatus | null;
+}
+
 export interface DesktopState {
   /* navigation */
   page: Page;
@@ -54,6 +60,12 @@ export interface DesktopState {
   pairCode: string;
   setPairCode: (v: string) => void;
   pair: () => void;
+
+  /* Manager user authority (never Agent execution credentials) */
+  managerAccount: ManagerAccountView;
+  managerLogin: (username: string, password: string) => Promise<void>;
+  managerLogout: () => Promise<void>;
+  managerRefresh: () => void;
 
   /* printers */
   printers: PrinterInfo[];

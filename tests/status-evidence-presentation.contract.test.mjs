@@ -41,7 +41,7 @@ test("stale printer evidence is never promoted back to its last reported status"
   assert.match(dashboard, /const displayStatus = effStatus;/g);
 
   const desktopDisplay = desktop.slice(desktop.indexOf("export function printerDisplayStatus"), desktop.indexOf("export function isVirtualPrinter"));
-  assert.match(desktopDisplay, /return p\.status \|\| "unknown"/);
+  assert.match(desktopDisplay, /return effectivePrinterStatus\(p, undefined, nowMs\)/);
   assert.doesNotMatch(desktopDisplay, /return[^\n]*reportedStatus/);
 
   const agentStatusLabel = odooAgentField.slice(odooAgentField.indexOf("statusLabel(agent)"), odooAgentField.indexOf("get emptyMessage"));

@@ -22,6 +22,12 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		return nil, fmt.Errorf("printer config is missing an id")
 	}
 
+	// Recheck here as well as at discovery/manual admission. Persisted rows
+	// from an older Agent and direct registration paths must not construct a
+	// backend capable of probing or printing to an out-of-policy address.
+	if err := config.ValidatePrinterEndpoint(cfg); err != nil {
+		return nil, err
+	}
 	t := cfg.NormalizedType()
 	proto, protoErr := cfg.NormalizedProtocol()
 

@@ -1,3 +1,4 @@
+import { AuthenticationChangedError } from "../../../../lib/session-tokens";
 import { logError, logWarn } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { authenticateForTenant, issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
@@ -50,7 +51,9 @@ export async function POST(req: Request) {
     }, { status: 409 }), pre);
   }
   if (!("tenantId" in identity) || !identity.tenantId || !identity.role) return setRateLimitHeaders(NextResponse.json({ error: "Workspace setup is incomplete" }, { status: 409 }), pre);
-  const session = await issueCustomerSession(
+  let session;
+  try {
+    session = await issueCustomerSession(
     identity.userId,
     identity.tenantId,
     identity.role,
@@ -59,7 +62,12 @@ export async function POST(req: Request) {
       userAgent: req.headers.get("user-agent"),
     },
     identity.email,
-  );
+    identity.credentialVersion,
+    );
+  } catch (error) {
+    if (error instanceof AuthenticationChangedError) return setRateLimitHeaders(NextResponse.json({ error: "Invalid email or password" }, { status: 401 }), pre);
+    throw error;
+  }
   if (!session) {
     return setRateLimitHeaders(NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 }), pre);
   }

@@ -833,10 +833,22 @@ func TestReloadRegistryPrintersFeedsRuntimeAndHeartbeat(t *testing.T) {
 	}
 	defer func() { _ = ag.Close() }()
 
-	device := productionNetworkDevice("prt-desktop", "127.0.0.1:1")
+	device := productionNetworkDevice("prt-desktop", "192.168.1.25:9100")
 	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
+
+	// Construct the real permitted registry backend, then substitute only its
+	// status boundary. The heartbeat must not probe a real private printer.
+	ag.reloadRegistryPrinters()
+	if got, ok := ag.getPrinter(device.ID); !ok {
+		t.Fatal("registry reload must construct the printer before probing")
+	} else if _, ok := got.(*printer.NetworkPrinter); !ok {
+		t.Fatalf("registry reload constructed %T, want NetworkPrinter", got)
+	}
+	ag.printersMu.Lock()
+	ag.printers[device.ID] = &fakePrinter{}
+	ag.printersMu.Unlock()
 
 	ag.sendHeartbeatContext(context.Background())
 	if _, ok := ag.getPrinter(device.ID); !ok {
@@ -860,7 +872,7 @@ func TestReloadRegistryPrintersFeedsRuntimeAndHeartbeat(t *testing.T) {
 
 func TestReloadRegistryPrintersRemovesDeletedRuntimeAndHeartbeatEntry(t *testing.T) {
 	ag := newTestAgent(t, "seed", &fakePrinter{})
-	device := productionNetworkDevice("prt-deleted", "127.0.0.1:9100")
+	device := productionNetworkDevice("prt-deleted", "192.168.1.25:9100")
 	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
@@ -886,7 +898,7 @@ func TestReloadRegistryPrintersRemovesDeletedRuntimeAndHeartbeatEntry(t *testing
 func TestReloadRegistryPrintersPreservesYAMLOwnedPrinter(t *testing.T) {
 	ag := newTestAgent(t, "yaml-printer", &fakePrinter{})
 	ag.cfg.Printers = []config.PrinterConfig{{ID: "yaml-printer"}}
-	device := productionNetworkDevice("yaml-printer", "127.0.0.1:9100")
+	device := productionNetworkDevice("yaml-printer", "192.168.1.25:9100")
 	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
@@ -903,7 +915,7 @@ func TestReloadRegistryPrintersPreservesYAMLOwnedPrinter(t *testing.T) {
 
 func TestReloadRegistryPrintersDoesNotMutateResolvedBackend(t *testing.T) {
 	ag := newTestAgent(t, "seed", &fakePrinter{})
-	device := productionNetworkDevice("prt-in-flight", "127.0.0.1:9100")
+	device := productionNetworkDevice("prt-in-flight", "192.168.1.25:9100")
 	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
@@ -917,14 +929,17 @@ func TestReloadRegistryPrintersDoesNotMutateResolvedBackend(t *testing.T) {
 		t.Fatalf("clear registry: %v", err)
 	}
 	ag.reloadRegistryPrinters()
-	if got := resolved.Status(); got == "" {
-		t.Fatal("previously resolved backend was mutated or invalidated")
+	// Inspect the resolved generation itself; Status performs real TCP I/O
+	// and cannot establish whether registry removal mutated this object.
+	network, ok := resolved.(*printer.NetworkPrinter)
+	if !ok || network.Address != device.Endpoint || network.Protocol != device.Protocol {
+		t.Fatalf("previously resolved backend was mutated or invalidated: %#v", resolved)
 	}
 }
 
 func TestReloadRegistryPrintersReadFailureDoesNotRemove(t *testing.T) {
 	ag := newTestAgent(t, "seed", &fakePrinter{})
-	device := productionNetworkDevice("prt-preserved", "127.0.0.1:9100")
+	device := productionNetworkDevice("prt-preserved", "192.168.1.25:9100")
 	if err := printer.SaveRegistry(ag.registryPath, []printer.DeviceInfo{device}); err != nil {
 		t.Fatalf("SaveRegistry: %v", err)
 	}
@@ -941,13 +956,13 @@ func TestReloadRegistryPrintersReadFailureDoesNotRemove(t *testing.T) {
 
 func TestMergeDiscoveredPrinterRefreshesSameIDConfiguration(t *testing.T) {
 	ag := newTestAgent(t, "seed", &fakePrinter{})
-	device := productionNetworkDevice("prt-refresh", "127.0.0.1:9100")
+	device := productionNetworkDevice("prt-refresh", "192.168.1.25:9100")
 	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
 		t.Fatalf("initial merge: changed=%v err=%v", changed, err)
 	}
 	oldBackend, _ := ag.getPrinter(device.ID)
 
-	device.Endpoint = "192.0.2.99:9100"
+	device.Endpoint = "192.168.1.26:9100"
 	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
 		t.Fatalf("changed same-ID merge: changed=%v err=%v", changed, err)
 	}
@@ -965,7 +980,7 @@ func TestMergeDiscoveredPrinterRefreshesSameIDConfiguration(t *testing.T) {
 
 func TestMergeDiscoveredPrinterIdenticalIsNoOp(t *testing.T) {
 	ag := newTestAgent(t, "seed", &fakePrinter{})
-	device := productionNetworkDevice("prt-stable", "127.0.0.1:9100")
+	device := productionNetworkDevice("prt-stable", "192.168.1.25:9100")
 	if changed, err := ag.mergeDiscoveredPrinter(device); err != nil || !changed {
 		t.Fatalf("initial merge: changed=%v err=%v", changed, err)
 	}
@@ -1349,7 +1364,7 @@ func TestReconcileRegistryDropsStaleBackendWhenCurrentRowCannotInstantiate(t *te
 		ID:       id,
 		Name:     "Old raw endpoint",
 		Type:     "network",
-		Endpoint: "192.0.2.10:9100",
+		Endpoint: "192.168.1.25:9100",
 		Protocol: "raw",
 	}
 	ag.registryOwned[id] = struct{}{}
@@ -1362,7 +1377,7 @@ func TestReconcileRegistryDropsStaleBackendWhenCurrentRowCannotInstantiate(t *te
 		Name:           "Now unconfigured",
 		ConnectionType: "network",
 		Protocol:       "unknown",
-		Endpoint:       "192.0.2.10:9100",
+		Endpoint:       "192.168.1.25:9100",
 		Status:         "unknown",
 		Enabled:        true,
 	}

@@ -4,12 +4,12 @@ import { StatusDot, type Tone } from "../components/ui";
 
 export function PageHeader({ title, subtitle, actions, children }: { title: string; subtitle?: string; actions?: React.ReactNode; children?: React.ReactNode; }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-edge/80 pb-5 sm:flex-row sm:items-end sm:justify-between">
+    <header className="flex min-w-0 flex-col gap-3 border-b border-edge/80 pb-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
         <h1 className="text-[22px] font-[620] leading-tight tracking-[-0.02em] text-ink">{title}</h1>
         {subtitle && <p className="mt-1 max-w-2xl text-sm leading-relaxed text-ink-3">{subtitle}</p>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:shrink-0">{actions}</div>}
       {children}
     </header>
   );
@@ -31,7 +31,7 @@ export function StatStrip({ children, columns = 4, className = "" }: { children:
   const grid = columns === 3 ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2 xl:grid-cols-4";
   return (
     <div className={`overflow-hidden rounded-sg border border-edge bg-edge-subtle shadow-xs ${className}`}>
-      <div className={`grid gap-px ${grid}`}>{children}</div>
+      <div className={`grid min-w-0 gap-px ${grid}`}>{children}</div>
     </div>
   );
 }
@@ -40,14 +40,14 @@ export function StatItem({ label, value, sub, tone = "neutral", icon }: { label:
   return (
     <div className="min-w-0 bg-surface px-4 py-4 sm:px-5">
       <div className="flex items-center justify-between gap-3">
-        <span className="truncate text-xs font-[550] text-ink-3">{label}</span>
+        <span className="min-w-0 break-words text-xs font-[550] text-ink-3">{label}</span>
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">{icon}</span>
       </div>
       <div className="mt-3 flex items-center gap-2">
         <StatusDot tone={tone} pulse={tone === "ok"} />
-        <span className="min-w-0 truncate text-xl font-[650] leading-none tracking-[-0.02em] text-ink tabular-nums">{value}</span>
+        <span className="min-w-0 break-words text-xl font-[650] leading-tight tracking-[-0.02em] text-ink tabular-nums">{value}</span>
       </div>
-      {sub && <p className="mt-1.5 truncate text-xs leading-relaxed text-ink-3">{sub}</p>}
+      {sub && <p className="mt-1.5 break-words text-xs leading-relaxed text-ink-3">{sub}</p>}
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function PrinterAvatar({ name, size = "md", tone = "brand" }: { name: str
 }
 
 export function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-sg border border-edge bg-surface p-3.5"><div className="flex flex-col gap-3 lg:flex-row lg:items-center">{children}</div></div>;
+  return <div className="min-w-0 rounded-sg border border-edge bg-surface p-3.5"><div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">{children}</div></div>;
 }
 
 export function SettingsSection({ title, description, icon, children, className = "" }: { title: string; description?: string; icon: React.ReactNode; children: React.ReactNode; className?: string; }) {

@@ -86,20 +86,23 @@
 
 ### Odoo login fails with "Session expired (invalid CSRF token)"
 
-**Cause**: The Odoo web client is opened inside a cross-site iframe (embedded
-preview, portal, or desktop shell). The login POST is then a cross-site request,
-and the `session_id` cookie Odoo sets is `SameSite=Lax` by default, so the
-browser does not send it — Odoo sees a POST without a session and rejects the
-CSRF token as expired. The error is Odoo's own CSRF guard, not the print addon.
+**Possible causes**: A browser may omit the Odoo session cookie in an embedded or
+cross-site frame, or Odoo may receive an incorrect public origin/scheme behind a
+reverse proxy. The error alone does not prove either cause.
 
-**Resolution**:
-1. Serve the web client over HTTPS through the reverse proxy and run Odoo with
-   `proxy_mode = True`, so it reads `X-Forwarded-Proto` and marks the session
-   cookie `Secure; SameSite=None` (required for embedded/cross-site use).
-2. If the browser blocks third-party cookies, open the Odoo URL in its own tab
-   so the session cookie is first-party.
-3. `SameSite=None` must be paired with `Secure`; over plain HTTP keep Odoo's
-   default `Lax` cookie and open the client in a top-level tab instead.
+**Troubleshooting**:
+1. Open Odoo in a top-level HTTPS tab. If this works but an embedded frame does
+   not, inspect the browser's third-party cookie and iframe restrictions.
+2. Verify the trusted proxy forwards the correct host/scheme and configure
+   Odoo's `proxy_mode = True` where appropriate for that deployment. This setting
+   does **not** by itself guarantee a `SameSite=None` session cookie.
+3. Inspect the actual login response `Set-Cookie` attributes (`SameSite`,
+   `Secure`, path/domain) and whether the subsequent login POST includes the
+   expected cookie. Test against the installed Odoo/browser versions.
+4. Prefer first-party, top-level login when third-party cookies are restricted.
+   `SameSite=None` requires HTTPS/`Secure` when supported, but do not assume a
+   proxy configuration automatically applies it. Do not disable Odoo's CSRF
+   protection as a workaround.
 
 ### Report downloads PDF instead of printing via Gateway
 
@@ -120,11 +123,11 @@ CSRF token as expired. The error is Odoo's own CSRF guard, not the print addon.
 4. Check the Odoo server logs for `print_gateway.print_router` errors
 5. Verify the rendered receipt image is not empty
 
-### "No canned diagnostic ticket exists for protocol '...'"
+### Diagnostic ticket format or printer transport is unsupported
 
-**Cause**: Test page generation is only available for `escpos`, `zpl`, `tspl`, and `raw` protocols. Spooler and IPP printers are document transports that require driver-rendered content.
+**Cause**: The test-page producer emits byte tickets for `escpos`, `zpl`, `tspl`, and `raw`. For Windows Spooler and IPP/IPPS document transports, it instead builds a generated PDF test ticket (`type: pdf`, base64) to be rendered by the Agent/driver. A transport with neither supported bytes nor a document-print path cannot be automatically tested.
 
-**Resolution**: Use a real report (e.g., invoice) to test end-to-end printing for spooler/IPP printers.
+**Resolution**: Verify the spooler queue's installed driver, PDF rendering support, Agent service-account access and IPP document-format capabilities, then send the generated PDF test ticket. Distinguish Gateway admission from confirmed driver acceptance and physical paper output. A Real document/report (for example, an Odoo invoice) and an observed physical print are still required for end-to-end acceptance, including Arabic fonts and page dimensions.
 
 ## Performance
 

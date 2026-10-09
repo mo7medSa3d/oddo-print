@@ -1,3 +1,4 @@
+import { requireTeamActorInTransaction, TeamAuthorizationChangedError } from "../../../../lib/team-authorization";
 import { NextResponse } from "next/server";
 import { clearCustomerRefreshCookie, clearCustomerSessionCookie } from "../../../../lib/customer-auth";
 import { db } from "../../../../db";
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
 
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT id FROM users WHERE id IN (${currentUserId}, ${newOwnerId}) ORDER BY id FOR UPDATE`);
+      await requireTeamActorInTransaction(tx, claims, [newOwnerId]);
       // Lock both membership rows in a deterministic user-id order. This
       // serializes transfers with role changes and deletions on the same rows.
       const locked = await tx.execute(sql`
@@ -96,6 +97,7 @@ export async function POST(req: Request) {
       );
     });
   } catch (error) {
+    if (error instanceof TeamAuthorizationChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof OwnershipConflict) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
   }

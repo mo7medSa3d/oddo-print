@@ -3,6 +3,7 @@ import { db } from "../../../../db";
 import { agents, printers } from "../../../../db/schema";
 import { validateConsoleAuth } from "../../../../lib/console-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
+import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { canTransitionLifecycle } from "../../../../lib/lifecycle";
@@ -118,6 +119,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     await requireActiveTenantInTransaction(tx, tenantId);
+    await requireManagerActorInTransaction(tx, auth.claims, "printers.manage");
 
     let connectionType = parsed.data.connectionType ?? existing.connectionType;
     let protocol = parsed.data.protocol ?? existing.protocol;
@@ -206,6 +208,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return { kind: "ok" as const, row };
     });
   } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (isTenantBillingError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
     }

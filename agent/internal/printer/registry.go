@@ -289,7 +289,32 @@ func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, c
 			log.Printf("[registry] refusing to register non-physical printer %q class=%s", d.Name, ClassifyDeviceInfo(d).Class)
 			continue
 		}
+		if _, found := byID[d.ID]; !found {
+			continuityIndex := -1
+			ambiguous := false
+			for idx, prior := range existing {
+				if prior.ID == "" || !sameSpoolerQueueDuringDetailLoss(prior, d) {
+					continue
+				}
+				if continuityIndex != -1 {
+					ambiguous = true
+					break
+				}
+				continuityIndex = idx
+			}
+			if ambiguous {
+				// Preserve every existing candidate for operator resolution.
+				// The pruning predicate recognizes the same weak observation;
+				// it must not invent a third binding or arbitrarily pick one.
+				log.Printf("[registry] ambiguous detail-loss observation for Windows queue %q; retaining established bindings without rebinding", d.SpoolerName)
+				continue
+			}
+			if continuityIndex != -1 {
+				d.ID = existing[continuityIndex].ID
+			}
+		}
 		if idx, ok := byID[d.ID]; ok {
+			d = preserveRegistryObservationEvidence(existing[idx], d)
 			// Merge into the stored row so a bare rediscovery observation
 			// never wipes previously observed capabilities/serials — but
 			// the incoming observation is the freshest display truth (an
@@ -346,7 +371,11 @@ func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, c
 			for idx, prior := range existing {
 				if priorIdentity, priorOK := physicalIdentityKey(prior); priorOK && priorIdentity == identity {
 					oldID := prior.ID
+					d = preserveRegistryObservationEvidence(prior, d)
 					d.ID = oldID
+					// Matching physical identity changes the observation, not
+					// the operator's enable/disable decision.
+					d.Enabled = prior.Enabled
 					existing[idx] = d
 					byID[oldID] = idx
 					log.Printf("[registry] preserved printer ID %s across identity-preserving endpoint/name change", oldID)
@@ -380,12 +409,45 @@ func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, c
 	return existing, nil
 }
 
+// preserveRegistryObservationEvidence keeps operator intent and last-known
+// identity evidence separate from a weaker live observation. Status remains the
+// incoming observation's responsibility; retained details do not mean "online".
+func preserveRegistryObservationEvidence(prior, incoming DeviceInfo) DeviceInfo {
+	caps := make(map[string]interface{}, len(prior.Capabilities)+len(incoming.Capabilities))
+	for key, value := range prior.Capabilities {
+		caps[key] = value
+	}
+	for key, value := range incoming.Capabilities {
+		caps[key] = value
+	}
+	if sameSpoolerQueueDuringDetailLoss(prior, incoming) {
+		for _, key := range []string{"port_name", "driver_name", "server_name", "share_name"} {
+			if capabilityIdentityValue(incoming, key) == "" && capabilityIdentityValue(prior, key) != "" {
+				caps[key] = prior.Capabilities[key]
+			}
+		}
+	}
+	// Rediscovery enriches an explicit row; it cannot turn manual/config
+	// ownership into auto-discovery ownership eligible for absence deletion.
+	if source, ok := prior.Capabilities["registration_source"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(source)) {
+		case "manual", "config":
+			caps["registration_source"] = source
+		}
+	}
+	incoming.Capabilities = caps
+	return incoming
+}
+
 func shouldPruneMissingDiscoveryRow(stored DeviceInfo, observed []DeviceInfo, completeSources map[string]bool) bool {
 	if !completeSources[SourceSpooler] || !isAutoDiscoveredSpoolerRow(stored) {
 		return false
 	}
 	for _, current := range observed {
 		if current.ID != "" && stored.ID != "" && current.ID == stored.ID {
+			return false
+		}
+		if sameSpoolerQueueDuringDetailLoss(stored, current) {
 			return false
 		}
 		storedIdentity, storedOK := physicalIdentityKey(stored)
