@@ -300,9 +300,8 @@ export async function fetchGatewayAgents(
   gatewayUrl: string,
 ): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  // No extra auth headers: the browser sends the manager session cookie
-  // automatically (credentials: "include"), and the Tauri shell injects the
-  // manager bearer token in the Rust gateway proxy.
+  // The packaged desktop authenticates with the paired Agent through its
+  // native CLI. There is no Manager token or password in the WebView.
   const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
   if (status < 200 || status >= 300) {
     throw gatewayHttpError(status, body, "agents fetch failed (" + status + ")");
@@ -430,8 +429,15 @@ export async function registerGatewayPrinter(
     printerType: req.virtualSpoolerTest === true ? "virtual" : req.printerType || "physical",
     config,
   };
-  // Software queues are approved in Gateway, not by a paired Agent.
-  if (req.virtualSpoolerTest) throw new Error("Virtual spooler queues require Gateway approval");
+  // An explicit opt-in for a locally discovered software spooler uses the
+  // paired Agent's own credentials, never a Manager session. The Gateway
+  // enforces Agent/tenant ownership and the Windows service verifies the
+  // queue before allowing jobs. Mere Desktop discovery cannot enable it.
+  if (req.virtualSpoolerTest && (connectionType !== "spooler" ||
+      payload.printerType !== "virtual" || !config.spooler_name ||
+      (config.passthrough_protocols as string[] | undefined)?.length)) {
+    throw new Error("Virtual test requires a local software spooler without RAW passthrough");
+  }
   const { status, body } = await gatewayConsoleRequest(
     base, "/api/printers", "POST", headers, JSON.stringify(payload),
   );
