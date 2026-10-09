@@ -60,7 +60,7 @@ suite("virtual capture print-job admission", () => {
     expect(Number(actual.delivery_attempts)).toBe(1);
   });
 
-  it("accepts only the explicitly tagged Manager test print when opted in", async () => {
+  it("accepts only an explicitly tagged diagnostic test print when opted in", async () => {
     vi.stubEnv("YASEIR_GATEWAY_VIRTUAL_TEST_MODE", "1");
     const result = await createPrintJobForPrinter(f.printerId, pdf, {
       tenantId: f.tenantId, requestedBy: "manager-test", documentType: "test_page",
@@ -71,4 +71,37 @@ suite("virtual capture print-job admission", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ requested_by: "manager-test", document_type: "test_page", status: "queued" });
   });
+  it("lets a paired Agent capture a diagnostic job with its own identity and denies another Agent", async () => {
+    vi.stubEnv("YASEIR_GATEWAY_VIRTUAL_TEST_MODE", "1");
+    const authorized = {
+      tenantId: f.tenantId,
+      requestedBy: "agent-diagnostic",
+      documentType: "test_page",
+      allowVirtualTestCapture: true,
+      idempotencyKey: "agent-virtual-capture-001",
+      agentDiagnosticAuthority: { tenantId: f.tenantId, agentId: f.agentId },
+    };
+    const result = await createPrintJobForPrinter(f.printerId, pdf, authorized);
+    expect(result.status).toBe("queued");
+    const retry = await createPrintJobForPrinter(f.printerId, pdf, authorized);
+    expect(retry.id).toBe(result.id);
+    expect(retry.isReused).toBe(true);
+    const response = await pollAgentJobs(new Request("http://gateway.test/api/agent/jobs", {
+      method: "GET", headers: { Authorization: f.agentAuth },
+    }));
+    expect(response.status).toBe(200);
+    const jobs = await response.json() as Array<{ id: string }>;
+    expect(jobs.some(j => j.id === result.id)).toBe(true);
+    await expect(createPrintJobForPrinter(f.printerId, pdf, {
+      ...authorized,
+      idempotencyKey: "foreign-virtual-capture-002",
+      agentDiagnosticAuthority: { tenantId: f.tenantId, agentId: "other-agent" },
+    })).rejects.toMatchObject({ code: "AGENT_PRINTER_MISMATCH" });
+    await expect(createPrintJobForPrinter(f.printerId, pdf, {
+      ...authorized,
+      idempotencyKey: "no-authority-capture-003",
+      agentDiagnosticAuthority: undefined,
+    })).rejects.toMatchObject({ code: "PRINTER_VIRTUAL" });
+  });
+
 });

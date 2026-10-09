@@ -1134,6 +1134,7 @@ export const en = {
   "desktop.printers.virtualLinked": "Ready for tests",
   "desktop.printers.virtualUnavailable": "This installed virtual queue is missing its Agent identity or is not an eligible Windows spooler destination. Run Discover again.",
   "desktop.printers.virtualAgentMissing": "The Agent is not paired with this Gateway workspace. Pair the running Agent first, then rediscover the printer.",
+  "desktop.printers.gatewayUpgradeNeeded": "The Gateway is running an older version that requires Manager approval. Update and restart the Gateway to the same release as this Agent, then retry. No Manager sign-in is required in the Agent.",
   "desktop.printers.virtualAlreadyLinked": "This Windows spooler queue is already linked to the Gateway.",
   "desktop.printers.localDiagnosticOnly": "Local only",
   "desktop.printers.discover": "Discover",

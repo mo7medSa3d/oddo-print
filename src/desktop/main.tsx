@@ -560,10 +560,17 @@ export default function App() {
       setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
       return;
     }
-    if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
-
     setBusyBoth(true);
     try {
+      // Do not attempt a Manager-owned registration against an old deployed
+      // Gateway: its paired-Agent contract does not exist there.
+      const probe = await probeGatewayHealth(savedGatewayUrl);
+      const features = probe.features as Record<string, unknown> | undefined;
+      if (features?.agentVirtualSpoolerTest !== true) {
+        setMsg({ text: t("desktop.printers.gatewayUpgradeNeeded"), type: "error" });
+        return;
+      }
+      if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
       // GET /api/agents is fenced by the paired Agent credential, returning
       // only that Agent. Never trust an Agent ID from UI inventory or user input.
       const owned = await fetchGatewayAgents(savedGatewayUrl);
@@ -583,7 +590,7 @@ export default function App() {
       setMsg({ text: t("desktop.printers.virtualRegistered"), type: "success" });
     } catch (error) {
       const status = (error as { status?: number } | null)?.status;
-      if (status === 409) {
+      if (status === 409 && /printer id already exists|already registered/i.test(errMsg(error))) {
         await refreshPrinters();
         setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
       } else {

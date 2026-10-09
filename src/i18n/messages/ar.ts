@@ -1140,6 +1140,7 @@ export const ar: Catalog = {
   "desktop.printers.virtualLinked": "متاحة للاختبار",
   "desktop.printers.virtualUnavailable": "لا تتوفر هوية الـAgent لهذه الطابعة، أو أنها ليست وجهة Windows Spooler مؤهلة. أعد الاكتشاف.",
   "desktop.printers.virtualAgentMissing": "الـAgent غير مقترن بمساحة العمل في Gateway. أقرن الـAgent الجاري تشغيله أولًا ثم أعد اكتشاف الطابعة.",
+  "desktop.printers.gatewayUpgradeNeeded": "الـGateway يعمل بإصدار قديم يشترط موافقة المدير. حدّث الـGateway وأعد تشغيله بنفس إصدار الـAgent، ثم أعد المحاولة. لا يلزم تسجيل دخول مدير داخل الـAgent.",
   "desktop.printers.virtualAlreadyLinked": "الطابعة البرمجية مرتبطة بالفعل بالـGateway.",
   "desktop.printers.localDiagnosticOnly": "محلي فقط",
   "desktop.printers.discover": "اكتشاف",

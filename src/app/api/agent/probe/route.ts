@@ -13,6 +13,9 @@ export function GET() {
     {
       ok: true,
       service: "yaseir-print-gateway",
+      // An additive contract: old Gateways omit this feature so a new Desktop
+      // can tell the operator to upgrade instead of requesting Manager sign-in.
+      features: { agentVirtualSpoolerTest: true, pairedAgentDiagnosticCapture: true },
     },
     {
       status: 200,
