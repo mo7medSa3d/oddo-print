@@ -1331,7 +1331,7 @@
     overflow: hidden;
   }
   .tg-console-content {
-    padding-inline-start: calc(var(--nav-w) + 24px);
+    padding-inline-start: calc(var(--nav-w) + 12px);
   }
   .tg-desktop-rail {
     inset-block: 12px;
