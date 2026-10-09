@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from test_f010_report_binding_identity import (
-    production_methods, ValidationError, ref, binding, Bindings, Router,
+    production_methods, ValidationError, binding, Bindings, Router,
     ROOT_COMPANY, BRANCH, OTHER_BRANCH, PICKING_TYPE, PICKING, REPORT_A,
 )
 

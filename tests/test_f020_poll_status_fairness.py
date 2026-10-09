@@ -5,7 +5,6 @@ No real PostgreSQL/Odoo cron/Gateway installation acceptance is implied.
 import datetime
 import sqlite3
 from types import SimpleNamespace
-from unittest.mock import Mock
 
 from test_f010_report_binding_identity import production_methods
 

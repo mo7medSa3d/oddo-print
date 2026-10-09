@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 from test_odoo_config_key_rotation_f015 import (
-    config, Config, namespace, method, ModelBase, ADDON,
+    config, namespace, method, ADDON,
 )
 from test_f010_report_binding_identity import production_methods
 
