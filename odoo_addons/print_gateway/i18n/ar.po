@@ -622,11 +622,6 @@ msgstr "التفاصيل"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
-msgid "Diagnostic test page sent to printer '%s'."
-msgstr "تم إرسال صفحة الاختبار التشخيصية إلى الطابعة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
 msgid "Direct inventory/warehouse operations require a label or thermal printer."
 msgstr "عمليات المخزون/المستودع المباشرة تتطلب طابعة ملصقات أو طابعة حرارية."
 
@@ -685,12 +680,6 @@ msgstr "المستند/التقرير يتبع سياق شركة/فرع آخر."
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_list
 msgid "Document Type"
 msgstr "نوع المستند"
-
-#. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
-msgid "Document sent to %s. Check Print Activity for the final status."
-msgstr "تم إرسال المستند إلى %s. تحقّق من نشاط الطباعة لمعرفة الحالة النهائية."
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__document_type
@@ -2105,11 +2094,6 @@ msgid "Print Job #%s queued to Gateway for '%s'"
 msgstr "تم إدراج مهمة الطباعة رقم %s في قائمة انتظار الـ Gateway للطابعة '%s'"
 
 #. module: print_gateway
-#: code:addons/print_gateway/models/ir_actions_report.py:0
-msgid "Print Job Accepted"
-msgstr "تم قبول مهمة الطباعة"
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "Print Job Retried"
 msgstr "تمت إعادة محاولة مهمة الطباعة"
@@ -2156,11 +2140,6 @@ msgstr "تعذّر تحديد نوع مستند الطباعة لإجراء ال
 #: code:addons/print_gateway/models/binding.py:0
 msgid "Print document type is required."
 msgstr "نوع مستند الطباعة مطلوب."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Print job %s accepted by the Gateway."
-msgstr "قَبِل الـ Gateway مهمة الطباعة %s."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_job.py:0
@@ -2337,12 +2316,6 @@ msgid "Printing is enabled and the service is connected."
 msgstr "الطباعة مُفعّلة والخدمة متصلة."
 
 #. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
-msgid "Printing service error: %s"
-msgstr "خطأ في خدمة الطباعة: %s"
-
-#. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__priority
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_policy__priority
 msgid "Priority"
@@ -2383,11 +2356,6 @@ msgstr "يجب أن تكون حمولة Raster بصيغة JPEG."
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "Raster payloads cannot specify a printer protocol."
 msgstr "لا يمكن لحمولات Raster تحديد بروتوكول طابعة."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/print_router.py:0
-msgid "Raw %s print job %s accepted."
-msgstr "تم قبول مهمة الطباعة الخام %s %s."
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_policy__action_type__raw_template
@@ -2612,12 +2580,6 @@ msgid "Sales Details could not be printed."
 msgstr "تعذّرت طباعة تفاصيل المبيعات."
 
 #. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
-msgid "Sales Details sent to the printing service."
-msgstr "تم إرسال تفاصيل المبيعات إلى خدمة الطباعة."
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
 msgid "Saving your current printing settings."
 msgstr "جارٍ حفظ إعدادات الطباعة الحالية."
@@ -2693,11 +2655,6 @@ msgstr "السجلات المحدَّدة تتبع نطاقات توجيه مت�
 #: code:addons/print_gateway/models/print_policy.py:0
 msgid "Selected report model '%s' does not match policy target model '%s'."
 msgstr "نموذج التقرير المحدَّد '%s' لا يطابق النموذج المستهدف للقاعدة '%s'."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "Sent silently to printer."
-msgstr "تم الإرسال بصمت إلى الطابعة."
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_gateway_config__gateway_sync_state__not_configured
@@ -2903,11 +2860,6 @@ msgstr "اختبار الاتصال"
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
 msgid "Test Print"
 msgstr "طباعة تجريبية"
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/binding.py:0
-msgid "Test Print Dispatched"
-msgstr "تم إرسال الطباعة التجريبية"
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -3354,12 +3306,6 @@ msgid "Warehouse Filter"
 msgstr "مرشّح المستودع"
 
 #. module: print_gateway
-#. odoo-javascript
-#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
-msgid "We couldn't complete this print request. Native PDF download cancelled. Check Print Activity for details."
-msgstr "تعذّر إكمال طلب الطباعة هذا. تم إلغاء تنزيل PDF الأصلي. تحقّق من نشاط الطباعة للتفاصيل."
-
-#. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_policy_form
 msgid "What to print"
 msgstr "ما الذي تتم طباعته"
@@ -3545,7 +3491,6 @@ msgstr "هذه الطابعة مضبوطة للطباعة المستندية ع�
 msgid "This printer is configured for Windows document spooling and has not been declared as RAW-capable. Enable RAW passthrough explicitly on the Gateway printer only if the Windows queue/driver is configured to accept raw bytes."
 msgstr "هذه الطابعة مضبوطة للطباعة المستندية عبر Windows spooler ولم يتم التصريح بأنها تدعم RAW. فعّل تمرير RAW صراحةً على طابعة الـ Gateway فقط إذا كان صف الطباعة/التعريف في Windows مضبوطًا لقبول البايتات الخام."
 
-
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0
@@ -3653,3 +3598,218 @@ msgstr "حرارية"
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "unknown"
 msgstr "غير معروف"
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "A previous report print is unresolved after this page changed. Check Print Activity and the printer. Use an explicit reprint from Print Activity instead of creating a new job."
+msgstr "طباعة التقرير السابقة لم تُحسم بعد تغيير الصفحة. راجع سجل الطباعة والطابعة، واستخدم إعادة الطباعة الصريحة بدلًا من إنشاء مهمة جديدة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "A raw label binding must not reference an Odoo Report."
+msgstr "يجب ألا يشير ربط الملصق الخام إلى تقرير من Odoo."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "A raw label binding requires an explicitly declared ZPL, TSPL, ESC/POS, or raw printer protocol."
+msgstr "يتطلب ربط الملصق الخام تحديد لغة الطابعة صراحةً: ZPL أو TSPL أو ESC/POS أو Raw."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+msgid "An earlier Sales Details print is unresolved after this page changed. Check Print Activity and the printer. Use the explicit reprint action in Print Activity if another paper copy is needed."
+msgstr "نتيجة طباعة تفاصيل المبيعات السابقة غير محسومة بعد تغيير الصفحة. راجع السجل والطابعة، واستخدم إعادة الطباعة الصريحة إذا احتجت نسخة أخرى."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/pos_print_router.js:0
+msgid "An earlier receipt print is unresolved after this page changed. Check Print Activity and the printer. To print again, use the explicit reprint action in Print Activity; a new print is not sent automatically."
+msgstr "نتيجة طباعة الإيصال السابقة غير محسومة بعد تغيير الصفحة. راجع السجل والطابعة، ثم استخدم إعادة الطباعة الصريحة؛ لن تُرسل مهمة جديدة تلقائيًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Cannot replace the Gateway installation key until the old key can be safely stored for shutdown."
+msgstr "لا يمكن استبدال مفتاح تثبيت Gateway قبل حفظ المفتاح القديم بأمان لاستخدامه عند إيقاف الاتصال."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Cannot replace the Gateway installation key until the previous credential can be decrypted."
+msgstr "لا يمكن استبدال مفتاح تثبيت Gateway قبل فك تشفير بيانات الاعتماد السابقة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Complete the previous Gateway credential or URL shutdown before replacing the API key again."
+msgstr "أكمل إنهاء بيانات اعتماد Gateway أو عنوانه السابق قبل استبدال مفتاح API مرة أخرى."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/gateway_config_auto_sync.js:0
+msgid "Configuration saved. Gateway connection verification is still pending or failed. Check the connection status before printing."
+msgstr "حُفظت الإعدادات، لكن التحقق من اتصال Gateway لا يزال معلقًا أو فشل. تحقق من الاتصال قبل الطباعة."
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__destination_key
+msgid "Destination key"
+msgstr "مفتاح الوجهة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Diagnostic test job admitted for printer '%s'; paper output is not confirmed."
+msgstr "قُبلت مهمة الفحص للطابعة '%s'، لكن خروج الورقة لم يتأكد."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Diagnostic test job failed; check Print Activity."
+msgstr "فشلت مهمة الطباعة التجريبية؛ راجع سجل الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Diagnostic test job queued; check Print Activity before retrying."
+msgstr "مهمة الطباعة التجريبية في الانتظار؛ راجع سجل الطباعة قبل إعادة المحاولة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Diagnostic test print status unknown; check the printer and Print Activity before retrying."
+msgstr "نتيجة الطباعة التجريبية غير معروفة؛ راجع الطابعة وسجل الطباعة قبل إعادة المحاولة."
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "For raw warehouse labels, leave Report empty and select the printer's exact ZPL, TSPL, ESC/POS or raw language under Advanced. To print a PDF warehouse report, select the Report instead and use a document-capable printer transport."
+msgstr "لملصقات المستودع الخام، اترك التقرير فارغًا وحدد لغة الطابعة الفعلية ZPL أو TSPL أو ESC/POS أو Raw من الخيارات المتقدمة. لطباعة PDF، اختر التقرير ووسيلة نقل تدعم المستندات."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/gateway_config_auto_sync.js:0
+msgid "Gateway connection verification timed out after configuration was saved."
+msgstr "انتهت مهلة التحقق من اتصال Gateway بعد حفظ الإعدادات."
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__last_status_polled_at
+msgid "Last status polled at"
+msgstr "آخر وقت للاستعلام عن الحالة"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form
+msgid "Optional for Operation Type: leave empty for language-declared raw labels; select a QWeb report for PDF printing."
+msgstr "اختياري لنوع العملية: اتركه فارغًا للملصقات الخام ذات اللغة المحددة، أو اختر تقرير QWeb لطباعة PDF."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/ir_actions_report.py:0
+msgid "Print Job Processing"
+msgstr "جارٍ تنفيذ مهمة الطباعة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Print dispatch outcome is uncertain. The document may have reached the Gateway; check Print Activity and the printer before retrying."
+msgstr "نتيجة إرسال الطباعة غير مؤكدة؛ قد يكون المستند وصل إلى Gateway. راجع سجل الطباعة والطابعة قبل إعادة المحاولة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s claimed by an agent; printer output is not confirmed."
+msgstr "استلم الوكيل مهمة الطباعة %s؛ لم يتأكد إخراج الطابعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s completed by the agent; physical paper output is not independently confirmed."
+msgstr "أكمل الوكيل مهمة الطباعة %s؛ خروج الورقة الفعلي غير مؤكد بشكل مستقل."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s failed. Check Print Activity and the printer before trying again."
+msgstr "فشلت مهمة الطباعة %s. راجع سجل الطباعة والطابعة قبل المحاولة مجددًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s has an unknown outcome. Check the printer and Print Activity before trying again."
+msgstr "نتيجة مهمة الطباعة %s غير معروفة. راجع الطابعة وسجل الطباعة قبل المحاولة مجددًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s is processing on an agent; printer output is not confirmed."
+msgstr "يعالج الوكيل مهمة الطباعة %s؛ لم يتأكد إخراج الطابعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s is queued for Gateway submission. Check Print Activity before reprinting."
+msgstr "مهمة الطباعة %s في انتظار الإرسال إلى Gateway. راجع سجل الطباعة قبل إعادة الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Print job %s submitted to the Gateway; printer output is not confirmed."
+msgstr "أُرسلت مهمة الطباعة %s إلى Gateway؛ لم يتأكد إخراج الطابعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Print job queued in Odoo. Check Print Activity before reprinting."
+msgstr "مهمة الطباعة في انتظار Odoo. راجع سجل الطباعة قبل إعادة الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/ir_actions_report.py:0
+msgid "Print job queued in Odoo; check Print Activity before reprinting."
+msgstr "مهمة الطباعة في انتظار Odoo؛ راجع سجل الطباعة قبل إعادة الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Print outcome unconfirmed (%s). Native PDF download cancelled. Check Print Activity and printer before retrying."
+msgstr "نتيجة الطباعة غير مؤكدة (%s). أُلغي تنزيل PDF الأصلي. راجع سجل الطباعة والطابعة قبل إعادة المحاولة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Print request returned no reliable status. Native PDF download cancelled. Check Print Activity and the printer before retrying."
+msgstr "لم يُرجع طلب الطباعة حالة موثوقة. أُلغي تنزيل PDF الأصلي. راجع السجل والطابعة قبل إعادة المحاولة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Print result is pending or uncertain; check Print Activity."
+msgstr "نتيجة الطباعة معلقة أو غير مؤكدة؛ راجع سجل الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Print status is unknown. Check the printer and Print Activity before trying again."
+msgstr "حالة الطباعة غير معروفة. راجع الطابعة وسجل الطباعة قبل المحاولة مجددًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Printable record belongs to another Odoo company/branch context."
+msgstr "السجل المطلوب طباعته يتبع شركة أو فرعًا آخر في Odoo."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Printing service is processing this job; paper output is not yet confirmed."
+msgstr "خدمة الطباعة تعالج هذه المهمة؛ خروج الورقة لم يتأكد بعد."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/report_interceptor.js:0
+msgid "Printing service response unavailable"
+msgstr "استجابة خدمة الطباعة غير متاحة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+msgid "Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s"
+msgstr "نتيجة طباعة تفاصيل المبيعات غير مؤكدة. راجع سجل الطباعة والطابعة قبل إعادة المحاولة. %s"
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+msgid "Sales Details processing; physical paper output is not confirmed."
+msgstr "جارٍ طباعة تفاصيل المبيعات؛ خروج الورقة الفعلي غير مؤكد."
+
+#. module: print_gateway
+#: code:addons/print_gateway/static/src/js/pos_sale_details_router.js:0
+msgid "Sales Details queued. Check Print Activity before reprinting."
+msgstr "تفاصيل المبيعات في قائمة انتظار الطباعة. راجع السجل قبل إعادة الطباعة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Test Print Failed"
+msgstr "فشلت الطباعة التجريبية"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Test Print In Progress"
+msgstr "الطباعة التجريبية قيد التنفيذ"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "Test Print Pending / Uncertain"
+msgstr "الطباعة التجريبية معلقة أو غير مؤكدة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+msgid "The failover binding must use the same report action as the primary binding."
+msgstr "يجب أن يستخدم ربط الطابعة البديلة إجراء التقرير نفسه المستخدم في الربط الأساسي."
