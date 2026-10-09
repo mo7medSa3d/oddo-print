@@ -212,9 +212,9 @@ func (q *Queue) UpdateStatus(id, status string) error {
 	return err
 }
 
-// UpdateStatusWithError also records last_error. The terminal state is a
-// durable outbox record for the Gateway status report. Preserve claim_token
-// until that report receives a 2xx response (see ClearClaimToken).
+// UpdateStatusWithError records durable local evidence and retains the claim
+// token until the Gateway explicitly acknowledges that terminal status.
+// This is the report outbox; clearing earlier would lose replay ownership.
 func (q *Queue) UpdateStatusWithError(id, status, lastErr string) error {
 	if !validLocalLedgerStatus(status) {
 		return fmt.Errorf("invalid local queue status %q", status)

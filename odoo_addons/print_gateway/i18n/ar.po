@@ -144,6 +144,11 @@ msgstr "تم رفض الوصول: Agent المحدد في Gateway غير نشط 
 
 #. module: print_gateway
 #: code:addons/print_gateway/controllers/runtime_printers.py:0
+msgid "Access Denied: The selected Gateway Agent is not assigned to this Odoo scope."
+msgstr "تم رفض الوصول: Agent المحدد في Gateway غير مُعيّن لنطاق Odoo هذا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/controllers/runtime_printers.py:0
 msgid "Access Denied: The selected Odoo Branch is not available to the current user."
 msgstr "تم رفض الوصول: فرع Odoo المحدد غير متاح للمستخدم الحالي."
 
@@ -907,6 +912,11 @@ msgstr "يجب ألا يحتوي عنوان URL للـ Gateway على بيانا
 #: code:addons/print_gateway/models/gateway_config.py:0
 msgid "Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."
 msgstr "يجب أن يستخدم عنوان URL للـ Gateway بروتوكول HTTP أو HTTPS وأن يتضمن اسم مضيف، مثل https://print.example.com أو http://192.0.2.10:3000."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "Gateway URL must use HTTPS."
+msgstr "يجب أن يستخدم عنوان URL للـ Gateway بروتوكول HTTPS."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/gateway_config.py:0
@@ -3489,8 +3499,6 @@ msgid "stale"
 msgstr "بيانات قديمة"
 
 #. module: print_gateway
-
-#. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/components/language_switcher.js:0
 msgid "Changing language timed out. Reload the page before trying again."
@@ -3590,26 +3598,6 @@ msgstr "حرارية"
 #: code:addons/print_gateway/static/src/components/runtime_printer_field.js:0
 msgid "unknown"
 msgstr "غير معروف"
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "Could not reach the Gateway at %(url)s. Verify the URL host and port match the Gateway deployment (scheme, host and explicit port, without an API path) and that the Gateway is running."
-msgstr "تعذر الاتصال بـ Gateway على %(url)s. تأكد من صحة العنوان والمنفذ، دون مسار API، ومن تشغيل Gateway."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "Gateway URL must use HTTPS."
-msgstr "يجب أن يستخدم عنوان Gateway بروتوكول HTTPS."
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "Gateway request to %(url)s failed: %(error)s"
-msgstr "فشل طلب Gateway إلى %(url)s: %(error)s"
-
-#. module: print_gateway
-#: code:addons/print_gateway/models/gateway_config.py:0
-msgid "The Gateway at %(url)s did not respond within 10 seconds. Verify the host/port and the network path between Odoo and the Gateway."
-msgstr "لم يستجب Gateway على %(url)s خلال ١٠ ثوانٍ. تحقق من العنوان والمنفذ والاتصال بين Odoo وGateway."
 
 #. module: print_gateway
 #: code:addons/print_gateway/static/src/js/report_interceptor.js:0

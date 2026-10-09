@@ -111,7 +111,7 @@ class PrintGatewayJob(models.Model):
     # automated transitions.
     _TERMINAL = frozenset(("success", "failed", "partial", "unknown"))
     _TERMINAL_RETENTION_HOURS = 48
-
+    
     # Valid status transitions for the print job state machine.
     # Canonical happy path: queued -> submitted -> claimed -> printing
     # -> success, exactly one hop at a time. Forward progress NEVER
@@ -131,7 +131,7 @@ class PrintGatewayJob(models.Model):
         "partial": {"partial"},
         "unknown": {"unknown"},
     }
-
+    
     # Forward-progress chain for _advance_status. Failure/unknown are NOT
     # chain hops: they are written directly (they are valid exits from any
     # non-terminal state per the matrix above).

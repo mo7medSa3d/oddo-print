@@ -1166,7 +1166,7 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 			probe.OpenPrinterError = "OpenPrinterW returned zero"
 		}
 		probe.Verdict = SpoolerQueueUnavailable
-		probe.VerdictReason = "OpenPrinterW failed; queue inaccessible from service context"
+		probe.VerdictReason = "OpenPrinterW failed; queue inaccessible from service context (install as a per-machine printer connection — per-user queues are invisible to Windows Services)"
 		return probe
 	}
 	probe.OpenPrinterOK = true
@@ -1228,7 +1228,7 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 	}
 	if (pi.Status & (PRINTER_STATUS_OFFLINE | PRINTER_STATUS_SERVER_OFFLINE | PRINTER_STATUS_NOT_AVAILABLE)) != 0 {
 		probe.Verdict = SpoolerQueueUnavailable
-		probe.VerdictReason = fmt.Sprintf("port monitor reports unavailable/offline (status 0x%08x); queue exists and is accessible; physical device state remains driver/monitor-reported", pi.Status)
+		probe.VerdictReason = fmt.Sprintf("port monitor reports unavailable/offline (status 0x%08x); queue exists and is accessible; physical device state remains driver/monitor-reported (for Standard TCP/IP ports, verify 'SNMP Status Enabled'/community if this disagrees with a known-working printer)", pi.Status)
 		return probe
 	}
 	if (pi.Status & PRINTER_STATUS_SERVER_UNKNOWN) != 0 {

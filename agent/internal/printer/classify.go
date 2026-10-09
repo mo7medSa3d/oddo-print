@@ -106,8 +106,10 @@ func isVirtualSpooler(portName, driverName, printerName string) bool {
 	}).IsVirtual
 }
 
-// classifySpoolerPrinter infers printerType and connectionType from PortName and DriverName.
-// Pure function, no Windows API, testable on all platforms.
+// classifySpoolerPrinter infers printer type and connection type from Windows
+// spooler metadata before the queue is persisted into the managed inventory.
+// classifySpoolerPrinter infers printer type and connection type from Windows
+// spooler metadata before the queue is persisted into the managed inventory.
 //
 // A Windows print queue is ALWAYS served through the Windows spooler backend,
 // regardless of its port (USB001, WSD, IP_*, BRN_*, LPT1:, shared \\server\,
@@ -115,9 +117,9 @@ func isVirtualSpooler(portName, driverName, printerName string) bool {
 // never turn the queue into a direct-TCP or direct-USB device. Direct network
 // (RAW 9100) and direct USB (device path) transports are separate,
 // operator-declared printer records — never inferred from a queue's port
-// name. Inferring "network"/"usb"/"local" here previously broke every WSD and
-// Standard TCP/IP queue: the factory expects ip:port endpoints for network
-// printers, so those queues failed to initialize and never heartbeated.
+// name. Inferring "network" here previously broke every WSD and Standard
+// TCP/IP queue: the factory expects ip:port endpoints for network printers,
+// so those queues failed to initialize and never heartbeated.
 func classifySpoolerPrinter(portName, driverName, printerName string) (printerType, connectionType string) {
 	// Connection is always the Windows spooler for an installed queue.
 	connectionType = "spooler"
