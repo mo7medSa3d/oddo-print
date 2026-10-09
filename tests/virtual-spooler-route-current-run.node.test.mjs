@@ -78,7 +78,7 @@ test('real Desktop presenter retains pending software queue without making it pr
   assert.match(codeFile('src/desktop/main.tsx'),/setPrinters\(list\.filter\(\(printer\) => isProductionPrinter\(printer\) \|\| isPendingVirtualSpoolerTestPrinter\(printer\)\)\)/);
 });
 
-test('real Desktop registration uses paired Agent transport and requires Gateway approval for virtual queues',async()=>{
+test('real Desktop registers explicitly selected virtual and physical queues only via its paired Agent',async()=>{
   const called=[];
   const ipc=actualModule('src/desktop/lib/ipc.ts',{
     '@tauri-apps/api/core':{invoke:async(cmd,{args})=>{
@@ -88,15 +88,21 @@ test('real Desktop registration uses paired Agent transport and requires Gateway
     '@tauri-apps/api/event':{listen:async()=>()=>{}},
     '../../shared/diagnostic-test':{decodeDiagnosticResult:()=>({})},
   },{window:{__TAURI_INTERNALS__:{}}});
-  await assert.rejects(()=>ipc.registerGatewayPrinter('https://gateway.example.test',{
+  await ipc.registerGatewayPrinter('https://gateway.example.test',{
     name:'Microsoft Print to PDF',agentId:'agent-id',connectionType:'spooler',protocol:'spooler',spoolerName:'Microsoft Print to PDF',virtualSpoolerTest:true,
-  }),/Virtual spooler queues require Gateway approval/);
-  assert.equal(called.length,0,'Agent must not self-approve a software queue');
+  });
+  assert.equal(called[0].cmd,'gateway_agent_request');
+  assert.equal(JSON.parse(called[0].args.body).config.virtual_spooler_test,true);
+  assert.equal(JSON.parse(called[0].args.body).printerType,'virtual');
+  await assert.rejects(()=>ipc.registerGatewayPrinter('https://gateway.example.test',{
+    name:'Bad PDF',agentId:'agent-id',connectionType:'spooler',protocol:'spooler',spoolerName:'PDF',virtualSpoolerTest:true,spoolerPassthroughProtocols:['raw'],
+  }),/does not accept RAW passthrough/);
+  assert.equal(called.length,1,'rejected RAW software queue must not reach Gateway');
   await ipc.registerGatewayPrinter('https://gateway.example.test',{
     name:'Office Laser',agentId:'agent-id',connectionType:'spooler',spoolerName:'Office Laser',printerType:'physical',
   });
-  assert.equal(called[0].cmd,'gateway_agent_request');
-  assert.equal(JSON.parse(called[0].args.body).printerType,'physical');
+  assert.equal(called[1].cmd,'gateway_agent_request');
+  assert.equal(JSON.parse(called[1].args.body).printerType,'physical');
 });
 
 function flat(node,match){
@@ -117,15 +123,17 @@ const uiImports={
     labelPrinter:()=> 'online',printerAgentView:()=>({label:'Agent'}),printerDisplayStatus:()=> 'online',printerHealthCounts:()=>({offline:0,unknown:0,online:0}),printerEndpoint:p=>p.spoolerName??'',printerIsStale:()=>false,printerTone:()=> 'ok',
   },
 };
-test('real PrintersPage directs virtual queue approval to Gateway and tests approved queues',()=>{
+test('real PrintersPage enables discovered virtual queues and tests only verified ones',()=>{
   const page=actualModule('src/desktop/pages/Printers.tsx',uiImports);
   const queue={id:'local-win-pdf',name:'Microsoft Print to PDF',spoolerName:'Microsoft Print to PDF',agentId:'agent-1',printerType:'virtual'};
-  let tested=null;
-  const base={printers:[],filteredPrinters:[],discoveredPrinters:[],discoveredVirtualPrinters:[queue],printersFilter:'',statusFilter:'all',nowMs:0,printersLoading:false,busy:false,
-    handleTest:id=>{tested=id;},setPrintersFilter:()=>{},setStatusFilter:()=>{},setShowAdd:()=>{},handleDiscover:()=>{},refreshPrinters:()=>{}};
+  let tested=null, enabled=null;
+  const base={printers:[],pendingVirtualGatewayPrinters:[],filteredPrinters:[],discoveredPrinters:[],discoveredVirtualPrinters:[queue],printersFilter:'',statusFilter:'all',nowMs:0,printersLoading:false,busy:false,
+    enableVirtualPrinterTest:p=>{enabled=p;},handleTest:id=>{tested=id;},setPrintersFilter:()=>{},setStatusFilter:()=>{},setShowAdd:()=>{},handleDiscover:()=>{},refreshPrinters:()=>{}};
   const first=page.PrintersPage({s:base});
-  assert.equal(flat(first,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable').length,0);
-  assert.equal(flat(first,x=>x.type==='span'&&x.props.children==='desktop.printers.virtualGatewayApproval').length,1);
+  const enable=flat(first,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable')[0];
+  assert.ok(enable,'opt-in button must be present without Manager sign-in');
+  enable.props.onClick();
+  assert.equal(enabled,queue);
   const linked={...software,id:'gateway-pdf',agentId:'agent-1',spoolerName:'Microsoft Print to PDF'};
   const second=page.PrintersPage({s:{...base,printers:[linked],filteredPrinters:[linked]}});
   const testButton=flat(second,x=>x.type==='Button'&&x.props.children==='desktop.printers.test')[0];
@@ -133,8 +141,9 @@ test('real PrintersPage directs virtual queue approval to Gateway and tests appr
   testButton.props.onClick();
   assert.equal(tested,'gateway-pdf');
   const pending={...linked,capabilities:null};
-  const pendingTree=page.PrintersPage({s:{...base,printers:[pending],filteredPrinters:[pending]}});
-  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.test').length,0);
+  const pendingTree=page.PrintersPage({s:{...base,pendingVirtualGatewayPrinters:[pending]}});
+  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable').length,0,'pending intent must not be resubmitted');
+  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.test').length,0,'unverified queue is not printable');
 });
 
 test('Gateway lifecycle printer status labels are translated rather than repeated unknowns',()=>{
@@ -159,7 +168,8 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
     insert:()=>({values:(data)=>({returning:async()=>{saved.push(data);return [{...data}];}})}),
   };
   const api=actualModule('src/app/api/printers/route.ts',{
-    'next/server':{NextResponse:reply},'../../../db':{db:{transaction:callback=>callback(tx)}},
+    'next/server':{NextResponse:reply},'node:crypto':nodeRequire('node:crypto'),
+    '../../../db':{db:{transaction:callback=>callback(tx)}},
     '../../../db/schema':{printers:schemaFields,agents:schemaFields},
     '../../../lib/console-auth':{validateConsoleAuth:async()=>identity},
     '../../../lib/authorization':{requireManagerPermission:()=>{}},
@@ -193,8 +203,22 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
   assert.equal(rawAttempt.status,400);
   identity={kind:'agent',agent:{id:'agent-one',tenantId:'tenant-one'}};
   const agentAttempt=await api.POST(req(data));
-  assert.equal(agentAttempt.status,400,'Agent execution credential cannot opt a local writer into business jobs');
-  assert.equal(saved.length,1);
+  assert.equal(agentAttempt.status,201,'paired Agent may explicitly opt into its OWN verified software writer');
+  assert.equal(saved.length,2);
+  assert.equal(saved[1].managementSource,'manager','Gateway desired state must be synced to Windows Agent for OS validation');
+  assert.equal(saved[1].desiredRevision,1);
+  assert.equal(saved[1].capabilities,null,'Agent request cannot fake OS verification');
+  assert.match(saved[1].id,/^printer_vt_[a-f0-9]{24}$/);
+  const second=await api.POST(req(data));
+  assert.equal(second.status,201);
+  assert.equal(saved[2].id,saved[1].id,'ambiguous retry must target the same derived printer identity');
+  identity={kind:'agent',agent:{id:'other-agent',tenantId:'tenant-one'}};
+  assert.equal((await api.POST(req(data))).status,403,'Agent cannot authorize a printer owned by another Agent');
+  identity={kind:'agent',agent:{id:'agent-one',tenantId:'other-tenant'}};
+  assert.equal((await api.POST(req(data))).status,403,'cross-tenant Agent identity cannot target this printer');
+  identity={kind:'agent',agent:{id:'agent-one',tenantId:'tenant-one'}};
+  assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'Fax'}}))).status,400);
+  assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'HP (redirected 3)'}}))).status,400);
 });
 
 test('actual Odoo printer inventory only publishes Manager+Agent confirmed virtual queues',async()=>{
