@@ -376,7 +376,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn('prior?.gatewayOutcome === "failed"', source)
         self.assertIn("gatewayKitchenOperationIds", source)
         self.assertIn("const retryPrinters = new Set();", source)
-        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters, retryOwner)", source)
+        self.assertIn("this.printChanges(order, orderChange, reprint, retryPrinters, retryOwner, preparationSnapshot)", source)
         self.assertNotIn("retryItems", source)
 
     def test_pos_gateway_unknown_outcome_cannot_enter_core_retry_path(self):

@@ -112,13 +112,26 @@ func TestAuditDiscoveryErrorsAreBoundedAndEmptyDevicesAreArray(t *testing.T) {
 }
 
 func TestAuditIPPPortAloneIsNotVerification(t *testing.T) {
-	di := printer.DeviceInfo{Protocol: "ipp", ConnectionType: "ipp"}
+	// A real private IPP print endpoint is mandatory even when an attributes
+	// probe succeeds; a TCP port or forged capability bit alone is not enough.
+	di := printer.DeviceInfo{
+		ID: "ipp-discovered", Name: "IPP Printer", Type: "ipp",
+		Protocol: "ipp", ConnectionType: "ipp",
+		Endpoint: "ipp://192.168.1.53:631/ipp/print",
+		Capabilities: map[string]interface{}{
+			"discovered_via": "ipp_tcp_scan", "ipp_verified": false,
+		},
+	}
 	if discoveryVerification(di) != "candidate" {
 		t.Fatal("open TCP port does not prove an IPP printer")
 	}
-	di.Capabilities = map[string]interface{}{"ipp_verified": true}
+	di.Capabilities["ipp_verified"] = true
 	if discoveryVerification(di) != "verified" {
-		t.Fatal("successful IPP attributes should count as protocol evidence")
+		t.Fatal("a valid endpoint with a successful IPP attributes probe must be verified")
+	}
+	di.Endpoint = ""
+	if discoveryVerification(di) != "candidate" {
+		t.Fatal("a verified flag must not bypass the executable endpoint requirement")
 	}
 }
 

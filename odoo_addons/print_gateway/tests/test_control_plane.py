@@ -310,7 +310,14 @@ class TestControlPlane(TransactionCase):
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": self.primary_binding.destination_ref.display_name,
-            "document_type": "invoice",
+            # Same immutable route as the approved fallback bindings. A bare
+            # destination display name is NOT proof of the print destination.
+            "destination_key": "%s,%s" % (
+                self.primary_binding.destination_ref._name,
+                self.primary_binding.destination_ref.id,
+            ),
+            "report_id": self.primary_binding.report_id.id,
+            "document_type": self.primary_binding.document_type,
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
             "idempotency_key": "test_pre_dispatch_failover_key_01",
@@ -408,7 +415,14 @@ class TestControlPlane(TransactionCase):
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": self.primary_binding.destination_ref.display_name,
-            "document_type": "invoice",
+            # Same immutable route as the approved fallback bindings. A bare
+            # destination display name is NOT proof of the print destination.
+            "destination_key": "%s,%s" % (
+                self.primary_binding.destination_ref._name,
+                self.primary_binding.destination_ref.id,
+            ),
+            "report_id": self.primary_binding.report_id.id,
+            "document_type": self.primary_binding.document_type,
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
             "idempotency_key": "test_failover_deadlock_key_%s" % uuid.uuid4().hex[:8],
@@ -455,7 +469,14 @@ class TestControlPlane(TransactionCase):
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": self.primary_binding.destination_ref.display_name,
-            "document_type": "invoice",
+            # Same immutable route as the approved fallback bindings. A bare
+            # destination display name is NOT proof of the print destination.
+            "destination_key": "%s,%s" % (
+                self.primary_binding.destination_ref._name,
+                self.primary_binding.destination_ref.id,
+            ),
+            "report_id": self.primary_binding.report_id.id,
+            "document_type": self.primary_binding.document_type,
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
             "idempotency_key": "test_connect_timeout_key_01",
@@ -737,7 +758,14 @@ class TestControlPlane(TransactionCase):
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": "Cycle Destination",
-            "document_type": "invoice",
+            # Same immutable route as the approved fallback bindings. A bare
+            # destination display name is NOT proof of the print destination.
+            "destination_key": "%s,%s" % (
+                self.primary_binding.destination_ref._name,
+                self.primary_binding.destination_ref.id,
+            ),
+            "report_id": self.primary_binding.report_id.id,
+            "document_type": self.primary_binding.document_type,
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
             "idempotency_key": "test_cycle_safety_key_01",
@@ -793,7 +821,14 @@ class TestControlPlane(TransactionCase):
             "gateway_config_id": self.gateway_config.id,
             "printer_id": self.primary_binding.printer_id,
             "destination": self.primary_binding.destination_ref.display_name,
-            "document_type": "invoice",
+            # Same immutable route as the approved fallback bindings. A bare
+            # destination display name is NOT proof of the print destination.
+            "destination_key": "%s,%s" % (
+                self.primary_binding.destination_ref._name,
+                self.primary_binding.destination_ref.id,
+            ),
+            "report_id": self.primary_binding.report_id.id,
+            "document_type": self.primary_binding.document_type,
             "status": "queued",
             "payload": json.dumps({"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": "dGVzdA=="}),
             "idempotency_key": "idem_test_01",

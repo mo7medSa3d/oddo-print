@@ -321,7 +321,7 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             )
 
         self.assertTrue(result["dispatched"])
-        self.assertTrue(result["success"])
+        self.assertFalse(result["success"], "Unknown outcome must never be reported as successful")
         self.assertEqual(result["status"], "unknown")
 
     def test_gateway_connection_test_is_authenticated_and_reconciles_status(self):
@@ -648,7 +648,8 @@ class TestPrintGatewayRoutingContract(TransactionCase):
             company = env["res.company"].browse(self.durable_company_id).exists()
             model_env = env["print_gateway.print_job"].with_company(company).env
             job = model_env["print_gateway.print_job"].browse(job_id).exists()
-            job.write({"status": "failed", "last_error": "GATEWAY_HTTP_503"})
+            job.write({"status": "failed", "last_error": "GATEWAY_REJECTED_503: request refused before admission"})
+            self.assertEqual(job.physical_outcome, "not_printed", "Retry is allowed only when refusal proves no paper was printed")
             with patch.object(type(job), "_schedule_postcommit_submission", autospec=True) as schedule_submit:
                 job.action_retry()
             retries = model_env["print_gateway.print_job"].search(
