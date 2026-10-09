@@ -126,8 +126,10 @@ describe("Odoo addon static contracts", () => {
     // Fail-Closed: binding pre-resolution and interceptor handling
     expect(binding).toContain('"fail_closed": True');
     expect(binding).toContain('"has_binding": True');
-    expect(interceptor).toContain("res.has_binding && (res.billing_limit || res.success === false || !res.dispatched)");
-    expect(interceptor).toContain("return true; // FAIL-CLOSED");
+    expect(interceptor).toContain('typeof res.has_binding !== "boolean"');
+    expect(interceptor).toContain('if (res.has_binding) {');
+    expect(interceptor).toContain('["submitted", "claimed", "printing", "success"].includes(res.status)');
+    expect(interceptor).toContain("return true; // Bound printer always fails closed to native PDF");
     expect(interceptor).toContain("return false; // Fallback to standard Odoo report action only when no binding exists");
   });
 

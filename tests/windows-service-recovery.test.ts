@@ -60,7 +60,8 @@ describe("windows-service-recovery", () => {
     expect(nsis).toContain("YASEIR_STOP_OWNED_SERVICE_VERIFY");
     expect(nsis).toContain("BINARY_PATH_NAME");
     expect(nsis).toContain("-service purge");
-    expect(nsis).toContain("RMDir /r \"$LOCALAPPDATA\\YaseirManager\"");
+    expect(nsis).not.toMatch(/RMDir\s+\/r\s+.*LOCALAPPDATA/i);
+    expect(nsis).toContain("The Agent owns machine-data removal");
 
     const tauriConf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
     expect(tauriConf.bundle.targets).toEqual(["nsis"]);

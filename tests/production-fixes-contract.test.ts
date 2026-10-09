@@ -99,7 +99,7 @@ describe("production fixes contracts (2026-09)", () => {
     expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "pending_full")');
     expect(agent).toContain('a.enqueueReject(sessionCtx, jobID, fields.ClaimToken, "agent_shutting_down")');
     expect(agent).toContain("func (a *Agent) runRejectWorker(ctx context.Context)");
-    expect(agent).toContain("maxRejectQueue = 32");
+    expect(agent).toMatch(/maxRejectQueue\s*=\s*32/);
     expect(agent).toContain("func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string) error");
     expect(agent).toMatch(/discoverySem:\s*make\(chan struct\{\}, 1\)/);
     const net = read("agent/internal/printer/network.go");
@@ -240,7 +240,9 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).toContain("/api/printers/${encodeURIComponent(printerId)}/test-print");
     expect(source).toContain("response.ok");
     expect(source).toContain('credentials: "same-origin"');
-    expect(source).toMatch(/Idempotency-Key.*generateIdempotencyKey|crypto\.randomUUID/);
+    expect(source).toContain("new DiagnosticOperations(generateIdempotencyKey)");
+    expect(source).toContain("diagnosticOps.current.begin(scope)");
+    expect(source).toContain('"Idempotency-Key": operationKey');
     expect(source).toContain('testingPrinterId === printer.id');
     expect(source).toContain('testingPrinterId === printer.id ? t("printer.sending") : t("printer.sendTestPage")');
     expect(source).not.toContain("createTestPrintJob(printer.id)");
