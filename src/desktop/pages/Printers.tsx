@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, Power, Archive, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, ShieldCheck } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, Input, LoadingState, Mono, Select, StatusBadge, StatusDot } from "../../components/ui";
 import { Toolbar, PrinterAvatar } from "../ui";
 import type { DesktopState } from "../types";
@@ -61,7 +61,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
           />
           <ul className="divide-y divide-edge-subtle">
             {s.discoveredVirtualPrinters.map((p) => {
-              const linked = s.printers.find((remote) => remote.agentId === p.agentId &&
+              const linked = [...s.printers, ...(s.pendingVirtualGatewayPrinters ?? [])].find((remote) =>
                 (remote.config?.spooler_name === (p.spoolerName ?? p.spooler_name) ||
                  remote.spoolerName === (p.spoolerName ?? p.spooler_name)) && remote.lifecycle !== "retired");
               return (
@@ -78,7 +78,9 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                         {isProductionPrinter(linked) && <Button size="sm" variant="secondary" disabled={s.busy} onClick={() => s.handleTest(linked.id)} icon={<Play className="h-4 w-4" />}>{t("desktop.printers.test")}</Button>}
                       </>
                     ) : (
-                      <Button size="sm" variant="primary" disabled={s.busy || !p.agentId} onClick={() => s.enableVirtualPrinterTest(p)}>{t("desktop.printers.virtualEnable")}</Button>
+                      <Button size="sm" variant="primary" disabled={s.busy} onClick={() => s.enableVirtualPrinterTest(p)}>
+                         {t("desktop.printers.virtualEnable")}
+                       </Button>
                     )}
                   </div>
                 </li>
@@ -152,14 +154,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                 <div className="mt-3 flex min-w-0 flex-wrap gap-2 border-t border-edge-subtle pt-3">
                   <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} icon={<Play className="h-3.5 w-3.5" />}>{t("desktop.printers.test")}</Button>
                   <Button size="sm" variant="secondary" onClick={() => s.setSelectedPrinter(p)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.printers.details")}</Button>
-                  {p.managementSource === "manager" && p.lifecycle !== "retired" && (
-                    <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, p.lifecycle === "disabled" ? "active" : "disabled")} disabled={s.busy} icon={<Power className="h-3.5 w-3.5" />}>
-                      {p.lifecycle === "disabled" ? t("desktop.printers.enable") : t("desktop.printers.disable")}
-                    </Button>
-                  )}
-                  {p.managementSource === "manager" && p.lifecycle !== "retired" && (
-                    <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")} disabled={s.busy} icon={<Archive className="h-3.5 w-3.5" />}>{t("desktop.printers.retire")}</Button>
-                  )}
+                  
                 </div>
               </li>
             ))}
@@ -176,7 +171,10 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                   <td className="px-4 py-3"><div className="space-y-1"><StatusBadge tone={printerTone(printerDisplayStatus(p, nowMs))} label={labelPrinter(printerDisplayStatus(p, nowMs), locale)} />{printerIsStale(p, nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}<div className="text-xs text-ink-4">{p.agentName || p.agentId || t("desktop.printers.unassigned")} • {printerAgentView(p, nowMs, locale).label}</div></div></td>
                   <td className="px-4 py-3"><StatusBadge tone={p.lifecycle === "retired" ? "neutral" : p.lifecycle === "disabled" ? "warn" : "ok"} label={lifecycleLabel(t, p.lifecycle)} /></td>
                   <td className="hidden px-4 py-3 text-xs text-ink-2 xl:table-cell">{p.managementSource === "manager" ? (p.configurationConverged ? t("desktop.printers.applied") : t("desktop.printers.pending")) : t("desktop.printers.agentOwned")}</td>
-                  <td className="px-5 py-3"><div className="flex flex-wrap items-center justify-end gap-1.5"><Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} icon={<Play className="h-3.5 w-3.5" />}>{t("desktop.printers.test")}</Button>{p.managementSource === "manager" && (p.lifecycle || "active") === "active" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "disabled")} disabled={s.busy} icon={<Power className="h-3.5 w-3.5" />}>{t("desktop.printers.disable")}</Button>}{p.managementSource === "manager" && p.lifecycle === "disabled" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "active")} disabled={s.busy} icon={<Power className="h-3.5 w-3.5" />}>{t("desktop.printers.enable")}</Button>}{p.managementSource === "manager" && p.lifecycle !== "retired" && <Button size="sm" variant="ghost" onClick={() => s.updatePrinterLifecycle(p.id, "retired")} disabled={s.busy} icon={<Archive className="h-3.5 w-3.5" />}>{t("desktop.printers.retire")}</Button>}<Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.printers.details")}</Button></div></td>
+                  <td className="px-5 py-3"><div className="flex flex-wrap items-center justify-end gap-1.5">
+                     <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} icon={<Play className="h-3.5 w-3.5" />}>{t("desktop.printers.test")}</Button>
+                     <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.printers.details")}</Button>
+                   </div></td>
                 </tr>
               ))}</tbody>
             </table>

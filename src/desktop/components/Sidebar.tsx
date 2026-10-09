@@ -84,7 +84,7 @@ export function Sidebar({
   }, [sidebarOpen, setSidebarOpen]);
   return (
     <aside ref={asideRef} className={`tg-desktop-rail fixed inset-y-0 start-0 z-40 lg:inset-y-3 lg:start-3 flex flex-col border-e border-edge bg-surface shadow-sm transition-[width,transform] duration-200 ease-out ${collapsed ? "w-[80px]" : "w-[264px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
-      <div className={`flex h-[76px] shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
+      <div className={`flex h-14 shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!collapsed && (
           <div className="min-w-0 flex-1">

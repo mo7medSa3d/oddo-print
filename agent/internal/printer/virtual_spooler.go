@@ -8,13 +8,13 @@ import (
 )
 
 // virtualSpoolerTestQueue is the Agent-side authoritative OS evidence check.
-// Manager intent alone cannot turn a software queue into an execution target.
+// Gateway opt-in alone cannot turn a software queue into an execution target.
 // Redirected printers and FAX queues are forbidden even in diagnostic mode.
 func virtualSpoolerTestQueue(pc config.PrinterConfig, queues []DeviceInfo) error {
 	name := strings.TrimSpace(pc.SpoolerName)
 	if name == "" || pc.NormalizedType() != "spooler" || !strings.EqualFold(pc.PrinterType, "virtual") ||
 		pc.Capabilities == nil || pc.Capabilities["virtual_spooler_test"] != true {
-		return fmt.Errorf("virtual spooler testing requires an explicitly approved manager-owned virtual queue")
+		return fmt.Errorf("virtual spooler testing requires explicit opt-in and a verified local software queue")
 	}
 	if strings.EqualFold(name, VirtualCaptureSpoolerName) || strings.Contains(strings.ToLower(name), "fax") ||
 		strings.Contains(strings.ToLower(name), "(redirected") || strings.Contains(strings.ToLower(name), " in session ") {

@@ -19,6 +19,8 @@ import (
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")
+var gatewayTestPrintPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-print$")
+var gatewayTestKeyRe = regexp.MustCompile("^[A-Za-z0-9._:-]+$")
 
 // Deliberately wider than the desktop console proxy (which allows exact
 // GET /api/agents only): the operator CLI needs single-agent fetch for
@@ -46,7 +48,8 @@ func handleGatewayRequest(args []string, configPath string) {
 	path := fs.String("path", "", "API-relative Gateway path")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "Optional JSON request body")
-	expectOrigin := fs.String("expect-origin", "", "Manager-visible Gateway origin the request must target")
+	idempotencyKey := fs.String("idempotency-key", "", "Required Agent diagnostic retry key for test-print")
+	expectOrigin := fs.String("expect-origin", "", "Expected desktop Gateway origin, verified against the paired Agent")
 	configOverride := fs.String("config", configPath, "Path to the paired agent config file")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -61,6 +64,15 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 	if len(*body) > gatewayRequestMaxBody {
 		fmt.Fprintln(os.Stderr, "gateway request body exceeds 8 MiB")
+		os.Exit(2)
+	}
+	if gatewayTestPrintPathRe.MatchString(reqPath) {
+		if len(*idempotencyKey) < 8 || len(*idempotencyKey) > 128 || !gatewayTestKeyRe.MatchString(*idempotencyKey) {
+			fmt.Fprintln(os.Stderr, "Agent test-print requires a valid idempotency key")
+			os.Exit(2)
+		}
+	} else if *idempotencyKey != "" {
+		fmt.Fprintln(os.Stderr, "idempotency key is only accepted for printer test-print")
 		os.Exit(2)
 	}
 
@@ -78,13 +90,13 @@ func handleGatewayRequest(args []string, configPath string) {
 		os.Exit(1)
 	}
 
-	// The desktop Manager origin and the paired Agent origin are distinct
+	// The desktop Gateway origin and paired Agent origin are separate inputs
 	// identities: the caller must name the origin it intends to act on, and
-	// the paired config must agree. Otherwise a Manager origin change would
+	// the paired config must agree. Otherwise a desktop origin change could
 	// show or mutate the old Agent Gateway under the new displayed origin.
 	if expected := normalizeOriginForCompare(*expectOrigin); expected != "" {
 		if normalizeOriginForCompare(strings.TrimSpace(cfg.Server.URL)) != expected {
-			fmt.Fprintln(os.Stderr, "paired Agent Gateway origin differs from the requested Manager origin; re-pair or correct the Manager Gateway URL")
+			fmt.Fprintln(os.Stderr, "paired Agent Gateway origin differs from the requested desktop origin; re-pair or correct the Gateway URL")
 			os.Exit(2)
 		}
 	}
@@ -105,6 +117,9 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)
 	req.Header.Set("User-Agent", "yaseir-agent-console/1")
+	if *idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", *idempotencyKey)
+	}
 	if *body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -183,15 +198,20 @@ func isAllowedJobsPath(path string) bool {
 }
 
 func isAllowedGatewayConsolePath(path, method string) bool {
+	// Match the Rust WebView boundary: neither direct CLI callers nor decoded
+	// URLs may smuggle dot segments into authenticated Agent operations.
+	if strings.Contains(path, "..") || strings.Contains(path, "\\") {
+		return false
+	}
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
 		return path == "/api/printers" ||
 			isAllowedJobsPath(path) ||
 			gatewayAgentPathRe.MatchString(path)
 	case "POST":
-		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path)
-	// Agent-console POST is limited to non-printing connectivity checks.
-	// Physical test-print is manager-RBAC only and must use the manager transport.
+		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path) || gatewayTestPrintPathRe.MatchString(path)
+	// Agent diagnostic print is scoped to its own printer at Gateway; it is
+	// not authorized to mutate desired state or cross-Agent printer records.
 	default:
 		return false
 	}

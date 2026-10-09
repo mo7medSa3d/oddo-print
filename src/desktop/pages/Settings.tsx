@@ -2,7 +2,6 @@ import React from "react";
 import { Activity, ChevronRight, KeyRound, Link2, Play, Power, RotateCcw, Server, ShieldCheck, Square, Copy, Lock } from "lucide-react";
 import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, StatusDot } from "../../components/ui";
 import { SettingsSection } from "../ui";
-import { ManagerAccountPanel } from "../components/ManagerAccountPanel";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { friendlyAgentError, friendlyPrinterError, labelPrinter, printerDisplayStatus } from "../lib/printers";
@@ -92,12 +91,6 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           </div>
         </SettingsSection>
       </div>
-
-      <ManagerAccountPanel
-        key={s.gatewayUrl} gatewayUrl={s.gatewayUrl}
-        account={s.managerAccount} login={s.managerLogin}
-        logout={s.managerLogout} refresh={s.managerRefresh}
-      />
 
       <Card className="overflow-hidden">
         <div className="flex items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4">

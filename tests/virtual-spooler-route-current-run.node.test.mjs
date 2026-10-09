@@ -62,23 +62,6 @@ test('real Gateway availability admits only manager-authorized, Agent-observed s
   assert.equal(routing.isPrinterAvailableForJob({name:'Office Laser',printerType:'physical',connectionType:'spooler',protocol:'spooler',status:'online',lifecycle:'active'}),true,'normal printer unchanged');
 });
 
-test('real Manager login preserves upstream 401/502 status when a proxy returns non-JSON',async()=>{
-  let status=502;
-  const ipc=actualModule('src/desktop/lib/ipc.ts',{
-    '@tauri-apps/api/core':{invoke:async()=>({status,body:'<html>upstream unavailable</html>'})},
-    '@tauri-apps/api/event':{listen:async()=>()=>{}},
-    '../../shared/diagnostic-test':{decodeDiagnosticResult:()=>({})},
-  },{window:{__TAURI_INTERNALS__:{}}});
-  for(const expected of [502,401]){
-    status=expected;
-    await assert.rejects(()=>ipc.loginManager('https://gateway.example.test','manager@example.test','password'),err=>{
-      assert.equal(err.status,expected);
-      assert.equal(String(err.message).includes('upstream unavailable'),false);
-      return true;
-    });
-  }
-});
-
 test('real Desktop presenter retains pending software queue without making it printable',()=>{
   const presenter=actualModule('src/desktop/lib/printers.ts',{
     '../../lib/printer-virtual':virtual,
@@ -95,35 +78,30 @@ test('real Desktop presenter retains pending software queue without making it pr
   assert.match(codeFile('src/desktop/main.tsx'),/setPrinters\(list\.filter\(\(printer\) => isProductionPrinter\(printer\) \|\| isPendingVirtualSpoolerTestPrinter\(printer\)\)\)/);
 });
 
-test('real Desktop registration uses Manager bearer gateway_request for opt-in virtual, Agent transport for physical',async()=>{
+test('real Desktop registers explicitly selected virtual and physical queues only via its paired Agent',async()=>{
   const called=[];
   const ipc=actualModule('src/desktop/lib/ipc.ts',{
     '@tauri-apps/api/core':{invoke:async(cmd,{args})=>{
       called.push({cmd,args});
-      return cmd==='gateway_request' ? {status:201,body:JSON.stringify({id:'virtual-1'})} : JSON.stringify({status:201,body:JSON.stringify({id:'physical-1'})});
+      return JSON.stringify({status:201,body:JSON.stringify({id:'physical-1'})});
     }},
     '@tauri-apps/api/event':{listen:async()=>()=>{}},
     '../../shared/diagnostic-test':{decodeDiagnosticResult:()=>({})},
   },{window:{__TAURI_INTERNALS__:{}}});
-  const response=await ipc.registerGatewayPrinter('https://gateway.example.test',{
+  await ipc.registerGatewayPrinter('https://gateway.example.test',{
     name:'Microsoft Print to PDF',agentId:'agent-id',connectionType:'spooler',protocol:'spooler',spoolerName:'Microsoft Print to PDF',virtualSpoolerTest:true,
   });
-  assert.equal(response.id,'virtual-1');
-  assert.equal(called[0].cmd,'gateway_request');
-  assert.equal(called[0].args.path,'/api/printers');
-  const payload=JSON.parse(called[0].args.body);
-  assert.equal(payload.agentId,'agent-id');
-  assert.deepEqual(payload.config,{spooler_name:'Microsoft Print to PDF',address:'Microsoft Print to PDF',passthrough_protocols:[],virtual_spooler_test:true});
-  assert.equal(payload.printerType,'virtual');
-  assert.equal(payload.protocol,'spooler');
+  assert.equal(called[0].cmd,'gateway_agent_request');
+  assert.equal(JSON.parse(called[0].args.body).config.virtual_spooler_test,true);
+  assert.equal(JSON.parse(called[0].args.body).printerType,'virtual');
   await assert.rejects(()=>ipc.registerGatewayPrinter('https://gateway.example.test',{
-    name:'PDF',agentId:'agent-id',connectionType:'spooler',spoolerName:'PDF',virtualSpoolerTest:true,spoolerPassthroughProtocols:['raw'],
+    name:'Bad PDF',agentId:'agent-id',connectionType:'spooler',protocol:'spooler',spoolerName:'PDF',virtualSpoolerTest:true,spoolerPassthroughProtocols:['raw'],
   }),/does not accept RAW passthrough/);
-  assert.equal(called.length,1,'invalid passthrough must not reach Gateway');
+  assert.equal(called.length,1,'rejected RAW software queue must not reach Gateway');
   await ipc.registerGatewayPrinter('https://gateway.example.test',{
     name:'Office Laser',agentId:'agent-id',connectionType:'spooler',spoolerName:'Office Laser',printerType:'physical',
   });
-  assert.equal(called[1].cmd,'gateway_agent_request','physical registrations keep legacy owner transport');
+  assert.equal(called[1].cmd,'gateway_agent_request');
   assert.equal(JSON.parse(called[1].args.body).printerType,'physical');
 });
 
@@ -145,64 +123,27 @@ const uiImports={
     labelPrinter:()=> 'online',printerAgentView:()=>({label:'Agent'}),printerDisplayStatus:()=> 'online',printerHealthCounts:()=>({offline:0,unknown:0,online:0}),printerEndpoint:p=>p.spoolerName??'',printerIsStale:()=>false,printerTone:()=> 'ok',
   },
 };
-test('real PrintersPage offers opt-in button for installed software queue and test button after verified registration',()=>{
+test('real PrintersPage enables discovered virtual queues and tests only verified ones',()=>{
   const page=actualModule('src/desktop/pages/Printers.tsx',uiImports);
   const queue={id:'local-win-pdf',name:'Microsoft Print to PDF',spoolerName:'Microsoft Print to PDF',agentId:'agent-1',printerType:'virtual'};
-  let enabled=null, tested=null;
-  const base={printers:[],filteredPrinters:[],discoveredPrinters:[],discoveredVirtualPrinters:[queue],printersFilter:'',statusFilter:'all',nowMs:0,printersLoading:false,busy:false,
-    enableVirtualPrinterTest:p=>{enabled=p;},handleTest:id=>{tested=id;},setPrintersFilter:()=>{},setStatusFilter:()=>{},setShowAdd:()=>{},handleDiscover:()=>{},refreshPrinters:()=>{},};
+  let tested=null, enabled=null;
+  const base={printers:[],pendingVirtualGatewayPrinters:[],filteredPrinters:[],discoveredPrinters:[],discoveredVirtualPrinters:[queue],printersFilter:'',statusFilter:'all',nowMs:0,printersLoading:false,busy:false,
+    enableVirtualPrinterTest:p=>{enabled=p;},handleTest:id=>{tested=id;},setPrintersFilter:()=>{},setStatusFilter:()=>{},setShowAdd:()=>{},handleDiscover:()=>{},refreshPrinters:()=>{}};
   const first=page.PrintersPage({s:base});
-  const buttons=flat(first,x=>x.type==='Button');
-  const enable=buttons.find(x=>x.props.children==='desktop.printers.virtualEnable');
-  assert.ok(enable,'virtual software destination must have an interactive registration action');
+  const enable=flat(first,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable')[0];
+  assert.ok(enable,'opt-in button must be present without Manager sign-in');
   enable.props.onClick();
   assert.equal(enabled,queue);
   const linked={...software,id:'gateway-pdf',agentId:'agent-1',spoolerName:'Microsoft Print to PDF'};
   const second=page.PrintersPage({s:{...base,printers:[linked],filteredPrinters:[linked]}});
-  const linkedButtons=flat(second,x=>x.type==='Button');
-  assert.equal(linkedButtons.some(x=>x.props.children==='desktop.printers.virtualEnable'),false,'no double-register');
-  const testButton=linkedButtons.find(x=>x.props.children==='desktop.printers.test');
-  assert.ok(testButton,'approved Windows software queue has a real test action');
+  const testButton=flat(second,x=>x.type==='Button'&&x.props.children==='desktop.printers.test')[0];
+  assert.ok(testButton,'Gateway-approved software queue has a real test action');
   testButton.props.onClick();
   assert.equal(tested,'gateway-pdf');
   const pending={...linked,capabilities:null};
-  const pendingTree=page.PrintersPage({s:{...base,printers:[pending],filteredPrinters:[pending]}});
-  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable').length,0,'pending Manager row must not offer duplicate registration');
-  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.test').length,0,'pending rows cannot be tested before Agent confirms the queue');
-  assert.equal(flat(pendingTree,x=>x.type==='StatusBadge'&&x.props.label==='desktop.printers.waitingForSync').length,1);
-});
-
-test('real ManagerAccountPanel distinguishes 401, 429, 503 and transport errors, without leaking upstream body',async()=>{
-  const panel=actualModule('src/desktop/components/ManagerAccountPanel.tsx',{
-    react:{useRef:()=>({current:false}),useState:(value)=>[value,()=>{}]},
-    'react/jsx-runtime':{jsx:element,jsxs:element},
-    '../../components/ui':Object.fromEntries(['Button','Field','Input','StatusBadge'].map(k=>[k,k])),
-    '../../i18n/react':{useI18n:()=>({t:k=>k})},
-  });
-  // State re-render harness used by real component (not a mocked submit handler).
-  function make(status){let slots=[],refs=[],at=0,ri=0;const useState=initial=>{const index=at++;if(!(index in slots))slots[index]=initial;return [slots[index],v=>{slots[index]=v;}];};
-    const useRef=initial=>{const index=ri++;if(!(index in refs))refs[index]={current:initial};return refs[index];};
-    const scoped=actualModule('src/desktop/components/ManagerAccountPanel.tsx',{
-      react:{useRef,useState},'react/jsx-runtime':{jsx:element,jsxs:element},
-      '../../components/ui':Object.fromEntries(['Button','Field','Input','StatusBadge'].map(k=>[k,k])),
-      '../../i18n/react':{useI18n:()=>({t:k=>k})},
-    });
-    const login=async()=>{const err=new Error('DO NOT LEAK SECRET');if(status!=null)err.status=status;throw err;};
-    const props={gatewayUrl:'https://example.test',account:{origin:'https://example.test',status:'signed-out',session:null},login,logout:async()=>{},refresh:()=>{}};
-    const render=()=>{at=0;ri=0;return scoped.ManagerAccountPanel(props);};
-    return {render};
-  }
-  assert.equal(typeof panel.ManagerAccountPanel,'function');
-  for(const [status,key] of [[401,'desktop.manager.invalidCredentials'],[429,'desktop.manager.rateLimited'],[503,'desktop.manager.serviceUnavailable'],[null,'desktop.manager.connectionFailed']]){
-    const ui=make(status),first=ui.render();const inputs=flat(first,x=>x.type==='Input');
-    inputs[0].props.onChange({target:{value:'manager@company.test'}});
-    inputs[1].props.onChange({target:{value:'secret'}});
-    const form=flat(ui.render(),x=>x.type==='form')[0];
-    await form.props.onSubmit({preventDefault:()=>{}});
-    const error=flat(ui.render(),x=>x.type==='p'&&x.props.role==='alert')[0];
-    assert.equal(error.props.children,key);
-    assert.equal(String(error.props.children).includes('DO NOT LEAK SECRET'),false);
-  }
+  const pendingTree=page.PrintersPage({s:{...base,pendingVirtualGatewayPrinters:[pending]}});
+  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.virtualEnable').length,0,'pending intent must not be resubmitted');
+  assert.equal(flat(pendingTree,x=>x.type==='Button'&&x.props.children==='desktop.printers.test').length,0,'unverified queue is not printable');
 });
 
 test('Gateway lifecycle printer status labels are translated rather than repeated unknowns',()=>{
@@ -223,11 +164,16 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
   const saved=[];
   let identity={kind:'manager',claims:{tenantId:'tenant-one',userId:'user-one'}};
   const tx={
-    execute:async query=>({rows:query.segments?.join('')?.includes('SELECT lifecycle FROM agents')?[{lifecycle:'active'}]:[]}),
+    execute:async query=>({
+      rows:query.segments?.join('')?.includes('SELECT lifecycle FROM agents')
+        && query.values?.[0]==='agent-one' && query.values?.[1]==='tenant-one'
+        ?[{lifecycle:'active'}]:[],
+    }),
     insert:()=>({values:(data)=>({returning:async()=>{saved.push(data);return [{...data}];}})}),
   };
   const api=actualModule('src/app/api/printers/route.ts',{
-    'next/server':{NextResponse:reply},'../../../db':{db:{transaction:callback=>callback(tx)}},
+    'next/server':{NextResponse:reply},'node:crypto':nodeRequire('node:crypto'),
+    '../../../db':{db:{transaction:callback=>callback(tx)}},
     '../../../db/schema':{printers:schemaFields,agents:schemaFields},
     '../../../lib/console-auth':{validateConsoleAuth:async()=>identity},
     '../../../lib/authorization':{requireManagerPermission:()=>{}},
@@ -261,8 +207,22 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
   assert.equal(rawAttempt.status,400);
   identity={kind:'agent',agent:{id:'agent-one',tenantId:'tenant-one'}};
   const agentAttempt=await api.POST(req(data));
-  assert.equal(agentAttempt.status,400,'Agent execution credential cannot opt a local writer into business jobs');
-  assert.equal(saved.length,1);
+  assert.equal(agentAttempt.status,201,'paired Agent may explicitly opt into its OWN verified software writer');
+  assert.equal(saved.length,2);
+  assert.equal(saved[1].managementSource,'manager','Gateway desired state must be synced to Windows Agent for OS validation');
+  assert.equal(saved[1].desiredRevision,1);
+  assert.equal(saved[1].capabilities,null,'Agent request cannot fake OS verification');
+  assert.match(saved[1].id,/^printer_vt_[a-f0-9]{24}$/);
+  const second=await api.POST(req(data));
+  assert.equal(second.status,201);
+  assert.equal(saved[2].id,saved[1].id,'ambiguous retry must target the same derived printer identity');
+  identity={kind:'agent',agent:{id:'other-agent',tenantId:'tenant-one'}};
+  assert.equal((await api.POST(req(data))).status,403,'Agent cannot authorize a printer owned by another Agent');
+  identity={kind:'agent',agent:{id:'agent-one',tenantId:'other-tenant'}};
+  assert.equal((await api.POST(req(data))).status,404,'a foreign-tenant Agent must not find this printer owner');
+  identity={kind:'agent',agent:{id:'agent-one',tenantId:'tenant-one'}};
+  assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'Fax'}}))).status,400);
+  assert.equal((await api.POST(req({...data,config:{...data.config,spooler_name:'HP (redirected 3)'}}))).status,400);
 });
 
 test('actual Odoo printer inventory only publishes Manager+Agent confirmed virtual queues',async()=>{

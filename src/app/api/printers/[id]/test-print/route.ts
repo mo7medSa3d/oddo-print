@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { db } from "../../../../../db";
 import { agents, printers, printJobReceipts } from "../../../../../db/schema";
 import { derivePhysicalOutcome } from "../../../../../lib/job-status";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
+import { validateAgent } from "../../../../../lib/agent-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requestIdFrom } from "../../../../../lib/log";
 import { and, eq } from "drizzle-orm";
@@ -20,21 +22,25 @@ export const dynamic = "force-dynamic";
 // Real test print — creates a real printJobs row: queued → claimed → printing → success/failed
 // Tauri → Gateway → Agent → Printer (never Tauri → Printer directly).
 //
-// Manager-authenticated only: a queued test print reaches physical hardware
-// and consumes tenant quota, so it must cross the same RBAC boundary as other
-// manager-originated physical actions. Agent credentials are execution
-// credentials, not user intent credentials. The Odoo addon routes its own
-// test pages through the durable outbox (/api/print/jobs with a
-// document-scoped key), never this endpoint.
+// An explicitly paired Agent may request a diagnostic for a printer it owns.
+// Gateway Manager RBAC remains authoritative for workspace-wide actions;
+// arbitrary agents never gain permissions to other Agent or tenant resources.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const claims = await validateWorkspaceManager(req);
-  if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  const pairedAgent = claims ? null : await validateAgent(req.headers.get("Authorization"));
+  if (!claims && !pairedAgent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (claims) {
+    try { requireManagerPermission(claims, "printers.test"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  }
 
-  const tenantId = claims.tenantId;
+  const tenantId = claims ? claims.tenantId : pairedAgent!.tenantId;
+  // An Agent credential is valid only for its own printer; the same response
+  // for a missing or foreign printer avoids disclosing another Agent's rows.
   const printer = await db.query.printers.findFirst({
-    where: and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
+    where: pairedAgent
+      ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, pairedAgent.id))
+      : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
   });
   if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
@@ -42,8 +48,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
     return NextResponse.json({ error: "invalid Idempotency-Key", code: "INVALID_REQUEST", retryable: false }, { status: 400 });
   }
-  // Do not return a reused print identity from an unchecked preflight read.
-  // The canonical queue transaction validates Manager authority before reuse.
+  // Fail closed for Agent diagnostics without a client-owned retry identity.
+  // Prefix/hash it with the authenticated Agent and printer to isolate it from
+  // ordinary workspace jobs and prevent cross-Agent idempotency collisions.
+  if (pairedAgent && (!idempotencyKey || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey))) {
+    return NextResponse.json({ error: "Agent diagnostic requires a valid Idempotency-Key" }, { status: 400 });
+  }
+  const effectiveKey = pairedAgent && idempotencyKey
+    ? "agent-diagnostic:" + createHash("sha256").update(JSON.stringify([tenantId, pairedAgent.id, id, idempotencyKey])).digest("hex")
+    : idempotencyKey;
 
 
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, tenantId)) });
@@ -76,11 +89,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const result = await createPrintJobForPrinter(printer.id, payload, {
-      requestedBy: "manager-test",
-      managerAuthority: { claims, permission: "printers.test" },
+      requestedBy: pairedAgent ? "agent-diagnostic" : "manager-test",
+      ...(claims ? { managerAuthority: { claims, permission: "printers.test" as const } } : {}),
+      ...(pairedAgent ? { agentDiagnosticAuthority: { agentId: pairedAgent.id, tenantId: pairedAgent.tenantId } } : {}),
       documentType: "test_page",
       allowVirtualTestCapture: true,
-      idempotencyKey,
+      idempotencyKey: effectiveKey,
       tenantId: tenantId,
       requestId: requestIdFrom(req),
     });

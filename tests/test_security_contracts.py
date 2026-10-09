@@ -380,26 +380,31 @@ def test_auth_cookie_contract_separates_access_and_refresh_cookies():
 
 def test_browser_manager_transport_uses_http_only_cookies_and_one_refresh_retry():
     source = read("src/desktop/lib/ipc.ts")
-    assert 'credentials: "include"' in source
-    assert 'path !== "/api/auth/manager/refresh"' in source
-    assert 'return gatewayRequest(base, path, method, headers, body, false);' in source
-    assert 'X-Refresh-Token' not in source
+    rust = read("src-tauri/src/commands.rs")
+    # A local Agent must not perform Manager login or receive Manager cookies.
+    # The preview fetch uses credentials:omit; production uses paired CLI.
+    assert 'credentials: "omit"' in source
+    assert 'credentials: "include"' not in source
+    assert 'invoke<string>("gateway_agent_request"' in source
+    assert "loginManager" not in source
+    assert "refreshManagerSession" not in source
+    assert '"X-Refresh-Token"' not in source
+    assert "ManagerSession" not in rust
 
 
 def test_desktop_refresh_secret_stays_inside_rust_memory_boundary():
-    source = read("src-tauri/src/commands.rs")
-    assert "refresh_token: String" in source
-    assert "let (origin, generation, session) = manager_snapshot()?" in source
-    assert "session.as_ref().map(|s| s.refresh_token.clone())" in source
-    assert "guard.generation != generation || guard.origin != origin.as_str()" in source
-    assert "MANAGER_AUTH_FLIGHT" in source
-    assert 'request.header("X-Refresh-Token", refresh_token)' in source
-    assert 'object.remove("accessToken")' in source
-    assert 'object.remove("refreshToken")' in source
-    assert 'path == "/api/auth/manager/refresh" && (status == 401 || status == 403)' in source
-    assert "if status == 401 || status == 403" not in source
-
-    assert 'Origin", "tauri://localhost' in source
+    rust = read("src-tauri/src/commands.rs")
+    ipc = read("src/desktop/lib/ipc.ts")
+    cli = read("agent/cmd/cli/gateway.go")
+    assert "refresh_token: String" not in rust
+    assert "manager_snapshot()" not in rust
+    assert "MANAGER_AUTH_FLIGHT" not in rust
+    assert '"/api/auth/manager/refresh"' not in rust
+    assert 'gateway_printer_action_path(&path, "test-print")' in rust
+    assert 'normalize_gateway_url(&args.expected_origin)' in rust
+    assert 'req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)' in cli
+    assert 'CheckRedirect:' in cli
+    assert 'credentials: "include"' not in ipc
 
 
 def test_new_logout_paths_revoke_refresh_family_and_clear_matching_cookie():

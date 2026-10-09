@@ -8,6 +8,7 @@ import {
   Info,
   LayoutDashboard,
   Menu,
+  Search,
   Printer as PrinterIcon,
   RefreshCw,
   Settings as SettingsIcon,
@@ -27,12 +28,9 @@ import {
 } from "../components/ui";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
-import { BreadcrumbTrail } from "../components/visual-system";
-import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
-import { EditPrinterDialog } from "./components/EditPrinterDialog";
 import { AdminPrivilegeDialog } from "./components/AdminPrivilegeDialog";
 import { OverviewPage } from "./pages/Overview";
 import { PrintersPage } from "./pages/Printers";
@@ -50,7 +48,7 @@ import {
   getGatewayUrl,
   getPrinters,
   fetchGatewayPrinters,
-  updateGatewayPrinter,
+  fetchGatewayAgents,
   registerGatewayPrinter,
   getRuntimePaths,
   isTauri,
@@ -58,11 +56,6 @@ import {
   onTrayRestartAgent,
   onGatewayConfigChanged,
   pairAgent,
-  clearManagerSession,
-  getManagerSession,
-  loginManager,
-  logoutManager,
-  onManagerAuthChanged,
   restartAgent as ipcRestartAgent,
   setGatewayUrl,
   startAgent as ipcStartAgent,
@@ -111,7 +104,6 @@ import type {
   DesktopState,
   JobRecord,
   JobTab,
-  ManagerAccountView,
   Page,
   PrinterStatusFilter,
   ToastMessage,
@@ -155,6 +147,19 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 export default function App() {
   const { t, locale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [navSearchOpen, setNavSearchOpen] = useState(false);
+  const [navSearchQuery, setNavSearchQuery] = useState("");
+  useEffect(() => {
+    const openWithKeyboard = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setNavSearchQuery("");
+        setNavSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", openWithKeyboard);
+    return () => window.removeEventListener("keydown", openWithKeyboard);
+  }, []);
   useEffect(() => {
     void setTrayLocale(locale).catch((error) => {
       console.warn("Could not synchronize tray locale:", error);
@@ -195,7 +200,7 @@ export default function App() {
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
   const busyRef = useRef(false);
   // One synchronous operation owner: uncertain Gateway outcomes preserve the
-  // key across retries, scoped to a verified Manager actor and saved origin.
+  // key across retries, scoped to the paired Agent and saved Gateway origin.
   const diagnosticOps = useRef(new DiagnosticOperations(generateIdempotencyKey));
   const setBusyBoth = useCallback((v: boolean) => {
     busyRef.current = v;
@@ -218,7 +223,6 @@ export default function App() {
   const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterInfo | null>(null);
-  const [editingPrinter, setEditingPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [gatewayChecking, setGatewayChecking] = useState(false);
@@ -226,94 +230,11 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [jobPrinterFilter, setJobPrinterFilter] = useState<string | null>(null);
 
-  // A Gateway probe proves connectivity, not an authenticated Manager. Never
-  // infer a Manager role from Agent pairing or from a locally cached JWT.
-  const [managerAccount, setManagerAccount] = useState<ManagerAccountView>({
-    origin: "", status: "unconfigured", session: null,
-  });
-  const managerProbeSeq = useRef(0);
-  const probeManagerAccount = useCallback(async (origin: string): Promise<void> => {
-    const generation = ++managerProbeSeq.current;
-    if (!origin) {
-      setManagerAccount({ origin: "", status: "unconfigured", session: null });
-      return;
-    }
-    setManagerAccount({ origin, status: "checking", session: null });
-    try {
-      const session = await getManagerSession(origin);
-      if (generation !== managerProbeSeq.current || savedOriginRef.current !== origin) return;
-      setManagerAccount({ origin, status: session.authenticated ? "authenticated" : "signed-out",
-        session: session.authenticated ? session : null });
-    } catch {
-      // A transient identity-check failure is NOT proof that the user signed
-      // out. Fail closed for privileged controls and expose a retry in Settings.
-      if (generation !== managerProbeSeq.current || savedOriginRef.current !== origin) return;
-      setManagerAccount({ origin, status: "unavailable", session: null });
-    }
-  }, []);
-  useEffect(() => {
-    const origin = savedGatewayUrl;
-    const stop = onManagerAuthChanged(() => { void probeManagerAccount(origin); });
-    void probeManagerAccount(origin);
-    return () => { managerProbeSeq.current++; stop(); };
-  }, [savedGatewayUrl, probeManagerAccount]);
-
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 15000);
     return () => clearInterval(timer);
   }, []);
-  const managerAuthenticated = managerAccount.origin === savedGatewayUrl &&
-    !!savedGatewayUrl && managerAccount.status === "authenticated" &&
-    managerAccount.session?.authenticated === true &&
-    !!managerAccount.session.tenantId && !!managerAccount.session.role &&
-    !!managerAccount.session.expiresAt &&
-    Date.parse(managerAccount.session.expiresAt) > nowMs;
-  const managerRole = managerAuthenticated ? managerAccount.session?.role : undefined;
-  const managerCanTest = managerRole === "owner" || managerRole === "admin" || managerRole === "operator";
-  const managerCanManage = managerRole === "owner" || managerRole === "admin";
-  useEffect(() => {
-    if (!managerCanManage) { setShowAdd(false); setEditingPrinter(null); }
-  }, [managerCanManage]);
-  const managerActorScope = managerAuthenticated
-    ? `${managerAccount.session!.tenantId}:${managerAccount.session!.userId ?? "legacy"}:${managerRole}`
-    : "unauthenticated";
-
-  const managerLogin = useCallback(async (username: string, password: string) => {
-    const origin = savedGatewayUrl;
-    if (!origin || savedOriginRef.current !== origin) throw new Error("Gateway origin is not configured");
-    const session = await loginManager(origin, username, password);
-    // Cross-origin configuration changes invalidate the attempted login;
-    // never relabel that credential as belonging to the new Gateway.
-    if (savedOriginRef.current !== origin || !session.authenticated || !session.tenantId) {
-      throw new Error("Manager session changed while signing in");
-    }
-    ++managerProbeSeq.current;
-    setManagerAccount({ origin, status: "authenticated", session });
-  }, [savedGatewayUrl]);
-  const managerLogout = useCallback(async () => {
-    const origin = savedGatewayUrl;
-    if (!origin) return;
-    try {
-      await logoutManager(origin);
-    } finally {
-      ++managerProbeSeq.current;
-      if (savedOriginRef.current === origin) {
-        setManagerAccount({ origin, status: "signed-out", session: null });
-      }
-    }
-  }, [savedGatewayUrl]);
-  const managerRefresh = useCallback(() => { void probeManagerAccount(savedGatewayUrl); },
-    [savedGatewayUrl, probeManagerAccount]);
-  const managerAuthorityError = useCallback((permission: "test" | "manage") => {
-    setMsg({ text: t(managerAuthenticated ? "desktop.manager.roleDenied" : "desktop.manager.requireSignIn"), type: "error" });
-    navigate("settings");
-  }, [managerAuthenticated, navigate, t]);
-  const requestAddPrinter = useCallback((open: boolean) => {
-    if (open && !managerCanManage) { managerAuthorityError("manage"); return; }
-    setShowAdd(open);
-  }, [managerCanManage, managerAuthorityError]);
-
   const savedOriginMatches = useCallback((targetUrl: string): boolean => {
     try {
       return normalizeGatewayUrl(savedOriginRef.current) === normalizeGatewayUrl(targetUrl);
@@ -617,84 +538,71 @@ export default function App() {
     }
   }, [refreshPrinters, t, locale]);
 
-  const updatePrinterLifecycle = useCallback(async (id: string, lifecycle: "active" | "disabled" | "retired") => {
-    if (!managerCanManage) { managerAuthorityError("manage"); return; }
-    if (!savedGatewayUrl) {
-      setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
-      return;
-    }
-    if (lifecycle === "retired" && !window.confirm(t("desktop.app.retireConfirmPrompt"))) return;
-    try {
-      setBusyBoth(true);
-      await updateGatewayPrinter(savedGatewayUrl, id, { lifecycle });
-      await refreshPrinters();
-      setSelectedPrinter((current) => current?.id === id ? null : current);
-      setMsg({ text: lifecycle === "disabled" ? t("desktop.app.printerDisabled") : lifecycle === "retired" ? t("desktop.app.printerRetired") : t("desktop.app.printerEnabled"), type: "success" });
-    } catch (e) {
-      setMsg({ text: friendlyPrinterError(errMsg(e), locale), type: "error" });
-    } finally {
-      setBusyBoth(false);
-    }
-  }, [savedGatewayUrl, refreshPrinters, setBusyBoth, t, locale, managerCanManage, managerAuthorityError]);
-
   const enableVirtualPrinterTest = useCallback(async (candidate: PrinterInfo) => {
-    if (!managerCanManage) { managerAuthorityError("manage"); return; }
     if (!savedGatewayUrl) {
       setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
       return;
     }
     if (busyRef.current) return;
-    // Never trust an arbitrary UI row: the queue must be present in the last
-    // local Agent CLI diagnostic inventory, and the owner identity must match.
-    const local = discoveredVirtualPrinters.find((item) => item.id === candidate.id &&
-      item.agentId === candidate.agentId &&
-      (item.spoolerName || item.spooler_name) === (candidate.spoolerName || candidate.spooler_name));
-    const queue = (local?.spoolerName || local?.spooler_name || "").trim();
-    const owner = (local?.agentId || "").trim();
-    if (!isTauri || !local || !isVirtualPrinter(local) || !queue || !owner) {
+    // Require a real local discovery result; an arbitrary WebView row is
+    // insufficient to request a Gateway test destination.
+    const local = discoveredVirtualPrinters.find((row) => row.id === candidate.id &&
+      (row.spoolerName ?? row.spooler_name) === (candidate.spoolerName ?? candidate.spooler_name));
+    const spoolerName = (local?.spoolerName ?? local?.spooler_name ?? "").trim();
+    if (!isTauri || !local || !isVirtualPrinter(local) || !spoolerName ||
+        /fax|redirected| in session |citrix|thinprint|remote desktop|vmware|yaseir_virtual_test_capture/i.test(spoolerName)) {
       setMsg({ text: t("desktop.printers.virtualUnavailable"), type: "error" });
       return;
     }
-    if (printers.some((item) => item.agentId === owner &&
-        (item.config?.spooler_name === queue || item.spoolerName === queue) &&
-        item.lifecycle !== "retired")) {
+    if (printers.some((remote) =>
+      remote.lifecycle !== "retired" &&
+      (remote.config?.spooler_name === spoolerName || remote.spoolerName === spoolerName))) {
       setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
       return;
     }
     if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
+
     setBusyBoth(true);
     try {
+      // GET /api/agents is fenced by the paired Agent credential, returning
+      // only that Agent. Never trust an Agent ID from UI inventory or user input.
+      const owned = await fetchGatewayAgents(savedGatewayUrl);
+      if (owned.length !== 1 || !owned[0]?.id || owned[0].lifecycle !== "active") {
+        throw Object.assign(new Error("Paired Agent is missing or inactive"), { status: 401 });
+      }
       await registerGatewayPrinter(savedGatewayUrl, {
         name: local.name,
-        agentId: owner,
+        agentId: owned[0].id,
         connectionType: "spooler",
         protocol: "spooler",
-        spoolerName: queue,
+        spoolerName,
         printerType: "virtual",
         virtualSpoolerTest: true,
       });
       await refreshPrinters();
-      setMsg({ text: t("desktop.printers.virtualRegistered"), type: "info" });
-    } catch (e) {
-      const status = (e as { status?: number } | null)?.status;
-      setMsg({ text: status === 401 ? t("desktop.manager.requireSignIn") :
-        status === 403 ? t("desktop.manager.roleDenied") :
-        status === 404 ? t("desktop.printers.virtualAgentMissing") :
-        friendlyPrinterError(errMsg(e), locale), type: "error" });
+      setMsg({ text: t("desktop.printers.virtualRegistered"), type: "success" });
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status;
+      if (status === 409) {
+        await refreshPrinters();
+        setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
+      } else {
+        setMsg({ text: status === 401 || status === 403 || status === 404
+          ? t("desktop.printers.virtualAgentMissing")
+          : friendlyPrinterError(errMsg(error), locale), type: "error" });
+      }
     } finally {
       setBusyBoth(false);
     }
-  }, [managerCanManage, managerAuthorityError, savedGatewayUrl, discoveredVirtualPrinters,
-    printers, setBusyBoth, refreshPrinters, t, locale]);
+  }, [savedGatewayUrl, discoveredVirtualPrinters, printers, refreshPrinters, setBusyBoth, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
-      if (!managerCanTest) { managerAuthorityError("test"); return; }
       if (!savedGatewayUrl) {
         setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
         return;
       }
-      const scope = diagnosticScope(savedGatewayUrl, managerActorScope, id);
+      const scope = diagnosticScope(savedGatewayUrl, "paired-agent", id);
       if (diagnosticOps.current.observed(scope)) {
         if (!window.confirm(t("diagnostic.repeatConfirm"))) return;
         diagnosticOps.current.confirmRepeat(scope);
@@ -727,16 +635,8 @@ export default function App() {
         setBusyBoth(false);
       }
     },
-    [savedGatewayUrl, managerCanTest, managerActorScope, managerAuthorityError, refreshJobs, setBusyBoth, t, locale]
+    [savedGatewayUrl, refreshJobs, setBusyBoth, t, locale]
   );
-
-  const handleEditSaved = useCallback(async () => {
-    setEditingPrinter(null);
-    await refreshPrinters();
-    setMsg({ text: t("desktop.app.printerConfigUpdated"), type: "success" });
-  }, [refreshPrinters, t, locale]);
-
-
 
   const startAgent = useCallback(async () => {
     try {
@@ -951,15 +851,13 @@ export default function App() {
     onGatewayConfigChanged((url) => {
       let canonicalUrl = url;
       try { canonicalUrl = normalizeGatewayUrl(url); } catch { /* preserve invalid value for visible repair */ }
-      // The manager session is a bearer credential for ONE gateway origin.
-      // Switching gateways must not send the old JWT to the new origin:
-      // drop it (and stale per-gateway caches) before probing the new URL.
-      void clearManagerSession();
+      // Invalidate stale Gateway inventory on origin change. The paired CLI
+      // binds all requests to the current Agent configuration.
       savedOriginRef.current = canonicalUrl;
       gatewayConnectivityRef.current = emptyGatewayConnectivityEvidence(canonicalUrl);
       ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
       setPrintersLoading(false); setJobsLoading(false);
-      setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setEditingPrinter(null); setSelectedJob(null); void refreshLocalPrinters();
+      setPrintersError(null); setJobsError(null); setSelectedPrinter(null); setSelectedJob(null); void refreshLocalPrinters();
       setSavedGatewayUrl(canonicalUrl);
       setGw(canonicalUrl);
       setJobs([]);
@@ -1187,10 +1085,6 @@ export default function App() {
     requestStopAgent: () => setConfirmStop(true),
     restartAgent,
     gatewayUrl: savedGatewayUrl,
-    managerAccount,
-    managerLogin,
-    managerLogout,
-    managerRefresh,
     gatewayDraftUrl: gatewayUrl,
     setGatewayDraftUrl: (value: string) => { setGw(value); setGatewayDraftError(null); },
     checkedGatewayUrl,
@@ -1207,7 +1101,7 @@ export default function App() {
     printers: physicalPrinters,
     discoveredPrinters,
     discoveredVirtualPrinters,
-    enableVirtualPrinterTest,
+    pendingVirtualGatewayPrinters: printers.filter(isPendingVirtualSpoolerTestPrinter),
     discoveryWarning,
     printersLoading,
     printersError,
@@ -1222,10 +1116,10 @@ export default function App() {
     nowMs,
     refreshPrinters,
     handleDiscover,
+    enableVirtualPrinterTest,
     handleTest,
-    updatePrinterLifecycle,
     showAdd,
-    setShowAdd: requestAddPrinter,
+    setShowAdd,
     selectedPrinter: resolvedSelectedPrinter,
     setSelectedPrinter,
     jobs,
@@ -1286,56 +1180,51 @@ export default function App() {
       )}
 
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[104px]" : "lg:ps-[288px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[92px]" : "lg:ps-[276px]"}`}
       >
-        <header className="tg-desktop-topbar sticky top-0 z-20 border-b border-edge/80 bg-surface/90 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-7">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => {
-                setCollapsed(false);
-                setSidebarOpen(true);
-              }}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
-              aria-label={t("desktop.app.openNavigation")}
-            >
-              <Menu className="h-5 w-5" />
+        <header className="tg-desktop-topbar sticky top-2 z-20 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
+          <button
+            type="button"
+            onClick={() => { setCollapsed(false); setSidebarOpen(true); }}
+            aria-label={t("desktop.app.openNavigation")}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+          >
+            <Menu className="h-[18px] w-[18px]" />
+          </button>
+          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">{pageMeta[page].title}</h1>
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <span className="hidden sm:inline-flex"><StatusBadge tone={isOnline ? "ok" : "bad"} label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} /></span>
+            <button type="button" onClick={() => { setNavSearchQuery(""); setNavSearchOpen(true); }}
+              aria-label={t("common.search")} title={t("common.search")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
+              <Search className="h-[18px] w-[18px]" />
             </button>
-            <div className="min-w-0 flex-1">
-              <BreadcrumbTrail
-                parent={t("desktop.sidebar.productName")}
-                current={pageMeta[page].title}
-                label={t("nav.consoleNavigation")}
-                className="mb-1 hidden sm:flex"
-              />
-              <PageHeader
-                title={pageMeta[page].title}
-                subtitle={pageMeta[page].subtitle}
-                actions={
-                  <>
-                    <StatusBadge
-                      tone={isOnline ? "ok" : "bad"}
-                      label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}
-                    />
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        refreshStatus();
-                        refreshPrinters();
-                        if (savedGatewayUrl) refreshJobs();
-                      }}
-                      icon={<RefreshCw className="h-[18px] w-[18px]" />}
-                      aria-label={t("desktop.app.refreshAll")}
-                    >
-                      <span className="hidden sm:inline">{t("desktop.app.refresh")}</span>
-                    </Button>
-                      <LanguageSwitcher />
-                      <ThemeToggle />
-                  </>
-                }
-              />
-            </div>
+            <Button variant="ghost" onClick={() => { refreshStatus(); refreshPrinters(); if (savedGatewayUrl) void refreshJobs(); }}
+              icon={<RefreshCw className="h-[18px] w-[18px]" />} aria-label={t("desktop.app.refreshAll")}>
+              <span className="hidden xl:inline">{t("desktop.app.refresh")}</span>
+            </Button>
+            <LanguageSwitcher />
+            <ThemeToggle />
           </div>
         </header>
+        <Modal open={navSearchOpen} onClose={() => setNavSearchOpen(false)} title={t("common.search")}>
+          <div className="space-y-3">
+            <label htmlFor="desktop-nav-search" className="sr-only">{t("common.search")}</label>
+            <input id="desktop-nav-search" autoFocus value={navSearchQuery}
+              onChange={(event) => setNavSearchQuery(event.target.value)}
+              placeholder={t("common.search")}
+              className="h-11 w-full rounded-lg border border-edge bg-surface-2 px-3 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/35" />
+            <nav className="space-y-1" aria-label={t("nav.consoleNavigation")}>
+              {nav.filter(item => item.label.toLowerCase().includes(navSearchQuery.trim().toLowerCase())).map(item => {
+                const Icon = item.icon;
+                return <button key={item.id} type="button" onClick={() => { setNavSearchOpen(false); navigate(item.id); }}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-start text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
+                  <Icon className="h-4 w-4 shrink-0" />{item.label}
+                </button>;
+              })}
+            </nav>
+          </div>
+        </Modal>
 
         {isAdmin === false && (
           <div
@@ -1401,7 +1290,7 @@ export default function App() {
       </div>
 
       <AddPrinterDialog
-        open={showAdd && managerCanManage}
+        open={showAdd}
         onClose={() => setShowAdd(false)}
         onSuccess={() => {
           refreshPrinters();
@@ -1409,16 +1298,6 @@ export default function App() {
         }}
         printers={discoveredPrinters}
         gatewayUrl={savedGatewayUrl}
-      />
-
-      <EditPrinterDialog
-        key={editingPrinter ? `edit-${editingPrinter.id}-${editingPrinter.desiredRevision ?? 0}` : "edit-none"}
-        open={!!editingPrinter && managerCanManage}
-        printer={editingPrinter}
-        gatewayUrl={savedGatewayUrl}
-        onClose={() => setEditingPrinter(null)}
-        onSaved={handleEditSaved}
-        onError={(message) => setMsg({ text: friendlyPrinterError(message, locale), type: "error" })}
       />
 
       <Modal
@@ -1509,18 +1388,6 @@ export default function App() {
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {(selectedPrinter.managementSource === "manager" || selectedPrinter.managementSource === undefined) &&
-                selectedPrinter.lifecycle !== "retired" && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    if (!managerCanManage) { managerAuthorityError("manage"); return; }
-                    setEditingPrinter(selectedPrinter);
-                  }}
-                >
-                  {t("desktop.drawer.editConfig")}
-                </Button>
-              )}
               <Button
                 variant="primary"
                 onClick={() => handleTest(selectedPrinter.id)}

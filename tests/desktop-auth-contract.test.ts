@@ -5,28 +5,32 @@ import { join } from "node:path";
 const root = process.cwd();
 const read = (file: string) => readFileSync(join(root, file), "utf8");
 
-describe("desktop manager authentication contract", () => {
-  it("login issues a bearer token only to the explicitly identified desktop client", () => {
-    const source = read("src/app/api/auth/manager/login/route.ts");
-    expect(source).toContain("isTrustedDesktopRequest(req)");
-    expect(source).toContain("if (desktopClient)");
-    expect(source).toContain("bodyOut.accessToken = sess.token;");
-    expect(source).toContain("bodyOut.refreshToken = sess.refreshToken;");
-    expect(source).toContain("if (!desktopClient)");
-    expect(source).not.toContain("accessToken: sess.token");
+describe("paired-Agent desktop security contract", () => {
+  it("never stores or asks for a Gateway Manager account in the installed desktop", () => {
+    const settings=read("src/desktop/pages/Settings.tsx");
+    const ipc=read("src/desktop/lib/ipc.ts");
+    const rust=read("src-tauri/src/commands.rs");
+    const app=read("src/desktop/main.tsx");
+    const handler=read("src-tauri/src/main.rs");
+    expect(settings).not.toContain("ManagerAccountPanel");
+    expect(ipc).not.toContain("loginManager");
+    expect(ipc).not.toContain("gateway_request");
+    expect(rust).not.toContain("ManagerSession");
+    expect(handler).not.toContain("commands::gateway_request,");
+    expect(app).not.toContain("managerCanManage");
+    expect(app).toContain('diagnosticScope(savedGatewayUrl, "paired-agent", id)');
   });
 
-  it("desktop IPC keeps bearer authentication in Rust while browser fetch uses cookies", () => {
-    const source = read("src/desktop/lib/ipc.ts");
-    const rust = read("src-tauri/src/commands.rs");
-    expect(source).toContain('"X-Odoo-Print-Desktop": "1"');
-    expect(source).toContain('credentials: "include"');
-    expect(source).not.toContain('"X-Refresh-Token"');
-    expect(source).not.toContain("sessionStorage");
-    expect(source).not.toContain("localStorage");
-    expect(rust).toContain('request.bearer_auth(token)');
-    expect(rust).toContain('request.header("X-Refresh-Token", refresh_token)');
-    expect(rust).toContain('request = request.header("Origin", "tauri://localhost")');
+  it("routes Agent inventory and diagnostics through the paired CLI, never an arbitrary bearer", () => {
+    const ipc=read("src/desktop/lib/ipc.ts");
+    const rust=read("src-tauri/src/commands.rs");
+    const gateway=read("agent/cmd/cli/gateway.go");
+    expect(ipc).toContain('invoke<string>("gateway_agent_request"');
+    expect(ipc).toContain('idempotency_key: idempotencyKey ?? null');
+    expect(rust).toContain('.arg("gateway-request")');
+    expect(rust).toContain('gateway_printer_action_path(&path, "test-print")');
+    expect(gateway).toContain('req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)');
+    expect(gateway).toContain("gatewayTestPrintPathRe");
   });
 
   it("enforces the branch-specific Gateway transport contract", () => {
@@ -44,13 +48,12 @@ describe("desktop manager authentication contract", () => {
     }
   });
 
-  it("routes manager-owned printer mutations through the Manager transport", () => {
-    const source = read("src/desktop/lib/ipc.ts");
-    const updateFn = source.match(/export async function updateGatewayPrinter[\s\S]*?(?=\nexport interface DiscoverResult)/)?.[0] ?? "";
-    expect(updateFn).toContain('await gatewayRequest(');
-    expect(updateFn).not.toContain('await gatewayConsoleRequest(');
-    expect(source).toContain('"/api/printers/" + encodeURIComponent(printerId)');
-    expect(source).toContain('"PATCH"');
+  it("restricts desktop mutations to paired Agent operations", () => {
+    const source=read("src/desktop/lib/ipc.ts");
+    const gateway=read("agent/cmd/cli/gateway.go");
+    expect(source).toContain('gatewayConsoleRequest(');
+    expect(source).toContain("enforces Agent/tenant ownership");
+    expect(gateway).not.toContain('case "PATCH":');
   });
 
   it("gateway CORS is explicit and never wildcarded", () => {

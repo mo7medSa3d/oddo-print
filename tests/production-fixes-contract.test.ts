@@ -248,13 +248,15 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(source).not.toContain("createTestPrintJob(printer.id)");
   });
 
-  it("Gateway physical test-page endpoint is manager-RBAC only and uses a bounded idempotency key", () => {
+  it("Gateway test page enforces Manager RBAC or paired own-Agent identity and bounded idempotency", () => {
     const route = read("src/app/api/printers/[id]/test-print/route.ts");
     expect(route).toContain("const claims = await validateWorkspaceManager(req)");
     expect(route).toContain('requireManagerPermission(claims, "printers.test")');
-    expect(route).toContain("const tenantId = claims.tenantId");
+    expect(route).toContain('const pairedAgent = claims ? null : await validateAgent(req.headers.get("Authorization"))');
+    expect(route).toContain('const tenantId = claims ? claims.tenantId : pairedAgent!.tenantId');
+    expect(route).toContain('eq(printers.agentId, pairedAgent.id)');
+    expect(route).toContain('agentDiagnosticAuthority: { agentId: pairedAgent.id, tenantId: pairedAgent.tenantId }');
     expect(route).not.toContain("validateConsoleAuth");
-    expect(route).not.toContain('auth.kind === "agent"');
     expect(route).toContain("eq(printers.tenantId, tenantId)");
     expect(route).toContain("eq(agents.tenantId, tenantId)");
     expect(route).toContain('documentType: "test_page"');

@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 // Pairing must converge the running runtime (C041): the Agent holds its
 // initial config in memory, so saving credentials without a restart leaves
 // the runtime on the OLD connection while consoles use the NEW identity.
-// Agent-console requests must prove origin agreement (C053): the Manager
-// origin and the paired Agent origin are distinct identities.
+// Agent-console requests must prove origin agreement (C053): the desktop
+// URL must match the independently configured, paired Agent Gateway origin.
 describe("pairing activation and console origin ownership", () => {
   it("restarts a running agent after pairing and reports activation state", () => {
     const commands = readFileSync("src-tauri/src/commands.rs", "utf8");
@@ -26,6 +26,6 @@ describe("pairing activation and console origin ownership", () => {
   it("refuses console requests when the paired origin disagrees", () => {
     const cli = readFileSync("agent/cmd/cli/gateway.go", "utf8");
     expect(cli).toContain("normalizeOriginForCompare");
-    expect(cli).toContain("paired Agent Gateway origin differs from the requested Manager origin");
+    expect(cli).toContain("paired Agent Gateway origin differs from the requested desktop origin");
   });
 });

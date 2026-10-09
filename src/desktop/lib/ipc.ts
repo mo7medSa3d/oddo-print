@@ -12,8 +12,6 @@ import { decodeDiagnosticResult, type DiagnosticResult } from "../../shared/diag
 export const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const MANAGER_AUTH_EVENT = "yaseir-print-manager-auth-changed";
-let browserManagerAuthenticated = false;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface AgentStatus {
@@ -75,55 +73,11 @@ export function normalizeGatewayUrl(raw: string): string {
   }
 }
 
-export async function clearManagerSession(): Promise<void> {
-  if (isTauri) {
-    await invoke("clear_manager_session");
-  } else {
-    browserManagerAuthenticated = false;
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  }
-}
-
-export function clearManagerToken(): void {
-  if (isTauri) return;
-  browserManagerAuthenticated = false;
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  }
-}
-
-export type ManagerRole = "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin";
-export interface ManagerSessionStatus {
-  authenticated: boolean;
-  expiresAt?: string;
-  tenantId?: string;
-  userId?: string | null;
-  role?: ManagerRole;
-}
-
-const MANAGER_ROLES: readonly string[] = ["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"];
-function decodeManagerMe(body: string): ManagerSessionStatus {
-  const data = JSON.parse(body) as Record<string, unknown>;
-  if (!data || typeof data !== "object" || data.authenticated !== true ||
-      typeof data.exp !== "number" || !Number.isFinite(data.exp) || data.exp <= 0 ||
-      typeof data.tenantId !== "string" || !data.tenantId.trim() ||
-      typeof data.role !== "string" || !MANAGER_ROLES.includes(data.role) ||
-      (data.userId != null && (typeof data.userId !== "string" || !data.userId.trim()))) {
-    throw new Error("Gateway Manager identity response is invalid");
-  }
-  return { authenticated: true, tenantId: data.tenantId,
-    userId: (data.userId ?? null) as string | null, role: data.role as ManagerRole,
-    expiresAt: new Date(data.exp * 1000).toISOString() };
-}
-
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  // Browser fetch is intentionally retained only for the Vite preview harness.
-  // The packaged Tauri app uses the Rust gateway_request command so CSP can
-  // remain narrow and the WebView cannot call arbitrary remote origins.
+  // Only the Vite preview performs browser fetch. The installed desktop uses
+  // the paired Agent CLI so the WebView never handles Agent credentials.
   if (isTauri) {
-    throw new Error("Tauri gateway requests must use gatewayRequest");
+    throw new Error("Tauri Gateway requests must use the paired Agent boundary");
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -194,191 +148,32 @@ function gatewayHttpError(status: number, body: string, fallback: string): Gatew
   return err;
 }
 
-async function gatewayRequest(
-  gatewayUrl: string,
-  path: string,
-  method = "GET",
-  headers: Record<string, string> = {},
-  body?: string,
-  allowSessionRefresh = true,
-): Promise<GatewayResponse> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  let response: GatewayResponse;
-  if (!isTauri) {
-    const browserResponse = await fetchWithTimeout(`${base}${path}`, {
-      method,
-      headers,
-      body,
-      credentials: "include",
-    });
-    response = { status: browserResponse.status, body: await browserResponse.text() };
-  } else {
-    response = await invoke<GatewayResponse>("gateway_request", {
-      args: { path, method, headers, body: body ?? null, expected_origin: base },
-    });
-  }
-
-  // Only 401 (authentication) triggers a refresh-then-clear cycle. A 403 means
-  // the session is valid but lacks permission — destroying it logs out
-  // viewer/operator roles that simply lack one permission.
-  if (
-    allowSessionRefresh &&
-    response.status === 401 &&
-    path !== "/api/auth/manager/login" &&
-    path !== "/api/auth/manager/refresh"
-  ) {
-    try {
-      await refreshManagerSession(base);
-      return gatewayRequest(base, path, method, headers, body, false);
-    } catch (e) {
-      // Authoritative rejection ends the session; transient failures keep it.
-      await clearManagerSessionUnlessTransient(e);
-    }
-  }
-
-  return response;
-}
-
 async function gatewayConsoleRequest(
   gatewayUrl: string,
   path: string,
   method = "GET",
   headers: Record<string, string> = {},
   body?: string,
+  idempotencyKey?: string,
 ): Promise<GatewayResponse> {
   const base = normalizeGatewayUrl(gatewayUrl);
   if (!isTauri) {
-    return gatewayRequest(base, path, method, headers, body);
+    const response = await fetchWithTimeout(`${base}${path}`, {
+      method,
+      headers: idempotencyKey ? { ...headers, "Idempotency-Key": idempotencyKey } : headers,
+      body,
+      credentials: "omit",
+    });
+    return { status: response.status, body: await response.text() };
   }
   const responseEnvelope = await invoke<string>("gateway_agent_request", {
-    args: { path, method, body: body ?? null, expected_origin: base },
+    args: { path, method, body: body ?? null, expected_origin: base, idempotency_key: idempotencyKey ?? null },
   });
   const response = JSON.parse(responseEnvelope) as Partial<GatewayResponse>;
   if (typeof response.status !== "number" || typeof response.body !== "string") {
     throw new Error("Invalid Gateway response envelope");
   }
   return { status: response.status, body: response.body };
-}
-
-export async function loginManager(
-  gatewayUrl: string,
-  username: string,
-  password: string,
-): Promise<ManagerSessionStatus> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  if (!username.trim() || !password) throw new Error("Username and password are required");
-
-  const { status, body } = await gatewayRequest(
-    base,
-    "/api/auth/manager/login",
-    "POST",
-    { "Content-Type": "application/json", "X-Odoo-Print-Desktop": "1" },
-    JSON.stringify({ username: username.trim(), password }),
-  );
-  // A TLS proxy / upstream failure can return an HTML error body. Keep its
-  // HTTP status instead of collapsing it into an unhelpful JSON parse error.
-  // The renderer never displays raw response content or credentials.
-  let parsed: unknown;
-  try { parsed = JSON.parse(body || "{}"); } catch { parsed = null; }
-  const data = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? parsed as { ok?: boolean; error?: string }
-    : {};
-  if (status < 200 || status >= 300 || !data.ok) {
-    const err: Error & { status?: number } = new Error(data.error || `Manager login failed (${status})`);
-    err.status = status;
-    throw err;
-  }
-  // NOTE: in the packaged desktop app the Rust proxy (commands.rs
-  // gateway_request) stores accessToken/refreshToken Rust-side and strips them
-  // from the renderer-visible body, so data.accessToken must NOT be required
-  // here. The browser path keeps its cookie-based marker instead.
-  // The sanitized /me contract, not a mere login HTTP 200, establishes the
-  // visible Manager workspace and role for privileged controls. A failed
-  // verification must never mark the browser preview authenticated.
-  const verified = await getManagerSession(base);
-  if (!verified.authenticated) {
-    const failure = new Error("Manager login did not establish an authorized session") as Error & { code?: string };
-    failure.code = "MANAGER_SESSION_UNVERIFIED";
-    throw failure;
-  }
-  if (!isTauri) browserManagerAuthenticated = true;
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(MANAGER_AUTH_EVENT));
-  return verified;
-}
-
-const refreshFlights = new Map<string, Promise<ManagerSessionStatus>>();
-
-export async function refreshManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  // One refresh flight per origin: concurrent 401s join the same request
-  // instead of racing rotations against each other (C042).
-  const ongoing = refreshFlights.get(base);
-  if (ongoing) return ongoing;
-  const flight = (async (): Promise<ManagerSessionStatus> => {
-    const headers: Record<string, string> = isTauri
-      ? { "X-Odoo-Print-Desktop": "1" }
-      : {};
-    const { status, body } = await gatewayRequest(base, "/api/auth/manager/refresh", "POST", headers);
-    const data = JSON.parse(body || "{}") as { ok?: boolean; expiresAt?: string; error?: string };
-    if (status < 200 || status >= 300 || !data.ok || typeof data.expiresAt !== "string") {
-      const err: Error & { status?: number } = new Error(data.error || `Manager session refresh failed (${status})`);
-      err.status = status;
-      throw err;
-    }
-    return { authenticated: true, expiresAt: data.expiresAt };
-  })();
-  refreshFlights.set(base, flight);
-  try {
-    return await flight;
-  } finally {
-    if (refreshFlights.get(base) === flight) refreshFlights.delete(base);
-  }
-}
-
-/** Clear the local session only on authoritative rejection (invalid/revoked
- * family). Transient failures (timeout, 503, 5xx, network) must preserve the
- * live session instead of signing the operator out (C042). */
-export async function clearManagerSessionUnlessTransient(error: unknown): Promise<boolean> {
-  const status = (error as { status?: unknown } | null)?.status;
-  if (status === 401) {
-    await clearManagerSession();
-    return true;
-  }
-  return false;
-}
-
-export async function getManagerSession(gatewayUrl: string): Promise<ManagerSessionStatus> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  // gatewayRequest already performs one origin-bound refresh for a 401. The
-  // final /me result (not a refresh token alone) must prove actor and role.
-  const { status, body } = await gatewayRequest(base, "/api/auth/manager/me", "GET");
-  if (status === 401 || status === 403) return { authenticated: false };
-  if (status < 200 || status >= 300) {
-    const error = new Error(`Manager identity check failed (${status})`) as GatewayApiError;
-    error.status = status;
-    throw error;
-  }
-  return decodeManagerMe(body);
-}
-
-export async function logoutManager(gatewayUrl: string): Promise<void> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  try {
-    await gatewayRequest(base, "/api/auth/manager/logout", "POST");
-  } finally {
-    await clearManagerSession();
-  }
-}
-
-export async function isManagerAuthenticated(): Promise<boolean> {
-  if (isTauri) return invoke<boolean>("has_manager_session");
-  return browserManagerAuthenticated;
-}
-
-export function onManagerAuthChanged(handler: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(MANAGER_AUTH_EVENT, handler);
-  return () => window.removeEventListener(MANAGER_AUTH_EVENT, handler);
 }
 
 export function getAgentStatus(): Promise<AgentStatus> {
@@ -505,9 +300,8 @@ export async function fetchGatewayAgents(
   gatewayUrl: string,
 ): Promise<Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  // No extra auth headers: the browser sends the manager session cookie
-  // automatically (credentials: "include"), and the Tauri shell injects the
-  // manager bearer token in the Rust gateway proxy.
+  // The packaged desktop authenticates with the paired Agent through its
+  // native CLI. There is no Manager token or password in the WebView.
   const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
   if (status < 200 || status >= 300) {
     throw gatewayHttpError(status, body, "agents fetch failed (" + status + ")");
@@ -635,38 +429,20 @@ export async function registerGatewayPrinter(
     printerType: req.virtualSpoolerTest === true ? "virtual" : req.printerType || "physical",
     config,
   };
-  // A software queue is a deliberate Manager action. The Agent execution
-  // credential cannot authorize exposing a PDF/OneNote queue to Odoo.
-  // Preserve the existing Agent registration transport for physical devices.
-  const { status, body } = await (req.virtualSpoolerTest === true ? gatewayRequest : gatewayConsoleRequest)(
+  // An explicit opt-in for a locally discovered software spooler uses the
+  // paired Agent's own credentials, never a Manager session. The Gateway
+  // enforces Agent/tenant ownership and the Windows service verifies the
+  // queue before allowing jobs. Mere Desktop discovery cannot enable it.
+  if (req.virtualSpoolerTest && (connectionType !== "spooler" ||
+      payload.printerType !== "virtual" || !config.spooler_name ||
+      (config.passthrough_protocols as string[] | undefined)?.length)) {
+    throw new Error("Virtual test requires a local software spooler without RAW passthrough");
+  }
+  const { status, body } = await gatewayConsoleRequest(
     base, "/api/printers", "POST", headers, JSON.stringify(payload),
   );
   if (status < 200 || status >= 300) {
     throw gatewayHttpError(status, body, "printer registration failed (" + status + ")");
-  }
-  return JSON.parse(body) as PrinterInfo;
-}
-
-export async function updateGatewayPrinter(
-  gatewayUrl: string,
-  printerId: string,
-  patch: Record<string, unknown>,
-): Promise<PrinterInfo> {
-  const base = normalizeGatewayUrl(gatewayUrl);
-  const headers = { "Content-Type": "application/json" };
-  // Printer desired-state mutations are Manager-only at the Gateway HTTP boundary.
-  // Use the Rust manager transport, not the Agent console allowlist.
-  const { status, body } = await gatewayRequest(
-    base,
-    "/api/printers/" + encodeURIComponent(printerId),
-    "PATCH",
-    headers,
-    JSON.stringify(patch),
-  );
-  if (status < 200 || status >= 300) {
-    // No local clear: gatewayRequest already ran the refresh-then-clear
-    // cycle above (authoritative rejection only).
-    throw gatewayHttpError(status, body, "printer update failed (" + status + ")");
   }
   return JSON.parse(body) as PrinterInfo;
 }
@@ -691,16 +467,19 @@ export async function testGatewayPrinter(
   idempotencyKey?: string,
 ): Promise<DiagnosticResult> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const { status, body } = await gatewayRequest(
+  // Paired Agent credentials are scoped by the Gateway to this Agent's
+  // printer. Never prompt for or forward a separate Manager password.
+  const { status, body } = await gatewayConsoleRequest(
     base,
     "/api/printers/" + encodeURIComponent(printerId) + "/test-print",
     "POST",
-    idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    {},
+    undefined,
+    idempotencyKey,
   );
   if (status < 200 || status >= 300) {
-    // No local clear here: gatewayRequest already ran the refresh-then-clear
-    // cycle, clearing only on authoritative rejection. Clearing again on a
-    // preserved (transient-failure) session would sign the operator out.
+    // Agent credentials stay in the paired native CLI and are never exposed
+    // to the WebView; preserve Gateway status for precise operator feedback.
     throw gatewayHttpError(status, body, "Gateway test print failed (" + status + ")");
   }
   return decodeDiagnosticResult(JSON.parse(body), printerId);
@@ -826,7 +605,7 @@ export async function fetchGatewayHealth(
   gatewayUrl: string
 ): Promise<Record<string, unknown>> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const { status, body } = await gatewayRequest(base, "/api/health", "GET");
-  if (status < 200 || status >= 300) throw new Error(`Gateway health failed (${status})`);
-  return JSON.parse(body) as Record<string, unknown>;
+  // Public liveness is the only unauthenticated check; printer/job inventory
+  // always uses the paired Agent credential instead of a Manager session.
+  return probeGatewayHealth(base);
 }
