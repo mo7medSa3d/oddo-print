@@ -581,6 +581,7 @@ export const printUsagePeriods = pgTable("print_usage_periods", {
   periodCheck: check("print_usage_periods_period_check", sql`${table.periodEnd} IS NULL OR ${table.periodEnd} > ${table.periodStart}`),
 }));
 
+
 // Payload-free, durable evidence survives terminal history cleanup.
 export const printJobReceipts = pgTable("print_job_receipts", {
   id: text("id").primaryKey(),
