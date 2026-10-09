@@ -8,6 +8,7 @@ import {
   Info,
   LayoutDashboard,
   Menu,
+  Search,
   Printer as PrinterIcon,
   RefreshCw,
   Settings as SettingsIcon,
@@ -27,8 +28,6 @@ import {
 } from "../components/ui";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
-import { BreadcrumbTrail } from "../components/visual-system";
-import { PageHeader } from "./ui";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
@@ -147,6 +146,19 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 export default function App() {
   const { t, locale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [navSearchOpen, setNavSearchOpen] = useState(false);
+  const [navSearchQuery, setNavSearchQuery] = useState("");
+  useEffect(() => {
+    const openWithKeyboard = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setNavSearchQuery("");
+        setNavSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", openWithKeyboard);
+    return () => window.removeEventListener("keydown", openWithKeyboard);
+  }, []);
   useEffect(() => {
     void setTrayLocale(locale).catch((error) => {
       console.warn("Could not synchronize tray locale:", error);
@@ -1109,54 +1121,49 @@ export default function App() {
       <div
         className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[104px]" : "lg:ps-[288px]"}`}
       >
-        <header className="tg-desktop-topbar sticky top-0 z-20 border-b border-edge/80 bg-surface/90 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-7">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => {
-                setCollapsed(false);
-                setSidebarOpen(true);
-              }}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-edge bg-surface text-ink-2 transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
-              aria-label={t("desktop.app.openNavigation")}
-            >
-              <Menu className="h-5 w-5" />
+        <header className="tg-desktop-topbar sticky top-0 z-20 flex h-14 min-w-0 items-center gap-2 border-b border-edge/80 bg-surface/95 px-3 backdrop-blur-xl sm:gap-3 sm:px-5 lg:px-6">
+          <button
+            type="button"
+            onClick={() => { setCollapsed(false); setSidebarOpen(true); }}
+            aria-label={t("desktop.app.openNavigation")}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+          >
+            <Menu className="h-[18px] w-[18px]" />
+          </button>
+          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">{pageMeta[page].title}</h1>
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <span className="hidden sm:inline-flex"><StatusBadge tone={isOnline ? "ok" : "bad"} label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} /></span>
+            <button type="button" onClick={() => { setNavSearchQuery(""); setNavSearchOpen(true); }}
+              aria-label={t("common.search")} title={t("common.search")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
+              <Search className="h-[18px] w-[18px]" />
             </button>
-            <div className="min-w-0 flex-1">
-              <BreadcrumbTrail
-                parent={t("desktop.sidebar.productName")}
-                current={pageMeta[page].title}
-                label={t("nav.consoleNavigation")}
-                className="mb-1 hidden sm:flex"
-              />
-              <PageHeader
-                title={pageMeta[page].title}
-                subtitle={pageMeta[page].subtitle}
-                actions={
-                  <>
-                    <StatusBadge
-                      tone={isOnline ? "ok" : "bad"}
-                      label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}
-                    />
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        refreshStatus();
-                        refreshPrinters();
-                        if (savedGatewayUrl) refreshJobs();
-                      }}
-                      icon={<RefreshCw className="h-[18px] w-[18px]" />}
-                      aria-label={t("desktop.app.refreshAll")}
-                    >
-                      <span className="hidden sm:inline">{t("desktop.app.refresh")}</span>
-                    </Button>
-                      <LanguageSwitcher />
-                      <ThemeToggle />
-                  </>
-                }
-              />
-            </div>
+            <Button variant="ghost" onClick={() => { refreshStatus(); refreshPrinters(); if (savedGatewayUrl) void refreshJobs(); }}
+              icon={<RefreshCw className="h-[18px] w-[18px]" />} aria-label={t("desktop.app.refreshAll")}>
+              <span className="hidden xl:inline">{t("desktop.app.refresh")}</span>
+            </Button>
+            <LanguageSwitcher />
+            <ThemeToggle />
           </div>
         </header>
+        <Modal open={navSearchOpen} onClose={() => setNavSearchOpen(false)} title={t("common.search")}>
+          <div className="space-y-3">
+            <label htmlFor="desktop-nav-search" className="sr-only">{t("common.search")}</label>
+            <input id="desktop-nav-search" autoFocus value={navSearchQuery}
+              onChange={(event) => setNavSearchQuery(event.target.value)}
+              placeholder={t("common.search")}
+              className="h-11 w-full rounded-lg border border-edge bg-surface-2 px-3 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/35" />
+            <nav className="space-y-1" aria-label={t("nav.consoleNavigation")}>
+              {nav.filter(item => item.label.toLowerCase().includes(navSearchQuery.trim().toLowerCase())).map(item => {
+                const Icon = item.icon;
+                return <button key={item.id} type="button" onClick={() => { setNavSearchOpen(false); navigate(item.id); }}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-start text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
+                  <Icon className="h-4 w-4 shrink-0" />{item.label}
+                </button>;
+              })}
+            </nav>
+          </div>
+        </Modal>
 
         {isAdmin === false && (
           <div
