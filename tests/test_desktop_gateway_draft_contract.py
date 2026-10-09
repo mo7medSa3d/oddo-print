@@ -15,7 +15,7 @@ def function_slice(source: str, marker: str, next_marker: str) -> str:
 
 def test_candidate_probe_is_non_mutating_and_public_only():
     rust = text("src-tauri/src/commands.rs")
-    body = function_slice(rust, "pub async fn probe_gateway_health", "fn configured_gateway_origin")
+    body = function_slice(rust, "pub async fn probe_gateway_health", "pub struct AgentGatewayRequestArgs")
     assert "normalize_gateway_url(&url)" in body
     assert '.join("api/agent/probe")' in body
     assert "gateway_http_client()" in body

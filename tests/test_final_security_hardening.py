@@ -158,27 +158,36 @@ def test_dedicated_supply_chain_workflow_carries_failing_gates():
     assert "|| true" not in workflow
 
 def test_tauri_renderer_cannot_supply_authorization_headers():
-    rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
-    assert 'name.eq_ignore_ascii_case("authorization")' in rust
-    assert 'name.eq_ignore_ascii_case("cookie")' in rust
-    assert 'current_manager_token()' in rust
-    assert 'request = request.bearer_auth(token)' in rust
+    rust = read("src-tauri/src/commands.rs")
+    ipc = read("src/desktop/lib/ipc.ts")
+    cli = read("agent/cmd/cli/gateway.go")
+    # The WebView supplies path/method/body and a restricted retry key only.
+    args = rust.split("pub struct AgentGatewayRequestArgs {", 1)[1].split("}", 1)[0]
+    assert "authorization" not in args.lower()
+    assert "cookie" not in args.lower()
+    assert "idempotency_key: Option<String>" in args
+    assert "Credentials and privileged headers are never accepted from the WebView" in rust
+    assert 'invoke<string>("gateway_agent_request"' in ipc
+    assert 'req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)' in cli
+    assert 'CheckRedirect:' in cli
 
 
 def test_tauri_manager_tokens_never_enter_webview_storage():
-    ipc = (ROOT / "src" / "desktop" / "lib" / "ipc.ts").read_text(encoding="utf-8")
-    rust = (ROOT / "src-tauri" / "src" / "commands.rs").read_text(encoding="utf-8")
-    assert 'invoke("clear_manager_session")' in ipc
+    ipc = read("src/desktop/lib/ipc.ts")
+    rust = read("src-tauri/src/commands.rs")
+    tauri = read("src-tauri/src/main.rs")
+    # The removed Manager login cannot place credentials in the WebView,
+    # Tauri IPC or a stale Rust-side Manager session.
+    assert "loginManager" not in ipc
+    assert "clearManagerSession" not in ipc
+    assert "ManagerSession" not in rust
+    assert "commands::gateway_request," not in tauri
+    assert 'invoke<string>("gateway_agent_request"' in ipc
     assert "sessionStorage.setItem" not in ipc
     assert "localStorage.setItem" not in ipc
-    # The WebView-visible session status is intentionally credential-free.
-    # Rust retains both credentials and removes them from auth responses.
-    status_fields = ipc.split("export interface ManagerSessionStatus {", 1)[1].split("}", 1)[0]
-    assert "token" not in status_fields.lower()
     assert "accessToken?: string" not in ipc
     assert "refreshToken?: string" not in ipc
-    assert 'object.remove("accessToken")' in rust
-    assert 'object.remove("refreshToken")' in rust
+
 
 def test_nextjs_has_explicit_csp():
     source = (ROOT / "src" / "server" / "content-security-policy.ts").read_text(encoding="utf-8")
@@ -237,17 +246,17 @@ def test_job_timeline_is_workspace_manager_scoped_not_agent_console_scoped():
 def test_tauri_manager_login_tokens_stay_inside_rust_boundary():
     rust = read("src-tauri/src/commands.rs")
     ipc = read("src/desktop/lib/ipc.ts")
-    assert 'object.remove("accessToken")' in rust
-    assert 'object.remove("refreshToken")' in rust
-    assert 'path == "/api/auth/manager/login"' in rust
-    # The renderer must never gate login on the bearer tokens: they are
-    # stored Rust-side and stripped from the renderer-visible body, so the old
-    # `(isTauri && !data.accessToken)` gate broke Tauri login entirely.
-    # (The optional `accessToken?` response-shape field may remain for the
-    # browser path; what matters is no success gate reads it.)
-    assert "!data.accessToken" not in ipc
-    assert "if (status < 200 || status >= 300 || !data.ok)" in ipc
-    assert 'X-Refresh-Token' not in ipc
+    cli = read("agent/cmd/cli/gateway.go")
+    # The desktop no longer has a Manager login/refresh transport. Agent
+    # authorization is constructed in the paired CLI after origin validation.
+    assert '"/api/auth/manager/login"' not in rust
+    assert '"/api/auth/manager/refresh"' not in rust
+    assert "manager_session_store" not in rust
+    assert "gateway_agent_request" in rust
+    assert "idempotency key" in rust
+    assert 'expected_origin: base' in ipc
+    assert 'req.Header.Set("Authorization", "Bearer "+cfg.Agent.ID+":"+cfg.Agent.Secret)' in cli
+    assert "X-Refresh-Token" not in ipc
 
 
 def test_odoo_activation_can_always_disable_but_enable_is_subscription_gated():
@@ -295,7 +304,8 @@ def test_public_product_branding_has_no_stale_gateway_name_in_console_shell():
     assert 't("meta.title")' in layout
     assert '"brand.tagline": "Cloud Printing Platform"' in catalog
     assert '"meta.title": "Yaseir — Cloud Printing Platform"' in catalog
-    assert 'yaseir-print-manager-auth-changed' in ipc
+    assert 'loginManager' not in ipc
+    assert 'gateway_agent_request' in ipc
     assert 'Odoo Print Gateway' not in shell + layout
     assert 'odoo-print-manager-auth-changed' not in ipc
 
