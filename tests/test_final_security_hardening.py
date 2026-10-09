@@ -171,7 +171,12 @@ def test_tauri_manager_tokens_never_enter_webview_storage():
     assert 'invoke("clear_manager_session")' in ipc
     assert "sessionStorage.setItem" not in ipc
     assert "localStorage.setItem" not in ipc
-    assert "refreshToken?: string" in ipc
+    # The WebView-visible session status is intentionally credential-free.
+    # Rust retains both credentials and removes them from auth responses.
+    status_fields = ipc.split("export interface ManagerSessionStatus {", 1)[1].split("}", 1)[0]
+    assert "token" not in status_fields.lower()
+    assert "accessToken?: string" not in ipc
+    assert "refreshToken?: string" not in ipc
     assert 'object.remove("accessToken")' in rust
     assert 'object.remove("refreshToken")' in rust
 
