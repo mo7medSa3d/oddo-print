@@ -78,7 +78,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                         {isProductionPrinter(linked) && <Button size="sm" variant="secondary" disabled={s.busy} onClick={() => s.handleTest(linked.id)} icon={<Play className="h-4 w-4" />}>{t("desktop.printers.test")}</Button>}
                       </>
                     ) : (
-                      <span className="text-xs text-ink-3">{t("desktop.printers.virtualNotice")}</span>
+                      <span className="text-xs text-ink-3">{t("desktop.printers.virtualGatewayApproval")}</span>
                     )}
                   </div>
                 </li>
