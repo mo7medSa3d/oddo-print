@@ -1,12 +1,12 @@
 # Windows virtual printer acceptance through Gateway, Agent and Odoo 19
 
-Software queues such as Microsoft Print to PDF, XPS, OneNote or a redirected printer **do not prove physical paper output**. Virtual printing is opt-in, and an Agent must never self-approve a Manager-controlled software destination.
+Software queues such as Microsoft Print to PDF, XPS, OneNote or a redirected printer **do not prove physical paper output**. Virtual printing is explicit opt-in. A paired Agent may enable **its own locally discovered** software queue, but cannot manage printers belonging to another Agent, and Windows service verification is mandatory.
 
 ## Setup and approval
 
 1. Install matching Gateway, Windows Agent service, CLI and desktop binaries. In desktop **Settings**, save/verify the HTTPS Gateway origin and pair the Agent to its intended workspace. **There is no Manager sign-in field in the desktop.**
 2. Identify the Windows service account that runs the Agent and verify that the installed spooler queue is visible and can operate in that noninteractive account. Desktop **Printers > Discover** can show virtual queues for *local diagnostics only*.
-3. To enable a software spooler for Gateway/Odoo tests, sign in to the **Gateway web console** with a workspace Manager permitted to manage printers. Create/approve the test-specific virtual printer in that interface, with `virtual_spooler_test=true` and a genuine installed spooler queue. This is a Gateway Manager action, **not** an Agent Desktop action.
+3. To enable a software spooler for Gateway/Odoo tests, open desktop **Printers > Discover**, then click **Enable Gateway/Odoo tests** beside the local software queue and explicitly confirm. The desktop uses the **paired Agent identity**; no Gateway Manager login is required. The Gateway scopes the registration to that Agent and sets `virtual_spooler_test=true` as desired state. The Gateway web console remains the place for workspace-wide settings and Odoo rules.
 4. Wait for the Agent to apply the authorized desired state and confirm it observes the same Windows queue. Pending or unobserved virtual destinations must not be presented as ready for printing.
 5. Use **Send test page** from the Gateway console or the paired Agent desktop's **Test Print** action on its *own confirmed printer*. The desktop path uses the paired Agent identity, bounded idempotency key and Gateway ownership check; it cannot access another Agent's printer.
 6. In Odoo 19, use the **same workspace's** Gateway integration credentials, select the correct Agent, refresh runtime printers and bind only the approved test destination. Send synthetic receipts, preparation tickets and invoice/reports; verify actual output files and job/status evidence.
@@ -20,7 +20,7 @@ Software queues such as Microsoft Print to PDF, XPS, OneNote or a redirected pri
 
 ## Security and acceptance
 
-The Gateway web Manager still needs its normal role-based login for administrative approvals. The paired Agent is scoped to its tenant, Agent ID and printer. Confirm unauthorized/cross-Agent denial, stale or disabled printer, rate/quota limits, 401/403 cases, duplicate clicks, lost HTTP responses and replay of the same operation ID, as well as Odoo document mapping and physical or generated-file evidence.
+The Gateway web console still requires its normal role-based login for company-wide administration. **Local virtual test opt-in does not require that login.** The paired Agent is scoped to its tenant, Agent ID and printer. A virtual queue remains non-printable until the service verifies the actual OS printer and reports its observed capability. Confirm unauthorized/cross-Agent denial, stale or disabled printer, rate/quota limits, 401/403 cases, duplicate clicks, lost HTTP responses and replay of the same operation ID, as well as Odoo document mapping and physical or generated-file evidence.
 
 For acceptance, record Windows version, account SID, queue/driver/port, Gateway tenant/Agent/printer identity, desired/applied state, job ID, output and error, timestamp and tester. Mark any unexercised hardware check **NOT_RUN**, not PASS.
 
