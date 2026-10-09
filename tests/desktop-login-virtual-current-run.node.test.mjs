@@ -23,7 +23,7 @@ function setup({ gatewayUrl='https://gateway.example.com', login=async()=>{} }={
     return result;
   };
   const code=ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-  const module={exports:{}};
+  const cjsModule={exports:{}};
   const imported=(name)=>{
     if(name==='react')return {useState,useRef};
     if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};
@@ -31,9 +31,9 @@ function setup({ gatewayUrl='https://gateway.example.com', login=async()=>{} }={
     if(name==='../../i18n/react')return {useI18n:()=>({t})};
     throw Error('unexpected import '+name);
   };
-  new Function('require','module','exports',code)(imported,module,module.exports);
+  new Function('require','module','exports',code)(imported,cjsModule,cjsModule.exports);
   let account={origin:gatewayUrl,status:'signed-out',session:null};
-  const render=()=>{current=0;currentRef=0;return module.exports.ManagerAccountPanel({gatewayUrl,account,login,logout:async()=>{},refresh:()=>{}});};
+  const render=()=>{current=0;currentRef=0;return cjsModule.exports.ManagerAccountPanel({gatewayUrl,account,login,logout:async()=>{},refresh:()=>{}});};
   const find=(tree,type)=>treeWalk(tree,x=>x.type===type);
   return { render,find,state };
 }
