@@ -11,15 +11,15 @@ The installed Yaseir Print Manager desktop no longer asks for a Gateway Manager 
 
 ## Roles and boundaries
 
-- An Agent pairing does **not** grant Gateway workspace Manager or administrator permissions. Use the Gateway **web console** with its normal user/role authentication for workspace-wide printer configuration, virtual-queue approval, API keys, Odoo bindings and other administrative operations.
-- The desktop does not expose Manager-only edit, retire or virtual-printer approval actions. It still displays pending or local virtual software queues for diagnosis and retains physical-printer registration using the Agent's existing permissions.
+- An Agent pairing does **not** grant Gateway workspace Manager or administrator permissions. Use the Gateway **web console** with its normal user/role authentication for workspace-wide printer changes, API keys, Odoo bindings and other administrative operations. A paired Agent may additionally opt in an eligible local Windows software queue for diagnostics, scoped to itself only.
+- The desktop does not expose Manager-only workspace edits or retirement actions. **Enable Gateway/Odoo tests** now registers an explicitly selected local virtual queue using the paired Agent identity, without Manager sign-in. The Agent service must verify the exact Windows queue before it can receive jobs.
 - A missing or invalid Agent pairing should show a pairing/authorization error. It must never silently fall back to an operator account or forge an authorization header.
 
 ## Windows discovery, virtual queues and physical validation
 
 1. Install the Windows printer and verify which user/service account can see the queue. Run **Printers > Discover**. Diagnostic enumeration can include PDF/XPS/OneNote/redirected software queues, but such results are not automatically production destinations.
 2. The Agent CLI supports `printers discover --json --include-virtual` for diagnostics. Windows Session-0 service printers may differ from the interactive user's printer inventory. Never infer unattended support from a desktop-only queue.
-3. For an explicitly approved software queue, use the Gateway web console to authorize the virtual-test destination and wait for the Agent's desired-state confirmation; see [Windows virtual printer Gateway/Odoo guide](WINDOWS_VIRTUAL_PRINTER_GATEWAY_ODOO.md).
+3. From the desktop **Printers > Local virtual printer queues**, choose **Enable Gateway/Odoo tests**. The Gateway binds the request to the paired Agent, rejects Fax/redirected/capture queues, and sends desired state to the Agent service. Wait for local OS verification; an accepted registration is not permission to print immediately. The Gateway web console remains available for other administrative changes. See [Windows virtual printer Gateway/Odoo guide](WINDOWS_VIRTUAL_PRINTER_GATEWAY_ODOO.md).
 4. File-capture testing is separate from actual physical paper. Record the test job ID, identity, document/protocol and observed output. Do not mark printing physically successful without inspecting the printer/output.
 
 ## Acceptance checks and deployment
