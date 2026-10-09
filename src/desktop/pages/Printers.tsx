@@ -61,7 +61,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
           />
           <ul className="divide-y divide-edge-subtle">
             {s.discoveredVirtualPrinters.map((p) => {
-              const linked = [...s.printers, ...s.pendingVirtualGatewayPrinters].find((remote) =>
+              const linked = [...s.printers, ...(s.pendingVirtualGatewayPrinters ?? [])].find((remote) =>
                 (remote.config?.spooler_name === (p.spoolerName ?? p.spooler_name) ||
                  remote.spoolerName === (p.spoolerName ?? p.spooler_name)) && remote.lifecycle !== "retired");
               return (
