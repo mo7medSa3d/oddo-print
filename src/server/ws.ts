@@ -747,7 +747,13 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     try {
       const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown; requestId?: unknown };
       if (typeof message.jobId !== "string" || typeof message.agentId !== "string") return;
-      if (!hasOpenAgentSocket(message.agentId)) return;
+      // PostgreSQL may notify us after the WebSocket HTTP upgrade but
+      // before asynchronous Agent lifecycle verification finishes. Dropping
+      // that notification here strands a queued job even though the client
+      // already observed "open". claimAndPushJobToAgent has a bounded
+      // readiness wait for exactly this pending-registration window.
+      if (!hasOpenAgentSocket(message.agentId)
+          && (pendingAgentSocketRegistrations.get(message.agentId) ?? 0) === 0) return;
       void claimAndPushJobToAgent({ id: message.jobId, agentId: message.agentId }).then((pushOutcome) => {
         logInfo("print.job.dispatch_boundary", {
           requestId: typeof message.requestId === "string" ? message.requestId : null,
