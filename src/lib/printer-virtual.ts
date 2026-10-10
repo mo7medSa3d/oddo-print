@@ -24,7 +24,9 @@ export interface PrinterLike {
   deviceClass?: string | null;
   connectionType?: string | null;
   protocol?: string | null;
-  port?: string | null;
+  // Network/Windows inventory may report a numeric port while software
+  // printer monitor names (for example PORTPROMPT:) are strings.
+  port?: string | number | null;
   driverName?: string | null;
   capabilities?: unknown;
   config?: unknown;

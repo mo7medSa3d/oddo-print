@@ -292,6 +292,8 @@ export interface PrinterInfo {
   agentLastSeenAt?: string | null;
   agentStaleThresholdSeconds?: number | null;
   configurationConverged?: boolean;
+  /** False or unknown until the paired Agent confirms a queue in its service inventory. */
+  inventoryPresent?: boolean | null;
 }
 
 
