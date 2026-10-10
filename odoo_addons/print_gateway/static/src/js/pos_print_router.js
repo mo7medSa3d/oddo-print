@@ -188,7 +188,7 @@ async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_W
 // Diagnostic tracing must NEVER change print behavior. Odoo embedded runtimes
 // and tests may expose only console.log; even a failing logger must not turn
 // a successfully rendered receipt into a new retryable print attempt.
-function tracePOSPrintLatency(stage, startedAt) {
+function recordReceiptLatency(stage, startedAt) {
     try {
         const elapsed = (globalThis.performance?.now?.() ?? Date.now()) - startedAt;
         const message = "print.trace " + stage + " latency_ms=" + Math.max(0, Math.round(elapsed));
@@ -237,7 +237,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
     } finally {
         // Render time is distinct from Gateway enqueue and physical printing;
         // no receipt, order, printer or customer data is included in the log.
-        tracePOSPrintLatency("pos_receipt_render", renderStartedAt);
+        recordReceiptLatency("pos_receipt_render", renderStartedAt);
     }
 }
 
@@ -261,7 +261,7 @@ async function gatewayReceiptRasterWidth(pos, orderId) {
     } finally {
         // The width RPC can be slow even when the printer and Gateway are fast.
         // Do not cache across actions: routing may change from 58mm to 80mm.
-        tracePOSPrintLatency("pos_width_lookup", lookupStartedAt);
+        recordReceiptLatency("pos_width_lookup", lookupStartedAt);
     }
     return width;
 }
