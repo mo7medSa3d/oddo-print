@@ -60,6 +60,8 @@ export interface DesktopState {
   discoveredPrinters: PrinterInfo[];
   discoveredVirtualPrinters: PrinterInfo[];
   pendingVirtualGatewayPrinters: PrinterInfo[];
+  /** Configured test-only file sinks, never normal Odoo destinations. */
+  virtualCapturePrinters?: PrinterInfo[];
   discoveryWarning: string | null;
   printersLoading: boolean;
   printersError: string | null;

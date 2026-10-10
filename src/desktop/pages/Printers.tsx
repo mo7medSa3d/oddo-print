@@ -90,6 +90,33 @@ export function PrintersPage({ s }: { s: DesktopState }) {
         </Card>
       )}
 
+      {(s.virtualCapturePrinters ?? []).length > 0 && (
+        <Card className="overflow-hidden">
+          <CardHeader title={t("desktop.printers.captureTitle")} subtitle={t("desktop.printers.captureDescription")} />
+          <ul className="divide-y divide-edge-subtle">
+            {(s.virtualCapturePrinters ?? []).map((capture) => {
+              const ready = capture.lifecycle === "active" && capture.inventoryPresent !== false &&
+                capture.status === "online";
+              return (
+                <li key={capture.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-ink">{capture.name}</div>
+                    <div className="mt-1 text-xs text-ink-3">{t("desktop.printers.captureDetail")}</div>
+                    <div className="mt-1 break-all font-mono text-xs text-ink-3" dir="ltr">{capture.id}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge tone={ready ? "ok" : "warn"} label={t(ready ? "desktop.printers.captureReady" : "desktop.printers.captureNotReady")} />
+                    <Button variant="secondary" size="sm" disabled={!ready || s.busy}
+                      onClick={() => s.handleTest(capture.id)}
+                      icon={<Play className="h-4 w-4" />}>{t("desktop.printers.captureTest")}</Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
       {pendingLocal.length > 0 && (
         <Card className="overflow-hidden">
           <CardHeader title={t("desktop.printers.localPendingTitle")} subtitle={t("desktop.printers.localPendingBody", { count: pendingLocal.length })} />

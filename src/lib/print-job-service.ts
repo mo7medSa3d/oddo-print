@@ -93,7 +93,8 @@ export type CreatePrintJobOptions = {
   expiresAt?: Date;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
-  /** Only the RBAC-protected Manager test-print route may authorize a virtual file capture. */
+  /** Only the paired-Agent or Manager test-print route can opt into
+   * an explicitly configured file capture; Odoo and general jobs cannot. */
   allowVirtualTestCapture?: boolean;
   /** Generate a serialized operator reprint key for this original job inside the enqueue transaction. */
   reprintOfJobId?: string | null;
@@ -389,12 +390,17 @@ async function insertQueuedJobAtomically({
       managementSource: owner.management_source,
     };
     // Strictly TEST-ONLY: both services must opt in, the row must be an
-    // explicit Yaseir virtual capture, and only the authenticated Manager
-    // test-print route supplies allowVirtualTestCapture. Production/Odoo/
-    // reprint API jobs remain forbidden even when the feature is enabled.
+    // Explicit Yaseir file capture requires the gateway opt-in and a
+    // configured, Agent-attested sink. The paired Agent may run its OWN
+    // diagnostic without a Manager login; its identity has been re-fenced
+    // inside this transaction. Odoo/normal business jobs remain denied.
+    const captureDiagnosticPrincipal = requestedBy === "manager-test"
+      || (requestedBy === "agent-diagnostic"
+          && agentDiagnosticAuthority?.tenantId === tenantId
+          && agentDiagnosticAuthority?.agentId === agentId);
     const virtualCaptureAuthorized = allowVirtualTestCapture === true
       && process.env.YASEIR_GATEWAY_VIRTUAL_TEST_MODE === "1"
-      && requestedBy === "manager-test"
+      && captureDiagnosticPrincipal
       && documentType === "test_page"
       && !rateLimitKeyId
       && !reprintOfJobId
@@ -402,7 +408,7 @@ async function insertQueuedJobAtomically({
     const virtualSpoolerAuthorized = owner.management_source === "manager"
       && isApprovedVirtualSpoolerTestRecord(printerIdentity);
     if (isVirtualPrinterRecord(printerIdentity) && !virtualCaptureAuthorized && !virtualSpoolerAuthorized) {
-      throw new PrintJobInputError("Virtual or redirected queue is not approved for printing; a Manager must explicitly enable a local Windows virtual spooler test destination and wait for Agent verification", "PRINTER_VIRTUAL", 409);
+      throw new PrintJobInputError("Virtual queue is not approved for printing; explicitly enable a local test destination using the paired Agent or Gateway console and wait for Agent service verification", "PRINTER_VIRTUAL", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
