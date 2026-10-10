@@ -302,7 +302,7 @@ export const discoverySessions = pgTable("discovery_sessions", {
   agentId: text("agent_id").notNull(),
   status: text("status").notNull().default("running"),
   config: jsonb("config").$type<{ cidr?: string; protocols?: string[]; timeoutMs?: number; concurrency?: number; }>().default({}).notNull(),
-  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; updated?: number; skipped?: number; verified?: number; errors?: string[]; durationMs?: number; }>().default({}).notNull(),
+  stats: jsonb("stats").$type<{ candidates?: number; inserted?: number; updated?: number; skipped?: number; verified?: number; errors?: string[]; durationMs?: number; chunkCount?: number; acceptedChunks?: number[]; chunkDigests?: string[]; }>().default({}).notNull(),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

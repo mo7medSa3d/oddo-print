@@ -34,4 +34,11 @@ A configured printer may remain configured while an Agent is offline/stale. Agen
 ## Incident handling
 For an unknown physical outcome, inspect the printer and (for Windows jobs) the recorded spooler job identity before reprinting. Do not assume a failed acknowledgement, timeout, restart, or post-submission error means the printer definitely did not print. Automatic retry is prohibited once physical submission may have occurred. A manual reprint is an explicit new physical attempt and can produce a duplicate if the uncertain attempt already printed.
 
+
+### Agent local ledger cleanup (operator action)
+
+`jobs cleanup` removes only terminal local records whose physical outcome is not ambiguous and whose Gateway status has already been acknowledged. It preserves failed rows carrying unknown-outcome evidence by default. To remove a physically reconciled unknown-outcome record, an authorized operator may explicitly run `jobs cleanup --include-unknown` **after** inspecting the printer and Gateway job timeline. This never overrides an outstanding Gateway acknowledgment: rows retaining a claim token remain in the Agent SQLite outbox so their terminal result can be replayed after reconnection.
+
+The command supports `--json` (`deleted`, `unknownPurged`, `unknownKept`) and `--config <path>`. Its plain-text result also reports how many unknown-outcome rows remain. Unsupported options, including `--dry-run`, are rejected; there is no dry-run mode. Do not delete the SQLite queue file to "fix" a duplicate-print warning. The 48-hour automatic terminal retention applies only to records whose Gateway claim token has already been cleared.
+
 Stale-Agent persistence converges every 15 seconds in ordered batches of 200 rows by default. `AGENT_PRESENCE_SWEEP_LIMIT` may set a positive batch size, capped at 5000. Multiple Gateway instances skip each other's locked candidates. Request-time availability still derives from heartbeat freshness immediately; a large outage backlog does not require one fleet-wide UPDATE.

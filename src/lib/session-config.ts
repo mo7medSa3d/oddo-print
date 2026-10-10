@@ -40,13 +40,9 @@ export function refreshEndpointOrder(primaryKind: RefreshKind): [string, string]
 const SESSION_FETCH_TIMEOUT_MS = 10_000;
 
 async function fetchWithSessionTimeout(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SESSION_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+  // Keep the deadline attached after fetch() resolves headers: callers also
+  // await response.json(), and a stalled body must not pin session admission.
+  return fetch(url, { ...init, signal: AbortSignal.timeout(SESSION_FETCH_TIMEOUT_MS) });
 }
 /** Shared browser admission for one refresh, including other tabs where Web Locks exist. */
 export function ensureCustomerSession(): Promise<{ authenticated: boolean; expiresAt: number }> {

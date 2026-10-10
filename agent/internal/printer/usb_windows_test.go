@@ -73,7 +73,7 @@ func TestUSBWritePartialThenErrorIsUnknown(t *testing.T) {
 	}
 }
 
-func TestUSBWriteZeroByteFailureStaysPlain(t *testing.T) {
+func TestUSBWriteZeroByteFailureIsUnknown(t *testing.T) {
 	p := &USBPrinter{ID: "u3", Name: "U3", DevicePath: "NUL"}
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		return 0, errors.New("device rejected transfer")
@@ -82,8 +82,10 @@ func TestUSBWriteZeroByteFailureStaysPlain(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected write failure")
 	}
-	if HasUnknownOutcomeMarker(err.Error()) {
-		t.Fatalf("a write that synchronously failed with zero confirmed bytes is provably pre-dispatch and must stay plain: %v", err)
+	// WriteFile resets its byte counter before calling the driver. Zero
+	// confirmed bytes after failure is NOT proof of zero device delivery.
+	if !HasUnknownOutcomeMarker(err.Error()) {
+		t.Fatalf("zero confirmed bytes after a failed in-flight WriteFile must prevent automatic duplicate printing: %v", err)
 	}
 }
 

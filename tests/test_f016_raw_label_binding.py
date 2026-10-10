@@ -5,6 +5,7 @@ PostgreSQL, browser form, Gateway, Windows or physical-printer environment.
 Production method ASTs are executed unchanged; only ORM/external edges are stubs.
 """
 import base64
+import ast
 import hashlib
 import uuid
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ import pytest
 
 from test_f010_report_binding_identity import (
     production_methods, ValidationError, binding, Bindings, Router,
-    ROOT_COMPANY, BRANCH, OTHER_BRANCH, PICKING_TYPE, PICKING, REPORT_A,
+    ROOT_COMPANY, BRANCH, OTHER_BRANCH, PICKING_TYPE, PICKING, REPORT_A, ROOT,
 )
 
 BindingModel = production_methods('binding.py', [
@@ -25,11 +26,24 @@ BindingModel = production_methods('binding.py', [
 BindingModel._compute_document_type.__globals__['DOCUMENT_TYPE_BY_MODEL'] = {
     'stock.picking': 'delivery', 'account.move': 'invoice', 'pos.order': 'receipt',
 }
+# production_methods extracts individual methods from the actual class. Load
+# the module-level admission helper from its production AST as well, rather
+# than substituting a permissive test implementation for that safety guard.
+router_path = ROOT / 'print_router.py'
+router_tree = ast.parse(router_path.read_text(encoding='utf-8'))
+raw_helper_node = next(node for node in router_tree.body
+                       if isinstance(node, ast.FunctionDef) and node.name == '_validated_raw_command_bytes')
+raw_helper_namespace = {'ValidationError': ValidationError, '_': lambda value: value,
+                        'MAX_IMAGE_BYTES': 5 * 1024 * 1024}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[raw_helper_node], type_ignores=[])),
+             str(router_path), 'exec'), raw_helper_namespace)
+validated_raw_command_bytes = raw_helper_namespace['_validated_raw_command_bytes']
 RouterRaw = production_methods('print_router.py', ['route_raw_command', 'route_intent'])
 for method_name in ('route_raw_command', 'route_intent'):
     getattr(RouterRaw, method_name).__globals__.update({
         'base64': base64, 'hashlib': hashlib, 'uuid': uuid,
         'ValidationError': ValidationError, '_': lambda value: value,
+        '_validated_raw_command_bytes': validated_raw_command_bytes,
     })
 
 

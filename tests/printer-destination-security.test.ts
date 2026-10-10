@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedPrinterDestination, validateConnectionConfig, assertPrinterMetadataLimits, PRINTER_CONFIG_MAX_BYTES } from "../src/lib/printer-model";
+import { discoveryIppUriMatchesEndpoint, isAllowedPrinterDestination, validateConnectionConfig, assertPrinterMetadataLimits, PRINTER_CONFIG_MAX_BYTES } from "../src/lib/printer-model";
 
 describe("printer destination security policy", () => {
   it("enforces metadata limits by UTF-8 bytes", () => {
@@ -18,7 +18,7 @@ describe("printer destination security policy", () => {
   });
 
   it("rejects public, loopback, hostname, metadata and non-print ports", () => {
-    for (const ip of ["8.8.8.8", "127.0.0.1", "0.0.0.0", "169.254.169.254"] as const) {
+    for (const ip of ["8.8.8.8", "127.0.0.1", "0.0.0.0", "169.254.169.254", "169.254.170.2"] as const) {
       const result = validateConnectionConfig("network", { ip, port: 9100 });
       expect(result).toContain("private or link-local");
     }
@@ -32,6 +32,7 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipps", { address: "https://[fe80::10]:631/ipp/print" })).toBeNull();
     expect(validateConnectionConfig("ipp", { address: "http://127.0.0.1:631/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://169.254.169.254/ipp/print" })).toContain("private or link-local");
+    expect(validateConnectionConfig("ipp", { address: "https://169.254.170.2/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://example.com/ipp/print" })).toContain("private or link-local");
     expect(validateConnectionConfig("ipp", { address: "https://192.168.1.60/ipp/print?q=1" })).toContain("query strings");
     expect(validateConnectionConfig("ipp", { address: "ipp://user:pass@192.168.1.60/ipp/print" })).toContain("embedded credentials");
@@ -113,4 +114,16 @@ it("allows IPv6 ULA printers while rejecting expanded metadata endpoints", () =>
   expect(isAllowedPrinterDestination("fd12:3456::10")).toBe(true);
   expect(isAllowedPrinterDestination("fc00::10")).toBe(true);
   expect(isAllowedPrinterDestination("fd00:0ec2:0000:0000:0000:0000:0000:0254")).toBe(false);
+});
+
+it("fences discovery IPP URL to the endpoint and transport the operator approved", () => {
+  expect(discoveryIppUriMatchesEndpoint("ipp://192.168.8.34:631/ipp/print", "192.168.8.34", 631, "ipp")).toBe(true);
+  expect(discoveryIppUriMatchesEndpoint("http://192.168.8.34:631/ipp/print", "192.168.8.34", 631, "ipp")).toBe(true);
+  expect(discoveryIppUriMatchesEndpoint("ipps://192.168.8.34/ipp/print", "192.168.8.34", 631, "ipps")).toBe(true);
+  expect(discoveryIppUriMatchesEndpoint("https://[fd12:3456::10]:631/ipp/print", "fd12:3456::10", 631, "ipps")).toBe(true);
+  expect(discoveryIppUriMatchesEndpoint("ipp://192.168.8.35:631/ipp/print", "192.168.8.34", 631, "ipp")).toBe(false);
+  expect(discoveryIppUriMatchesEndpoint("ipp://192.168.8.34:9100/ipp/print", "192.168.8.34", 631, "ipp")).toBe(false);
+  expect(discoveryIppUriMatchesEndpoint("http://192.168.8.34:631/ipp/print", "192.168.8.34", 631, "ipps")).toBe(false);
+  expect(discoveryIppUriMatchesEndpoint("ipps://192.168.8.34:631/ipp/print", "192.168.8.34", 631, "ipp")).toBe(false);
+  expect(discoveryIppUriMatchesEndpoint("ipp://user:secret@192.168.8.34:631/ipp/print", "192.168.8.34", 631, "ipp")).toBe(false);
 });

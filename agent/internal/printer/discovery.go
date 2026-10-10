@@ -240,6 +240,11 @@ func sameUSBDevice(a, b DeviceInfo) bool {
 type DiscoveryResult struct {
 	Printers []DeviceInfo `json:"printers"`
 	Errors   []string     `json:"errors,omitempty"`
+	// Truncated marks a result cut short by an orchestration bound rather than
+	// by the sources themselves. The devices present are real observations, but
+	// sources that had not finished are absent, so absence must never be
+	// reconciled as removal.
+	Truncated bool `json:"-"`
 	// CompleteSources records which live discovery sources completed an
 	// authoritative inventory pass. It is intentionally transport-local and
 	// excluded from JSON: callers use it only to decide whether absence from a
@@ -248,6 +253,15 @@ type DiscoveryResult struct {
 	// another source.
 	CompleteSources map[string]bool `json:"-"`
 }
+
+// DiscoveryProgressFunc receives a snapshot of the discovery results
+// accumulated so far.
+//
+// It is invoked with the discovery mutex still held, so implementations must
+// return immediately, must not block, and must not call back into discovery.
+// Snapshots exist so an orchestration bound can preserve the work of the
+// sources that did finish instead of discarding every observation.
+type DiscoveryProgressFunc func(DiscoveryResult)
 
 // discoveryDiagnosticError is a non-fatal discovery warning. The source may
 // still have produced an authoritative inventory even though enrichment or
@@ -432,7 +446,7 @@ func Discover(cfg *config.Config, registryPath string) DiscoveryResult {
 }
 
 func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath string) DiscoveryResult {
-	return discoverWithContext(ctx, cfg, registryPath, true)
+	return discoverWithContext(ctx, cfg, registryPath, true, nil)
 }
 
 // DiscoverLiveWithContext enumerates live/configured sources without replaying
@@ -440,14 +454,23 @@ func DiscoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 // absence reconciliation: a historical registry row must not prove its own
 // continued presence.
 func DiscoverLiveWithContext(ctx context.Context, cfg *config.Config, registryPath string) DiscoveryResult {
-	return discoverWithContext(ctx, cfg, registryPath, false)
+	return discoverWithContext(ctx, cfg, registryPath, false, nil)
+}
+
+// DiscoverLiveWithProgress is DiscoverLiveWithContext with incremental
+// progress snapshots. The callback is invoked while the discovery mutex is
+// held, so it must return immediately. Orchestration uses it to keep the
+// observations of sources that finished when an outer bound expires, instead
+// of discarding the whole scan.
+func DiscoverLiveWithProgress(ctx context.Context, cfg *config.Config, registryPath string, onProgress DiscoveryProgressFunc) DiscoveryResult {
+	return discoverWithContext(ctx, cfg, registryPath, false, onProgress)
 }
 
 func DiscoverLive(cfg *config.Config, registryPath string) DiscoveryResult {
 	return DiscoverLiveWithContext(context.Background(), cfg, registryPath)
 }
 
-func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath string, includeRegistry bool) DiscoveryResult {
+func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath string, includeRegistry bool, onProgress DiscoveryProgressFunc) DiscoveryResult {
 	var (
 		mu              sync.Mutex
 		all             []DeviceInfo
@@ -456,6 +479,30 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		seen            = make(map[string]int)
 		completeSources = make(map[string]bool)
 	)
+
+	// snapshotLocked copies the accumulated state. Callers must hold mu, and
+	// the copy is required because the live slices/maps keep being appended to
+	// by sources that have not finished yet.
+	snapshotLocked := func() DiscoveryResult {
+		printers := make([]DeviceInfo, len(all))
+		for i, d := range all {
+			printers[i] = finalizeDiscoveredDevice(d)
+		}
+		errs := append([]string(nil), errors...)
+		sources := make(map[string]bool, len(completeSources))
+		for source, complete := range completeSources {
+			sources[source] = complete
+		}
+		return DiscoveryResult{Printers: printers, Errors: errs, CompleteSources: sources}
+	}
+	// notifyProgressLocked must be called with mu held, so the snapshot is a
+	// consistent copy of the accumulated state. Releasing the lock first would
+	// race with the source goroutines still appending to it.
+	notifyProgressLocked := func() {
+		if onProgress != nil {
+			onProgress(snapshotLocked())
+		}
+	}
 
 	add := func(infos []DeviceInfo) {
 		mu.Lock()
@@ -517,16 +564,22 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			seen[d.ID] = len(all)
 			all = append(all, d)
 		}
+		// Publish the newly accumulated devices immediately, so a source that
+		// is still running cannot hide work that another source already
+		// finished. Held under mu by the caller.
+		notifyProgressLocked()
 	}
 	addErr := func(msg string) {
 		mu.Lock()
 		errors = append(errors, msg)
 		log.Printf("[discovery] %s", msg)
+		notifyProgressLocked()
 		mu.Unlock()
 	}
 	setComplete := func(source string, complete bool) {
 		mu.Lock()
 		completeSources[source] = complete
+		notifyProgressLocked()
 		mu.Unlock()
 	}
 
@@ -781,29 +834,42 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	wg.Wait()
 	log.Printf("[discovery] discovery completed: %d printers (errors: %d)", len(all), len(errors))
 
-	// Ensure every entry has a stable ID and default status
+	// Ensure every entry has a stable ID and default status. Progress
+	// snapshots use the same finalization so a partially-discovered device is
+	// never reported without an identity.
 	for i := range all {
-		if all[i].ID == "" {
-			all[i].ID = StableIDForDevice(all[i])
-		}
-		if all[i].Status == "" {
-			all[i].Status = "unknown"
-		}
-		if all[i].ConnectionType == "" {
-			all[i].ConnectionType = strings.ToLower(all[i].Type)
-			if all[i].ConnectionType == "" {
-				all[i].ConnectionType = "network"
-			}
-		}
-		// Protocol stays EMPTY (undeclared) when discovery could not prove
-		// one. Empty is reported as "unknown" upstream and the gateway never
-		// routes to it — inventing "raw" here was the wildcard bug.
-		if all[i].Type == "" {
-			all[i].Type = all[i].ConnectionType
-		}
+		all[i] = finalizeDiscoveredDevice(all[i])
 	}
 
-	return DiscoveryResult{Printers: all, Errors: errors, CompleteSources: completeSources}
+	result := DiscoveryResult{Printers: all, Errors: errors, CompleteSources: completeSources}
+	mu.Lock()
+	notifyProgressLocked()
+	mu.Unlock()
+	return result
+}
+
+// finalizeDiscoveredDevice applies the defaults every discovery consumer
+// relies on: a stable ID and non-empty status/connection/protocol fields.
+func finalizeDiscoveredDevice(d DeviceInfo) DeviceInfo {
+	if d.ID == "" {
+		d.ID = StableIDForDevice(d)
+	}
+	if d.Status == "" {
+		d.Status = "unknown"
+	}
+	if d.ConnectionType == "" {
+		d.ConnectionType = strings.ToLower(d.Type)
+		if d.ConnectionType == "" {
+			d.ConnectionType = "network"
+		}
+	}
+	// Protocol stays EMPTY (undeclared) when discovery could not prove
+	// one. Empty is reported as "unknown" upstream and the gateway never
+	// routes to it — inventing "raw" here was the wildcard bug.
+	if d.Type == "" {
+		d.Type = d.ConnectionType
+	}
+	return d
 }
 
 func discoverFromConfig(cfg *config.Config) []DeviceInfo {

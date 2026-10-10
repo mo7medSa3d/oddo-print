@@ -211,7 +211,7 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
       return {
         running: true,
         service: "YaseirAgent",
-        version: "1.0.0",
+        version: "YaseirAgent go=go1.26.0 feature=pdfium-headless-stdio-v1",
         hostname: "DESKTOP-RECEPTION",
         note: "YaseirAgent.exe is running",
       } as unknown as T;

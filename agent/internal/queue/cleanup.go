@@ -78,12 +78,16 @@ func (q *Queue) CountOutcomeUnknown() (int, error) {
 	return n, err
 }
 
-// PurgeOutcomeUnknown removes the retained unknown-outcome evidence AFTER an
-// operator has explicitly reconciled (checked the physical output). This is
-// intentionally a separate, deliberate operation.
+// PurgeOutcomeUnknown removes unknown-outcome evidence only AFTER the operator
+// has explicitly reconciled the physical output AND the Gateway has accepted
+// the terminal report. An outstanding claim_token is the durable terminal
+// report outbox: purging it would lose the only replayable evidence after a
+// network outage. Even --include-unknown must never override that fence.
 func (q *Queue) PurgeOutcomeUnknown() (int, error) {
-	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE status = 'failed' AND (
-		` + unknownMarkerSQL("last_error") + `)`)
+	result, err := q.db.Exec(`DELETE FROM print_jobs
+		WHERE status = 'failed'
+		  AND claim_token IS NULL
+		  AND (` + unknownMarkerSQL("last_error") + `)`)
 	if err != nil {
 		return 0, err
 	}

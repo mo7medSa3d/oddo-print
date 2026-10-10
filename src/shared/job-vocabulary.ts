@@ -43,13 +43,18 @@ export const UNKNOWN_OUTCOME_MARKERS = [
 ] as const;
 
 
-export type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol";
+export type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol" | "ipp_unreachable" | "pdfium_headless";
 
 export function classifyJobFailure(error?: string | null): JobFailureKind | null {
   const value = (error ?? "").toUpperCase();
   if (value.includes("CAPABILITY_MISMATCH")) return "capability_mismatch";
   if (value.includes("ERR_UNSUPPORTED_TRANSPORT") || value.includes("UNSUPPORTED_TRANSPORT")) return "unsupported_transport";
   if (value.includes("UNSUPPORTED_PROTOCOL") || value.includes("UNSUPPORTED PROTOCOL")) return "unsupported_protocol";
+  // Both signatures are pre-dispatch failures: neither proves a job reached
+  // physical hardware. Give operators actionable remedies in their locale,
+  // but retain the original evidence in the durable job error/log.
+  if (value.includes("IPP PRINTER ") && value.includes("UNREACHABLE (REQUEST NOT SENT)")) return "ipp_unreachable";
+  if (value.includes("GETFILETYPE /DEV/STDOUT") && value.includes("HANDLE IS INVALID")) return "pdfium_headless";
   return null;
 }
 
@@ -77,6 +82,20 @@ export function jobFailurePresentation(
       kind,
       title: translate(locale, "job.unsupportedProtocol"),
       guidance: translate(locale, "job.unsupportedProtocolAction"),
+    };
+  }
+  if (kind === "ipp_unreachable") {
+    return {
+      kind,
+      title: translate(locale, "job.ippUnreachable"),
+      guidance: translate(locale, "job.ippUnreachableAction"),
+    };
+  }
+  if (kind === "pdfium_headless") {
+    return {
+      kind,
+      title: translate(locale, "job.pdfiumHeadless"),
+      guidance: translate(locale, "job.pdfiumHeadlessAction"),
     };
   }
   return null;

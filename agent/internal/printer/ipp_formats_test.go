@@ -175,3 +175,26 @@ func TestIPPUnknownAdvertisedMimeMustNeverTriggerPDF(t *testing.T) {
 		t.Fatalf("unsupported print requests made: %d", count)
 	}
 }
+
+// An unreachable IPP endpoint must fail after the read-only probe instead
+// of dialing a second time to send a potentially large document. A failed
+// connect means no request bytes were sent, so this is a safe pre-dispatch
+// outcome (not an ambiguous partial print).
+func TestIPPUnreachableProbeFailsBeforePDFSubmission(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("closed printer endpoint unexpectedly received a request")
+	}))
+	address := "http://" + server.Listener.Addr().String()
+	server.Close() // reserve an address, then force an OS-level dial refusal
+	p, err := NewIPPPrinter(address, "unreachable printer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.printPDFWithFormatNegotiation(context.Background(), validTestPDFBytes())
+	if err == nil || !strings.Contains(err.Error(), "unreachable (request not sent)") {
+		t.Fatalf("expected immediate safe dial refusal from capability probe, got %v", err)
+	}
+	if OutcomeUnknown(err) {
+		t.Fatalf("dial refusal occurred before submission, not an unknown physical outcome: %v", err)
+	}
+}

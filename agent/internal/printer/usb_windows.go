@@ -188,8 +188,9 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 		}
 		// Once the helper is spawned the kernel may accept bytes even if
 		// the caller gives up while waiting: every failure from this point
-		// is UNKNOWN unless the write provably failed with zero confirmed
-		// bytes. writeChunkBounded already classifies timeouts and
+		// is UNKNOWN: zero confirmed bytes on a failed Win32 WriteFile
+		// does not prove that no bytes reached the device. writeChunkBounded
+		// already classifies timeouts and
 		// in-flight cancellations as unknown; pass those through verbatim.
 		n, err, handleTransferred := p.writeChunkBounded(h, chunk, ctx.Done())
 		if handleTransferred {
@@ -203,10 +204,11 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 			if HasUnknownOutcomeMarker(err.Error()) {
 				return err
 			}
-			if written > 0 {
-				return MarkUnknown("WriteFile to %s failed after %d/%d bytes: %v", p.DevicePath, written, len(data), err)
-			}
-			return fmt.Errorf("WriteFile to %s failed after %d/%d bytes: %w", p.DevicePath, written, len(data), err)
+			// Microsoft's WriteFile API resets lpNumberOfBytesWritten before
+			// starting I/O. A failed synchronous call reporting zero confirmed
+			// bytes cannot prove that no bytes reached the device. This is
+			// already post-dispatch; classify it unknown to prevent reprints.
+			return MarkUnknown("WriteFile to %s failed after %d/%d confirmed bytes (device may have received data): %v", p.DevicePath, written, len(data), err)
 		}
 		if n == 0 {
 			if written > 0 {

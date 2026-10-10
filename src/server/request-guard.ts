@@ -13,6 +13,25 @@ export const MAX_AUTHENTICATED_CONCURRENT_BYTES = 32 * 1024 * 1024;
 export const MAX_UNAUTHENTICATED_CONCURRENT_BYTES = 8 * 1024 * 1024;
 export const MAX_CONCURRENT_CHUNKED_BYTES = MAX_AUTHENTICATED_CONCURRENT_BYTES;
 
+/**
+ * Enforce the smaller Agent route contracts before Next parses any JSON.
+ * A route-level Content-Length check runs too late to protect the global
+ * upload/read budget. The route still repeats validation for other hosting
+ * modes that bypass this custom server.
+ */
+const AGENT_ROUTE_BODY_LIMITS: Readonly<Record<string, number>> = {
+  "/api/agent/register": 64 * 1024,
+  "/api/agent/heartbeat": 512 * 1024,
+  "/api/agent/discovery": 2 * 1024 * 1024,
+  "/api/agent/jobs": 64 * 1024,
+};
+
+export function maxApiBodyBytesForRequest(url: string | undefined, method: string, ceiling = MAX_API_BODY_BYTES): number {
+  if (!url || (method !== "POST" && method !== "PATCH")) return ceiling;
+  const path = url.split("?", 1)[0].replace(/\/$/, "");
+  return Math.min(ceiling, AGENT_ROUTE_BODY_LIMITS[path] ?? ceiling);
+}
+
 const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 // Access AND refresh cookies authenticate browser requests. Refresh-only
 // requests (expired access cookie, live refresh family) must face the same
@@ -148,25 +167,44 @@ export function isCookieMutationSameOrigin(req: IncomingMessage): boolean {
   const host = headerValue(req, "host").toLowerCase().replace(/\.$/, "");
   if (!host || host.length > 255 || host.includes("/") || host.includes("@")) return false;
 
-  const origin = headerValue(req, "origin");
-  if (origin) {
+  // Compare the full public origin (scheme + host + port), not just Host.
+  // HTTPS and HTTP at the same hostname are different browser origins.
+  // Production startup requires APP_BASE_URL; it is the trusted external
+  // origin even behind a TLS-terminating reverse proxy. Never infer the
+  // scheme from an attacker-controlled X-Forwarded-Proto header.
+  let publicOrigin: string | undefined;
+  const publicBaseUrl = runtimeSecret("APP_BASE_URL");
+  if (publicBaseUrl) {
     try {
-      const parsed = new URL(origin);
-      return parsed.host.toLowerCase() === host;
+      const parsed = new URL(publicBaseUrl);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+      if (host !== parsed.host.toLowerCase()) return false;
+      publicOrigin = parsed.origin;
     } catch {
       return false;
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // Fail closed if the required production origin is missing.
+    return false;
   }
 
-  const referer = headerValue(req, "referer");
-  if (referer) {
+  const matchesSourceOrigin = (source: string): boolean => {
     try {
-      const parsed = new URL(referer);
-      return parsed.host.toLowerCase() === host;
+      const parsed = new URL(source);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+      // In local development without APP_BASE_URL, Host is the only
+      // configured target authority. Production always checks the scheme.
+      return publicOrigin ? parsed.origin === publicOrigin : parsed.host.toLowerCase() === host;
     } catch {
       return false;
     }
-  }
+  };
+
+  const origin = headerValue(req, "origin");
+  if (origin) return matchesSourceOrigin(origin);
+
+  const referer = headerValue(req, "referer");
+  if (referer) return matchesSourceOrigin(referer);
 
   // A browser carrying ambient cookies without the modern fetch-metadata or
   // standard origin signals is ambiguous; fail closed rather than treating
@@ -263,9 +301,10 @@ export async function guardApiRequest(
   res: ServerResponse,
   options: ApiBodyGuardOptions = {},
 ): Promise<IncomingMessage | null> {
-  const maxBytes = options.maxBytes ?? MAX_API_BODY_BYTES;
+  const method = (req.method ?? "").toUpperCase();
+  const maxBytes = maxApiBodyBytesForRequest(req.url, method, options.maxBytes ?? MAX_API_BODY_BYTES);
   if (!req.url?.startsWith("/api/")) return req;
-  if (!MUTATING_METHODS.includes((req.method ?? "").toUpperCase())) return req;
+  if (!MUTATING_METHODS.includes(method)) return req;
 
   const payloadBearing = isPayloadBearingEndpoint(req.url);
   const authenticated = isLikelyAuthenticated(req);

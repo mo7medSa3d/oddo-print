@@ -376,11 +376,8 @@ func validateDesiredNetworkDestination(c map[string]interface{}) error {
 		return fmt.Errorf("network printer requires config.ip and config.port")
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || !(ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+	if ip == nil || !config.IsAllowedPrinterIP(ip) {
 		return fmt.Errorf("network printer destination must be a private or link-local IP address")
-	}
-	if ip.String() == "169.254.169.254" || strings.EqualFold(ip.String(), "fd00:ec2::254") {
-		return fmt.Errorf("network printer destination must not be a metadata endpoint")
 	}
 	canonical := net.JoinHostPort(host, strconv.Itoa(port))
 	if supplied := desiredStringValue(c, "address"); supplied != "" {

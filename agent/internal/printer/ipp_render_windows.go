@@ -40,7 +40,10 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
-	defer func() { _ = instance.Close() }()
+	// jpegKilled records cancellation interrupts so the deferred Close does not
+	// report the expected "already closed" state as a worker-cleanup failure.
+	var jpegKilled pdfiumKillTracker
+	defer func() { _ = jpegKilled.close(instance) }()
 
 	doc, err := instance.OpenDocument(&requests.OpenDocument{File: &pdfData})
 	if err != nil {
@@ -67,7 +70,7 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
 		Width:  width,
 		Height: height,
-	})
+	}, &jpegKilled)
 	if err != nil {
 		return nil, fmt.Errorf("render PDF page to JPEG for IPP: %w", err)
 	}

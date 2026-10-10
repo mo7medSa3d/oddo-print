@@ -451,7 +451,7 @@ func IsAllowedPrinterIP(ip net.IP) bool {
 	}
 	// Cloud metadata services commonly bind to these link-local/ULA addresses;
 	// printer destinations must never be usable as a metadata proxy.
-	if ip4 := ip.To4(); ip4 != nil && ip4.Equal(net.IPv4(169, 254, 169, 254)) {
+	if ip4 := ip.To4(); ip4 != nil && (ip4.Equal(net.IPv4(169, 254, 169, 254)) || ip4.Equal(net.IPv4(169, 254, 170, 2))) {
 		return false
 	}
 	if strings.EqualFold(ip.String(), "fd00:ec2::254") {

@@ -34,6 +34,7 @@ func TestDiscoveryMDNSRejectsDisallowedDestinations(t *testing.T) {
 		{"mapped-loopback", "::ffff:127.0.0.1", 631, "ipp/print"},
 		{"public", "8.8.8.8", 631, "ipp/print"},
 		{"metadata", "169.254.169.254", 80, "latest/meta-data"},
+		{"ecs-task-credentials", "169.254.170.2", 80, "v2/metadata"},
 		{"metadata-v6", "fd00:0ec2:0:0:0:0:0:0254", 80, "latest/meta-data"},
 		{"multicast", "224.0.0.1", 631, "ipp/print"},
 		{"unspecified", "0.0.0.0", 631, "ipp/print"},

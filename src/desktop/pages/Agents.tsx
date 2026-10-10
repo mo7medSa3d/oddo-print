@@ -41,7 +41,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
                 ),
               },
               { label: t("desktop.agents.service"), value: String(anyStatus?.service || t("desktop.agents.windowsService")) },
-              { label: t("desktop.agents.version"), value: <Mono>{String(anyStatus?.version || s.version || "—")}</Mono> },
+              { label: t("desktop.agents.version"), value: <Mono>{String(anyStatus?.version || "unavailable")}</Mono> },
               { label: t("desktop.agents.hostname"), value: <Mono>{String(anyStatus?.hostname || "—")}</Mono> },
               { label: t("desktop.overview.statPrinters"), value: t("desktop.agents.printersRow", { online, total: physical.length, attention }) },
             ]} />

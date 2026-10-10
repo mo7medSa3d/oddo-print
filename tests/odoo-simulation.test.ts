@@ -11,7 +11,7 @@ import { validatePrintJobPayload, buildTestPrintPayload } from "../src/lib/paylo
 describe("Odoo simulation — POST /api/print/jobs payload contract", () => {
   it("validates payload contract (raw/escpos/pdf base64, 5MiB cap)", () => {
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("hello").toString("base64") })).not.toThrow();
-    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4").toString("base64") })).not.toThrow();
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4\n%%EOF\n").toString("base64") })).not.toThrow();
     expect(() => validatePrintJobPayload({ type: "badtype", encoding: "base64", data: "aGVsbG8=" })).toThrow();
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "hex", data: "aGVsbG8=" })).toThrow();
     const huge = Buffer.alloc(6 * 1024 * 1024).toString("base64");

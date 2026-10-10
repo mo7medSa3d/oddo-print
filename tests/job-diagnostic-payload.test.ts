@@ -32,6 +32,17 @@ describe("job diagnostic payload", () => {
     expect(JSON.stringify(diagnostic)).not.toContain("customer secret");
   });
 
+  it("does not decode or hash oversized legacy payloads while preserving redacted metadata", () => {
+    const raw = "A".repeat(4 * Math.ceil((5 * 1024 * 1024) / 3) + 1);
+    const diagnostic = buildJobDiagnosticPayload({ type: "pdf", encoding: "base64", data: raw });
+    expect(diagnostic?.data).toEqual({
+      redacted: true,
+      base64Characters: raw.length,
+      decodedBytes: null,
+      sha256: null,
+    });
+  });
+
   it("keeps corrupt legacy base64 diagnosable without inventing a digest", () => {
     const diagnostic = buildJobDiagnosticPayload({ type: "raw", encoding: "base64", data: "!!!" });
     expect(diagnostic?.data).toEqual({ redacted: true, base64Characters: 3, decodedBytes: null, sha256: null });

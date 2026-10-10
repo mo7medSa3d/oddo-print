@@ -5,6 +5,7 @@ import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { and, eq } from "drizzle-orm";
 import { getJobTimeline } from "../../../../../lib/job-timeline";
+import { persistedTimelinePresentation } from "../../../../../lib/job-timeline-presentation";
 import { runWithCorrelation, generateRequestId } from "../../../../../server/correlation";
 import { requestIdFrom, logWarn, redactClaimToken } from "../../../../../lib/log";
 
@@ -80,9 +81,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const timeline: TimelineEntry[] = events.map((e: JobEventRow) => ({
       id: e.id,
       stage: e.stage,
-      status: e.status,
+      // Historical printing events used status=ok and an English message,
+      // despite being no more than agent execution admission. Render those
+      // records as pending, too; their historical DB rows stay immutable.
+      status: persistedTimelinePresentation(e).status,
       at: e.createdAt,
       message: e.message,
+      messageKey: persistedTimelinePresentation(e).messageKey,
       errorCode: e.errorCode,
       attemptId: e.attemptId,
       claimId: redactClaimToken(e.claimId),

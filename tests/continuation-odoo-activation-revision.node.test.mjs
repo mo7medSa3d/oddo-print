@@ -13,16 +13,16 @@ const sql = (parts, ...vals) => parts.reduce((s, part, i) => s + part + (i < val
 const noop = () => {};
 async function load(path, deps) {
   const context = createContext({ Date, Error, Request, Response, console });
-  const module = new SourceTextModule(source(path), { context });
-  await module.link((name) => {
+  const sourceModule = new SourceTextModule(source(path), { context });
+  await sourceModule.link((name) => {
     assert.ok(Object.hasOwn(deps, name), `unmocked external boundary: ${name}`);
     const entries = deps[name];
     return new SyntheticModule(Object.keys(entries), function () {
       for (const [key, value] of Object.entries(entries)) this.setExport(key, value);
     }, { context });
   });
-  await module.evaluate();
-  return module.namespace;
+  await sourceModule.evaluate();
+  return sourceModule.namespace;
 }
 
 async function configFixture({ readOnly = false } = {}) {

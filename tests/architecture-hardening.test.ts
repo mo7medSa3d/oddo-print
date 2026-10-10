@@ -63,7 +63,7 @@ describe("architecture hardening", () => {
   });
 
   it("validates supported payload representations", () => {
-    expect(validatePrintJobPayload({ type: "pdf", encoding: "base64", data: b64("%PDF-1.7\n") }).type).toBe("pdf");
+    expect(validatePrintJobPayload({ type: "pdf", encoding: "base64", data: b64("%PDF-1.7\n%%EOF\n") }).type).toBe("pdf");
     expect(validatePrintJobPayload({ type: "image", encoding: "base64", data: "/9j/4AAQSkZJRg==" }).type).toBe("image");
   });
 

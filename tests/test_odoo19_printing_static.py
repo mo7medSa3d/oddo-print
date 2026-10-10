@@ -105,7 +105,13 @@ def test_lower_priority_explicit_binding_is_exact_and_separate_policy_targets_do
     assert "binding_model.resolve_explicit(" in router
     assert "return binding" in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
     assert ".find_for(" not in binding[binding.index("def resolve_explicit"):binding.index("def find_for")]
-    assert "binding_id = route.get(\"binding_id\") or False" in policy
+    # The fan-out key must derive its binding from the RESOLVED route (so an
+    # explicit binding is exact and separate policies never collapse into one
+    # key), and key computation must not be able to abort dispatch: a routing
+    # failure falls back to the declared binding instead of raising, otherwise
+    # a cross-company automated print is silently skipped.
+    assert 'route.get("binding_id") or False' in policy
+    assert "def _policy_target_binding_id" in policy
     assert "def effective_target_key" in policy
     assert "def dispatch_for_record" in policy
     for hook in ("models/account_move.py", "models/stock_picking.py", "models/pos_order.py"):

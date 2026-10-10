@@ -23,6 +23,21 @@ import (
 // document-format-supported to select native PDF or a Windows one-page
 // PDF -> JPEG fallback. Raw ESC/POS/ZPL data are never disguised as IPP
 // documents. Raster-only printers require a Windows spooler driver.
+// IPP printers are local network peers, not cloud services. Go's default HTTP
+// transport honors HTTP_PROXY/HTTPS_PROXY; routing receipt documents through
+// a host-level proxy would leak print data and can break local connectivity.
+// Keep direct dial, normal TLS validation, bounded setup, and connection reuse.
+// This transport is safe for concurrent requests (net/http guarantee).
+var ippDirectTransport = &http.Transport{
+	Proxy:               nil,
+	DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 20 * time.Second}).DialContext,
+	TLSHandshakeTimeout: 5 * time.Second,
+	MaxIdleConns:        32,
+	MaxIdleConnsPerHost: 4,
+	IdleConnTimeout:     30 * time.Second,
+	DisableCompression:  true,
+}
+
 type IPPPrinter struct {
 	URL              string // normalized http(s) transport URL, always credential-free
 	PrinterURI       string // credential-free URI carried in the IPP printer-uri attribute
@@ -61,17 +76,25 @@ func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
 	transportURL := *u
 	transportURL.User = nil
 
-	printerURI := transportURL.String()
-	lowerRaw := strings.ToLower(strings.TrimSpace(rawURL))
-	if strings.HasPrefix(lowerRaw, "ipp://") {
-		printerURIURL := transportURL
-		printerURIURL.Scheme = "ipp"
-		printerURI = printerURIURL.String()
-	} else if strings.HasPrefix(lowerRaw, "ipps://") {
-		printerURIURL := transportURL
+	// The HTTP(S) URL is only the wire transport. RFC 8010 section 5
+	// requires the IPP printer-uri operation attribute to use ipp(s) even
+	// when an operator configured the endpoint as http(s). Keep the SAME
+	// actual destination: explicit port 80/443 is necessary for a bare
+	// http(s) URL, because ipp(s) defaults to 631 instead.
+	printerURIURL := transportURL
+	if transportURL.Scheme == "https" {
 		printerURIURL.Scheme = "ipps"
-		printerURI = printerURIURL.String()
+	} else {
+		printerURIURL.Scheme = "ipp"
 	}
+	if printerURIURL.Port() == "" {
+		defaultPort := "80"
+		if transportURL.Scheme == "https" {
+			defaultPort = "443"
+		}
+		printerURIURL.Host = net.JoinHostPort(printerURIURL.Hostname(), defaultPort)
+	}
+	printerURI := printerURIURL.String()
 
 	return &IPPPrinter{
 		URL:        transportURL.String(),
@@ -222,7 +245,8 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 		}
 	}
 	client := &http.Client{
-		Timeout: 15 * time.Second,
+		Transport: ippDirectTransport,
+		Timeout:   15 * time.Second,
 		// IPP print submissions contain the complete document. Never follow a
 		// redirect because it could resend the payload to an unintended host.
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -245,7 +269,7 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	if err != nil {
 		if preDispatchIRErr(err) {
 			// Never transmitted: a clean, safely retryable failure.
-			return fmt.Errorf("IPP printer %s unreachable (request not sent): %w", p.URL, err)
+			return fmt.Errorf("IPP printer %s unreachable (request not sent): check TCP connectivity to the configured IPP endpoint from the Windows Agent, and confirm it supports IPP: %w", p.URL, err)
 		}
 		// The request may already have reached the device and created a
 		// spooled job; the physical outcome is genuinely unknown.
@@ -256,6 +280,13 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	// boundary cannot hide trailing/truncated response data.
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPPrintResponseBytes+1))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			// CheckRedirect deliberately stops a second print submission, but
+			// the original endpoint already received the request. An HTTP 3xx
+			// response is not correlated IPP refusal evidence: a physical job
+			// might already exist. Never classify it as safe to auto-retry.
+			return MarkUnknown("IPP printer %s redirected Print-Job with HTTP %d after submission; output may exist", p.URL, resp.StatusCode)
+		}
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("%s: IPP printer %s returned HTTP %d (submission may have been accepted)", ErrOutcomeUnknown, p.URL, resp.StatusCode)
 		}
@@ -398,7 +429,8 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 		}
 	}
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Transport: ippDirectTransport,
+		Timeout:   5 * time.Second,
 		// Status probes must stay bound to the configured printer endpoint.
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse

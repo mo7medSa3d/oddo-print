@@ -3,12 +3,17 @@ import { isIP } from "node:net";
 export function isPrivateNetworkAddress(ip: string): boolean {
   const family = isIP(ip);
   if (family === 4) {
-    if (ip === "169.254.169.254") return false;
+    // The EC2/IMDS host and ECS task-credential host are not printer
+    // endpoints, despite being legal link-local IPv4 addresses.
+    if (ip === "169.254.169.254" || ip === "169.254.170.2") return false;
     return isPrivateIPv4(ip);
   }
   if (family === 6) {
-    if (ip.toLowerCase() === "fd00:ec2::254") return false;
-    return isPrivateIPv6(ip);
+    // Compare numeric IPv6 addresses, not textual spellings: expanded
+    // fd00:0ec2:0:0:0:0:0:0254 is the same metadata endpoint.
+    const numeric = parseIPv6(ip);
+    if (numeric === null || numeric === parseIPv6("fd00:ec2::254")) return false;
+    return isPrivateIPv6Value(numeric);
   }
   return false;
 }
@@ -38,9 +43,8 @@ function parseIPv6(ip: string): bigint | null {
   return value;
 }
 
-function isPrivateIPv6(ip: string): boolean {
-  const value = parseIPv6(ip);
-  if (value === null || value === 0n || value === 1n) return false;
+function isPrivateIPv6Value(value: bigint): boolean {
+  if (value === 0n || value === 1n) return false;
   const top7 = value >> 121n;
   const top10 = value >> 118n;
   return top7 === 0x7en || top10 === 0x3fan;

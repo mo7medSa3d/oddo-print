@@ -9,6 +9,7 @@ import { nanoid } from "../../../../lib/nanoid";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { isPrivateNetworkAddress } from "../../../../lib/network-address";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { expireStaleAgentDiscovery } from "../../../../lib/discovery-session-expiry";
 
 export const dynamic = "force-dynamic";
 const MAX_DISCOVERY_BODY_BYTES = 2 * 1024 * 1024;
@@ -19,6 +20,7 @@ export async function GET(req: Request) {
   const agent = await validateAgent(req.headers.get("Authorization"));
   if (!agent) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
+  await expireStaleAgentDiscovery((query) => db.execute(query), agent.tenantId, agent.id);
   const rows = await db.query.discoverySessions.findMany({ where: and(eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId), eq(discoverySessions.status, "running")), orderBy: [desc(discoverySessions.createdAt)], limit: 5 });
   return NextResponse.json(rows);
 }
@@ -56,6 +58,27 @@ export async function POST(req: Request) {
   const bodyRecord = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const discoveryId = typeof bodyRecord.discoveryId === "string" ? bodyRecord.discoveryId : null;
   const status = typeof bodyRecord.status === "string" ? bodyRecord.status : null;
+  if (!status || !["running", "completed", "partial", "failed", "cancelled"].includes(status)) {
+    return NextResponse.json({ error: "Invalid discovery report status" }, { status: 400 });
+  }
+  const chunkIndex = bodyRecord.chunkIndex;
+  const chunkCount = bodyRecord.chunkCount;
+  const hasChunk = chunkIndex !== undefined || chunkCount !== undefined;
+  if (hasChunk && (!Number.isInteger(chunkIndex) || !Number.isInteger(chunkCount)
+    || (chunkCount as number) < 1 || (chunkCount as number) > 128
+    || (chunkIndex as number) < 0 || (chunkIndex as number) >= (chunkCount as number))) {
+    return NextResponse.json({ error: "Invalid discovery chunk sequence" }, { status: 400 });
+  }
+  if (hasChunk && ((chunkIndex as number) < (chunkCount as number) - 1 ? status !== "running" : status === "running")) {
+    // A terminal first/middle page would close the row while more pages are
+    // still in flight. The last page must always resolve a terminal outcome.
+    return NextResponse.json({ error: "Only the final discovery chunk may be terminal" }, { status: 400 });
+  }
+  const totalCandidates = bodyRecord.totalCandidates;
+  if (totalCandidates !== undefined && (!Number.isSafeInteger(totalCandidates)
+    || (totalCandidates as number) < 0 || (totalCandidates as number) > 32_000)) {
+    return NextResponse.json({ error: "Invalid discovery candidate count" }, { status: 400 });
+  }
   const devices: unknown[] = Array.isArray(bodyRecord.devices) ? bodyRecord.devices : [];
   const errorsResult = z.array(z.string().max(2048)).max(64).safeParse(bodyRecord.errors ?? []);
   if (!errorsResult.success) return NextResponse.json({ error: "Invalid discovery source errors" }, { status: 400 });
@@ -139,24 +162,70 @@ export async function POST(req: Request) {
     rawMetadata: d.rawMetadata ?? null,
     tenantId: agent.tenantId,
   }));
+  // A page's content must be the same across retries. A page index alone
+  // cannot distinguish a lost HTTP ACK from an Agent restart/re-scan that
+  // reordered devices while using the same discovery session id.
+  const chunkDigest = hasChunk
+    ? createHash("sha256").update(JSON.stringify(bodyRecord)).digest("hex")
+    : null;
   const result = await db.transaction(async (tx) => {
+    // Acquire resources in the same order as discovery-start and Agent
+    // lifecycle writers: Agent -> Tenant -> Session -> Device. Otherwise a
+    // report could hold the session while waiting for an Agent FK key-share
+    // lock, as a manager holds that Agent while expiring this session.
+    const lockedAgent = await tx.execute(sql`
+      SELECT id, lifecycle FROM agents
+      WHERE id = ${agent.id} AND tenant_id = ${agent.tenantId}
+      FOR SHARE
+    `);
+    const agentRow = lockedAgent.rows[0] as { id?: string; lifecycle?: string } | undefined;
+    if (!agentRow?.id || agentRow.lifecycle !== "active") {
+      return { kind: "agent_inactive" as const };
+    }
+    await requireActiveTenantInTransaction(tx, agent.tenantId);
     // Serialize reporting against manager cancellation on the discovery session row.
     // Once this lock is held, the running-state check and all device/status writes
     // form one lifecycle decision: either the report lands before cancellation,
     // or cancellation wins and no late device report is accepted.
     const lockedSession = await tx.execute(sql`
-      SELECT id, status
+      SELECT id, status, stats
       FROM discovery_sessions
       WHERE id = ${discoveryId}
         AND agent_id = ${agent.id}
         AND tenant_id = ${agent.tenantId}
       FOR UPDATE
     `);
-    const currentSession = lockedSession.rows[0] as { id?: string; status?: string } | undefined;
+    const currentSession = lockedSession.rows[0] as { id?: string; status?: string; stats?: unknown } | undefined;
     if (!currentSession?.id) return { kind: "not_found" as const };
-    if (currentSession.status !== "running") return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
-
-    await requireActiveTenantInTransaction(tx, agent.tenantId);
+    const previousStats = currentSession.stats && typeof currentSession.stats === "object" && !Array.isArray(currentSession.stats)
+      ? currentSession.stats as Record<string, unknown> : {};
+    const acceptedChunks = Array.isArray(previousStats.acceptedChunks)
+      ? previousStats.acceptedChunks.filter((v): v is number => Number.isInteger(v) && typeof v === "number" && v >= 0 && v < 128)
+      : [];
+    if (hasChunk && previousStats.chunkCount !== undefined && previousStats.chunkCount !== chunkCount) {
+      return { kind: "chunk_conflict" as const };
+    }
+    // A gateway commit followed by a lost HTTP response must be replay-safe.
+    // In-flight sessions from the earlier (index-only) schema may have no
+    // digests; accept those for compatibility during their short lifetime.
+    const chunkDigests = Array.isArray(previousStats.chunkDigests)
+      ? previousStats.chunkDigests.map((value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : "")
+      : [];
+    if (hasChunk && acceptedChunks.includes(chunkIndex as number)) {
+      const originalDigest = chunkDigests[chunkIndex as number];
+      if (originalDigest && originalDigest !== chunkDigest) {
+        return { kind: "chunk_replay_changed" as const };
+      }
+      // Also accept an identical replay of the final committed page after
+      // the session has become terminal without writing devices or counters.
+      return { kind: "ok" as const, insertedCount: 0, updatedCount: 0 };
+    }
+    if (currentSession.status !== "running") {
+      return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
+    }
+    if (hasChunk && acceptedChunks.length !== (chunkIndex as number)) {
+      return { kind: "chunk_conflict" as const };
+    }
 
     let insertedCount = 0;
     let updatedCount = 0;
@@ -216,31 +285,48 @@ export async function POST(req: Request) {
       }
     }
 
+    const countStat = (name: string) => typeof previousStats[name] === "number"
+      && Number.isSafeInteger(previousStats[name]) && (previousStats[name] as number) >= 0
+      ? previousStats[name] as number : 0;
+    const totalSkipped = countStat("skipped") + skippedDevices.length;
+    const mergedErrors = [...(Array.isArray(previousStats.errors)
+      ? previousStats.errors.filter((e): e is string => typeof e === "string") : []), ...sourceErrors].slice(0, 64);
     const effectiveStatus =
-      (skippedDevices.length > 0 || sourceErrors.length > 0) && status === "completed"
-        ? "partial"
-        : status;
-
-    if (effectiveStatus && ["completed", "partial", "failed", "cancelled"].includes(effectiveStatus)) {
-      await tx.update(discoverySessions)
-        .set({
-          status: effectiveStatus,
-          completedAt: sql`now()`,
-          updatedAt: sql`now()`,
-          stats: {
-            candidates: devices.length,
-            inserted: insertedCount,
-            updated: updatedCount,
-            skipped: skippedDevices.length,
-            errors: sourceErrors,
-          },
-        })
-        .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
+      (totalSkipped > 0 || mergedErrors.length > 0) && status === "completed" ? "partial" : status;
+    // Each accepted chunk updates the session under its row lock. Counters and
+    // completion status survive an Agent restart/retry instead of reflecting
+    // only the last chunk of a paginated discovery report.
+    // Keep indexes aligned when continuing a pre-digest session from an older
+    // Agent/Gateway version. Appending at acceptedChunks.length would store a
+    // later page's digest at index zero, falsely rejecting a legacy retry.
+    const nextChunkDigests = [...chunkDigests];
+    if (hasChunk) {
+      while (nextChunkDigests.length <= (chunkIndex as number)) nextChunkDigests.push("");
+      nextChunkDigests[chunkIndex as number] = chunkDigest as string;
     }
+    const nextStats = {
+      candidates: typeof totalCandidates === "number" ? totalCandidates : countStat("candidates") + devices.length,
+      inserted: countStat("inserted") + insertedCount,
+      updated: countStat("updated") + updatedCount,
+      skipped: totalSkipped,
+      errors: mergedErrors,
+      ...(hasChunk ? { chunkCount, acceptedChunks: [...acceptedChunks, chunkIndex as number], chunkDigests: nextChunkDigests } : {}),
+    };
+    const terminal = ["completed", "partial", "failed", "cancelled"].includes(effectiveStatus);
+    await tx.update(discoverySessions)
+      .set({
+        ...(terminal ? { status: effectiveStatus, completedAt: sql`now()` } : {}),
+        updatedAt: sql`now()`,
+        stats: nextStats,
+      })
+      .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agent.id), eq(discoverySessions.tenantId, agent.tenantId)));
     return { kind: "ok" as const, insertedCount, updatedCount };
   });
 
   if (result.kind === "not_found") return NextResponse.json({ error: "Discovery not found" }, { status: 404 });
+  if (result.kind === "agent_inactive") return NextResponse.json({ error: "Agent is no longer active" }, { status: 409 });
+  if (result.kind === "chunk_replay_changed") return NextResponse.json({ error: "Discovery page changed after its acknowledgment; start a new scan", code: "DISCOVERY_CHUNK_REPLAY_CHANGED" }, { status: 409 });
   if (result.kind === "not_running") return NextResponse.json({ error: `Discovery already ${result.status}` }, { status: 409 });
+  if (result.kind === "chunk_conflict") return NextResponse.json({ error: "Discovery chunks must arrive in order for the same session", code: "DISCOVERY_CHUNK_CONFLICT" }, { status: 409 });
   return NextResponse.json({ ok: true, inserted: result.insertedCount, updated: result.updatedCount, skipped: skippedDevices, verification: "candidate-only" });
 }

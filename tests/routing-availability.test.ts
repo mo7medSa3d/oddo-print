@@ -139,6 +139,15 @@ suite("gateway runtime printer availability + payload capability contract", () =
     }).ok).toBe(true);
   });
 
+  it("does not enable Windows driver rendering from a spoofed spooler protocol on TCP", () => {
+    const tcpSpooler = { protocol: "spooler", connectionType: "network" };
+    expect(validatePayloadForPrinter({ type: "pdf" }, tcpSpooler).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "image" }, tcpSpooler).ok).toBe(false);
+    expect(validatePayloadForPrinter({ type: "raw", protocol: "raw" }, {
+      ...tcpSpooler, capabilities: { supported_protocols: ["raw", "pdf", "image"] },
+    }).ok).toBe(false);
+  });
+
   it("does not treat an IPP protocol token as executable on the wrong transport", () => {
     expect(isPrinterStatusExecutable({
       status: "unknown",

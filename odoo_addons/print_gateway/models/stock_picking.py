@@ -21,7 +21,11 @@ class StockPickingPrintGateway(models.Model):
             if picking.state != "done":
                 continue
             try:
-                result = policy_model.dispatch_for_record(picking, "picking_validated")
+                # Isolate the optional policy query/write; catching a PostgreSQL
+                # exception without a savepoint leaves the business transaction
+                # aborted even when posting/validation should succeed.
+                with self.env.cr.savepoint():
+                    result = policy_model.dispatch_for_record(picking, "picking_validated")
                 if result.get("failed"):
                     _logger.error(
                         "Automated print scheduling completed with %s policy failure(s) for picking %s",

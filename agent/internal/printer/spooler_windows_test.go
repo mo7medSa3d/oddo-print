@@ -206,6 +206,29 @@ func TestSpoolerWritePartialBytesThenErrorIsUnknown(t *testing.T) {
 	}
 }
 
+// A failed WritePrinter may have submitted bytes despite returning zero in
+// pcWritten. Unknown outcome is mandatory after the syscall is attempted:
+// requeueing would risk a duplicate receipt when the spooler/device accepted
+// data before reporting an error.
+func TestSpoolerWriteFailureWithZeroReportedBytesIsUnknown(t *testing.T) {
+	var log spoolerCallLog
+	sys := fakeSpoolerSyscalls(&log, func(hPrinter syscall.Handle, buf unsafe.Pointer, length int, bytesWritten *uint32) (uintptr, error) {
+		*bytesWritten = 0
+		return 0, syscall.Errno(31)
+	})
+
+	res := executeSpoolerSessionWithSyscalls("ZeroReportedPrinter", []byte("receipt payload"), nil, sys)
+	if res.err == nil || !OutcomeUnknown(res.err) {
+		t.Fatalf("failed WritePrinter with zero confirmed bytes must have unknown physical outcome: %v", res.err)
+	}
+	if res.written != 0 {
+		t.Fatalf("reported bytes must stay honestly zero, got %d", res.written)
+	}
+	if log.endDocCalls != 0 || log.abortCalls != 1 {
+		t.Fatalf("uncertain spooler session must abort without finalizing (endDoc=%d abort=%d)", log.endDocCalls, log.abortCalls)
+	}
+}
+
 func TestSpoolerWriteOverReportCannotSucceed(t *testing.T) {
 	mockSyscalls := defaultSpoolerSyscalls
 	mockSyscalls.openPrinterW = func(printerName *uint16, hPrinter *syscall.Handle) (uintptr, error) {

@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -19,9 +18,6 @@ import (
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/responses"
 	"github.com/klippa-app/go-pdfium/webassembly"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/sys/windows"
 )
 
@@ -112,26 +108,10 @@ var (
 
 func getPDFiumPool() (pdfium.Pool, error) {
 	pdfiumOnce.Do(func() {
-		// The pinned PDFium WASM uses exception handling for setjmp/longjmp.
-		// Custom runtime configs must retain that upstream-required feature.
-		runtimeConfig := wazero.NewRuntimeConfig().
-			WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling).
-			WithCloseOnContextDone(true)
-		pdfiumPool, pdfiumErr = webassembly.Init(webassembly.Config{
-			MinIdle:       0,
-			MaxIdle:       1,
-			MaxTotal:      1,
-			ReuseWorkers:  true,
-			RuntimeConfig: runtimeConfig,
-			FSConfig:      wazero.NewFSConfig(),
-			// The Agent runs as a headless Windows Service without reliable
-			// standard handles. go-pdfium defaults nil writers to os.Stdout/
-			// os.Stderr; wazero then fails to instantiate its WASM worker
-			// with GetFileType /dev/stdout: The handle is invalid.
-			// PDFium results/errors use the API, never a process console.
-			Stdout: io.Discard,
-			Stderr: io.Discard,
-		})
+		// Configuration (including the headless-safe stdout/stderr policy
+		// required by Session 0 Windows Services) lives in pdfium_pool.go so
+		// it is shared by every PDFium consumer and testable off Windows.
+		pdfiumPool, pdfiumErr = webassembly.Init(newPDFiumPoolConfig())
 	})
 	return pdfiumPool, pdfiumErr
 }
@@ -302,7 +282,7 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, pageWidth, p
 	return nil
 }
 
-func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request *requests.RenderPageInPixels) (*image.RGBA, func(), error) {
+func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request *requests.RenderPageInPixels, killed *pdfiumKillTracker) (*image.RGBA, func(), error) {
 	type outcome struct {
 		rendered *responses.RenderPageInPixels
 		err      error
@@ -325,8 +305,10 @@ func renderPageWithContext(ctx context.Context, instance pdfium.Pdfium, request 
 	case <-ctx.Done():
 		// Kill is the go-pdfium-supported way to interrupt an in-flight WASM
 		// worker. The caller decides whether the physical outcome is already
-		// ambiguous based on whether StartDocW has occurred.
-		_ = instance.Kill()
+		// ambiguous based on whether StartDocW has occurred. Recording the
+		// kill keeps the deferred Close from misreporting the resulting
+		// "already closed" state as a worker-cleanup failure.
+		killed.kill(instance)
 		// If the render completed in the same instant as the cancellation,
 		// its Cleanup would otherwise be orphaned in the buffered channel:
 		// the bitmap was never handed out, so release it here.
@@ -422,8 +404,9 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		return fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
 	log.Printf("print.trace pdf_renderer_acquire latency_ms=%d success=true", time.Since(acquireStarted).Milliseconds())
+	var killed pdfiumKillTracker
 	defer func() {
-		if err := instance.Close(); err != nil {
+		if err := killed.close(instance); err != nil {
 			// The renderer worker is process-local cleanup. Once EndDoc has
 			// succeeded, the Windows spooler has already accepted/finalized
 			// the document; a cleanup failure must never downgrade that
@@ -544,7 +527,7 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
 		Width:  maxW,
 		Height: maxH,
-	})
+	}, &killed)
 	log.Printf("print.trace pdf_first_page_render latency_ms=%d success=%t", time.Since(firstPageStarted).Milliseconds(), err == nil)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -642,10 +625,10 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 			Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: pageIndex}},
 			Width:  maxW,
 			Height: maxH,
-		})
+		}, &killed)
 		if err != nil {
 			if ctx.Err() != nil {
-				_ = instance.Kill()
+				killed.kill(instance)
 				return markPDFDispatchUnknown(printerName, fmt.Sprintf("was cancelled while rendering page %d", pageIndex+1), ctx.Err())
 			}
 			return markPDFDispatchUnknown(printerName, fmt.Sprintf("failed while rendering page %d", pageIndex+1), err)

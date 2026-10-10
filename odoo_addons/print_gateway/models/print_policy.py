@@ -142,44 +142,65 @@ class PrintGatewayPolicy(models.Model):
             raise ValidationError(_("Raw template is empty for policy %s.") % self.name)
 
         protocol = (protocol or self.raw_protocol or "").strip().lower()
-        values = {}
-        for field_name, field in record._fields.items():
-            if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
-                val = getattr(record, field_name)
-                values[field_name] = sanitize_raw_value(val, protocol)
-            elif field.type == "many2one":
-                rel = getattr(record, field_name)
-                values[field_name] = sanitize_raw_value(rel.display_name if rel else "", protocol)
-                values[f"{field_name}_id"] = sanitize_raw_value(rel.id if rel else "", protocol)
         try:
-            import string  # noqa: F401  (imported for clarity; Formatter used below)
+            import string
+
+            # A raw-command template is an operator-authored printer program,
+            # not a license to read every ORM field. Prefetching unrelated
+            # computed/relational fields is expensive and can trigger unrelated
+            # access errors during a business print operation.
+            if len(template.encode("utf-8")) > 2 * 1024 * 1024:
+                raise ValueError("Raw printer template exceeds the 2 MiB safety limit.")
             formatter = string.Formatter()
-            for literal_text, field_name, format_spec, conversion in formatter.parse(template):
+            referenced = set()
+            for _literal, field_name, format_spec, conversion in formatter.parse(template):
                 self._sanitize_template_field(field_name, conversion)
-                # str.format evaluates NESTED replacement fields inside a
-                # format spec (e.g. {x:{a.__class__}}) - the classic escape
-                # from a field-name-only sandbox. Format specs must stay
-                # literal constants; any nested field inside one is rejected.
-                if format_spec:
-                    for _lit, nested_field, nested_spec, _conv in formatter.parse(format_spec):
-                        if nested_field is not None:
-                            raise ValueError("Nested replacement fields inside format specifications are forbidden.")
-                        if _conv:
-                            raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
-                        if not nested_spec:
-                            continue
-                        # recurse for the rare double-nested case
-                        stack = [nested_spec]
-                        while stack:
-                            spec = stack.pop()
-                            for _l, nf, ns, _c in formatter.parse(spec):
-                                if nf is not None:
-                                    raise ValueError("Nested replacement fields inside format specifications are forbidden.")
-                                if _c:
-                                    raise ValueError("Format conversions (!r/!s/!a) are forbidden in raw print templates.")
-                                if ns:
-                                    stack.append(ns)
+                if field_name is None:
+                    continue
+                if not field_name:
+                    raise ValueError("Only named placeholders are allowed in raw print templates.")
+                if len(format_spec) > 32:
+                    raise ValueError("Printer template format specification is too long.")
+                # str.format accepts nested names in format specifications
+                # (e.g. {name:{other.__class__}}). They must never be evaluated.
+                for _sub_lit, nested, _sub_spec, _sub_conv in formatter.parse(format_spec):
+                    if nested is not None:
+                        raise ValueError("Nested replacement fields inside format specifications are forbidden.")
+                # Python's string formatting can allocate gigabytes for a width
+                # such as :>999999999, even if the substituted value is tiny.
+                import re
+                for number in re.findall(r"[0-9]+", format_spec):
+                    if int(number) > 4096:
+                        raise ValueError("Printer template format width/precision exceeds 4096.")
+                referenced.add(field_name)
+
+            values = {}
+            for placeholder in referenced:
+                # An actual Odoo field always takes precedence. The virtual
+                # <relation>_id field only exists when a Many2one exposes its
+                # numeric ID (e.g. partner_id_id); never misinterpret a real
+                # field ending in _id as a virtual field for a separate column.
+                is_id = placeholder not in record._fields and placeholder.endswith("_id")
+                source = placeholder[:-3] if is_id else placeholder
+                field = record._fields.get(source)
+                if field is None:
+                    raise KeyError(placeholder)
+                if is_id and field.type != "many2one":
+                    raise KeyError(placeholder)
+                if field.type in ("char", "text", "integer", "float", "date", "datetime", "boolean", "selection"):
+                    if is_id:
+                        raise KeyError(placeholder)
+                    value = getattr(record, source)
+                elif field.type == "many2one":
+                    relation = getattr(record, source)
+                    value = (relation.id if relation else "") if is_id else (relation.display_name if relation else "")
+                else:
+                    raise KeyError(placeholder)
+                values[placeholder] = sanitize_raw_value(value, protocol)
+
             rendered = template.format(**values)
+            if len(rendered.encode("utf-8")) > 2 * 1024 * 1024:
+                raise ValueError("Rendered raw printer template exceeds the 2 MiB safety limit.")
             return rendered
         except KeyError as exc:
             # The by-far most common failure: the template asks for a field the
@@ -382,33 +403,57 @@ class PrintGatewayPolicy(models.Model):
                 )
         return {"scheduled": scheduled, "failed": failures}
 
+    def _policy_target_binding_id(self, record):
+        """Resolve the binding a policy targets, for fan-out dedup only.
+
+        Computing a dedup key must never be the reason an automated print is
+        silently skipped. resolve_binding enforces the active-company contract
+        and raises when a root-company operator (or the cron user) validates a
+        branch-scoped record. Previously that exception aborted dispatch before
+        any intent was created, so the document was never printed and the only
+        trace was a log line. The Intent layer is already hardened for exactly
+        this cross-company case (see print_intent's record-company re-scope),
+        so fall back to the policy's own declared binding here and let
+        create_and_route surface any genuine routing error.
+        """
+        router = self.env["print_gateway.print_router"]
+        declared_destination = self.binding_id.destination_ref if self.binding_id else None
+        try:
+            with self.env.cr.savepoint():
+                if self.action_type == "report":
+                    route = router.resolve_binding(
+                        report=self.report_id,
+                        record=record,
+                        company=record.company_id,
+                        explicit_destination=declared_destination,
+                        explicit_binding=self.binding_id or None,
+                        payload_type="pdf",
+                    )
+                else:
+                    # Resolve implicit raw targets too. Using False for every
+                    # policy without an explicit binding caused unrelated
+                    # branch/filter policies to collapse into one dedup key.
+                    route = router.resolve_binding(
+                        record=record,
+                        company=record.company_id,
+                        document_type="label",
+                        explicit_binding=self.binding_id or None,
+                        explicit_destination=declared_destination,
+                        protocol=self.raw_protocol,
+                        payload_type="raw",
+                    )
+                return route.get("binding_id") or False
+        except Exception as exc:
+            _logger.warning(
+                "Could not resolve the binding for policy '%s' while computing its fan-out key (%s); continuing with the declared binding so the print is not skipped.",
+                self.name, exc,
+            )
+            return self.binding_id.id if self.binding_id else False
+
     def effective_target_key(self, record):
         """Return the validated effective target used for policy fan-out dedup."""
         self.ensure_one()
-        if self.action_type == "report":
-            route = self.env["print_gateway.print_router"].resolve_binding(
-                report=self.report_id,
-                record=record,
-                company=record.company_id,
-                explicit_destination=self.binding_id.destination_ref if self.binding_id else None,
-                explicit_binding=self.binding_id or None,
-                payload_type="pdf",
-            )
-            binding_id = route.get("binding_id") or False
-        else:
-            # Resolve implicit raw targets too. Using False for every policy
-            # without an explicit binding caused unrelated branch/filter
-            # policies to collapse into one dedup key before routing.
-            route = self.env["print_gateway.print_router"].resolve_binding(
-                record=record,
-                company=record.company_id,
-                document_type="label",
-                explicit_binding=self.binding_id or None,
-                explicit_destination=self.binding_id.destination_ref if self.binding_id else None,
-                protocol=self.raw_protocol,
-                payload_type="raw",
-            )
-            binding_id = route.get("binding_id") or False
+        binding_id = self._policy_target_binding_id(record)
         return (
             binding_id,
             self.action_type,
@@ -446,11 +491,17 @@ class PrintGatewayPolicy(models.Model):
             if not record_ptype or record_ptype != self.picking_type_id:
                 return False
 
-        # Domain filter check
+        # Domain filter check. This is optional policy routing inside the
+        # invoice/stock/POS business transaction: a malformed legacy domain
+        # must fail closed, and a PostgreSQL query error must roll back to a
+        # savepoint before the exception is swallowed. Otherwise a bad filter
+        # can both over-print unrelated records and abort the business write.
         if self.domain_filter and self.domain_filter.strip():
             try:
                 domain = safe_eval(self.domain_filter)
-                if isinstance(domain, list):
+                if not isinstance(domain, list):
+                    return False
+                with self.env.cr.savepoint():
                     matched = self.env[self.model_name].search([("id", "=", record.id)] + domain, limit=1)
                     if not matched:
                         return False

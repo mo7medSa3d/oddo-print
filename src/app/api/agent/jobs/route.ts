@@ -721,8 +721,10 @@ export async function PATCH(req: Request) {
       jobId,
       tenantId: agent.tenantId,
       stage,
-      status: requestedStatus === "success" ? "ok" : requestedStatus === "failed" ? "error" : "ok",
-      message: requestedStatus === "printing" ? `Agent started printing (transport=${transport ?? "unknown"})` : requestedStatus === "success" ? `Print success (spoolerJobId=${spoolerJobId ?? "n/a"})` : nextError ?? requestedStatus,
+      // Admission means this attempt has a live claim, NOT that the printer
+      // has accepted data. Do not show a green success state for this event.
+      status: requestedStatus === "printing" ? "pending" : requestedStatus === "success" ? "ok" : "error",
+      message: requestedStatus === "printing" ? `Agent admitted attempt for dispatch (configured transport=${transport ?? "unspecified"}; physical output not confirmed)` : requestedStatus === "success" ? `Print submission acknowledged (spoolerJobId=${spoolerJobId ?? "n/a"}; physical output not confirmed)` : nextError ?? requestedStatus,
       errorCode: requestedStatus === "failed" ? nextError ?? undefined : undefined,
       spoolerJobId: spoolerJobId ?? undefined,
       attemptId: incomingAttemptId ?? job.attemptId ?? undefined,

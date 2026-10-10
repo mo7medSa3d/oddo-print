@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -56,5 +57,12 @@ func TestProgramStartStopLifecycle(t *testing.T) {
 	// again, runDone is already closed, no agent was ever published.
 	if err := p.Stop(nil); err != nil {
 		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+func TestAgentRuntimeInfoDisclosesHeadlessPDFiumSupport(t *testing.T) {
+	runtimeInfo := agentRuntimeInfo()
+	if !strings.Contains(runtimeInfo, "pdfium-headless-stdio-v1") || !strings.Contains(runtimeInfo, "go=") {
+		t.Fatalf("version diagnostic should reveal service-safe PDFium capability: %s", runtimeInfo)
 	}
 }

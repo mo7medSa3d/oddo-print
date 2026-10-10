@@ -1,5 +1,4 @@
 import { db } from "../db";
-import { performance } from "node:perf_hooks";
 import { sql } from "drizzle-orm";
 import { parseDbTimeMs } from "./database-clock";
 
@@ -7,10 +6,10 @@ const WINDOW_MS = 60_000;
 const MAX_FAILURES = 20;
 const LOCK_MS = 60_000;
 
-const localLockedUntil = new Map<string, number>();
+// Upgrade admission is persisted in PostgreSQL. Do not retain an unused
+// process-local map keyed by client IP; an attacker can produce unbounded keys.
 
 export async function recordWsUpgradeSuccess(key: string): Promise<void> {
-  localLockedUntil.delete(key);
   await db.execute(sql`DELETE FROM auth_rate_limits WHERE key = ${`ws-upgrade:${key}`}`);
 }
 
@@ -42,7 +41,6 @@ export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: t
 
     const existingLock = parseDbTimeMs(row.locked_until) ?? 0;
     if (existingLock > now.getTime()) {
-      localLockedUntil.set(key, performance.now() + Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) * 1000);
       return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existingLock - now.getTime()) / 1000)) } as const;
     }
 
@@ -63,7 +61,6 @@ export async function reserveWsUpgradeAttempt(key: string): Promise<{ allowed: t
 
     if (!lockedUntil) return { allowed: true } as const;
     const retryAfterSec = Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000));
-    localLockedUntil.set(key, performance.now() + retryAfterSec * 1000);
     // The reservation itself is allowed; a failed authentication on this
     // attempt should return 429 and the next attempt is already blocked.
     return { allowed: true, retryAfterSec } as const;

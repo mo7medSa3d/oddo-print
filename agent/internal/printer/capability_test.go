@@ -62,6 +62,9 @@ func TestCapabilityTableParity(t *testing.T) {
 		{"windows_spooler alias prints pdf on spooler transport", "pdf", "", "windows_spooler", "spooler", nil, true},
 		{"windows_spooler alias prints image on spooler transport", "image", "", "windows_spooler", "spooler", nil, true},
 		{"windows_spooler token does not turn network into spooler", "pdf", "", "windows_spooler", "network", nil, false},
+		{"spooler token does not turn network into driver", "pdf", "", "spooler", "network", nil, false},
+		{"spooler token does not rasterize image on network", "image", "", "spooler", "network", nil, false},
+		{"spooler token and claimed passthrough cannot inject RAW on TCP", "raw", "raw", "spooler", "network", []string{"raw"}, false},
 		{"declared ipps caps cannot turn raw pipe into IPPS renderer", "pdf", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipps caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipps"}, false},
 		{"declared ipp caps cannot add renderer to raw pipe", "image", "", "raw", "network", []string{"ipp"}, false},
@@ -116,6 +119,13 @@ func TestSupportedProtocolsForWindowsSpoolerAlias(t *testing.T) {
 	}
 	if got := SupportedProtocolsForDevice(TransportFacts{Protocol: "windows_spooler", Connection: "network"}); len(got) != 0 {
 		t.Fatalf("windows_spooler token must not turn a network transport into a spooler, got %v", got)
+	}
+}
+
+func TestSpoolerProtocolTokenOnTCPDoesNotAdvertiseDocumentRenderer(t *testing.T) {
+	got := SupportedProtocolsForDevice(TransportFacts{Protocol: "spooler", Connection: "network"})
+	if len(got) != 0 {
+		t.Fatalf("a network byte pipe does not acquire Windows document rendering from a protocol label: %v", got)
 	}
 }
 

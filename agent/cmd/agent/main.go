@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -429,10 +430,23 @@ func handleServiceControl(rawAction, configPath string) error {
 	}
 }
 
+// The headless PDFium capability marker makes it possible to distinguish an
+// installed pre-fix service executable from a newer package, even when the
+// installer and running service point to different paths. The marker is
+// intentionally tied to the verified io.Discard WASM configuration.
+func agentRuntimeInfo() string {
+	return fmt.Sprintf("YaseirAgent go=%s feature=pdfium-headless-stdio-v1", runtime.Version())
+}
+
 func main() {
+	showVersion := flag.Bool("version", false, "Show the Agent runtime and embedded PDFium service capability")
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
 	svcFlag := flag.String("service", "", "Control the system service: install, uninstall, purge, start, stop, restart, status")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(agentRuntimeInfo())
+		return
+	}
 
 	// 1. Service control path: dispatch immediately without reading config or initializing agent
 	if *svcFlag != "" {
@@ -459,6 +473,7 @@ func main() {
 		defer logRotator.Close()
 	}
 
+	log.Printf("%s", agentRuntimeInfo())
 	log.Printf("Using config file: %s", *configPath)
 
 	svcConfig := &service.Config{
