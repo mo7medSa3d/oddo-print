@@ -39,3 +39,23 @@ printers:
   #   protocol: "windows_spooler"
   #   enabled: true
 
+  # Safe service-backed virtual capture (TEST-ONLY, OFF by default):
+  # Requires service environment YASEIR_AGENT_VIRTUAL_TEST_MODE=1 AND
+  # Gateway environment YASEIR_GATEWAY_VIRTUAL_TEST_MODE=1, followed by
+  # service/container restart. The Agent service writes *files*, not paper.
+  # - id: "yaseir_virtual_capture"
+  #   name: "Yaseir Test File Capture"
+  #   type: "spooler"
+  #   connection_type: "spooler"
+  #   printer_type: "virtual"
+  #   spooler_name: "YASEIR_VIRTUAL_TEST_CAPTURE"
+  #   protocol: "spooler"
+  #   capabilities:
+  #     virtual_test_sink: true
+  #     supported_protocols: ["pdf", "image", "raw", "escpos"]
+  #   enabled: true
+  #
+  # Test files go under C:\\ProgramData\\YaseirAgent\\VirtualTestPrints
+  # (or YASEIR_AGENT_VIRTUAL_TEST_OUTPUT_DIR on an absolute, secured local
+  # path). Never set this for a customer's live billing/receipt workload;
+  # only synthetic diagnostic Test Print jobs are admitted by the Gateway.
