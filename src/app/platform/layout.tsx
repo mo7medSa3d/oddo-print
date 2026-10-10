@@ -4,7 +4,8 @@ import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Building2, CreditCard, Tags, Shield } from "lucide-react";
-import { TopNavbar, type TopNavItem } from "../../components/TopNavbar";
+import type { TopNavItem } from "../../components/TopNavbar";
+import { PlatformSidebar } from "../../components/platform/PlatformSidebar";
 import { PageContainer, PageSkeleton, ErrorState, Callout } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 
@@ -193,16 +194,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   }
 
   return (
-    <div className="min-h-screen bg-app text-ink font-sans selection:bg-brand/20">
-      <TopNavbar
-        items={NAV_ITEMS}
-        brandHref="/platform/dashboard"
-        brandTitle="Yaseir"
-        brandSubtitle={t("platform.brand.controlPlane")}
-        onLogout={handleLogout}
-        loggingOut={loggingOut}
-        variant="platform"
-      />
+    <PlatformSidebar items={NAV_ITEMS} onLogout={handleLogout} loggingOut={loggingOut}>
       {logoutError && (
         <PageContainer>
           <Callout tone="bad" title={logoutError}>
@@ -216,9 +208,9 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           </Callout>
         </PageContainer>
       )}
-      <main className="page-transition min-h-[calc(100vh-56px)] bg-app text-ink">
+      <main className="page-transition min-w-0 max-w-full bg-app text-ink">
         <PageContainer>{children}</PageContainer>
       </main>
-    </div>
+    </PlatformSidebar>
   );
 }
