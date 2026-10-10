@@ -56,7 +56,8 @@ describe("production hardening contracts", () => {
     expect(route).toContain('sql`${printJobs.expiresAt} <= now()`');
     expect(route).toContain('code: "JOB_NOT_EXPIRED_OR_STALE"');
     expect(route).toContain('JOB_EXPIRED_DURING_PRINT: physical output is unknown');
-    expect(route).toContain('UNKNOWN_PARTIAL_DELIVERY: job expired after delivery without an execution report');
+    expect(route).toContain('UNKNOWN_PARTIAL_DELIVERY: job expired after possible delivery without an execution report');
+    expect(route).toContain('OR ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING}');
   });
 
   it("does not log Odoo print-intent claim tokens", () => {

@@ -364,7 +364,11 @@ patch(PosStore.prototype, {
             // printing, or definitively rejected) close the reuse window;
             // uncertain statuses keep it for a retry. Transport failures are
             // recorded uncertain by the inner catch above.
-            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
+            // An accepted-looking status without the server's positive Gateway
+            // route marker is a contradictory response, not print admission.
+            // Keep the original operation ID and raster for reconciliation.
+            const status = result?.gateway_enabled === true ? result?.status : "unknown";
+            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(status);
             if (terminal) finishPrintOperation(recoveryKey, operationId);
             receiptOps.set(orderId, {
                 id: operationId,
@@ -379,17 +383,17 @@ patch(PosStore.prototype, {
             // printed; "unknown" means the outcome cannot be trusted. Only
             // allowlisted accepted statuses render success; an absent or
             // unexpected status must never toast success.
-            if (["unknown", "partial"].includes(result?.status)) {
+            if (["unknown", "partial"].includes(status)) {
                 this.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
-            } else if (result?.status === "failed") {
+            } else if (status === "failed") {
                 this.notification.add(
                     result?.message || _t("Couldn't print the receipt. See Print Activity."),
                     { type: "danger" }
                 );
-            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
+            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(status)) {
                 this.notification.add(
                     result?.message || _t("Receipt sent. Check Print Activity for the result."),
                     { type: "success" }
@@ -405,9 +409,8 @@ patch(PosStore.prototype, {
             // rejection or an ambiguous physical outcome must not be recorded
             // as a completed POS print. Allowlist (mirrors the kitchen path):
             // an absent/unexpected status must never count as success.
-            const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);
+            const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(status);
             if (!printBillActionTriggered && recordPrintAttempt && !receiptOps.get(orderId)?.counted) {
-                receiptOps.get(orderId).counted = true;
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {
                     const writeResult = await gatewaySilentCall(
@@ -421,6 +424,13 @@ patch(PosStore.prototype, {
                     // after the server accepted the count update.
                     if (writeResult !== false) {
                         currentOrder.nb_print = count;
+                        // Only record the accounting step after Odoo has
+                        // accepted it. A queued-job retry can then recover a
+                        // failed silentCall without reprinting new paper.
+                        const countedOperation = receiptOps.get(orderId);
+                        if (countedOperation?.id === operationId) countedOperation.counted = true;
+                    } else {
+                        console.warn("Receipt accepted, but POS print count was not saved; retry can repair accounting.");
                     }
                 } catch (writeErr) {
                     console.warn("Failed to record receipt print count:", writeErr);
@@ -910,7 +920,10 @@ patch(PosStore.prototype, {
                 true,
                 { ambiguous: true },
             );
-            const status = result?.status;
+            // A status token alone is not evidence this request used the
+            // authorized Gateway route. Treat absent/false ownership as an
+            // uncertain response; automatic physical retry is forbidden.
+            const status = result?.gateway_enabled === true ? result?.status : "unknown";
             const accepted = ["queued", "submitted", "claimed", "printing", "success"].includes(status);
             if (!accepted && status !== "failed") {
                 // Missing/unrecognized responses give no proof of refusal.

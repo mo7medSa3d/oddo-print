@@ -1045,6 +1045,54 @@ func TestPollJobsBoundsOversizedBatch(t *testing.T) {
 
 // TestPollJobsDispatchesBoundedBatch proves the ceiling does not reject a
 // legitimate response: a valid batch inside the limit is decoded and dispatched.
+// A valid JSON prefix followed by a proxy error, an extra JSON value, or
+// more than the Gateway's per-poll item cap must not admit ANY local work.
+// This exercises Agent.pollJobs through its real HTTP request/dispatch path.
+func TestPollJobsRejectsMalformedBatchBeforeLocalAdmission(t *testing.T) {
+	for name, suffix := range map[string]string{
+		"extra_value":      "true",
+		"trailing_garbage": "BROKEN",
+	} {
+		t.Run(name, func(t *testing.T) {
+			printed := &fakePrinter{}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/api/agent/jobs" {
+					http.NotFound(w, r)
+					return
+				}
+				job, _ := json.Marshal([]map[string]interface{}{{
+					"id": "job-untrusted", "agentId": "agt_untrusted", "printerId": "prt-untrusted",
+					"status": "claimed", "claimToken": "tok",
+					"payload": makeJobPayload("job-untrusted"),
+				}})
+				_, _ = w.Write(append(job, suffix...))
+			}))
+			defer server.Close()
+			cfg := &config.Config{}
+			cfg.Agent.ID = "agt_untrusted"
+			cfg.Agent.Secret = "secret"
+			cfg.Server.URL = server.URL
+			ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = ag.Close() }()
+			ag.printers = map[string]printer.Printer{"prt-untrusted": printed}
+			ag.printerConfigs = map[string]config.PrinterConfig{
+				"prt-untrusted": {ID: "prt-untrusted", Name: "Untrusted", Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw"},
+			}
+			allowInjectedPrintersForTest(ag)
+			ag.pollJobs(context.Background())
+			if !ag.waitForJobs() {
+				t.Fatal("unexpected in-flight print did not drain")
+			}
+			if got := printed.Calls(); got != 0 {
+				t.Fatalf("untrusted Gateway batch executed %d physical submissions", got)
+			}
+		})
+	}
+}
+
 func TestPollJobsDispatchesBoundedBatch(t *testing.T) {
 	original := pollJobsByteLimit
 	defer func() { pollJobsByteLimit = original }()

@@ -357,11 +357,20 @@ export async function PATCH(req: Request) {
       logWarn("job.status.expired_on_terminal", { requestId, jobId, agentId: agent.id, currentStatus });
       return NextResponse.json({ error: `Job is already terminal (${currentStatus}); expiry not allowed`, code: "JOB_ALREADY_TERMINAL", status: currentStatus }, { status: 409 });
     }
-    const expiryError = currentStatus === "printing"
-      ? "JOB_EXPIRED_DURING_PRINT: physical output is unknown"
-      : currentStatus === "claimed" && Boolean(job.deliveredAt || job.ackedAt)
-        ? "UNKNOWN_PARTIAL_DELIVERY: job expired after delivery without an execution report"
-        : null;
+    // Classify expiry from the CURRENT PostgreSQL row, not the earlier
+    // unprotected SELECT. An ACK/evidence write may commit between the read
+    // above and this UPDATE, while the claim's status/token remain the same.
+    // In particular, DELIVERY_EVIDENCE_PENDING (used by both WS and polling)
+    // already means the HTTP/frame handoff MAY have reached the Agent. It is
+    // not evidence of paper output, and cannot become definite non-printing.
+    const expiryError = sql`CASE
+      WHEN ${printJobs.status} = 'printing'
+        THEN 'JOB_EXPIRED_DURING_PRINT: physical output is unknown'
+      WHEN ${printJobs.status} = 'claimed' AND (
+        ${printJobs.deliveredAt} IS NOT NULL OR ${printJobs.ackedAt} IS NOT NULL
+        OR ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING}
+      ) THEN 'UNKNOWN_PARTIAL_DELIVERY: job expired after possible delivery without an execution report'
+      ELSE NULL END`;
 
     const expired = await db.update(printJobs)
       .set({
@@ -386,9 +395,12 @@ export async function PATCH(req: Request) {
       .returning({ status: printJobs.status, error: printJobs.error });
 
     if (expired.length === 1) {
+      // Returning the persisted error avoids another SELECT/UPDATE race: the
+      // response, metrics and audit event must describe the same DB outcome.
+      const persistedError = expired[0].error;
       incrementMetric("print_jobs_expired_total");
-      if (expiryError) incrementMetric("print_jobs_unknown_total");
-      const physicalOutcome = derivePhysicalOutcome("expired", expiryError);
+      const physicalOutcome = derivePhysicalOutcome("expired", persistedError);
+      if (physicalOutcome === "unknown") incrementMetric("print_jobs_unknown_total");
       logInfo("print.job.expired", { requestId, jobId, agentId: agent.id, physicalOutcome });
       try {
         await recordJobEvent({
@@ -396,7 +408,7 @@ export async function PATCH(req: Request) {
           tenantId: agent.tenantId,
           stage: "expired",
           status: "error",
-          message: expiryError ?? "Job expired",
+          message: persistedError ?? "Job expired",
           agentId: agent.id,
           printerId: job.printerId,
           requestId,
@@ -520,16 +532,19 @@ export async function PATCH(req: Request) {
   if (currentStatus === "failed" && requestedStatus === "success") {
     const executionTimeoutLateSuccess = job.error?.startsWith("AGENT_EXECUTION_TIMEOUT")
       || job.error?.startsWith("AGENT_RESTART_DURING_PRINT");
+    // The sweeper's persisted UNKNOWN_PARTIAL_DELIVERY marker is itself
+    // evidence that a polled/WS payload MAY have reached this claimed Agent.
+    // A lost response can leave deliveredAt and ackedAt null even if the
+    // Agent later executes the document. Reconciliation must allow the exact
+    // original claim, not require a second (possibly lost) ACK as proof.
     const deliveryUnknownLateSuccess = job.error?.startsWith("UNKNOWN_PARTIAL_DELIVERY")
-      && Boolean(job.deliveredAt || job.ackedAt);
+      && Boolean(job.claimedAt && job.claimToken);
     if (!executionTimeoutLateSuccess && !deliveryUnknownLateSuccess) {
       return NextResponse.json({ error: "Invalid status transition: failed -> success (late success not allowed for this job)" }, { status: 409 });
     }
-    // For delivery ambiguity, insist on the same persisted claim fence and
-    // durable delivery evidence. The top-level claim-token check already
-    // enforces exact token ownership; this additional evidence gate prevents
-    // a stale/legacy failed row from becoming successful merely because an
-    // Agent knows its job id.
+    // Require both the durable UNKNOWN marker and the exact live claim
+    // token. This cannot initiate printing or reconcile an unclaimed/legacy
+    // row, and the database UPDATE independently enforces a 24-hour window.
     if (deliveryUnknownLateSuccess && (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken)) {
       return NextResponse.json({
         error: "Unknown delivery outcome lacks a matching fenced execution attempt",
@@ -543,14 +558,17 @@ export async function PATCH(req: Request) {
   }
 
   if (currentStatus === "expired" && requestedStatus === "success") {
-    // Late success is only a physical-outcome reconciliation path for an
-    // execution that was actually handed to the Agent. Require the original
-    // claim token plus delivery evidence, and require an ambiguity marker; a
-    // stale Agent must never promote an expired queued row merely because it
-    // knows the job id.
+    // Late success is a reconciliation of the EXACT original claim, never
+    // a new submission. A pending handoff at expiry cannot legitimately stamp
+    // delivered_at, but the server's persisted UNKNOWN marker plus a valid
+    // claim token and a subsequent authenticated Agent result may still
+    // establish an execution result. Keep claims with no ambiguity evidence
+    // ineligible (especially unclaimed/undelivered expired queued jobs).
     const expiredLateSuccessMarker = (job.error ?? "").startsWith("JOB_EXPIRED_DURING_PRINT")
       || (job.error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY");
-    if (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken || !job.deliveredAt || !expiredLateSuccessMarker) {
+    const possibleDelivery = Boolean(job.deliveredAt || job.ackedAt)
+      || (job.error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY");
+    if (!job.claimedAt || !job.claimToken || !claimToken || claimToken !== job.claimToken || !possibleDelivery || !expiredLateSuccessMarker) {
       return NextResponse.json({
         error: "Expired job lacks a matching delivered execution attempt; late success is not allowed",
         code: "EXPIRED_JOB_ATTEMPT_NOT_RECONCILIABLE",

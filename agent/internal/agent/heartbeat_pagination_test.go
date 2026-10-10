@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -417,5 +418,56 @@ func TestHeartbeatResponseBodyIsReadBeforeContextCancel(t *testing.T) {
 	// The body must actually have been parsed and acted upon.
 	if !strings.Contains(logged, "printer \"printer-late\" rejected by gateway: late body reached the agent") {
 		t.Fatalf("heartbeat response body was not processed; logs: %s", logged)
+	}
+}
+
+// Every intermediate page must be acknowledged before the Agent advances.
+// A 2xx status alone is insufficient: a proxy or an incompatible Gateway can
+// return malformed JSON or an explicit negative application-level response.
+func TestHeartbeatRejectsUnacknowledgedIntermediatePage(t *testing.T) {
+	for name, response := range map[string]string{
+		"negative_ack":  `{"success":false}`,
+		"malformed_ack": `{"success":true`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var received atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/agent/heartbeat" {
+					http.NotFound(w, r)
+					return
+				}
+				received.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				if received.Load() == 1 {
+					_, _ = io.WriteString(w, response)
+					return
+				}
+				_, _ = io.WriteString(w, `{"success":true,"desiredState":[]}`)
+			}))
+			defer server.Close()
+
+			cfg := &config.Config{}
+			cfg.Agent.ID = "agt_reject_intermediate"
+			cfg.Agent.Secret = "secret"
+			cfg.Server.URL = server.URL
+			ag, err := New(cfg, filepath.Join(t.TempDir(), "config.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = ag.Close() }()
+
+			// More than 500 printers forces a multi-page inventory cycle.
+			for i := 0; i <= maxHeartbeatPrintersPerPage; i++ {
+				id := "printer-" + formatTestIndex(i)
+				ag.printers[id] = &fakePrinter{}
+				ag.printerConfigs[id] = config.PrinterConfig{
+					ID: id, Name: id, Type: "network", Endpoint: "127.0.0.1:9100", Protocol: "raw",
+				}
+			}
+			ag.sendHeartbeatContext(context.Background())
+			if got := received.Load(); got != 1 {
+				t.Fatalf("unacknowledged page caused final heartbeat transmission: got %d requests, want 1", got)
+			}
+		})
 	}
 }

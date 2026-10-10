@@ -580,6 +580,40 @@ suite("WS claim-before-delivery", () => {
     expect((await jobRow("job_fence")).status).toBe("success");
   });
 
+  it("reconciles a silent polling handoff without a durable ACK under the original claim", async () => {
+    await insertQueuedJob(f, "job_poll_unknown_reconcile");
+    const received = await (await agentJobsGET(agentRequest(f, "GET"))).json() as Array<{id: string; claimToken: string}>;
+    const claimed = received.find((item) => item.id === "job_poll_unknown_reconcile");
+    expect(claimed?.claimToken).toBeTruthy();
+
+    // A lost HTTP response means no delivered_at/acked_at can be assumed.
+    // Gateway must not requeue, but must accept the same Agent's later report.
+    await pool().query(`UPDATE print_jobs SET updated_at = now() - interval '200 seconds'
+      WHERE id = 'job_poll_unknown_reconcile'`);
+    const swept = await sweepPrintJobs({ agentId: f.agentId });
+    expect(swept.silentDeliveries).toBeGreaterThanOrEqual(1);
+    const before = await jobRow("job_poll_unknown_reconcile");
+    expect(before.status).toBe("failed");
+    expect(before.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
+    expect(before.delivered_at).toBeNull();
+    expect(before.acked_at).toBeNull();
+    expect(before.claim_token).toBe(claimed!.claimToken);
+    expect((await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_poll_unknown_reconcile", status: "success", claimToken: "wrong-claim",
+    }))).status).toBe(409);
+
+    const report = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_poll_unknown_reconcile", status: "success", claimToken: claimed!.claimToken,
+    }));
+    expect(report.status).toBe(200);
+    expect((await report.json()).physicalOutcome).toBe("unknown");
+    const after = await jobRow("job_poll_unknown_reconcile");
+    expect(after.status).toBe("success");
+    expect(after.claim_token).toBeNull();
+    expect(after.error).toMatch(/^LATE_SUCCESS:/);
+    expect(after.delivery_attempts).toBe(1);
+  });
+
   it("delivered-but-unknown recovery preserves the claim fence for a late success", async () => {
     await insertQueuedJob(f, "job_delivery_unknown_late_success");
     const claim = await claimJobForDelivery("job_delivery_unknown_late_success", f.agentId, { markDeliveryEvidencePending: true });
@@ -855,6 +889,46 @@ suite("WS claim-before-delivery", () => {
     expect(ev.status).toBe("expired");
     expect(ev.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY/);
     expect(ev.delivered_at).not.toBeNull(); // pre-existing evidence survives, not fabricated
+  });
+
+  it("poll handoff expiring before ACK stays unknown and allows fenced late report", async () => {
+    // Real PostgreSQL + the actual poll and PATCH routes. Poll reservation is
+    // DELIVERY_EVIDENCE_PENDING even if ACK/delivered_at was lost; both Agent
+    // expiry and the sweeper must treat that as possible physical submission.
+    await insertQueuedJob(f, "job_exp_poll_pending");
+    const poll = await agentJobsGET(agentRequest(f, "GET"));
+    expect(poll.status).toBe(200);
+    const jobs = await poll.json() as Array<{ id: string; claimToken: string }>;
+    const offered = jobs.find((job) => job.id === "job_exp_poll_pending");
+    expect(offered?.claimToken).toBeTruthy();
+    let row = await jobRow("job_exp_poll_pending");
+    expect(row.status).toBe("claimed");
+    expect(row.error).toBe("DELIVERY_EVIDENCE_PENDING");
+    expect(row.delivered_at).toBeNull();
+    expect(row.acked_at).toBeNull();
+
+    await pool().query("UPDATE print_jobs SET expires_at = now() - interval '1 second' WHERE id = $1", ["job_exp_poll_pending"]);
+    const expired = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_exp_poll_pending", status: "expired", claimToken: offered!.claimToken,
+    }));
+    expect(expired.status).toBe(200);
+    expect((await expired.json()).physicalOutcome).toBe("unknown");
+    row = await jobRow("job_exp_poll_pending");
+    expect(row.status).toBe("expired");
+    expect(row.error).toMatch(/^UNKNOWN_PARTIAL_DELIVERY:/);
+    expect(row.claim_token).toBe(offered!.claimToken);
+    expect(row.delivered_at).toBeNull(); // no fabricated evidence
+
+    const late = await agentJobsPATCH(agentRequest(f, "PATCH", {
+      jobId: "job_exp_poll_pending", status: "success", claimToken: offered!.claimToken,
+    }));
+    expect(late.status).toBe(200);
+    expect((await late.json()).physicalOutcome).toBe("unknown");
+    row = await jobRow("job_exp_poll_pending");
+    expect(row.status).toBe("success");
+    expect(row.error).toMatch(/^LATE_SUCCESS_POST_EXPIRATION:/);
+    expect(row.claim_token).toBeNull();
+    expect(Number(row.delivery_attempts)).toBe(1); // reconciliation did not reprint
   });
 
   it("agent-observed expiry of a held claim stamps evidence and marks unknown", async () => {

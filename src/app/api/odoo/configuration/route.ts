@@ -73,12 +73,25 @@ export async function PATCH(req: Request) {
   if (typeof enabled !== "boolean") {
     return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 });
   }
-  if (!Number.isInteger(revision) || Number(revision) < 0) {
-    return NextResponse.json({ error: "revision must be a non-negative integer" }, { status: 400 });
+  // api_keys.odoo_enabled_revision is PostgreSQL int4, not bigint. Reject
+  // out-of-range revisions before a billable transaction or SQL overflow.
+  if (!Number.isInteger(revision) || Number(revision) < 0 || Number(revision) > 2_147_483_647) {
+    return NextResponse.json({ error: "revision must be an integer between 0 and 2147483647" }, { status: 400 });
   }
 
   try {
     const updated = await db.transaction(async (tx) => {
+      // Print admission locks api_keys before the subscription row. Follow
+      // that SAME order when toggling activation: billing -> api_keys here
+      // could otherwise deadlock against print admission's key -> billing.
+      // This also fences revocation/rotation between HTTP auth and mutation.
+      const liveKey = await tx.execute(sql`SELECT id FROM api_keys
+        WHERE id = ${apiKey.id} AND tenant_id = ${apiKey.tenantId}
+          AND hashed_key = ${apiKey.hashedKey}
+          AND revoked_at IS NULL AND read_only_until IS NULL
+        FOR UPDATE`);
+      if (liveKey.rows.length === 0) return [];
+
       // Enabling Gateway printing is a billable/executable runtime state.
       // Keep the entitlement decision and activation mutation in the SAME
       // transaction. requireTenantBillingAccess() locks the subscription row

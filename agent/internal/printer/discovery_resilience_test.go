@@ -2,6 +2,7 @@ package printer
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -55,8 +56,8 @@ func TestWSDDiscoveryHonoursPreCancelledContext(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("pre-cancelled discovery took %v, want < 2s", elapsed)
 	}
-	if err != nil {
-		t.Fatalf("pre-cancelled discovery errored: %v", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-cancelled WSD discovery must report partial inventory: %v", err)
 	}
 	if len(devs) != 0 {
 		t.Fatalf("pre-cancelled discovery returned %d devices, want 0", len(devs))

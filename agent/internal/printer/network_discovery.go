@@ -30,15 +30,14 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		return nil, fmt.Errorf("net.Interfaces: %w", err)
 	}
 
-	var targets []string
-	seenSubnet := make(map[string]bool)
+	var subnets []*net.IPNet
+	localIPs := make(map[string]bool)
 	var sourceDiagnostics []error
 
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		// Skip virtual adapters that pollute local scanning
 		ifNameLower := strings.ToLower(iface.Name)
 		if strings.HasPrefix(ifNameLower, "veth") ||
 			strings.HasPrefix(ifNameLower, "docker") ||
@@ -48,13 +47,8 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 			strings.HasPrefix(ifNameLower, "tun") {
 			continue
 		}
-
 		addrs, err := iface.Addrs()
 		if err != nil {
-			// An unreadable interface means its subnet goes unscanned:
-			// partial inventory. Preserve the diagnostic alongside any
-			// truncation error below instead of dropping it (C006).
-			log.Printf("[discovery] failed to enumerate addresses for %s: %v", iface.Name, err)
 			sourceDiagnostics = append(sourceDiagnostics, fmt.Errorf("interface %s addresses unreadable: %w", iface.Name, err))
 			continue
 		}
@@ -64,49 +58,22 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 				continue
 			}
 			ip := ipNet.IP.To4()
-			if ip == nil || ip.IsLoopback() || ip.IsMulticast() {
+			if ip == nil || !ip.IsPrivate() || ip.IsLoopback() || ip.IsMulticast() {
 				continue
 			}
-			// Only private ranges (and not link-local 169.254)
-			if !ip.IsPrivate() {
-				continue
-			}
-			// Derive /24 subnet around this IP to avoid scanning huge /8 or /16.
-			// Normalize IPv4-mapped 16-byte masks (common from Go on
-			// dual-stack Windows) to 4-byte form FIRST: generateHosts
-			// re-reads ipNet.Mask and returns empty for 16-byte masks.
-			mask := ipNet.Mask
-			if len(mask) == 16 {
-				mask = mask[12:]
-			}
-			ipNet = &net.IPNet{IP: ip, Mask: mask}
-			if len(mask) == 4 {
-				// If mask is /16 or /8, clamp to /24 around local IP
-				ones, bits := ipNet.Mask.Size()
-				if bits == 32 && ones < 24 {
-					mask = net.CIDRMask(24, 32)
-					ipNet = &net.IPNet{IP: ip.Mask(mask), Mask: mask}
-				}
-			}
-			subnetKey := ipNet.String()
-			if seenSubnet[subnetKey] {
-				continue
-			}
-			seenSubnet[subnetKey] = true
+			localIPs[ip.String()] = true
+			subnets = append(subnets, ipNet)
+		}
+	}
 
-			// Generate hosts for this subnet (limit to 254 hosts max)
-			hosts := generateHosts(ipNet)
-			if len(hosts) > 254 {
-				hosts = hosts[:254]
-			}
-			// Avoid scanning our own IP and gateway .0/.255
-			for _, h := range hosts {
-				if h.Equal(ip) {
-					continue
-				}
-				targets = append(targets, net.JoinHostPort(h.String(), "9100"))
-			}
-			log.Printf("[discovery] scanning subnet %s (%s) %d hosts", subnetKey, iface.Name, len(hosts))
+	hosts, truncated := privateDiscoveryTargetsWithBudget(subnets, maxAutomaticDiscoveryTargets)
+	if truncated {
+		sourceDiagnostics = append(sourceDiagnostics, fmt.Errorf("network TCP scan limited to %d unique hosts; inventory is partial", maxAutomaticDiscoveryTargets))
+	}
+	targets := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		if !localIPs[host] {
+			targets = append(targets, net.JoinHostPort(host, "9100"))
 		}
 	}
 
@@ -176,7 +143,7 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 						Endpoint:       target,
 						NetworkAddress: host,
 						Port:           port,
-						Status:         "online",
+						Status:         "unknown",
 						Enabled:        true,
 						Type:           "network",
 						Capabilities: map[string]interface{}{
@@ -237,7 +204,10 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 						if snmpDev.Protocol != "" && snmpDev.Protocol != "raw" {
 							di.Protocol = snmpDev.Protocol
 						}
-						di.Status = "online"
+						// SNMP sysDescr/serial and a TCP connection do not report
+						// paper/device readiness; retain UNKNOWN until a
+						// protocol-level status probe provides such evidence.
+						di.Status = "unknown"
 					}
 					select {
 					case results <- di:
@@ -372,8 +342,10 @@ func mergeNetworkDevices(devices []DeviceInfo) []DeviceInfo {
 			existing.Protocol = d.Protocol
 		}
 
-		if d.Status == "online" {
-			existing.Status = "online"
+		if d.Status != "" && d.Status != "unknown" {
+			// Preserve explicit negative health evidence. A successful
+			// TCP connection must never be represented as printer-ready.
+			existing.Status = d.Status
 		}
 
 		existing.ID = StableIDForDevice(*existing)
@@ -401,119 +373,4 @@ func isCapabilityVerified(caps map[string]interface{}, key string) bool {
 	}
 	b, ok := v.(bool)
 	return ok && b
-}
-
-func generateHosts(ipNet *net.IPNet) []net.IP {
-	var hosts []net.IP
-	ip := ipNet.IP.To4()
-	mask := ipNet.Mask
-	if ip == nil {
-		return hosts
-	}
-	network := ip.Mask(mask)
-	// For /24, iterate 1..254
-	// For other masks, iterate all hosts but cap
-	ones, bits := mask.Size()
-	if bits != 32 {
-		return hosts
-	}
-	total := 1 << (32 - ones)
-	if total > 1024 {
-		total = 1024 // safety cap
-	}
-	base := ipToUint32(network)
-	for i := 1; i < total-1 && len(hosts) < 254; i++ {
-		h := uint32ToIP(base + uint32(i))
-		if h != nil {
-			hosts = append(hosts, h)
-		}
-	}
-	return hosts
-}
-
-func ipToUint32(ip net.IP) uint32 {
-	ip = ip.To4()
-	if ip == nil {
-		return 0
-	}
-	return uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
-}
-func uint32ToIP(n uint32) net.IP {
-	return net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n))
-}
-
-// privateDiscoveryTargets fairly schedules every local subnet. Wide networks
-// are bounded to the local /24 rather than the first /24 of a /8 or /16.
-func privateDiscoveryTargets(subnets []*net.IPNet) []string {
-	var groups [][]string
-	seenSubnets := make(map[string]bool)
-	for _, subnet := range subnets {
-		ip := subnet.IP.To4()
-		if ip == nil || !ip.IsPrivate() || ip.IsLoopback() {
-			continue
-		}
-		mask := subnet.Mask
-		if len(mask) == 16 {
-			mask = mask[12:]
-		}
-		ones, bits := mask.Size()
-		if bits != 32 {
-			continue
-		}
-		if ones < 24 {
-			mask = net.CIDRMask(24, 32)
-		}
-		local := &net.IPNet{IP: ip, Mask: mask}
-		key := ip.Mask(mask).String() + "/" + fmt.Sprint(mask)
-		if seenSubnets[key] {
-			continue
-		}
-		seenSubnets[key] = true
-		var group []string
-		for _, host := range generateHosts(local) {
-			if !host.Equal(ip) {
-				group = append(group, host.String())
-			}
-		}
-		groups = append(groups, group)
-	}
-	var targets []string
-	for offset := 0; ; offset++ {
-		added := false
-		for _, group := range groups {
-			if offset < len(group) {
-				targets = append(targets, group[offset])
-				added = true
-			}
-		}
-		if !added {
-			break
-		}
-	}
-	return targets
-}
-
-func localPrivateDiscoveryTargets() ([]string, []string) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, []string{fmt.Sprintf("network interfaces: %v", err)}
-	}
-	var subnets []*net.IPNet
-	var diagnostics []string
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addresses, err := iface.Addrs()
-		if err != nil {
-			diagnostics = append(diagnostics, fmt.Sprintf("addresses for %s: %v", iface.Name, err))
-			continue
-		}
-		for _, address := range addresses {
-			if subnet, ok := address.(*net.IPNet); ok {
-				subnets = append(subnets, subnet)
-			}
-		}
-	}
-	return privateDiscoveryTargets(subnets), diagnostics
 }

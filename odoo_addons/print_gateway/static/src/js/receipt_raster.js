@@ -53,6 +53,13 @@ export async function renderGatewayReceiptJpeg(element, { renderer, width } = {}
         // All images, including QR and logos, must finish loading before
         // measuring the *new* CSS layout and snapshotting SVG foreignObject.
         await waitImages(node);
+        // Capture after the mounted element's used fonts have settled. The
+        // canvas exporter intentionally skips font embedding, so measuring
+        // before FontFaceSet.ready can freeze fallback-font line heights and
+        // misplaced Arabic/Latin columns into the printed JPEG.
+        if (document.fonts?.ready) {
+            await document.fonts.ready;
+        }
         const measuredWidth = Math.ceil(node.getBoundingClientRect().width);
         const measuredHeight = Math.ceil(node.scrollHeight);
         if (measuredWidth !== rasterWidth || measuredHeight < 1 ||

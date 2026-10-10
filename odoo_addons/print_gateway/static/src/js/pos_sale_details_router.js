@@ -143,8 +143,13 @@ patch(SaleDetailsButton.prototype, {
             }
             // Queued jobs retain the operation ID and raster: a second click
             // must not silently mint a duplicate while the outbox is pending.
-            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
-            if (terminal && result?.gateway_enabled) finishPrintOperation(recoveryKey, operationId);
+            // The Odoo producer's positive route marker is part of the
+            // admission contract. A contradictory "submitted" without it
+            // must not discard the exact raster needed for a safe same-id
+            // retry after a potentially ambiguous submission.
+            const terminal = result?.gateway_enabled === true &&
+                ["submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
+            if (terminal) finishPrintOperation(recoveryKey, operationId);
             saleDetailsOps.set(sessionId, {
                 id: operationId,
                 image: terminal ? undefined : image,
