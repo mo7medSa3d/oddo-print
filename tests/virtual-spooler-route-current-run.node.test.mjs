@@ -85,6 +85,16 @@ test('real Desktop presenter retains pending software queue without making it pr
   }
 });
 
+test('Desktop virtual opt-in uses a branded confirmation modal and revalidates after consent',()=>{
+  const app = codeFile('src/desktop/main.tsx');
+  assert.doesNotMatch(app,/window\\.confirm\\(t\\(\"desktop\\.printers\\.virtualConfirm\"/);
+  assert.match(app,/open=\\{virtualConfirmCandidate !== null\\}/);
+  assert.match(app,/setVirtualConfirmCandidate\\(candidate\\)/);
+  assert.match(app,/if \\(selected\\) void enableVirtualPrinterTest\\(selected\\)/);
+  assert.match(app,/features\\?\\.agentVirtualSpoolerTest !== true/);
+  assert.match(app,/const owned = await fetchGatewayAgents\\(savedGatewayUrl\\)/);
+});
+
 test('real Desktop registers explicitly selected virtual and physical queues only via its paired Agent',async()=>{
   const called=[];
   const ipc=actualModule('src/desktop/lib/ipc.ts',{

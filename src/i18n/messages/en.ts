@@ -1129,7 +1129,7 @@ export const en = {
   "desktop.printers.virtualEnable": "Enable Gateway/Odoo tests",
   "desktop.printers.virtualNotice": "Windows software drivers may require an interactive session. Successful submission never proves paper output.",
   "desktop.printers.virtualGatewayApproval": "Enable a discovered local software queue with your paired Agent identity; no Manager account is required.",
-  "desktop.printers.virtualConfirm": "Allow Gateway and Odoo jobs to use {printer}? This Windows software queue can receive business documents; use an authorized test account and inspect output. Continue?",
+  "desktop.printers.virtualConfirm": "Enable {printer} for Gateway and Odoo test jobs? This queue can receive business documents. The Agent must verify it before accepting jobs; OneNote and Print to PDF may need an interactive Windows session. Inspect the output and use test documents only.",
   "desktop.printers.virtualRegistered": "Printer registration accepted. Wait for the Agent to confirm this queue before testing; then use Test print in the printer list or select it in Odoo.",
   "desktop.printers.virtualLinked": "Ready for tests",
   "desktop.printers.virtualUnavailable": "This installed virtual queue is missing its Agent identity or is not an eligible Windows spooler destination. Run Discover again.",
