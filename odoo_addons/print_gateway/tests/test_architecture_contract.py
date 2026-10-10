@@ -394,11 +394,16 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         # absent or unexpected status as a completed print, which is exactly
         # the ambiguous-outcome path this contract forbids. The allowlist must
         # stay identical to the one that selects the success notification above.
-        record_line = 'const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);'
+        # The Gateway route marker must be positive before an accepted-looking
+        # status can produce a success toast or increment the print counter.
+        # Both consumers use the SAME guarded status, not raw RPC input.
+        self.assertIn('const status = result?.gateway_enabled === true ? result?.status : "unknown";', source)
+        record_line = 'const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(status);'
         self.assertIn(record_line, source)
-        self.assertNotIn('!["failed", "unknown", "partial"].includes(result?.status)', source)
-        notification_idx = source.index('["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)')
-        self.assertLess(notification_idx, source.index(record_line))
+        self.assertNotIn('!["failed", "unknown", "partial"].includes(status)', source)
+        notification_line = 'else if (["queued", "submitted", "claimed", "printing", "success"].includes(status))'
+        self.assertIn(notification_line, source)
+        self.assertLess(source.index(notification_line), source.index(record_line))
 
     def test_report_action_preserves_odoo19_layout_configuration_gate(self):
         source = (MODELS / "ir_actions_report.py").read_text(encoding="utf-8")
