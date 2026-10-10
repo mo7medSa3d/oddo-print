@@ -193,7 +193,13 @@ func preDispatchIRErr(err error) bool {
 	return errors.As(err, &dnsErr)
 }
 
-func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFormat string) error {
+func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFormat string) (retErr error) {
+	// Capture the complete Print-Job request/response time; success here is
+	// verified IPP submission evidence, not confirmation of paper output.
+	startedAt := time.Now()
+	defer func() {
+		log.Printf("print.trace ipp_submission latency_ms=%d success=%t", time.Since(startedAt).Milliseconds(), retErr == nil)
+	}()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
