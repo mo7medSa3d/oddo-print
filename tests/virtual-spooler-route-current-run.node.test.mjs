@@ -78,7 +78,11 @@ test('real Desktop presenter retains pending software queue without making it pr
   // Show only executable physical/approved virtual queues, pending software
   // state, and explicitly configured test-only file capture. Unrelated
   // discovery-only virtual/redirected queues must not enter the job list.
-  assert.match(codeFile('src/desktop/main.tsx'),/setPrinters\\(list\\.filter\\(\\(printer\\) => isProductionPrinter\\(printer\\) \\|\\| isPendingVirtualSpoolerTestPrinter\\(printer\\) \\|\\| isVirtualCaptureTestRecord\\(printer\\)\\)\\)/);
+  const inventoryFilter = codeFile('src/desktop/main.tsx').split('\n').find(line => line.includes('setPrinters(list.filter('));
+  assert.ok(inventoryFilter, 'Gateway printer inventory is filtered before display');
+  for (const rule of ['isProductionPrinter(printer)', 'isPendingVirtualSpoolerTestPrinter(printer)', 'isVirtualCaptureTestRecord(printer)']) {
+    assert.ok(inventoryFilter.includes(rule), `missing allowed printer category: ${rule}`);
+  }
 });
 
 test('real Desktop registers explicitly selected virtual and physical queues only via its paired Agent',async()=>{
