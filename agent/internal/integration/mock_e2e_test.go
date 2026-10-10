@@ -47,9 +47,10 @@ func TestMockTCPPrinterE2E(t *testing.T) {
 	if string(caps[0]) != raw {
 		t.Fatalf("captured mismatch: got %q want %q", string(caps[0]), raw)
 	}
-	// Status should be online while mock up
-	if s := p.Status(); s != "online" {
-		t.Fatalf("expected online, got %s", s)
+	// TCP reachability confirms a writable endpoint, not paper/cover readiness.
+	// The captured payload above is submission evidence, not physical printing.
+	if s := p.Status(); s != "unknown" {
+		t.Fatalf("expected unknown for raw TCP with no device-status evidence, got %s", s)
 	}
 }
 
