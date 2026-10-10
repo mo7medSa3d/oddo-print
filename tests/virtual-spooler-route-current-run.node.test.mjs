@@ -75,7 +75,10 @@ test('real Desktop presenter retains pending software queue without making it pr
   assert.equal(presenter.isPendingVirtualSpoolerTestPrinter(software),false);
   assert.equal(presenter.isProductionPrinter(software),true);
   assert.equal(presenter.isPendingVirtualSpoolerTestPrinter({...pending,managementSource:'agent'}),false);
-  assert.match(codeFile('src/desktop/main.tsx'),/setPrinters\(list\.filter\(\(printer\) => isProductionPrinter\(printer\) \|\| isPendingVirtualSpoolerTestPrinter\(printer\)\)\)/);
+  // Show only executable physical/approved virtual queues, pending software
+  // state, and explicitly configured test-only file capture. Unrelated
+  // discovery-only virtual/redirected queues must not enter the job list.
+  assert.match(codeFile('src/desktop/main.tsx'),/setPrinters\\(list\\.filter\\(\\(printer\\) => isProductionPrinter\\(printer\\) \\|\\| isPendingVirtualSpoolerTestPrinter\\(printer\\) \\|\\| isVirtualCaptureTestRecord\\(printer\\)\\)\\)/);
 });
 
 test('real Desktop registers explicitly selected virtual and physical queues only via its paired Agent',async()=>{
