@@ -341,11 +341,26 @@ describe("production hardening contracts", () => {
 
     const printRoute = read("src/app/api/print/jobs/route.ts");
     expect(printRoute).not.toContain("eq(printJobs.apiKeyId, odoo.id), eq(printJobs.idempotencyKey");
-    expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId),");
-    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),");
+    // Replay matching moved into the transactional service. Its credential
+    // fence must run BEFORE either the historical receipt or live-job lookup;
+    // the HTTP handler must not reintroduce an unlocked fast-path read.
+    expect(printRoute).toContain("const result = await createPrintJobForPrinter(");
+    expect(printRoute).toContain("idempotencyKey: parsed.data.idempotencyKey ?? null,");
+    expect(printRoute).toContain("rateLimitKeyId: odoo.id,");
+    expect(printRoute).toContain("tenantId: odoo.tenantId,");
+    expect(printRoute).not.toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)");
     expect(printRoute).toContain("eq(printJobs.tenantId, odoo.tenantId)");
+    expect(printRoute).toContain("eq(printJobs.idempotencyKey, idempotencyKey!)");
     expect(printRoute).toContain("isNotNull(printJobs.apiKeyId)");
-    expect(printRoute).toContain("eq(printJobs.idempotencyKey, parsed.data.idempotencyKey)");
+    const keyFence = printService.indexOf("WHERE id = ${rateLimitKeyId} AND tenant_id = ${tenantId}");
+    const firstReceiptRead = printService.indexOf("const receipt = await tx.query.printJobReceipts.findFirst");
+    const firstJobRead = printService.indexOf("const existing = await tx.execute(sql`SELECT id, printer_id");
+    expect(keyFence).toBeGreaterThan(-1);
+    const fencedCredential = printService.slice(keyFence, printService.indexOf("if (!credential.rows.length)", keyFence));
+    expect(fencedCredential).toContain("AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE");
+    expect(fencedCredential).toContain("FOR UPDATE");
+    expect(firstReceiptRead).toBeGreaterThan(keyFence);
+    expect(firstJobRead).toBeGreaterThan(keyFence);
     expect(printRoute).not.toContain("eq(printJobs.id, id), eq(printJobs.tenantId, odoo.tenantId), eq(printJobs.apiKeyId, odoo.id)");
     const reusedBlock = printRoute.slice(printRoute.indexOf("if (result.isReused)"), printRoute.indexOf("return NextResponse.json({\n      jobId:", printRoute.indexOf("if (result.isReused)")));
     expect(reusedBlock).toContain("isNotNull(printJobs.apiKeyId)");
