@@ -119,8 +119,14 @@ test('both shells consume shared navigation primitives and retain routes and pag
   const gateway = read('src/components/AppShell.tsx');
   const desktop = read('src/desktop/main.tsx');
   const desktopNav = read('src/desktop/components/Sidebar.tsx');
-  assert.match(gateway, /<BreadcrumbTrail/);
+  const platformLayout = read('src/app/platform/layout.tsx');
+  const platformSidebar = read('src/components/platform/PlatformSidebar.tsx');
+  assert.doesNotMatch(gateway, /<BreadcrumbTrail/);
+  assert.match(gateway, /<NavIconFrame active=\{active\}/);
   assert.match(gateway, /<ShellSearchButton/);
+  assert.match(gateway, /data-gateway-mobile-navigation/);
+  assert.match(platformLayout, /<PlatformSidebar items=\{NAV_ITEMS\}/);
+  assert.match(platformSidebar, /tg-console-rail/);
   assert.match(gateway, /main className="page-transition min-w-0 max-w-full"/);
   assert.match(desktop, /<header className="tg-desktop-topbar/);
   assert.match(desktop, /<Modal open=\{navSearchOpen\}/);
@@ -131,19 +137,23 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.match(desktopNav, /<NavIconFrame active=\{active\}/);
 });
 
-test('Gateway and Agent float at matching 12px app-frame insets with a unified surface', () => {
+test('Gateway and Platform use matching 12px sidebar insets; Desktop keeps its own chrome', () => {
   const css = read('src/app/globals.css');
   const gateway = read('src/components/AppShell.tsx');
   const desktop = read('src/desktop/main.tsx');
   const rail = read('src/desktop/components/Sidebar.tsx');
-  const floatingCss = css.slice(css.indexOf('  .tg-console-topbar,'));
-  assert.match(floatingCss, /border: 1px solid var\(--border\)/);
-  assert.match(floatingCss, /border-radius: var\(--r-2xl\)/);
-  assert.match(floatingCss, /box-shadow: var\(--shadow-md\)/);
+  const platformSidebar = read('src/components/platform/PlatformSidebar.tsx');
+  const railCss = css.slice(css.indexOf('  .tg-console-rail,'));
+  assert.match(railCss, /border: 1px solid var\(--border\)/);
+  assert.match(railCss, /border-radius: var\(--r-2xl\)/);
+  assert.match(railCss, /box-shadow: var\(--shadow-md\)/);
   assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: calc\(var\(--nav-w\) \+ 12px\)/);
-  assert.match(gateway, /tg-console-topbar sticky top-3/);
-  assert.match(gateway, /lg:mx-3 lg:mt-3/);
-  assert.match(gateway, /tg-console-topbar glass-chrome sticky top-2/);
+  assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px/);
+  assert.match(gateway, /tg-console-rail fixed/);
+  assert.match(platformSidebar, /tg-console-rail fixed/);
+  assert.match(gateway, /fixed start-3 top-3/);
+  assert.match(platformSidebar, /fixed start-3 top-3/);
+  assert.doesNotMatch(gateway, /tg-console-topbar/);
   assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
   assert.match(desktop, /tg-desktop-topbar sticky top-2/);
   assert.match(desktop, /lg:mx-3/);
