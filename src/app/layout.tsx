@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans, IBM_Plex_Sans_Arabic } from "next/font/google";
+import localFont from "next/font/local";
 import { headers } from "next/headers";
 import { AppShell } from "../components/AppShell";
 import { I18nProvider } from "../i18n/react";
@@ -8,18 +8,29 @@ import { getServerLocale, makeT } from "../i18n/server";
 import { dirFor } from "../i18n/config";
 import "./globals.css";
 
-const ibmPlexSans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+// Bundle the OFL-licensed IBM Plex families with the app. next/font/google
+// downloads CSS during builds; its remote response can fail inside Docker
+// even when our own application code and test suites are healthy.
+const ibmPlexSans = localFont({
+  src: "./fonts/ibm-plex-sans-variable.ttf",
+  weight: "100 700",
+  style: "normal",
   variable: "--font-ibm-plex-sans",
   display: "swap",
 });
 
-const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
-  subsets: ["arabic"],
-  weight: ["400", "500", "600", "700"],
+const ibmPlexSansArabic = localFont({
+  src: [
+    { path: "./fonts/ibm-plex-sans-arabic-400.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-arabic-500.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-arabic-600.ttf", weight: "600", style: "normal" },
+    { path: "./fonts/ibm-plex-sans-arabic-700.ttf", weight: "700", style: "normal" },
+  ],
   variable: "--font-ibm-plex-sans-arabic",
   display: "swap",
+  // Avoid preloading four Arabic weights on English pages; RTL still loads
+  // its actual fonts automatically when the language-specific CSS applies.
+  preload: false,
 });
 
 
