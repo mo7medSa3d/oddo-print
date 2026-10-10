@@ -563,7 +563,9 @@ func ValidatePrinterEndpoint(p PrinterConfig) error {
 			}
 			u, err := url.Parse(normalizedEndpoint)
 			if err != nil || u == nil || u.Hostname() == "" {
-				return fmt.Errorf("printer %s: invalid IPP endpoint %q", p.ID, p.Endpoint)
+				// A malformed endpoint may contain userinfo. Do not echo the raw URL
+				// in validation errors, which are forwarded to logs and desktop UI.
+				return fmt.Errorf("printer %s: invalid IPP endpoint syntax or host", p.ID)
 			}
 			if u.User != nil {
 				return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)

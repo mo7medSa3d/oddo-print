@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { printJobs, printJobReceipts } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { validatePrintJobPayload, type PrintJobPayload } from "../../../../lib/payload";
-import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError, idempotencyDigest, idempotencyFingerprint } from "../../../../lib/print-job-service";
+import { createPrintJobForPrinter, AgentQueueFullError, AgentQueuedJobsFullError, PrintJobCapabilityError, PrintJobInputError } from "../../../../lib/print-job-service";
 import { TenantEntitlementError, TenantPrintQuotaExceededError, isTenantBillingError } from "../../../../lib/entitlements";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError, requestIdFrom } from "../../../../lib/log";
@@ -46,25 +46,6 @@ function responseForRow(row: Pick<typeof printJobs.$inferSelect, "id" | "status"
 }
 
 
-function idempotencyMatches(row: typeof printJobs.$inferSelect, request: {
-  printerId: string;
-  documentType: string;
-  destination?: string;
-  payload: PrintJobPayload;
-}) {
-  return idempotencyFingerprint({
-    printerId: row.printerId,
-    documentType: row.documentType,
-    destination: row.destination,
-    payload: row.payload,
-  }) === idempotencyFingerprint({
-    printerId: request.printerId,
-    documentType: request.documentType,
-    destination: request.destination,
-    payload: request.payload,
-  });
-}
-
 function idempotencyConflict() {
   return NextResponse.json({ error: "IDEMPOTENCY_CONFLICT", code: "IDEMPOTENCY_CONFLICT", retryable: false }, { status: 409 });
 }
@@ -94,28 +75,13 @@ export async function POST(req: Request) {
   try { payload = validatePrintJobPayload(parsed.data.payload); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid payload" }, { status: 400 }); }
 
-  const request = { ...parsed.data, payload };
   let expiresAt: Date | undefined;
   try { expiresAt = parseExpiresAt(parsed.data.expiresAt); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid expiresAt" }, { status: 400 }); }
 
-  if (parsed.data.idempotencyKey) {
-    const existing = await db.query.printJobs.findFirst({
-      where: and(
-        eq(printJobs.tenantId, odoo.tenantId),
-        eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),
-        isNotNull(printJobs.apiKeyId),
-      ),
-    });
-    const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, odoo.tenantId), eq(printJobReceipts.idempotencyKey, parsed.data.idempotencyKey), isNotNull(printJobReceipts.apiKeyId)) });
-    if (receipt) {
-      return receipt.fingerprint === idempotencyDigest(request) ? NextResponse.json(responseForRow(receipt), { status: 200 }) : idempotencyConflict();
-    }
-    if (existing) {
-      if (idempotencyMatches(existing, request)) return NextResponse.json(responseForRow(existing), { status: 200 });
-      return idempotencyConflict();
-    }
-  }
+  // No early GET-and-return: between validateOdooKey() and this write an
+  // operator can revoke/rotate the integration key. The transactional service
+  // locks the live key before checking any job or idempotency receipt.
 
   try {
     const result = await createPrintJobForPrinter(parsed.data.printerId, payload, {
@@ -203,14 +169,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid payload", code: "INVALID_PAYLOAD", retryable: false }, { status: 400 });
     }
     if (error instanceof Error && (error as Error & { code?: string }).code === "IDEMPOTENCY_CONFLICT" && parsed.data.idempotencyKey) {
-      const existing = await db.query.printJobs.findFirst({
-        where: and(
-          eq(printJobs.tenantId, odoo.tenantId),
-          eq(printJobs.idempotencyKey, parsed.data.idempotencyKey),
-          isNotNull(printJobs.apiKeyId),
-        ),
-      });
-      if (existing && idempotencyMatches(existing, request)) return NextResponse.json(responseForRow(existing), { status: 200 });
+      // The transactional service returns matching replays. A reported
+      // conflict therefore represents a DIFFERENT operation or identity;
+      // never turn that explicit refusal into HTTP 200 with a racy read.
       return idempotencyConflict();
     }
     // Anything else is an internal failure: log the detail, return a generic

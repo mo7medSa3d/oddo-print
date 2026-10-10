@@ -204,7 +204,8 @@ test('Odoo print admission rechecks the live credential before consuming plan cr
 test('an activation request authenticated before key removal cannot revive that credential',async()=>{
   const guards=[];
   const apiKeys=new Proxy({}, {get:(_target,field)=>({field})});
-  const tx={update:()=>({set:()=>({where:predicate=>({returning:async()=>[]})})})};
+  // Concurrent removal may win before the transaction's key-row lock.
+  const tx={execute:async()=>({rows:[]}),update:()=>({set:()=>({where:predicate=>({returning:async()=>[]})})})};
   const api=await actual('src/app/api/odoo/configuration/route.ts',{
     apiKeys,validateOdooKey:async()=>({id:'key',tenantId:'t',hashedKey:'original',readOnly:false}),
     db:{transaction:fn=>fn(tx),query:{apiKeys:{findFirst:async()=>undefined}}},

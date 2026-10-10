@@ -407,7 +407,13 @@ def test_agent_status_updates_require_a_live_claim_token_and_expired_reconciliat
     assert 'if (requestedStatus !== "expired") {' in jobs_route
     assert '!job.claimToken || !claimToken || claimToken !== job.claimToken' in jobs_route
     assert 'EXPIRED_JOB_ATTEMPT_NOT_RECONCILIABLE' in jobs_route
-    assert '!job.deliveredAt || !expiredLateSuccessMarker' in jobs_route
+    # Unknown delivery is not equivalent to confirmed not-printing: a pending
+    # handoff can expire without delivered_at, but must remain reconcileable
+    # only under its original claim token and UNKNOWN marker.
+    assert 'const possibleDelivery = Boolean(job.deliveredAt || job.ackedAt)' in jobs_route
+    assert '(job.error ?? "").startsWith("UNKNOWN_PARTIAL_DELIVERY")' in jobs_route
+    assert '!possibleDelivery || !expiredLateSuccessMarker' in jobs_route
+    assert 'OR ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING}' in jobs_route
     assert "WHEN status='printing' AND claim_token IS NOT NULL THEN claim_token" in maintenance
     assert "WHEN status='claimed' AND claim_token IS NOT NULL" in maintenance
     assert "AND expires_at <= now() - interval '5 minutes'" in maintenance

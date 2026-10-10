@@ -715,7 +715,10 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			add(infos)
 			log.Printf("[discovery] lpr discovery: found %d LPR/LPD endpoint(s); candidates are visible but execution is unsupported", len(infos))
 		}
-		setComplete(SourceLPR, len(diagnostics) == 0)
+		if subCtx.Err() != nil {
+			addErr(fmt.Sprintf("lpr discovery incomplete: %v", subCtx.Err()))
+		}
+		setComplete(SourceLPR, len(diagnostics) == 0 && subCtx.Err() == nil)
 	}()
 
 	// 8. SNMP (161) — read-only, public community
@@ -744,7 +747,10 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 			log.Printf("[discovery] SNMP found %d printers", len(infos))
 		}
 		add(infos)
-		setComplete(SourceSNMP, len(diagnostics) == 0)
+		if subCtx.Err() != nil {
+			addErr(fmt.Sprintf("snmp discovery incomplete: %v", subCtx.Err()))
+		}
+		setComplete(SourceSNMP, len(diagnostics) == 0 && subCtx.Err() == nil)
 	}()
 
 	// 9. WSD (WS-Discovery multicast) — platform independent probe

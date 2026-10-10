@@ -63,7 +63,7 @@ in `job.error` with `job.status = failed`.
 
 `agent/internal/printer/pdf.go` + `agent/internal/printer/pdf_windows.go` use the
 embedded PDFium WebAssembly runtime provided by `github.com/klippa-app/go-pdfium`
-(v1.19.8) through Wazero. PDF bytes are validated, materialised only in a secure
+(v1.21.1) through Wazero. PDF bytes are validated, materialised only in a secure
 0600 temporary file for the existing print seam, opened by PDFium, rendered one
 page at a time, and submitted through the Windows printer device context.
 
@@ -106,7 +106,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw`, `escpos`, `zpl`, or `tspl` |
 | Capability reporting | Without an explicit override the heartbeat derives only the configured language: `raw` → `[raw]`, `escpos` → `[escpos, image]`, `zpl` → `[zpl]`, `tspl` → `[tspl]`. An explicit supported-protocol list remains authoritative for this direct byte transport. |
 | Error handling | `DialContext` with a 5 s dial timeout, deadline from the job context (else 15 s), short-write loop, refuses empty and > 5 MiB payloads. Dial/write errors are returned verbatim to the gateway |
-| Status probe | 2 s TCP dial → `online` / `offline` (a successful handshake, not paper) |
+| Status probe | 2 s TCP dial → `unknown` if reachable without a printer-state protocol, `offline` if refused. ESC/POS additionally uses a framed DLE EOT status probe to report explicit device evidence; TCP reachability alone is never `online`. |
 | Platform limits | None — identical on Windows/Linux/macOS |
 | Discovery | Active TCP 9100 scan of private IPv4 subnets (`network_discovery.go`) |
 | Physical verification | **NOT VERIFIED** on a real device. Byte-for-byte transmission is **VERIFIED** against a local mock listener (`network_test.go`, `pdf_test.go`, `internal/integration/mock_e2e_test.go`) |
@@ -196,12 +196,16 @@ agent, so one agent can never overwrite another agent's printer row.
 | Source | Status |
 |---|---|
 | `discoverFromConfig` — printers listed in `config.yaml` | implemented (legacy, still supported) |
-| `discoverSpoolerPrinters` — `EnumPrintersW` level 2, correct `PRINTER_INFO_2W` parsing, non-printer PnP entries filtered out | implemented (Windows); **COMPILE VERIFIED** |
+| `discoverSpoolerPrinters` — fast `EnumPrintersW` level 4 queue enumeration with bounded per-queue `OpenPrinterW`/`GetPrinterW` level-2 enrichment; non-printer PnP entries filtered out | implemented (Windows); native validation required |
 | `loadRegistryPrinters` — durable `printers.json` next to `config.yaml` | implemented, atomic writes; used for startup/backward-compatible local state, **not** as live-presence evidence during authoritative reconciliation |
-| `discoverNetworkPrinters` — active TCP 9100 scan of private IPv4 subnets, `/16`+ clamped to `/24`, 32 workers, 500 ms per host, 8 s global budget | implemented |
+| `discoverNetworkPrinters` — active TCP 9100 scan of private IPv4 subnets, wide prefixes clamped to local `/24`, 32 workers, 500 ms per host, 8 s global budget | implemented; a TCP connection proves endpoint reachability only, **not** printer readiness or payload language |
 | `discoverUSBPrinters` — `SetupDiGetClassDevsW`, VID/PID/serial parsing, device-interface path map | implemented (Windows); **COMPILE VERIFIED** |
 | `discoverIPPPrinters` — TCP 631 scan (+ best-effort name lookup) | implemented |
 | mDNS (`_ipp._tcp`, `_ipps._tcp`, `_printer._tcp`), SNMP (`1.3.6.1.2.1.43`), WSD | implemented; bounded, best-effort discovery with result de-duplication; WSD emits the normative probe plus a legacy compatibility variant |
+
+The automatic TCP/IPP/SNMP/LPR subnet planners cap active probing at **512 unique IPv4 hosts per source and scan** across all local subnets (not per interface), interleave subnets fairly, and deduplicate equivalent prefixes. A capped scan is reported as **partial**; missing hosts are never evidence that previously registered network printers should be removed. SNMP `sysDescr`/printer-name and a listening TCP port are identity/reachability evidence only: network discovery reports hardware status as `unknown` unless a protocol-specific status query proves otherwise. An SNMP/LPR scan canceled at its deadline is also incomplete; no discovered source silently becomes authoritative on timeout. WSD marks interrupted reads, cancellation, and its 512-result ceiling as **partial**, retaining discoveries while reporting the incomplete source; an ordinary bounded read-window expiry ends its best-effort probe. Operators with multiple large subnets can manually register known printers that were not scanned.
+
+IPP capability probes reject HTTP responses larger than 64 KiB **including a valid-looking 64 KiB prefix with extra bytes**. They never interpret a silently truncated response as authoritative capabilities. Configured IPP endpoints reject embedded credentials; syntax errors and parse failures do not echo supplied userinfo into logs or UI.
 
 `DiscoverQuick` replays config + local spooler + durable registry at startup so previously configured printers remain available immediately. Full **live** discovery then excludes registry replay as presence evidence: only an authoritative successful Windows spooler enumeration may remove an automatically discovered spooler row that disappeared. Partial/source-error scans never prune healthy durable rows, and silent USB/network non-response is not treated as deletion. Every source is isolated with `recover()`, and results are de-duplicated by stable identity/transport facts.
 

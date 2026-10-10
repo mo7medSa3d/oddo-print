@@ -62,9 +62,9 @@ func TestNetworkPrinterPrintSuccessAndOffline(t *testing.T) {
 		t.Fatalf("timeout waiting for data")
 	}
 
-	// Status should be online while listener up
-	if s := p.Status(); s != "online" {
-		t.Fatalf("expected online, got %s", s)
+	// A TCP listener proves port reachability, not readiness of the device.
+	if s := p.Status(); s != "unknown" {
+		t.Fatalf("expected unknown for a byte-only listener, got %s", s)
 	}
 
 	ln.Close()

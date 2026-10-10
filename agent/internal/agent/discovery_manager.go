@@ -38,8 +38,8 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 	if resp.StatusCode != 200 {
 		return
 	}
-	var sessions []map[string]interface{}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
+	sessions, err := decodeBoundedGatewayList(resp.Body, maxDiscoverySessionsBytes, 5)
+	if err != nil {
 		log.Printf("[discovery] failed to decode pending sessions: %v", err)
 		return
 	}
@@ -84,8 +84,8 @@ func loadDiscoverySessionByID(ctx context.Context, doRequest func(context.Contex
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
-	var sessions []map[string]interface{}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDiscoverySessionsBytes)).Decode(&sessions); err != nil {
+	sessions, err := decodeBoundedGatewayList(resp.Body, maxDiscoverySessionsBytes, 5)
+	if err != nil {
 		log.Printf("[discovery] failed to decode session lookup response: %v", err)
 		return nil
 	}

@@ -31,6 +31,19 @@ The raw Odoo key is returned only when generated. Gateway persists only its cryp
 
 Authenticated with the Odoo installation key. Returns the authenticated integration health, including its replicated Odoo activation state (`enabled`). This endpoint is used by the Odoo **Test Connection** button.
 
+## `PATCH /api/odoo/configuration`
+
+The active Odoo integration key sets the integration's replicated `enabled` boolean
+and monotonically increasing `revision`. `revision` must be an integer between
+`0` and `2147483647`, inclusive (the backing PostgreSQL column is signed
+`integer`/int4); out-of-range inputs receive `400` before any database write.
+A rotated read-only key cannot change activation (`409 API_KEY_READ_ONLY`).
+Enabling must hold a live billing entitlement; disabling remains possible
+without one. The Gateway locks the credential before checking the subscription,
+matching Odoo print admission's lock order to avoid a key/subscription deadlock.
+Manager revocation/erasure cannot be blocked by activation-revision overflow:
+its terminal revision saturates at the int4 maximum.
+
 ## `GET /api/odoo/printers`
 
 Authenticated with the same Odoo installation key. Returns a sanitized list of non-retired runtime printers and agent display information. This is read-only runtime discovery for the Odoo Print Binding selector; the endpoint never creates or changes printers and does not return agent secrets.
@@ -58,7 +71,7 @@ No Gateway branch ID, Gateway destination ID, Gateway document-type ID, agent pr
 
 The Gateway validates the Odoo key, payload, expiration and idempotency before queueing the runtime job. The Odoo installation key is a credential for the Odoo integration API surface documented here. It is not a Manager or Platform credential and is not accepted by generic console endpoints. It is not restricted by document type. A created Odoo-originated job is stamped with the authenticated API-key identity. Status lookup is scoped to Odoo-originated jobs in the authenticated tenant after successful API-key authentication; `apiKeyId` must be present but is treated as credential provenance rather than an equality check against the current key, so credential rotation does not strand historical jobs. Internal Manager-created jobs without an Odoo API-key provenance remain outside the Odoo integration flow.
 
-`201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`.
+`201` means a new job was accepted. `200` means an idempotent retry matched an existing job and returns that job identity. A reused key with different routing/payload data returns `409 IDEMPOTENCY_CONFLICT`. Idempotent replay is checked within the same transaction as the integration's **current credential and workspace authorization**; a key revoked, rotated to read-only, or disabled after initial HTTP authentication cannot reuse an old receipt to bypass authorization. A historical terminal receipt can still be reconciled if its original printer or Agent record has been removed, using a separately fenced **read-only recovery** path that never submits a new print or consumes another quota credit. This receipt replay is not evidence that paper came out.
 
 Typical failures include `400` invalid input, `401` authentication failure, `404` unknown runtime printer/job, `422 CAPABILITY_MISMATCH` when the payload cannot be delivered by the selected printer, `429 PRINT_JOB_RATE_LIMITED`, `503` runtime/queue availability failure and `500` internal failure. Gateway-enabled Odoo printing never converts these failures into browser/native printing.
 
@@ -81,6 +94,8 @@ The current Agent sends:
 - `gatewayOwnedPrinterIds`: the Gateway-owned IDs represented on that page, used to preserve the manager-owned/deletion fence.
 - `keepAliveJobIds`: the existing bounded execution keep-alive set.
 
+Each inventory page requires a valid JSON response with `success: true`, not merely HTTP 2xx. If an intermediate page is rejected or its acknowledgement is malformed, the Agent stops that heartbeat cycle without sending the final inventory page. A rejected final acknowledgement keeps manager-owned printing fenced. The next scheduled heartbeat starts a new snapshot; absence reconciliation is never authorized by partial delivery.
+
 Agents with more than 500 printers send multiple pages. Legacy heartbeats without page fields are treated as a single inventory page. The final inventory page returns manager-owned `desiredState`. Current Agents send `desiredStatePaging: true`: each desired-state page contains at most 64 rows and 512 KiB of JSON array data, scoped to the authenticated tenant and Agent. A non-empty `desiredStateNextCursor` continues through `GET /api/agent/desired-state?after=<cursor>`; that response also identifies its owning `agentId`. Cursors are canonical UTF-8 base64url IDs in ascending-ID order. No continuation cursor means the last page.
 
 The Agent accumulates every page before applying authoritative absence reconciliation, with a 45-second synchronization deadline, a 1 MiB continuation-response bound and an 8 MiB compact metadata budget. The serialized durable desired-state file remains capped at 16 MiB. An interrupted, malformed, repeated-cursor, wrong-owner, oversized or unpersisted snapshot leaves manager-owned execution fenced and does not authorize deletion from a partial page. Gateway printing admission still independently requires current desired revisions, lifecycle and the exact claim fence; changing configuration during traversal therefore cannot authorize a stale physical attempt.
@@ -93,6 +108,16 @@ Only an ordered, versioned, complete and error-free final page can mark missing 
 
 Agent-owned printer registration remains subject to the tenant plan's `max_printers` entitlement. Exceeding that capacity returns `429 MAX_PRINTERS_EXCEEDED`; existing printer observations are not a substitute for entitlement and manager-owned printers remain governed by desired state.
 
+## Agent registration response integrity
+
+`POST /api/agent/register` accepts a bounded, single JSON object containing non-empty `agentId` and `secret` fields. The Agent requires HTTP 200 and a **complete** response of at most **1 MiB**, including trailing JSON whitespace. It refuses malformed, truncated, extra-value or oversized bodies **before saving** new credentials to the configured secure store. A partial HTTP success is not proof that Agent pairing completed. Redirects are disabled on pairing to avoid disclosing one-time pairing codes to another destination.
+
+## Agent polling and discovery list framing
+
+`GET /api/agent/jobs` returns a JSON array of at most **20** claimed jobs. The Gateway limits the encoded polling response to **64 MiB**; the Agent independently bounds received bytes to 20 times the maximum decoded payload size (**100 MiB**) before local admission. The Agent requires exactly one complete JSON array with no non-whitespace suffix, at most 20 non-null object entries, and a successful read through end-of-body. It validates the *entire* batch before admitting any job; oversized arrays are rejected after reaching the item cap rather than fully materialized. A rejected response does not prove its already-claimed jobs were printed or not printed; existing claim/lease reconciliation still applies.
+
+`GET /api/agent/discovery` returns at most **5** pending session objects and has a separate **8 MiB** Agent read budget. Both background polling and targeted session lookup reject malformed, truncated, oversized or trailing-content replies; they do not start discovery for an unvalidated batch. These limits guard untrusted or incompatible Gateway responses; they do not authorize external printer scanning or change printer capability evidence.
+
 ## Runtime ownership boundary
 
 Gateway APIs for Branches, business destinations, business document catalogs and Odoo-to-Gateway business synchronization are intentionally absent. Agents register runtime resources with Gateway; Odoo references those runtime printers only when creating bindings.
@@ -100,6 +125,18 @@ Gateway APIs for Branches, business destinations, business document catalogs and
 ## Reliability contract
 
 The Odoo addon commits a durable outbox row before making the HTTP submission. The same logical operation key is reused for retry attempts, but the value sent to Gateway is a deterministic company-namespaced digest because Odoo uniqueness is company-scoped while Gateway uniqueness is tenant-scoped. This prevents two Odoo companies under one Gateway tenant from colliding on the same caller-supplied idempotency key. Network timeouts are recorded as an unknown physical outcome instead of a definite failure. Gateway-side Odoo idempotency is tenant-scoped so credential rotation does not strand retries; Odoo status reads remain tenant-scoped after installation-key authentication so API-key rotation does not strand historical jobs.
+
+## Agent expiry and uncertain delivery receipts
+
+`PATCH /api/agent/jobs` accepts a claim-fenced `expired` report only once the Gateway database TTL has elapsed. If a `claimed` job has a pending WebSocket/poll handoff, a persisted Agent ACK, or a delivered timestamp, its expiry is classified as `UNKNOWN_PARTIAL_DELIVERY` (physical outcome `unknown`), **not** as proof that it did not print. The expiry classification is calculated by PostgreSQL from the row at update time so concurrent ACKs are not lost. No fake `delivered_at` timestamp is created solely because a handoff might have occurred. A late authenticated `success` from the **same** preserved claim token can reconcile that uncertain outcome within the existing five-minute TTL grace window; it never enqueues another print. An expired job with no claim and no possible-delivery evidence cannot be promoted. This contract applies equally to receipts, kitchen/bar tickets, reports, invoices, and every other Gateway print job type; it does not establish paper-output verification.
+
+- If the Gateway lease sweeper marks a still-claimed request `failed` with
+  `UNKNOWN_PARTIAL_DELIVERY` after possible polling/WebSocket handoff, the
+  original Agent can reconcile a delayed `success` using its exact retained
+  claim token even when neither `delivered_at` nor `acked_at` exists. The
+  persisted unknown-outcome marker, claim identity, and 24-hour database age
+  fence are required; a new claim/reprint is not issued. This records Agent
+  submission evidence, not proof of physical paper output.
 
 ## Customer SaaS authentication and billing
 

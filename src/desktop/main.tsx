@@ -97,7 +97,7 @@ import {
   jobTimeMs,
   jobTimestamp,
 } from "./lib/printers";
-import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType } from "../shared/diagnostic-test";
+import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, diagnosticIsInProgress } from "../shared/diagnostic-test";
 import { isVirtualCaptureTestRecord } from "../lib/printer-virtual";
 import { generateIdempotencyKey } from "../lib/idempotency";
 import type {
@@ -197,6 +197,7 @@ export default function App() {
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
   const [virtualConfirmCandidate, setVirtualConfirmCandidate] = useState<PrinterInfo | null>(null);
+  const [repeatDiagnosticPrinterId, setRepeatDiagnosticPrinterId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
@@ -621,9 +622,12 @@ export default function App() {
         return;
       }
       const scope = diagnosticScope(savedGatewayUrl, "paired-agent", id);
-      if (diagnosticOps.current.observed(scope)) {
-        if (!window.confirm(t("diagnostic.repeatConfirm"))) return;
-        diagnosticOps.current.confirmRepeat(scope);
+      const observed = diagnosticOps.current.observed(scope);
+      if (observed && !diagnosticIsInProgress(observed)) {
+        // A verified terminal operation is a new physical print only after
+        // explicit, in-app confirmation. In-flight retries reuse the SAME key.
+        setRepeatDiagnosticPrinterId(id);
+        return;
       }
       const key = diagnosticOps.current.begin(scope);
       if (!key) return; // same-tick or overlapping UI calls share one owner
@@ -1318,6 +1322,33 @@ export default function App() {
         printers={discoveredPrinters}
         gatewayUrl={savedGatewayUrl}
       />
+
+      <Modal
+        open={repeatDiagnosticPrinterId !== null}
+        onClose={() => setRepeatDiagnosticPrinterId(null)}
+        title={t("diagnostic.repeatTitle")}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRepeatDiagnosticPrinterId(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const id = repeatDiagnosticPrinterId;
+                setRepeatDiagnosticPrinterId(null);
+                if (!id || !savedGatewayUrl) return;
+                const scope = diagnosticScope(savedGatewayUrl, "paired-agent", id);
+                if (diagnosticOps.current.confirmRepeat(scope)) void handleTest(id);
+              }}
+            >
+              {t("common.confirm")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm leading-relaxed text-ink-2">{t("diagnostic.repeatConfirm")}</p>
+      </Modal>
 
       <Modal
         open={virtualConfirmCandidate !== null}

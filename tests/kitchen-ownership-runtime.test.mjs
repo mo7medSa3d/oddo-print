@@ -101,12 +101,12 @@ async function fixture({ draft = false, enabled = true, holdStage = null,
             if (kwargs.pos_printer_id === 2 && !recovered) {
                 if (stationOutcome === "lost-response") throw new Error("Response lost after dispatch");
                 if (stationOutcome === "malformed") return {};
-                if (stationOutcome === "unexpected") return { status: "future-status" };
-                if (stationOutcome === "unknown" || stationOutcome === "partial") return { status: stationOutcome, can_retry: true };
-                if (stationOutcome === "failed") return { status: "failed", can_retry: true,
+                if (stationOutcome === "unexpected") return { gateway_enabled: true, status: "future-status" };
+                if (stationOutcome === "unknown" || stationOutcome === "partial") return { gateway_enabled: true, status: stationOutcome, can_retry: true };
+                if (stationOutcome === "failed") return { gateway_enabled: true, status: "failed", can_retry: true,
                     message: "The printer refused this operation before admission." };
             }
-            return { status: "submitted", can_retry: false };
+            return { gateway_enabled: true, status: "submitted", can_retry: false };
         } },
         syncAllOrders: async (options = {}) => {
             await stage(options.force ? "firstSync" : "finalSync");

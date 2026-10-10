@@ -2712,18 +2712,18 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 			} `json:"skippedPrinters"`
 		}
 		if err := json.Unmarshal(body, &hbResp); err != nil || !hbResp.Success {
-			// A final page is the only authoritative desired-state snapshot.
-			// Retaining a previous sync after an invalid 2xx response would
-			// allow stale manager configuration to remain executable. Fail closed
-			// until the next complete snapshot can be parsed.
+			// The Gateway must positively acknowledge EVERY inventory page.
+			// Continuing after a malformed/negative intermediate 2xx response
+			// could submit the final page and reconcile absence despite an
+			// unconfirmed earlier page. Retain the previous desired-state fence
+			// on intermediate failures, but never finish this snapshot.
 			if pageIndex == len(pages)-1 {
 				a.desiredStateMu.Lock()
 				a.desiredStateSynced = false
 				a.desiredStateMu.Unlock()
-				log.Printf("Heartbeat page %d/%d returned an invalid final response; desired-state execution fence enabled: parse error=%v, success=%t", pageIndex+1, len(pages), err, hbResp.Success)
-				return
 			}
-			continue
+			log.Printf("Heartbeat page %d/%d was not acknowledged; stopping inventory snapshot: parse error=%v, success=%t", pageIndex+1, len(pages), err, hbResp.Success)
+			return
 		}
 
 		if parent.Err() != nil {
@@ -2790,9 +2790,9 @@ func (a *Agent) pollJobs(ctx context.Context) {
 		return
 	}
 
-	var jobs []map[string]interface{}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, pollJobsByteLimit)).Decode(&jobs); err != nil {
-		log.Printf("Poll: failed to decode job list: %v", err)
+	jobs, err := decodeBoundedPollJobs(resp.Body, pollJobsByteLimit, maxClaimBatch)
+	if err != nil {
+		log.Printf("Poll: rejected invalid or oversized job batch before dispatch: %v", err)
 		return
 	}
 

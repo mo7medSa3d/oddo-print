@@ -25,6 +25,8 @@ agent/
 │   └── testutil/   # Test helpers
 ```
 
+**Registration response:** HTTPS pairing uses a redirect-disabled client and accepts only a complete HTTP 200 JSON object of at most 1 MiB before persisting Agent credentials. A malformed or truncated Gateway body never rotates local credentials.
+
 ## Communication Model
 
 ### Primary: WebSocket
@@ -38,10 +40,13 @@ agent/
 - Polls `GET /api/agent/jobs` every 5 seconds when WebSocket is down
 - Safety poll every 30 seconds even when WebSocket is connected (catches stuck claims)
 
+The poll decoder verifies the full response framing, byte and 20-job limits before dispatching any job. An extra JSON value or suffix (even after a valid first array) causes a fail-closed batch rejection; the original Gateway claim remains subject to the normal ambiguity-aware recovery rules.
+
 ### Heartbeat
 - `POST /api/agent/heartbeat` every 30 seconds
 - Sends bounded printer inventory with fresh observations and explicit source diagnostics
 - Includes keep-alive for in-flight job claims
+- Requires explicit application-level acknowledgement for every inventory page; rejected intermediate pages abort the cycle before final-page reconciliation
 
 ## Job Execution
 
@@ -89,12 +94,12 @@ Either way, the physical outcome is recorded as UNKNOWN.
    - Registry (printers.json) reload
 
 2. **Full discovery** (async, 2s after startup):
-   - Network TCP 9100 scan
+   - Network TCP 9100 scan (512 unique-host budget shared across local subnets per source; capped scans are partial evidence, TCP reachability is not hardware readiness)
    - USB enumeration (Windows)
    - IPP endpoint probes and IPP/IPPS DNS-SD advertisements; a valid DNS-SD advertisement supplies explicit IPP/IPPS transport metadata and may enter runtime inventory, while physical health remains `unknown` until the bounded runtime IPP status probe observes the endpoint
    - LPR/LPD discovery-only probes (candidates are not registered because LPR execution is not supported)
    - SNMP sysDescr queries across local private interfaces; identity and read-only discovery do not prove print capability
-   - WSD discovery
+   - WSD discovery (bounded 512 observations; cancellation/socket errors and cap exhaustion preserve partial results **without declaring a complete source**)
    - DNS-SD/mDNS discovery with an independent resolver lifetime for each browse
    - The Gateway can request a per-session timeout; the Agent clamps it to the Gateway contract range of 500 ms–30 s.
 

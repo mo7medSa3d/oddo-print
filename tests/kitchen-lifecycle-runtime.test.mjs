@@ -53,7 +53,7 @@ async function fixture({ draft = false, failStation = false, syncError = false }
       };
       assert.equal(method, "action_print_gateway_kitchen");
       submissions.push(kwargs);
-      return { status: failStation && kwargs.pos_printer_id === 2 ? "failed" : "submitted" };
+      return { gateway_enabled: true, status: failStation && kwargs.pos_printer_id === 2 ? "failed" : "submitted" };
     } },
     syncAllOrders: async (options = {}) => {
       if (syncError) throw new Error("Order sync unavailable");

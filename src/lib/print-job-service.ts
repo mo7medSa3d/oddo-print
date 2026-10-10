@@ -192,6 +192,29 @@ async function insertQueuedJobAtomically({
       }
     }
 
+    // A replay is a request under the caller's CURRENT authorization, not an
+    // exemption from it. Serialize credential removal/rotation/disable with
+    // this transaction BEFORE any idempotency receipt/job lookup can return
+    // an identifier. The revocation/rotation paths lock the same api_keys
+    // row, so a key revoked after HTTP authentication cannot obtain an
+    // apparently accepted operation by racing this check. Locking the key
+    // before runtime tenant rows also matches rotation's key -> tenant order.
+    if (rateLimitKeyId) {
+      const credential = await tx.execute(sql`SELECT id FROM api_keys
+        WHERE id = ${rateLimitKeyId} AND tenant_id = ${tenantId}
+          AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
+        FOR UPDATE`);
+      if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
+      // A tenant may be suspended after the initial HTTP authentication.
+      // Receipts are also observable operation identities, so check tenant
+      // lifecycle before returning a historical receipt or active job.
+      const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants
+        WHERE id = ${tenantId} FOR SHARE`);
+      if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
+        throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
+      }
+    }
+
     // Reprint coordination happens only after the tenant enqueue lock is
     // held. While an earlier reprint of the same original job is still active,
     // concurrent operator requests converge on that existing job instead of
@@ -454,16 +477,6 @@ async function insertQueuedJobAtomically({
 
     await enforceTenantJobEntitlements(tx, tenantId);
 
-    // Auth can race with key removal/revocation or Odoo disabling printing.
-    // Lock the live credential after billing locks, before reserving credit.
-    if (rateLimitKeyId) {
-      const credential = await tx.execute(sql`SELECT id FROM api_keys
-        WHERE id = ${rateLimitKeyId} AND tenant_id = ${tenantId}
-          AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
-        FOR UPDATE`);
-      if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
-    }
-
     // One newly-created logical print job consumes one plan print credit.
     // Existing idempotent jobs return before this point, so retries never
     // double-charge the same logical print.
@@ -530,6 +543,56 @@ async function insertQueuedJobAtomically({
   });
 }
 
+/**
+ * A durable receipt may outlive the printer/Agent inventory row. Preserve
+ * safe lost-response reconciliation for those historical operations without
+ * resurrecting a removed printer or making a second print job. This recovery
+ * path is used ONLY when owner preflight cannot find the original records.
+ * It still locks the live Odoo credential, tenant and idempotency identity in
+ * the same transaction; it is never a read-only authentication bypass.
+ */
+async function recoverReceiptForMissingOwner(
+  printerId: string,
+  validatedPayload: ReturnType<typeof validatePrintJobPayload>,
+  options: CreatePrintJobOptions,
+): Promise<CreatePrintJobResult | null> {
+  // Capture the validated identities into immutable locals: callbacks must
+  // not re-read optional properties that TypeScript cannot narrow or a caller
+  // could change between this preflight and its transaction callback.
+  const apiKeyId = options.rateLimitKeyId;
+  const idempotencyKey = options.idempotencyKey;
+  if (!apiKeyId || !idempotencyKey || options.managerAuthority || options.agentDiagnosticAuthority) return null;
+  const tenantId = options.tenantId;
+  if (tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
+    const credential = await tx.execute(sql`SELECT id FROM api_keys
+      WHERE id = ${apiKeyId} AND tenant_id = ${tenantId}
+        AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
+      FOR UPDATE`);
+    if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
+    const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE`);
+    if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
+      throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
+    }
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:idempotency:${tenantId}:${idempotencyKey}`}))`);
+    const receipt = await tx.query.printJobReceipts.findFirst({ where: and(
+      eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.idempotencyKey, idempotencyKey),
+    ) });
+    if (!receipt) return null;
+    if (receipt.apiKeyId === null || receipt.fingerprint !== idempotencyDigest({
+      printerId,
+      documentType: options.documentType,
+      destination: options.destination,
+      payload: validatedPayload,
+    })) {
+      throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
+    }
+    return { id: receipt.id, printerId: receipt.printerId, agentId: receipt.agentId, status: receipt.status, isReused: true };
+  });
+}
+
 export async function createPrintJobForPrinter(
   printerId: string,
   payload: unknown,
@@ -540,19 +603,23 @@ export async function createPrintJobForPrinter(
   if (typeof options.tenantId !== "string" || !options.tenantId.trim()) throw new PrintJobInputError("tenant context is required", "TENANT_CONTEXT_REQUIRED", 400);
   const requestedBy = normalizeRequestedBy(options.requestedBy);
   const validatedPayload = validatePrintJobPayload(payload);
-  // Manager idempotency is verified only inside the owning transaction; an
-  // optimistic read here would disclose a prior job after the actor was demoted.
-  if (!options.managerAuthority && !options.agentDiagnosticAuthority && options.idempotencyKey) {
-    const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, options.tenantId), eq(printJobReceipts.idempotencyKey, options.idempotencyKey)) });
-    if (receipt) {
-      if ((options.rateLimitKeyId && receipt.apiKeyId === null) || receipt.fingerprint !== idempotencyDigest({ printerId: normalizedPrinterId, documentType: options.documentType, destination: options.destination, payload: validatedPayload })) throw Object.assign(new Error("IDEMPOTENCY_CONFLICT"), { code: "IDEMPOTENCY_CONFLICT" });
-      return { id: receipt.id, printerId: receipt.printerId, agentId: receipt.agentId, status: receipt.status, isReused: true };
-    }
-  }
+  // Normal identity reuse is decided in the enqueue transaction, after live
+  // authority checks. If the original inventory owner has disappeared, the
+  // separate terminal-receipt recovery below performs the same live fences.
+  // No unfenced optimistic read is permitted during key rotation/revocation.
   const printer = await db.query.printers.findFirst({ where: and(eq(printers.id, normalizedPrinterId), eq(printers.tenantId, options.tenantId)) });
-  if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
-  const ownerAgent = await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, options.tenantId)) });
-  if (!ownerAgent) throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
+  const ownerAgent = printer
+    ? await db.query.agents.findFirst({ where: and(eq(agents.id, printer.agentId), eq(agents.tenantId, options.tenantId)) })
+    : null;
+  if (!printer || !ownerAgent) {
+    // Prior versions returned a retained receipt even if the old printer or
+    // Agent was removed. Do not turn an uncertain print retry into a 404:
+    // recover the ORIGINAL accepted operation, under current authorization.
+    const recovered = await recoverReceiptForMissingOwner(normalizedPrinterId, validatedPayload, options);
+    if (recovered) return recovered;
+    if (!printer) throw new PrintJobInputError("Printer not found", "PRINTER_NOT_FOUND", 404);
+    throw new PrintJobInputError("Printer owner agent not found", "AGENT_NOT_FOUND", 404);
+  }
 
   const id = `job_${nanoid(12)}`;
   const expiresAt = options.expiresAt;

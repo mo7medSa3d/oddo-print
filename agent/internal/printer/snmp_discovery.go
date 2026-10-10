@@ -144,7 +144,9 @@ func probeSNMPPrinterWithPort(ctx context.Context, ip string, snmpPort int, prin
 		protocol = inferSNMPProtocol(sysDescrLower, strings.ToLower(name))
 		endpoint = net.JoinHostPort(ip, strconv.Itoa(printerPort))
 		port = printerPort
-		status = "online"
+		// Reachable TCP and an SNMP identity query are not hardware-ready
+		// evidence (paper, cover and printer-state are unobserved).
+		status = "unknown"
 		caps["snmp_verified"] = true
 		caps["print_endpoint_verified"] = true
 	} else {

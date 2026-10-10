@@ -107,7 +107,10 @@ func normalizeIPPURL(raw string) (*url.URL, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid IPP URL %q: %w", raw, err)
+		// url.Parse errors can echo the supplied userinfo. IPP credentials
+		// may be configured in the URL for authenticated printers, so never
+		// put the raw input (or the wrapped parser error) in logs/UI errors.
+		return nil, fmt.Errorf("invalid IPP URL syntax")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("IPP URL scheme must be http/https/ipp/ipps, got %q", u.Scheme)
@@ -193,7 +196,13 @@ func preDispatchIRErr(err error) bool {
 	return errors.As(err, &dnsErr)
 }
 
-func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFormat string) error {
+func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFormat string) (retErr error) {
+	// Capture the complete Print-Job request/response time; success here is
+	// verified IPP submission evidence, not confirmation of paper output.
+	startedAt := time.Now()
+	defer func() {
+		log.Printf("print.trace ipp_submission latency_ms=%d success=%t", time.Since(startedAt).Milliseconds(), retErr == nil)
+	}()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -406,9 +415,15 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	// Read one byte beyond the limit: a valid-looking IPP prefix at exactly
+	// 64 KiB must not hide a trailing, untrusted attribute/data fragment.
+	const maxIPPAttributesBytes = 64 * 1024
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPAttributesBytes+1))
 	if readErr != nil {
 		return nil, readErr
+	}
+	if len(body) > maxIPPAttributesBytes {
+		return nil, fmt.Errorf("IPP printer attributes response exceeds %d-byte limit", maxIPPAttributesBytes)
 	}
 	status, msg := parseIPPStatus(body)
 	if status == 0xFFFF {

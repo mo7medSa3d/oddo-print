@@ -17,8 +17,15 @@ describe("customer-facing UX contracts", () => {
   it("uses the IBM Plex bilingual font system in the web console", () => {
     const layout = read("src/app/layout.tsx");
     const css = read("src/app/globals.css");
-    expect(layout).toContain("IBM_Plex_Sans");
-    expect(layout).toContain("IBM_Plex_Sans_Arabic");
+    // The same bilingual families are now licensed, local and deterministic
+    // during Docker builds; assert their shipped sources, not Google API names.
+    expect(layout).toContain('from "next/font/local"');
+    expect(layout).toContain("ibm-plex-sans-variable.ttf");
+    for (const weight of [400, 500, 600, 700]) {
+      expect(layout).toContain(`ibm-plex-sans-arabic-${weight}.ttf`);
+    }
+    expect(layout).toContain('variable: "--font-ibm-plex-sans"');
+    expect(layout).toContain('variable: "--font-ibm-plex-sans-arabic"');
     expect(css).toContain("--font-ibm-plex-sans");
     expect(css).toContain("--font-ibm-plex-sans-arabic");
     expect(css).toContain('html[dir="rtl"] body');

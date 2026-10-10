@@ -27,7 +27,7 @@ import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { ensureCustomerSession } from "../lib/session-config";
 import { BrandMark } from "./brand";
-import { BreadcrumbTrail, NavIconFrame, ShellSearchButton } from "./visual-system";
+import { NavIconFrame, ShellSearchButton } from "./visual-system";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 
@@ -362,6 +362,8 @@ function ConsoleShell({
         <div className="shrink-0 border-t border-edge-subtle p-2.5">
           {collapsed ? (
             <div className="flex flex-col items-center gap-1.5">
+              <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} compact onClick={() => setPaletteOpen(true)} />
+              <ThemeToggle />
               <LanguageSwitcher align="start" placement="above" compact className="w-auto" />
               <WorkspaceMenu workspace={workspace} loggingOut={loggingOut} onLogout={onLogout} compact />
               <button
@@ -376,7 +378,10 @@ function ConsoleShell({
             </div>
           ) : (
             <div className="space-y-2">
-
+              <div className="flex items-center justify-between gap-2 px-1">
+                <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} onClick={() => setPaletteOpen(true)} />
+                <ThemeToggle />
+              </div>
               <div className="flex items-center gap-2">
                 <LanguageSwitcher align="start" placement="above" className="shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -392,40 +397,22 @@ function ConsoleShell({
       <div
         className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
-        {/* Shared TailGrids-style breadcrumb / command navbar for the desktop console. */}
-        <header className="tg-console-topbar sticky top-3 z-30 mb-2 hidden h-14 min-w-0 items-center justify-between gap-3 px-4 lg:mx-3 lg:mt-3 lg:flex xl:px-6">
-          <BreadcrumbTrail
-            parent={t("nav.section.workspace")}
-            current={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
-            label={t("nav.consoleNavigation")}
-          />
-          <div className="ms-auto flex min-w-0 items-center gap-2">
-            <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} onClick={() => setPaletteOpen(true)} />
-            <ThemeToggle />
-          </div>
-        </header>
-        {/* Mobile chrome */}
-        <header className="tg-console-topbar glass-chrome sticky top-2 z-30 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-1.5 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-2 lg:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            aria-label={t("nav.openNavigation")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-edge bg-surface text-ink-2 transition-colors duration-150 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
-          >
-            <MenuIcon className="h-4 w-4" aria-hidden />
-          </button>
-          <Link href="/dashboard" aria-label={t("nav.home")} className="min-w-0 max-w-[160px] flex-1 sm:max-w-none sm:flex-none">
-            <ConsoleBrand brandSubtitle={t("brand.tagline")} />
-          </Link>
-          <div className="ms-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-            <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} compact onClick={() => setPaletteOpen(true)} />
-            <LanguageSwitcher compact />
-            <ThemeToggle />
-            <span className="hidden min-[400px]:inline-flex"><Avatar name={workspace.name || workspace.email || "Yaseir"} tone="brand" size="sm" /></span>
-          </div>
-        </header>
-
-        <main className="page-transition min-w-0 max-w-full">{children}</main>
+        {/* Navigation and actions live in the sidebar. This single mobile
+            trigger is not a top navbar and stays reachable while scrolling. */}
+        <button
+          type="button"
+          data-gateway-mobile-navigation
+          aria-label={t("nav.openNavigation")}
+          aria-expanded={mobileOpen}
+          aria-controls="gateway-mobile-nav"
+          onClick={() => setMobileOpen(true)}
+          className="fixed start-3 top-3 z-30 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 shadow-md transition-colors hover:border-edge-accent hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+        >
+          <MenuIcon className="h-5 w-5" aria-hidden />
+        </button>
+        <div className="pt-14 lg:pt-0">
+          <main className="page-transition min-w-0 max-w-full">{children}</main>
+        </div>
       </div>
 
       {/* Mobile navigation sheet */}
@@ -439,6 +426,7 @@ function ConsoleShell({
           />
           <div
             ref={mobilePanelRef}
+            id="gateway-mobile-nav"
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
@@ -460,8 +448,16 @@ function ConsoleShell({
               <ConsoleNav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </div>
             <div className="shrink-0 space-y-2 border-t border-edge-subtle p-3">
+              <div className="flex items-center justify-between gap-2">
+                <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} onClick={() => { setMobileOpen(false); setPaletteOpen(true); }} />
+                <div className="flex items-center gap-1">
+                  <LanguageSwitcher align="start" placement="above" />
+                  <ThemeToggle />
+                </div>
+              </div>
               <button
                 type="button"
+                disabled={loggingOut}
                 onClick={() => {
                   setMobileOpen(false);
                   onLogout();

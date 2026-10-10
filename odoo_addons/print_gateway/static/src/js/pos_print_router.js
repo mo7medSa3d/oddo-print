@@ -185,7 +185,27 @@ async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_W
     return renderGatewayReceiptJpeg(element, { renderer, width });
 }
 
+// Diagnostic tracing must NEVER change print behavior. Odoo embedded runtimes
+// and tests may expose only console.log; even a failing logger must not turn
+// a successfully rendered receipt into a new retryable print attempt.
+function recordReceiptLatency(stage, startedAt) {
+    try {
+        const elapsed = (globalThis.performance?.now?.() ?? Date.now()) - startedAt;
+        const message = "print.trace " + stage + " latency_ms=" + Math.max(0, Math.round(elapsed));
+        const logger = globalThis.console;
+        if (typeof logger?.info === "function") {
+            logger.info(message);
+        } else if (typeof logger?.log === "function") {
+            logger.log(message);
+        }
+    } catch {
+        // Observability is best-effort and must not affect print identity or output.
+    }
+}
+
 export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
+    const renderStartedAt = globalThis.performance?.now?.() ?? Date.now();
+    try {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
     const props = { order: currentOrder, basic_receipt: Boolean(basic) };
     const receiptComponent = pos.orderReceiptComponent || OrderReceipt;
@@ -214,6 +234,11 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
     // Never fall back to arbitrary canvas dimensions or default page zoom.
     const receipt = renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props);
     return await elementToJpeg(receipt, renderer, rasterWidth);
+    } finally {
+        // Render time is distinct from Gateway enqueue and physical printing;
+        // no receipt, order, printer or customer data is included in the log.
+        recordReceiptLatency("pos_receipt_render", renderStartedAt);
+    }
 }
 
 // Width is resolved for the ACTUAL bound printer on EACH print action,
@@ -222,6 +247,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
 // clip or shrink after a routing/driver change. Fetch once per action; not
 // per receipt line. The Agent independently clamps to hardware limits.
 async function gatewayReceiptRasterWidth(pos, orderId) {
+    const lookupStartedAt = globalThis.performance?.now?.() ?? Date.now();
     let width = DEFAULT_RECEIPT_RASTER_WIDTH;
     try {
         const candidate = await gatewayDataCall(
@@ -232,6 +258,10 @@ async function gatewayReceiptRasterWidth(pos, orderId) {
         // A missing/stale metadata endpoint must not force fallback to local
         // browser printing. The Gateway will still authorize the real job.
         console.warn("Gateway printer width unavailable; using Odoo's native receipt width:", error);
+    } finally {
+        // The width RPC can be slow even when the printer and Gateway are fast.
+        // Do not cache across actions: routing may change from 58mm to 80mm.
+        recordReceiptLatency("pos_width_lookup", lookupStartedAt);
     }
     return width;
 }
@@ -334,7 +364,11 @@ patch(PosStore.prototype, {
             // printing, or definitively rejected) close the reuse window;
             // uncertain statuses keep it for a retry. Transport failures are
             // recorded uncertain by the inner catch above.
-            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(result?.status);
+            // An accepted-looking status without the server's positive Gateway
+            // route marker is a contradictory response, not print admission.
+            // Keep the original operation ID and raster for reconciliation.
+            const status = result?.gateway_enabled === true ? result?.status : "unknown";
+            const terminal = ["submitted", "claimed", "printing", "success", "failed"].includes(status);
             if (terminal) finishPrintOperation(recoveryKey, operationId);
             receiptOps.set(orderId, {
                 id: operationId,
@@ -349,17 +383,17 @@ patch(PosStore.prototype, {
             // printed; "unknown" means the outcome cannot be trusted. Only
             // allowlisted accepted statuses render success; an absent or
             // unexpected status must never toast success.
-            if (["unknown", "partial"].includes(result?.status)) {
+            if (["unknown", "partial"].includes(status)) {
                 this.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
                     { type: "warning", sticky: true }
                 );
-            } else if (result?.status === "failed") {
+            } else if (status === "failed") {
                 this.notification.add(
                     result?.message || _t("Couldn't print the receipt. See Print Activity."),
                     { type: "danger" }
                 );
-            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(result?.status)) {
+            } else if (["queued", "submitted", "claimed", "printing", "success"].includes(status)) {
                 this.notification.add(
                     result?.message || _t("Receipt sent. Check Print Activity for the result."),
                     { type: "success" }
@@ -375,9 +409,8 @@ patch(PosStore.prototype, {
             // rejection or an ambiguous physical outcome must not be recorded
             // as a completed POS print. Allowlist (mirrors the kitchen path):
             // an absent/unexpected status must never count as success.
-            const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(result?.status);
+            const recordPrintAttempt = ["queued", "submitted", "claimed", "printing", "success"].includes(status);
             if (!printBillActionTriggered && recordPrintAttempt && !receiptOps.get(orderId)?.counted) {
-                receiptOps.get(orderId).counted = true;
                 const count = currentOrder.nb_print ? currentOrder.nb_print + 1 : 1;
                 try {
                     const writeResult = await gatewaySilentCall(
@@ -391,6 +424,13 @@ patch(PosStore.prototype, {
                     // after the server accepted the count update.
                     if (writeResult !== false) {
                         currentOrder.nb_print = count;
+                        // Only record the accounting step after Odoo has
+                        // accepted it. A queued-job retry can then recover a
+                        // failed silentCall without reprinting new paper.
+                        const countedOperation = receiptOps.get(orderId);
+                        if (countedOperation?.id === operationId) countedOperation.counted = true;
+                    } else {
+                        console.warn("Receipt accepted, but POS print count was not saved; retry can repair accounting.");
                     }
                 } catch (writeErr) {
                     console.warn("Failed to record receipt print count:", writeErr);
@@ -880,7 +920,10 @@ patch(PosStore.prototype, {
                 true,
                 { ambiguous: true },
             );
-            const status = result?.status;
+            // A status token alone is not evidence this request used the
+            // authorized Gateway route. Treat absent/false ownership as an
+            // uncertain response; automatic physical retry is forbidden.
+            const status = result?.gateway_enabled === true ? result?.status : "unknown";
             const accepted = ["queued", "submitted", "claimed", "printing", "success"].includes(status);
             if (!accepted && status !== "failed") {
                 // Missing/unrecognized responses give no proof of refusal.

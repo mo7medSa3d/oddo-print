@@ -27,14 +27,15 @@ const sendSource = between(dashboard, 'async function sendGatewayTestPage(', '/*
 const dashHandler = between(dashboard, '  const handleGatewayTestPrint = async', '  /**\n   * Reprint');
 const desktopHandler = between(desktop, '  const handleTest = useCallback(', '  const startAgent = useCallback');
 const ipcSource = between(ipc, 'export async function testGatewayPrinter(', 'export function cleanupLocalJobs');
-function makeDashboard(send, { actor = 'tenant1:user1:owner', confirms = [true] } = {}) {
+function makeDashboard(send, { actor = 'tenant1:user1:owner' } = {}) {
   let serial=0;
   const messages=[]; const requests=[]; const busy=[];
   const ops = new model.DiagnosticOperations(() => `diagnostic-operation-${++serial}`);
-  const confirmDecisions=[...confirms];
+  let pendingRepeat=null;
   const context=vm.createContext({
     ...model, diagnosticOps:{current:ops},diagnosticActorScope:actor,
-    window:{location:{origin:'https://gateway.example.com'},confirm:()=>confirmDecisions.shift() ?? false},
+    window:{location:{origin:'https://gateway.example.com'}},
+    setRepeatDiagnosticCandidate:v=>{pendingRepeat=v;},
     fetchWithTimeout:async (url,init)=>{requests.push({url,key:init.headers['Idempotency-Key']});return send(url,init);},
     generateIdempotencyKey:()=>`diagnostic-operation-${++serial}`,
     setTestingPrinterId:v=>busy.push(v),setMessage:v=>messages.push(v),
@@ -43,17 +44,27 @@ function makeDashboard(send, { actor = 'tenant1:user1:owner', confirms = [true] 
     DashboardApiError:class DashboardApiError extends Error { constructor(key,code,obj){super(key);this.key=key;this.code=code;this.obj=obj;} },
   });
   vm.runInContext(compile(`${sendSource}\n${dashHandler}\nglobalThis.runDiagnostic = handleGatewayTestPrint;`),context);
-  return {run:(id='printer1')=>context.runDiagnostic(id,`Printer ${id}`),messages,requests,busy,ops,actor};
+  return {
+    run:(id='printer1')=>context.runDiagnostic(id,`Printer ${id}`),
+    pendingRepeat:()=>pendingRepeat,
+    confirmRepeat:async()=>{
+      const candidate=pendingRepeat;pendingRepeat=null;
+      if (!candidate) return;
+      const scope=model.diagnosticScope('https://gateway.example.com',actor,candidate.printerId);
+      if (ops.confirmRepeat(scope)) await context.runDiagnostic(candidate.printerId,candidate.printerName);
+    },
+    messages,requests,busy,ops,actor,
+  };
 }
 function gatewayResponse(body, status=201) {
   return {ok:status>=200&&status<300,status,json:async()=>body};
 }
 const good = (status='queued', id='printer1', extras={})=>({ok:true,jobId:`job-${id}`,printerId:id,status,...extras});
-function makeDesktop(send,{confirms=[true],url='https://gateway.example.com'}={}) {
+function makeDesktop(send,{url='https://gateway.example.com'}={}) {
   let serial=0;
   const messages=[]; const requests=[];
   const ops=new model.DiagnosticOperations(()=>`desktop-operation-${++serial}`);
-  const decisions=[...confirms];
+  let pendingRepeat=null;
   const ipcContext=vm.createContext({
     ...model, normalizeGatewayUrl:value=>value,
     gatewayConsoleRequest:async (_url,path,method,_headers,_body,key)=>{
@@ -65,13 +76,21 @@ function makeDesktop(send,{confirms=[true],url='https://gateway.example.com'}={}
   vm.runInContext(compile(`${ipcSource.replace(/^export /m, "")}\nglobalThis.send = testGatewayPrinter;`), ipcContext);
   const context=vm.createContext({
     ...model, useCallback:fn=>fn, diagnosticOps:{current:ops},savedGatewayUrl:url,
-    window:{confirm:()=>decisions.shift() ?? false},
+    window:{},setRepeatDiagnosticPrinterId:v=>{pendingRepeat=v;},
     testGatewayPrinter:ipcContext.send,
     setBusyBoth:()=>{},setMsg:v=>messages.push(v),refreshJobs:()=>{},
     t:key=>key,friendlyPrinterError:v=>v,errMsg:e=>String(e),locale:'en',
   });
   vm.runInContext(compile(`${desktopHandler}\nglobalThis.runDiagnostic=handleTest;`),context);
-  return {run:(id='printer1')=>context.runDiagnostic(id),messages,requests,ops};
+  return {
+    run:(id='printer1')=>context.runDiagnostic(id),
+    pendingRepeat:()=>pendingRepeat,
+    confirmRepeat:async()=>{
+      const id=pendingRepeat;pendingRepeat=null;
+      if (id && ops.confirmRepeat(model.diagnosticScope(url,'paired-agent',id))) await context.runDiagnostic(id);
+    },
+    messages,requests,ops,
+  };
 }
 
 test('strict decoder rejects malformed2xx and wrong printer/status/optional fields',()=>{
@@ -94,6 +113,9 @@ test('valid terminal outcomes must not be announced as newly queued or guarantee
   ]){
     assert.equal(model.diagnosticMessageKey(model.decodeDiagnosticResult(good(status,'printer1',{physicalOutcome:outcome}),'printer1')),key);
   }
+  assert.equal(model.diagnosticMessageKey(model.decodeDiagnosticResult(good('success','printer1',{virtualCapture:true}),'printer1')),'diagnostic.virtualCaptured');
+  assert.equal(model.diagnosticIsInProgress(model.decodeDiagnosticResult(good('queued'),'printer1')),true);
+  assert.equal(model.diagnosticIsInProgress(model.decodeDiagnosticResult(good('success'),'printer1')),false);
 });
 
 test('model owns one synchronous identity, retains ambiguous key and fences origins/actors',()=>{
@@ -145,12 +167,28 @@ test('dashboard malformed, false ok, mismatched and unknown terminal2xx retain i
   }
 });
 
-test('dashboard observed failed/expired/success require explicit confirmation before NEW intent',async()=>{
+test('dashboard in-flight diagnostic polls under the SAME key and never prompts a repeat',async()=>{
+  let response=good('queued');
+  const fixture=makeDashboard(async()=>gatewayResponse(response));
+  await fixture.run();
+  response=good('printing');
+  await fixture.run();
+  assert.equal(fixture.requests.length,2);
+  assert.equal(new Set(fixture.requests.map(r=>r.key)).size,1);
+  assert.equal(fixture.pendingRepeat(),null);
+  assert.equal(fixture.messages.at(-1).text,'diagnostic.inProgress');
+});
+
+test('dashboard terminal outcome opens app confirmation before NEW intent',async()=>{
   let response=good('success');
-  const fixture=makeDashboard(async()=>gatewayResponse(response),{confirms:[false,true]});
-  await fixture.run();await fixture.run();assert.equal(fixture.requests.length,1);
+  const fixture=makeDashboard(async()=>gatewayResponse(response));
+  await fixture.run();
+  await fixture.run();
+  assert.equal(fixture.requests.length,1);
+  assert.equal(fixture.pendingRepeat()?.printerId,'printer1');
   response=good('failed','printer1',{physicalOutcome:'not_printed'});
-  await fixture.run();assert.equal(fixture.requests.length,2);
+  await fixture.confirmRepeat();
+  assert.equal(fixture.requests.length,2);
   assert.notEqual(fixture.requests[0].key,fixture.requests[1].key);
   assert.equal(fixture.messages.at(-1).text,'diagnostic.failed');
 });
@@ -168,12 +206,12 @@ test('desktop live IPC strict2xx decoder and renderer use stable id on malformed
   assert.equal(fixture.messages.at(-1).text,'diagnostic.unverified');
 });
 
-test('desktop same tick guard, 401/403/503 retain identity and explicit repeat requires confirm',async()=>{
+test('desktop same tick guard and 401/403/503 retain identity; in-flight refresh keeps the key',async()=>{
   let status=401;let proceed;const latch=new Promise(resolve=>proceed=resolve);
   const fixture=makeDesktop(async()=>{
     await latch;
     return status===200 ? {status,body:JSON.stringify(good())}:{status,body:'{}'};
-  },{confirms:[false,true]});
+  });
   const a=fixture.run(); const b=fixture.run();
   assert.equal(fixture.requests.length,1);
   proceed();await Promise.all([a,b]);
@@ -181,9 +219,22 @@ test('desktop same tick guard, 401/403/503 retain identity and explicit repeat r
   for(const s of [403,503,200]) {status=s;await fixture.run();}
   assert.equal(new Set(fixture.requests.map(r=>r.key)).size,1);
   assert.equal(fixture.messages.at(-1).text,'diagnostic.queued');
-  await fixture.run();assert.equal(fixture.requests.length,4);
   await fixture.run();assert.equal(fixture.requests.length,5);
-  assert.equal(new Set(fixture.requests.map(r=>r.key)).size,2);
+  assert.equal(fixture.pendingRepeat(),null);
+  assert.equal(new Set(fixture.requests.map(r=>r.key)).size,1);
+});
+
+test('desktop terminal outcome requires an in-app confirmation before another print',async()=>{
+  let status='success';
+  const fixture=makeDesktop(async()=>({status:200,body:JSON.stringify(good(status))}));
+  await fixture.run();
+  await fixture.run();
+  assert.equal(fixture.requests.length,1);
+  assert.equal(fixture.pendingRepeat(),'printer1');
+  status='failed';
+  await fixture.confirmRepeat();
+  assert.equal(fixture.requests.length,2);
+  assert.notEqual(fixture.requests[0].key,fixture.requests[1].key);
 });
 
 test('unpaired Agent is denied by Gateway while preserving the same diagnostic retry key', async () => {

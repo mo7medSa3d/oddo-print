@@ -66,7 +66,7 @@
 
 **Checklist**:
 1. Check the agent is online (heartbeat within last 90s)
-2. Check the printer status is "online" (not "error" or "offline")
+2. Inspect the printer's **fresh status evidence**. `unknown` after TCP/SNMP discovery means device readiness was not observed (not that the printer is necessarily offline); an explicit `offline` or `error` requires a protocol/queue check. An Agent being online does not prove the printer is ready.
 3. Check both counters: `delivery_attempts` may have reached the delivery ceiling, while `retries` may have reached the safe requeue ceiling
 4. Check agent logs for the specific job ID
 5. Verify the printer protocol matches the payload type (e.g., PDF cannot go to ESC/POS)
@@ -142,3 +142,7 @@ reverse proxy. The error alone does not prove either cause.
 **Cause**: Status probes to offline printers may take up to 2 seconds each.
 
 **Impact**: The heartbeat payload may report "spooler_rpc_unresponsive" for unresponsive printers. This is correct behavior — the probe timed out and the status honestly reflects the device state.
+
+### IPP endpoint configuration or capability probe errors
+
+An invalid IPP URI produces a sanitized error; the Agent does not echo a malformed URI that may contain credentials. IPP addresses configured through the Agent must use an allowed private/link-local IP, an approved port and **no embedded user credentials**. Confirm the printer URI through the authorized console rather than pasting credentials into logs. Large or malformed IPP capability responses fail explicitly instead of being interpreted as a valid truncated response. These checks validate configuration/protocol evidence, **not** physical paper output.

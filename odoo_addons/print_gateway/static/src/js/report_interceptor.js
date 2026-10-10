@@ -101,7 +101,17 @@ async function silentPrintReportHandler(action, options, env) {
             context: action.context || {},
             data: action.data ?? null,
         };
-        operationKey = JSON.stringify(request);
+        // One ORM service can outlive an active-company/user switch. Report
+        // names and record ids alone do not identify the same physical print:
+        // a company change can select a different binding and printer.
+        // Snapshot the dispatched request so same-scope uncertain retries
+        // always replay the original parameters and operation id.
+        const requestSnapshot = JSON.parse(JSON.stringify(request));
+        operationKey = JSON.stringify([
+            env.services.user?.userId || 0,
+            env.services.company?.currentCompany?.id || 0,
+            requestSnapshot,
+        ]);
         operations = reportOperations.get(orm);
         if (!operations) {
             operations = new Map();
@@ -126,7 +136,7 @@ async function silentPrintReportHandler(action, options, env) {
         if (!operation) {
             operation = {
                 at: Date.now(),
-                request: { ...JSON.parse(operationKey), operation_id: claim.id },
+                request: { ...requestSnapshot, operation_id: claim.id },
             };
             operations.set(operationKey, operation);
         }

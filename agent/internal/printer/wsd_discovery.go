@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -20,8 +21,8 @@ import (
 const maxWSDResults = 512
 
 func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
-	if ctx.Err() != nil {
-		return nil, nil
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("WSD discovery cancelled before probe: %w", err)
 	}
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
@@ -74,13 +75,20 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return deduplicateWSD(allFound), nil
+			return deduplicateWSD(allFound), fmt.Errorf("WSD discovery interrupted: %w", ctx.Err())
 		default:
 		}
 
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			break // Read deadline reached or connection closed
+			if ctx.Err() != nil {
+				return deduplicateWSD(allFound), fmt.Errorf("WSD discovery interrupted: %w", ctx.Err())
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				break // The normal 2.5s receive window is complete.
+			}
+			return deduplicateWSD(allFound), fmt.Errorf("WSD receive failed: %w", err)
 		}
 		if n == 0 {
 			continue
@@ -97,10 +105,13 @@ func discoverWSDPrinters(ctx context.Context) ([]DeviceInfo, error) {
 			}
 		}
 		if len(allFound) >= maxWSDResults {
-			break
+			return deduplicateWSD(allFound), fmt.Errorf("WSD result limit (%d) reached; inventory is partial", maxWSDResults)
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return deduplicateWSD(allFound), fmt.Errorf("WSD discovery interrupted: %w", err)
+	}
 	return deduplicateWSD(allFound), nil
 }
 

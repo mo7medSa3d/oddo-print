@@ -77,7 +77,7 @@ const pos = { session: { id: 5 }, config: { printerCategories: new Set([1]) },
         assert.equal(method, "action_print_gateway_kitchen");
         signalSubmitted();
         await released;
-        return { status: "submitted", can_retry: false };
+        return { gateway_enabled: true, status: "submitted", can_retry: false };
     } } };
 for (const [name, method] of Object.entries(hooks)) if (typeof method === "function") pos[name] = (...args) => method.call(pos, ...args);
 const first = pos.sendOrderInPreparation(order);

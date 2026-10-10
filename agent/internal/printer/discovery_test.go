@@ -400,8 +400,8 @@ func TestSNMPParserAndProbe(t *testing.T) {
 	if dev.Name != "HP LaserJet Pro M402dne" {
 		t.Errorf("expected name 'HP LaserJet Pro M402dne', got %q", dev.Name)
 	}
-	if dev.Status != "online" {
-		t.Errorf("expected status 'online', got %q", dev.Status)
+	if dev.Status != "unknown" {
+		t.Errorf("SNMP identity and a reachable TCP port cannot prove device readiness; got %q", dev.Status)
 	}
 	if dev.Capabilities["snmp_verified"] != true {
 		t.Errorf("expected snmp_verified to be true")

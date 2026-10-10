@@ -104,8 +104,21 @@ func Register(serverURL, pairingCode, configPath string) error {
 		AgentID string `json:"agentId"`
 		Secret  string `json:"secret"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&data); err != nil {
-		return fmt.Errorf("decode registration response: %w", err)
+	// Pairing persists a long-lived Agent credential. The response must be
+	// one COMPLETE JSON object, not merely a parseable prefix; Decoder.Decode
+	// otherwise accepts a valid object followed by corrupted/proxy-injected
+	// content. Use a sentinel byte to distinguish a real EOF from a truncated
+	// response at the 1 MiB limit BEFORE saving the new secret.
+	const maxRegistrationResponseBytes = 1 << 20
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrationResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("read registration response: %w", err)
+	}
+	if len(responseBody) > maxRegistrationResponseBytes {
+		return fmt.Errorf("registration response exceeds %d-byte limit", maxRegistrationResponseBytes)
+	}
+	if err := json.Unmarshal(responseBody, &data); err != nil {
+		return fmt.Errorf("decode complete registration response: %w", err)
 	}
 	if data.AgentID == "" || data.Secret == "" {
 		return fmt.Errorf("registration response did not contain agentId/secret")

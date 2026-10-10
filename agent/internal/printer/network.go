@@ -214,11 +214,11 @@ func (p *NetworkPrinter) Test(ctx context.Context) error {
 //     that accepts TCP but never answers the status inquiry reports
 //     "unknown", NEVER "online" (an unreadable status is not proof of
 //     health).
-//   - unidirectional transports (raw/zpl/tspl byte sinks) report "online"
-//     on TCP reachability because that is the strongest claim the transport
-//     physically allows; their safety properties come from pre-dispatch
-//     dial failure detection and UNKNOWN_PARTIAL_DELIVERY classification on
-//     mid-stream writes, not from status telemetry.
+//   - unidirectional transports (raw/zpl/tspl byte sinks) report "unknown"
+//     when the socket accepts a connection. This is connectivity evidence,
+//     not an affirmative printer/media state. Definite connection refusal
+//     is "offline". Delivery still uses pre-dispatch dial failure detection
+//     and UNKNOWN_PARTIAL_DELIVERY classification on mid-stream writes.
 func (p *NetworkPrinter) Status() string {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
 	if err != nil {
@@ -226,7 +226,7 @@ func (p *NetworkPrinter) Status() string {
 	}
 	defer conn.Close()
 	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
-		return "online"
+		return "unknown"
 	}
 	if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
 		return "error"
