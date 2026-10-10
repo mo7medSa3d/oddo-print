@@ -87,7 +87,7 @@ import {
 } from "../../shared/job-vocabulary";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
-import { DiagnosticOperations, decodeDiagnosticResult, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, type DiagnosticResult } from "../../shared/diagnostic-test";
+import { DiagnosticOperations, decodeDiagnosticResult, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, diagnosticIsInProgress, type DiagnosticResult } from "../../shared/diagnostic-test";
 import { shortId } from "../../lib/utils";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
@@ -459,6 +459,7 @@ export default function DashboardClient({
   const [agentName, setAgentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [testingPrinterId, setTestingPrinterId] = useState<string | null>(null);
+  const [repeatDiagnosticCandidate, setRepeatDiagnosticCandidate] = useState<{ printerId: string; printerName: string } | null>(null);
   const diagnosticOps = React.useRef(new DiagnosticOperations(generateIdempotencyKey));
   const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
@@ -926,9 +927,12 @@ export default function DashboardClient({
     const scope = diagnosticScope(window.location.origin, diagnosticActorScope, printerId);
     // A subsequent physical print after a verified Gateway outcome is NEVER
     // a silent click/retry. A lost response retries the same existing key.
-    if (diagnosticOps.current.observed(scope)) {
-      if (!window.confirm(t("diagnostic.repeatConfirm"))) return;
-      diagnosticOps.current.confirmRepeat(scope);
+    const observed = diagnosticOps.current.observed(scope);
+    if (observed && !diagnosticIsInProgress(observed)) {
+      // In-flight jobs refresh under their existing key. Only a terminal
+      // diagnostic can start another physical print, after modal confirmation.
+      setRepeatDiagnosticCandidate({ printerId, printerName });
+      return;
     }
     const key = diagnosticOps.current.begin(scope);
     if (!key) return; // synchronous flight owner, including same-tick clicks
@@ -2309,6 +2313,33 @@ export default function DashboardClient({
           <PrintCertificationWizard printerId={certifyPrinter.id} />
         )}
       </Modal>
+
+      {/* A repeated diagnostic is a NEW print and requires explicit consent. */}
+      <Modal
+        open={repeatDiagnosticCandidate !== null}
+        onClose={() => setRepeatDiagnosticCandidate(null)}
+        title={t("diagnostic.repeatTitle")}
+        description={t("diagnostic.repeatConfirm")}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRepeatDiagnosticCandidate(null)}>{t("common.cancel")}</Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const candidate = repeatDiagnosticCandidate;
+                setRepeatDiagnosticCandidate(null);
+                if (!candidate) return;
+                const scope = diagnosticScope(window.location.origin, diagnosticActorScope, candidate.printerId);
+                if (diagnosticOps.current.confirmRepeat(scope)) {
+                  void handleGatewayTestPrint(candidate.printerId, candidate.printerName);
+                }
+              }}
+            >
+              {t("common.confirm")}
+            </Button>
+          </>
+        }
+      />
 
       {/* ── Reprint confirmation ──────────────────────────────────── */}
       <Modal

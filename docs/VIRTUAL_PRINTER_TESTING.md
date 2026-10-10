@@ -48,6 +48,22 @@ The reserved `spooler_name` is **not** an installed Windows queue. With this exa
 
 **Microsoft Print to PDF / XPS / OneNote / vendor FAX queues** are intentionally NOT promoted by this feature. Those Windows drivers can require an interactive Save As dialog, launch another app, or transmit faxes and often cannot run safely from a Session 0 Windows Service. This built-in file capture requires neither a printer driver nor a desktop prompt. If you specifically need to test a third-party virtual driver, configure its unattended auto-save support with the vendor's instructions and validate separately under the Windows Service account.
 
+## Diagnosing a test-print job from the Desktop or Gateway
+
+When a diagnostic is still queued, claimed, or printing, pressing **Test Print**
+again checks the SAME idempotent operation; it does **not** create another
+paper print or output file. After a terminal result, a new operation requires
+an explicit in-app confirmation. Cancel if you have not checked the destination.
+
+For reliable headless end-to-end delivery tests, prefer the built-in Yaseir
+virtual capture backend. On a successful capture, the job confirms durable file
+output, not printer hardware. Microsoft Print to PDF and OneNote are application
+writers that can ask for Save As / notebook selection; these dialogs cannot
+be shown from a Windows Service running in Session 0. A spooler handoff to such
+a queue alone does not prove a PDF was saved or a OneNote page was created.
+Do not automatically retry an uncertain job; inspect the output and job
+timeline first. Hardware/POS printer certification still requires a real printer.
+
 ## 4. Shut off
 
 Disable both flags, restart services, and the synthetic virtual printer is excluded from managed discovery again. Existing capture files remain on disk for inspection and are not silently deleted. All existing production physical-printer and redirected-printer restrictions remain unchanged.
