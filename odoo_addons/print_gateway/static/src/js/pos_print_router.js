@@ -185,7 +185,27 @@ async function elementToJpeg(element, renderer, width = DEFAULT_RECEIPT_RASTER_W
     return renderGatewayReceiptJpeg(element, { renderer, width });
 }
 
+// Diagnostic tracing must NEVER change print behavior. Odoo embedded runtimes
+// and tests may expose only console.log; even a failing logger must not turn
+// a successfully rendered receipt into a new retryable print attempt.
+function recordReceiptLatency(stage, startedAt) {
+    try {
+        const elapsed = (globalThis.performance?.now?.() ?? Date.now()) - startedAt;
+        const message = "print.trace " + stage + " latency_ms=" + Math.max(0, Math.round(elapsed));
+        const logger = globalThis.console;
+        if (typeof logger?.info === "function") {
+            logger.info(message);
+        } else if (typeof logger?.log === "function") {
+            logger.log(message);
+        }
+    } catch {
+        // Observability is best-effort and must not affect print identity or output.
+    }
+}
+
 export async function renderReceiptImage(pos, currentOrder, basic = false, rasterWidth = DEFAULT_RECEIPT_RASTER_WIDTH) {
+    const renderStartedAt = globalThis.performance?.now?.() ?? Date.now();
+    try {
     const renderer = pos.env?.services?.renderer || pos.printer?.renderer;
     const props = { order: currentOrder, basic_receipt: Boolean(basic) };
     const receiptComponent = pos.orderReceiptComponent || OrderReceipt;
@@ -214,6 +234,11 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
     // Never fall back to arbitrary canvas dimensions or default page zoom.
     const receipt = renderToElement(receiptComponent.template || "point_of_sale.OrderReceipt", props);
     return await elementToJpeg(receipt, renderer, rasterWidth);
+    } finally {
+        // Render time is distinct from Gateway enqueue and physical printing;
+        // no receipt, order, printer or customer data is included in the log.
+        recordReceiptLatency("pos_receipt_render", renderStartedAt);
+    }
 }
 
 // Width is resolved for the ACTUAL bound printer on EACH print action,
@@ -222,6 +247,7 @@ export async function renderReceiptImage(pos, currentOrder, basic = false, raste
 // clip or shrink after a routing/driver change. Fetch once per action; not
 // per receipt line. The Agent independently clamps to hardware limits.
 async function gatewayReceiptRasterWidth(pos, orderId) {
+    const lookupStartedAt = globalThis.performance?.now?.() ?? Date.now();
     let width = DEFAULT_RECEIPT_RASTER_WIDTH;
     try {
         const candidate = await gatewayDataCall(
@@ -232,6 +258,10 @@ async function gatewayReceiptRasterWidth(pos, orderId) {
         // A missing/stale metadata endpoint must not force fallback to local
         // browser printing. The Gateway will still authorize the real job.
         console.warn("Gateway printer width unavailable; using Odoo's native receipt width:", error);
+    } finally {
+        // The width RPC can be slow even when the printer and Gateway are fast.
+        // Do not cache across actions: routing may change from 58mm to 80mm.
+        recordReceiptLatency("pos_width_lookup", lookupStartedAt);
     }
     return width;
 }

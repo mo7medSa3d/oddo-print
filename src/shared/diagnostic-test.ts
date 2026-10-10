@@ -109,13 +109,19 @@ export class DiagnosticOperations {
 
 export type DiagnosticMessageKey =
   | "diagnostic.queued" | "diagnostic.virtualQueued" | "diagnostic.inProgress"
-  | "diagnostic.delivered" | "diagnostic.failed" | "diagnostic.expired"
+  | "diagnostic.delivered" | "diagnostic.virtualCaptured" | "diagnostic.failed" | "diagnostic.expired"
   | "diagnostic.unverified";
+
+/** Refresh a previously accepted diagnostic with its SAME operation key.
+ * Never silently create a second physical print while a prior job is active. */
+export function diagnosticIsInProgress(result: DiagnosticResult): boolean {
+  return result.status === "queued" || result.status === "claimed" || result.status === "printing";
+}
 
 export function diagnosticMessageKey(result: DiagnosticResult): DiagnosticMessageKey {
   if (result.status === "queued") return result.virtualCapture ? "diagnostic.virtualQueued" : "diagnostic.queued";
   if (result.status === "claimed" || result.status === "printing") return "diagnostic.inProgress";
-  if (result.status === "success") return "diagnostic.delivered";
+  if (result.status === "success") return result.virtualCapture ? "diagnostic.virtualCaptured" : "diagnostic.delivered";
   if (result.physicalOutcome === "not_printed") {
     return result.status === "expired" ? "diagnostic.expired" : "diagnostic.failed";
   }

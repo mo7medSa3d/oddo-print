@@ -25,7 +25,10 @@
         <field name="model_id" ref="model_print_gateway_print_job"/>
         <field name="state">code</field>
         <field name="code">model.cron_sync_status()</field>
-        <field name="interval_number">2</field>
+        <!-- UI reconciliation freshness: at most one scheduled minute between
+             sync runs (subject to Odoo cron-worker availability). This does
+             not bypass the bounded 100-job batch/fairness fences. -->
+        <field name="interval_number">1</field>
         <field name="interval_type">minutes</field>
         <field name="active">True</field>
     </record>

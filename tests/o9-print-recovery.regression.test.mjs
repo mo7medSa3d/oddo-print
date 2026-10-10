@@ -17,7 +17,7 @@ function createStorage() {
 }
 const root = new URL('../odoo_addons/print_gateway/static/src/js/', import.meta.url);
 
-async function loadHook(file, { storage, clock = { now: 1000 }, storageThrows = false } = {}) {
+async function loadHook(file, { storage, clock = { now: 1000 }, storageThrows = false, infoThrows = false } = {}) {
     let hook;
     const f = {
         calls: [], notices: [], renders: 0,
@@ -72,7 +72,7 @@ async function loadHook(file, { storage, clock = { now: 1000 }, storageThrows = 
         ? Object.defineProperty({}, 'localStorage', { get() { throw new Error('Storage blocked'); } })
         : { localStorage: storage, location: { search: '?db=yaseir-audit', pathname: '/pos/ui' } };
     const context = vm.createContext({
-        console: { warn() {}, error() {}, log() {} }, Date: DateStub,
+        console: { warn() {}, error() {}, log() {}, ...(infoThrows ? { info() { throw new Error('console sink failed'); } } : {}) }, Date: DateStub,
         crypto: webcrypto, Map, Set, Uint8Array, window: localWindow,
         luxon: { DateTime: { now: () => ({}) } },
         setTimeout, clearTimeout,
@@ -135,4 +135,13 @@ test('receipt: blocked browser storage fails closed before any print dispatch', 
     await current.hook.printReceipt.call(current.f.pos);
     assert.equal(submitCalls(current.f).length, 0);
     assert.ok(current.f.notices.length > 0);
+});
+
+test('receipt: missing or throwing optional performance logger cannot cancel dispatch', async () => {
+    for (const infoThrows of [false, true]) {
+        const current = await loadHook('pos_print_router.js', { storage: createStorage(), infoThrows });
+        await current.hook.printReceipt.call(current.f.pos);
+        assert.equal(submitCalls(current.f).length, 1, 'POS must submit once despite failed diagnostic logging');
+        assert.equal(current.f.renders, 1, 'receipt must retain the exact captured JPEG snapshot');
+    }
 });

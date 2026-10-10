@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 	"unsafe"
 
 	pdfium "github.com/klippa-app/go-pdfium"
@@ -371,16 +372,23 @@ func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath
 }
 
 func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName string, data []byte, spoolerJobID *uint32, onJobID func(uint32)) (retErr error) {
+	pipelineStarted := time.Now()
+	// One monotonic execution duration, not proof of physical paper output.
+	defer func() {
+		log.Printf("print.trace pdf_pipeline latency_ms=%d success=%t", time.Since(pipelineStarted).Milliseconds(), retErr == nil)
+	}()
 	// Ctx-aware acquisition: a job that is already cancelled (or a service
 	// stop racing a long first render) must not block on the holder past
 	// the SCM stop bound. The holder checks ctx per page, so the wait is
 	// still bounded by one in-flight job, never indefinite.
+	workerWaitStarted := time.Now()
 	select {
 	case embeddedPDFPrintSlot <- struct{}{}:
 		defer func() { <-embeddedPDFPrintSlot }()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	log.Printf("print.trace pdf_worker_wait latency_ms=%d", time.Since(workerWaitStarted).Milliseconds())
 
 	if err := ValidatePDFPrinterName(printerName); err != nil {
 		return err
@@ -388,25 +396,32 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 	if err := ValidatePDF(data); err != nil {
 		return err
 	}
+	preflightStarted := time.Now()
 	if err := runPreflightBounded(printerName, preflightTimeout, ctx, func() error {
 		return dispatchPreFlightSpoolerCheck(printerName)
 	}); err != nil {
+		log.Printf("print.trace pdf_spooler_preflight latency_ms=%d success=false", time.Since(preflightStarted).Milliseconds())
 		return fmt.Errorf("pre-flight spooler check failed: %w", err)
 	}
+	log.Printf("print.trace pdf_spooler_preflight latency_ms=%d success=true", time.Since(preflightStarted).Milliseconds())
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
+	acquireStarted := time.Now()
 	pool, err := getPDFiumPool()
 	if err != nil {
+		log.Printf("print.trace pdf_renderer_acquire latency_ms=%d success=false", time.Since(acquireStarted).Milliseconds())
 		return fmt.Errorf("initialize embedded PDFium renderer: %w", err)
 	}
 	instance, err := pool.GetInstanceWithContext(ctx)
 	if err != nil {
+		log.Printf("print.trace pdf_renderer_acquire latency_ms=%d success=false", time.Since(acquireStarted).Milliseconds())
 		return fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
+	log.Printf("print.trace pdf_renderer_acquire latency_ms=%d success=true", time.Since(acquireStarted).Milliseconds())
 	defer func() {
 		if err := instance.Close(); err != nil {
 			// The renderer worker is process-local cleanup. Once EndDoc has
@@ -524,11 +539,13 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 
 	// Render the first page before StartDocW. A renderer failure here is a
 	// deterministic pre-dispatch error, not an unknown physical outcome.
+	firstPageStarted := time.Now()
 	first, cleanup, err := renderPageWithContext(ctx, instance, &requests.RenderPageInPixels{
 		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
 		Width:  maxW,
 		Height: maxH,
 	})
+	log.Printf("print.trace pdf_first_page_render latency_ms=%d success=%t", time.Since(firstPageStarted).Milliseconds(), err == nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -547,7 +564,9 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		cleanup()
 		return err
 	}
+	startDocumentStarted := time.Now()
 	gdiJobID, err := startGDIPrint(hdc, "embedded-pdf", printerName)
+	log.Printf("print.trace pdf_start_document latency_ms=%d success=%t", time.Since(startDocumentStarted).Milliseconds(), err == nil)
 	if err != nil {
 		cleanup()
 		return err
@@ -645,9 +664,12 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		cleanupPage()
 	}
 
+	endDocumentStarted := time.Now()
 	if err := endGDIPrint(hdc); err != nil {
+		log.Printf("print.trace pdf_end_document latency_ms=%d success=false", time.Since(endDocumentStarted).Milliseconds())
 		return markPDFDispatchUnknown(printerName, "could not finalize the print job", err)
 	}
+	log.Printf("print.trace pdf_end_document latency_ms=%d success=true", time.Since(endDocumentStarted).Milliseconds())
 	docEnded = true
 	return nil
 }
