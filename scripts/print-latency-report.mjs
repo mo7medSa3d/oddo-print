@@ -10,6 +10,8 @@ import { resolve } from "node:path";
 // never add stage percentiles to claim total latency or physical paper output.
 export const FIELDS = Object.freeze({
   odoo_route: { persist_ms: "odoo.persist", gateway_submit_ms: "odoo.gateway_submit", total_ms: "odoo.route_total" },
+  pos_width_lookup: { latency_ms: "odoo_pos.width_lookup" },
+  pos_receipt_render: { latency_ms: "odoo_pos.receipt_render" },
   gateway_enqueue: { enqueueLatencyMs: "gateway.enqueue" },
   gateway_claim: { claimLatencyMs: "gateway.claim" },
   gateway_delivery: { claimLatencyMs: "gateway.claim", sendLatencyMs: "gateway.websocket_send", evidenceLatencyMs: "gateway.delivery_evidence", totalLatencyMs: "gateway.delivery_total" },
@@ -20,6 +22,8 @@ export const FIELDS = Object.freeze({
   render_transport_start: { local_execution_ms: "agent.pre_transport_total" },
   transport_complete: { transport_latency_ms: "agent.transport_total" },
   spooler_preflight: { latency_ms: "windows.raw_spooler_preflight" },
+  network_write: { latency_ms: "agent.raw_network_write" },
+  ipp_submission: { latency_ms: "agent.ipp_submission" },
   spooler_session: { latency_ms: "windows.raw_spooler_session" },
   pdf_pipeline: { latency_ms: "windows.pdf_total" },
   pdf_worker_wait: { latency_ms: "windows.pdf_worker_wait" },

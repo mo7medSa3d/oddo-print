@@ -20,6 +20,8 @@ test("tracks only measured positive/zero durations, not secrets or invalid value
     '{"event":"print.trace.gateway_enqueue","enqueueLatencyMs":10,"payload":"PRIVATE"}',
     '{"event":"print.trace.gateway_enqueue","enqueueLatencyMs":30}',
     "2026/10/10 print.trace pdf_first_page_render latency_ms=250 printer=secret",
+    "2026/10/10 print.trace pos_receipt_render latency_ms=130",
+    "2026/10/10 print.trace ipp_submission latency_ms=160 success=true",
     "2026/10/10 print.trace pdf_worker_wait latency_ms=0",
     "2026/10/10 print.trace pdf_worker_wait latency_ms=-200",
     '{"event":"print.trace.gateway_enqueue","enqueueLatencyMs":"not-a-number"}',
@@ -30,6 +32,8 @@ test("tracks only measured positive/zero durations, not secrets or invalid value
   const result = a.summary();
   assert.deepEqual(result.metrics["gateway.enqueue"], {count:2,p50_ms:10,p95_ms:30,max_ms:30});
   assert.equal(result.metrics["windows.pdf_first_page_render"].p50_ms,250);
+  assert.equal(result.metrics["odoo_pos.receipt_render"].p50_ms,130);
+  assert.equal(result.metrics["agent.ipp_submission"].p50_ms,160);
   assert.equal(result.metrics["windows.pdf_worker_wait"].count,1);
   assert.ok(!asTable(result).includes("PRIVATE"));
   assert.ok(!JSON.stringify(result).includes("secret"));
