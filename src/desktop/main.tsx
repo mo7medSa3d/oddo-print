@@ -98,6 +98,7 @@ import {
   jobTimestamp,
 } from "./lib/printers";
 import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType } from "../shared/diagnostic-test";
+import { isVirtualCaptureTestRecord } from "../lib/printer-virtual";
 import { generateIdempotencyKey } from "../lib/idempotency";
 import type {
   AgentStatusView,
@@ -337,7 +338,7 @@ export default function App() {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
       if (!current()) return false;
       observeGatewaySuccess(savedGatewayUrl);
-      setPrinters(list.filter((printer) => isProductionPrinter(printer) || isPendingVirtualSpoolerTestPrinter(printer)));
+      setPrinters(list.filter((printer) => isProductionPrinter(printer) || isPendingVirtualSpoolerTestPrinter(printer) || isVirtualCaptureTestRecord(printer)));
       return true;
     } catch (e) {
       if (!current()) return false;
@@ -1109,6 +1110,7 @@ export default function App() {
     discoveredPrinters,
     discoveredVirtualPrinters,
     pendingVirtualGatewayPrinters: printers.filter(isPendingVirtualSpoolerTestPrinter),
+    virtualCapturePrinters: printers.filter(isVirtualCaptureTestRecord),
     discoveryWarning,
     printersLoading,
     printersError,

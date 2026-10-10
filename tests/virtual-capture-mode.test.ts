@@ -16,6 +16,8 @@ describe("virtual file-capture testing is isolated from production", () => {
   it("classifies the explicit file sink as virtual, never a production printer", () => {
     expect(isVirtualPrinterRecord(capture)).toBe(true);
     expect(isVirtualCaptureTestRecord(capture)).toBe(true);
+    // No production/Odoo routing even if the Desktop surfaces an explicit test button.
+    expect(isVirtualCaptureTestRecord({ ...capture, capabilities: { ...capture.capabilities, registration_source: "agent" } })).toBe(false);
     expect(isPrinterAvailableForJob({ ...capture, status: "online", lifecycle: "active", inventoryPresent: true })).toBe(false);
   });
 
