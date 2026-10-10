@@ -15,8 +15,8 @@ const expected = {
 };
 
 test("Gateway fonts do not depend on Google Fonts at production build time", () => {
-  assert.match(layout, /from "next\\/font\\/local"/);
-  assert.doesNotMatch(layout, /next\\/font\\/google/);
+  assert.ok(layout.includes('from "next/font/local"'));
+  assert.ok(!layout.includes('from "next/font/google"'));
   assert.match(layout, /variable: "--font-ibm-plex-sans"/);
   assert.match(layout, /variable: "--font-ibm-plex-sans-arabic"/);
   assert.match(css, /--font-ibm-plex-sans/);
@@ -31,7 +31,7 @@ test("all pinned IBM Plex fonts are local, non-empty and bit-identical to review
     assert.ok(bytes.length > 100_000, "Unexpectedly short font file: "+file);
     assert.equal(bytes.subarray(0, 4).toString("hex"), "00010000", "TTF signature mismatch: "+file);
     const gitSha = createHash("sha1")
-      .update(Buffer.from("blob "+bytes.length+"\\0"))
+      .update(Buffer.from("blob " + bytes.length + String.fromCharCode(0)))
       .update(bytes).digest("hex");
     assert.equal(gitSha, sha, "Upstream asset digest mismatch for "+file);
     assert.ok(layout.includes(file), "Not included in Next local fonts: "+file);
