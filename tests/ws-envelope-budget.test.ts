@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJobEnvelope, MAX_WS_JOB_ENVELOPE_BYTES } from "../src/server/ws";
+import { buildJobEnvelope, serializeJobEnvelope, MAX_WS_JOB_ENVELOPE_BYTES } from "../src/server/ws";
 import type { ClaimedJobRow } from "../src/lib/job-delivery";
 
 // The agent rejects inbound frames over 8 MiB (maxWSFrameBytes). A 5 MiB
@@ -38,7 +38,10 @@ describe("WS job envelope wire budget", () => {
   });
 
   it("frames a maximum-size document below the agent read limit", () => {
-    const wireBytes = Buffer.byteLength(JSON.stringify(buildJobEnvelope(maxClaimedRow())), "utf8");
+    const envelope = buildJobEnvelope(maxClaimedRow());
+    const { payload, wireBytes } = serializeJobEnvelope(envelope);
+    expect(JSON.parse(payload)).toEqual(envelope);
+    expect(wireBytes).toBe(Buffer.byteLength(payload, "utf8"));
     expect(wireBytes).toBeLessThanOrEqual(MAX_WS_JOB_ENVELOPE_BYTES);
     expect(wireBytes).toBeLessThan(AGENT_FRAME_LIMIT);
   });

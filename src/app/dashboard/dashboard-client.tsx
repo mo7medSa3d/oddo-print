@@ -2319,7 +2319,6 @@ export default function DashboardClient({
         open={repeatDiagnosticCandidate !== null}
         onClose={() => setRepeatDiagnosticCandidate(null)}
         title={t("diagnostic.repeatTitle")}
-        description={t("diagnostic.repeatConfirm")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRepeatDiagnosticCandidate(null)}>{t("common.cancel")}</Button>
@@ -2339,7 +2338,9 @@ export default function DashboardClient({
             </Button>
           </>
         }
-      />
+      >
+        <p className="text-sm leading-relaxed text-ink-2">{t("diagnostic.repeatConfirm")}</p>
+      </Modal>
 
       {/* ── Reprint confirmation ──────────────────────────────────── */}
       <Modal

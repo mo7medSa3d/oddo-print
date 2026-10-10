@@ -461,7 +461,7 @@ export function hasOpenAgentSocket(agentId: string): boolean {
 
 type JobSendOutcome = "sent" | "not_sent" | "ambiguous";
 
-function sendJobToAgent(agentId: string, message: unknown): JobSendOutcome {
+function sendJobToAgent(agentId: string, message: unknown, serializedPayload?: string): JobSendOutcome {
   const set = agentSockets.get(agentId);
   if (!set || set.size === 0) return "not_sent";
   const open = [...set]
@@ -469,7 +469,9 @@ function sendJobToAgent(agentId: string, message: unknown): JobSendOutcome {
     .reverse();
   if (open.length === 0) return "not_sent";
 
-  const payload = JSON.stringify(message);
+  // Large PDF jobs contain ~7 MiB base64 frames. Reuse the serialized
+  // admission-checked frame rather than encoding the same job twice.
+  const payload = serializedPayload ?? JSON.stringify(message);
   for (const target of open) {
     if (target.bufferedAmount > MAX_WS_BUFFERED_BYTES) continue;
     try {
@@ -563,6 +565,14 @@ export function buildJobEnvelope(job: ClaimedJobRow): JobDeliveryEnvelope {
   };
 }
 
+/** Serialize once: the size gate and the eventual socket write must inspect
+ * identical bytes, while avoiding a second multi-megabyte JSON allocation.
+ * This helper performs no I/O and does not weaken delivery evidence fencing. */
+export function serializeJobEnvelope(envelope: JobDeliveryEnvelope): { payload: string; wireBytes: number } {
+  const payload = JSON.stringify(envelope);
+  return { payload, wireBytes: Buffer.byteLength(payload, "utf8") };
+}
+
 export type PushOutcome = "delivered" | "no_socket" | "not_claimable" | "requeued" | "failed" | "delivery_unknown";
 
 export async function claimAndPushJobToAgent(job: { id: string; agentId: string }): Promise<PushOutcome> {
@@ -591,15 +601,20 @@ export async function claimAndPushJobToAgent(job: { id: string; agentId: string 
   // has been transmitted yet here, so release the claim for redelivery
   // instead of sending a frame the receiver cannot accept.
   let wireBytes = 0;
+  let serializedPayload: string | null = null;
   try {
-    wireBytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+    const frame = serializeJobEnvelope(envelope);
+    serializedPayload = frame.payload;
+    wireBytes = frame.wireBytes;
   } catch {
+    // Serialization failed before any bytes were sent: release the claim
+    // using the existing safe pre-dispatch path below.
     wireBytes = MAX_WS_JOB_ENVELOPE_BYTES + 1;
   }
   const sendStartedAt = Date.now();
-  const sendOutcome = wireBytes > MAX_WS_JOB_ENVELOPE_BYTES
+  const sendOutcome = serializedPayload === null || wireBytes > MAX_WS_JOB_ENVELOPE_BYTES
     ? "not_sent" as const
-    : sendJobToAgent(job.agentId, envelope);
+    : sendJobToAgent(job.agentId, envelope, serializedPayload);
   const sendLatencyMs = Date.now() - sendStartedAt;
   if (sendOutcome === "not_sent") {
     const outcome = await releaseUndeliveredClaim(job.id, claimed.tenantId, job.agentId, claimToken, "websocket delivery failed before send; job requeued for redelivery");

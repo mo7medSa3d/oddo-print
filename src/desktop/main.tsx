@@ -1327,7 +1327,6 @@ export default function App() {
         open={repeatDiagnosticPrinterId !== null}
         onClose={() => setRepeatDiagnosticPrinterId(null)}
         title={t("diagnostic.repeatTitle")}
-        description={t("diagnostic.repeatConfirm")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRepeatDiagnosticPrinterId(null)}>
@@ -1347,7 +1346,9 @@ export default function App() {
             </Button>
           </>
         }
-      />
+      >
+        <p className="text-sm leading-relaxed text-ink-2">{t("diagnostic.repeatConfirm")}</p>
+      </Modal>
 
       <Modal
         open={virtualConfirmCandidate !== null}
