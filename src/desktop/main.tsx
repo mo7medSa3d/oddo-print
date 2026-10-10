@@ -196,6 +196,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [virtualConfirmCandidate, setVirtualConfirmCandidate] = useState<PrinterInfo | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
@@ -539,6 +540,13 @@ export default function App() {
     }
   }, [refreshPrinters, t, locale]);
 
+  const requestVirtualPrinterTest = useCallback((candidate: PrinterInfo) => {
+    if (busyRef.current) return;
+    // The executor revalidates the selected queue, saved Gateway and paired
+    // Agent after the user confirms; this UI state never conveys authority.
+    setVirtualConfirmCandidate(candidate);
+  }, []);
+
   const enableVirtualPrinterTest = useCallback(async (candidate: PrinterInfo) => {
     if (!savedGatewayUrl) {
       setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
@@ -571,7 +579,9 @@ export default function App() {
         setMsg({ text: t("desktop.printers.gatewayUpgradeNeeded"), type: "error" });
         return;
       }
-      if (!window.confirm(t("desktop.printers.virtualConfirm", { printer: local.name }))) return;
+      // User consent is collected by the accessible in-app Modal, not the
+      // unstyled window.confirm dialog labelled "tauri.localhost says".
+      // All identity, origin and discovered-queue checks still run here.
       // GET /api/agents is fenced by the paired Agent credential, returning
       // only that Agent. Never trust an Agent ID from UI inventory or user input.
       const owned = await fetchGatewayAgents(savedGatewayUrl);
@@ -1125,7 +1135,7 @@ export default function App() {
     nowMs,
     refreshPrinters,
     handleDiscover,
-    enableVirtualPrinterTest,
+    enableVirtualPrinterTest: requestVirtualPrinterTest,
     handleTest,
     showAdd,
     setShowAdd,
@@ -1308,6 +1318,34 @@ export default function App() {
         printers={discoveredPrinters}
         gatewayUrl={savedGatewayUrl}
       />
+
+      <Modal
+        open={virtualConfirmCandidate !== null}
+        onClose={() => setVirtualConfirmCandidate(null)}
+        title={t("desktop.printers.virtualEnable")}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setVirtualConfirmCandidate(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => {
+                const selected = virtualConfirmCandidate;
+                setVirtualConfirmCandidate(null);
+                if (selected) void enableVirtualPrinterTest(selected);
+              }}
+            >
+              {t("common.confirm")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm leading-relaxed text-ink-2">
+          {t("desktop.printers.virtualConfirm", { printer: virtualConfirmCandidate?.name ?? "" })}
+        </p>
+      </Modal>
 
       <Modal
         open={confirmStop}

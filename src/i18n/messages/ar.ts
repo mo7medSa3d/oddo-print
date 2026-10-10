@@ -1135,7 +1135,7 @@ export const ar: Catalog = {
   "desktop.printers.virtualEnable": "تفعيل اختبار Gateway وOdoo",
   "desktop.printers.virtualNotice": "بعض الطابعات البرمجية تحتاج جلسة مستخدم مفتوحة؛ قبول المهمة لا يؤكد خروج الورق.",
   "desktop.printers.virtualGatewayApproval": "فعّل الطابعة البرمجية المكتشفة بهوية الـAgent المربوط مباشرة، بدون حساب مدير.",
-  "desktop.printers.virtualConfirm": "هل تسمح بإرسال مهام Gateway وOdoo للطابعة {printer}؟ قد تستقبل هذه الطابعة مستندات العمل؛ استخدم حساب اختبار مصرحًا به وافحص الناتج. متابعة؟",
+  "desktop.printers.virtualConfirm": "هل تريد تفعيل {printer} لاختبارات Gateway وOdoo؟ قد تستقبل مستندات العمل. يجب أن تتحقق خدمة الـAgent منها قبل قبول المهام. طابعات OneNote وPrint to PDF قد تحتاج جلسة Windows تفاعلية؛ استخدم مستندات تجريبية وافحص الناتج.",
   "desktop.printers.virtualRegistered": "تم قبول تسجيل الطابعة. انتظر تأكيد الـAgent قبل الاختبار، ثم استخدم اختبار الطابعة أو اخترها من Odoo.",
   "desktop.printers.virtualLinked": "متاحة للاختبار",
   "desktop.printers.virtualUnavailable": "لا تتوفر هوية الـAgent لهذه الطابعة، أو أنها ليست وجهة Windows Spooler مؤهلة. أعد الاكتشاف.",
