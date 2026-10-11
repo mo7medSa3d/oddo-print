@@ -43,7 +43,7 @@ export const UNKNOWN_OUTCOME_MARKERS = [
 ] as const;
 
 
-export type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol" | "ipp_unreachable" | "pdfium_headless";
+export type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol" | "ipp_unreachable" | "pdfium_headless" | "spooler_session_busy" | "interactive_virtual_timeout";
 
 export function classifyJobFailure(error?: string | null): JobFailureKind | null {
   const value = (error ?? "").toUpperCase();
@@ -55,6 +55,13 @@ export function classifyJobFailure(error?: string | null): JobFailureKind | null
   // but retain the original evidence in the durable job error/log.
   if (value.includes("IPP PRINTER ") && value.includes("UNREACHABLE (REQUEST NOT SENT)")) return "ipp_unreachable";
   if (value.includes("GETFILETYPE /DEV/STDOUT") && value.includes("HANDLE IS INVALID")) return "pdfium_headless";
+  // An in-flight worker owns the Windows queue session until its actual native
+  // RPC completes. Do NOT advise force-unlocking or automatic retry here.
+  if (value.includes("SPOOLER SESSION LOCK") && value.includes("TIMED OUT")) return "spooler_session_busy";
+  // OneNote / Microsoft Print to PDF often wait for an invisible interactive
+  // dialog in Session 0; this is NOT a general PDF renderer failure.
+  if ((value.includes("ONENOTE") || value.includes("MICROSOFT PRINT TO PDF")) &&
+      (value.includes("CONTEXT DEADLINE EXCEEDED") || value.includes("TIMED OUT"))) return "interactive_virtual_timeout";
   return null;
 }
 
@@ -96,6 +103,20 @@ export function jobFailurePresentation(
       kind,
       title: translate(locale, "job.pdfiumHeadless"),
       guidance: translate(locale, "job.pdfiumHeadlessAction"),
+    };
+  }
+  if (kind === "spooler_session_busy") {
+    return {
+      kind,
+      title: translate(locale, "job.spoolerSessionBusy"),
+      guidance: translate(locale, "job.spoolerSessionBusyAction"),
+    };
+  }
+  if (kind === "interactive_virtual_timeout") {
+    return {
+      kind,
+      title: translate(locale, "job.interactiveVirtualTimeout"),
+      guidance: translate(locale, "job.interactiveVirtualTimeoutAction"),
     };
   }
   return null;

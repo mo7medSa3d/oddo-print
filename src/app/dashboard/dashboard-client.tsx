@@ -95,6 +95,7 @@ import PrintCertificationWizard from "../../components/PrintCertificationWizard"
 import JobTimeline from "../../components/JobTimeline";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 import { isLimitSignalResult } from "../../lib/limit-signal";
+import { isServerActionVersionMismatch } from "../../lib/server-action-version";
 
 export type Agent = {
   id: string;
@@ -795,7 +796,7 @@ export default function DashboardClient({
       }
           void refreshBillingUsage();
         } catch (error) {
-          setMessage({ text: error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
+          setMessage({ text: isServerActionVersionMismatch(error) ? t("errors.pageUpdatedReload") : error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
         }
 
         const queued = queuedFleetQueryRef.current;
@@ -914,7 +915,7 @@ export default function DashboardClient({
       return result;
     } catch (error) {
       setMessage({
-        text: error instanceof Error ? error.message : t("errors.operationFailed"),
+        text: isServerActionVersionMismatch(error) ? t("errors.pageUpdatedReload") : error instanceof Error ? error.message : t("errors.operationFailed"),
         type: "err",
       });
       return undefined;
@@ -1404,6 +1405,13 @@ export default function DashboardClient({
             className="flex-1"
           >
             {message.text}
+            {message.type === "err" && message.text === t("errors.pageUpdatedReload") && (
+              <div className="mt-3">
+                <Button variant="secondary" size="sm" onClick={() => window.location.reload()} icon={<RefreshCw className="h-4 w-4" />}>
+                  {t("common.refresh")}
+                </Button>
+              </div>
+            )}
           </Callout>
           <IconButton label={t("common.dismiss")} onClick={() => setMessage(null)} className="mt-1">
             <X className="h-4 w-4" aria-hidden />
