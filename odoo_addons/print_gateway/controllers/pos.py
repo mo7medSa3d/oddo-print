@@ -32,11 +32,14 @@ class PrintGatewayPosController(PosController):
             context_values={'date_start': date_start, 'date_stop': date_stop},
         )
         if result.get('native'):
-            # No Sale Details binding exists: preserve the native download
-            # path (same fallback as ir_actions_report for unbound reports).
-            # Hard-erroring here would permanently remove the native report
-            # as soon as Gateway printing is enabled without this binding.
-            return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
+            return request.make_response(
+                json.dumps({
+                    'error': 'gateway_binding_missing',
+                    'message': request.env._('Gateway printing is enabled, but no Sale Details binding is configured for this POS.'),
+                }),
+                headers=[('Content-Type', 'application/json'), ('Cache-Control', 'no-store')],
+                status=422,
+            )
         response = request.make_response(
             json.dumps(result, default=str),
             headers=[
