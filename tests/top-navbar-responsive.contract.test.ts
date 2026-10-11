@@ -9,7 +9,8 @@ describe("Gateway and Platform sidebar navigation", () => {
     const shell = read("src/components/AppShell.tsx");
     expect(shell).toContain("tg-console-rail");
     expect(shell).toContain('aria-current={active ? "page" : undefined}');
-    expect(shell).toContain("data-gateway-mobile-navigation");
+    expect(shell).toContain('<MobileAppBar');
+    expect(shell).toContain('area="gateway"');
     expect(shell).toContain('id="gateway-mobile-nav"');
     expect(shell).toContain("useDialog(mobileOpen");
     expect(shell).toContain("ShellSearchButton");
@@ -39,17 +40,23 @@ describe("Gateway and Platform sidebar navigation", () => {
     expect(sidebar).toContain("loggingOut");
   });
 
-  it("allows keyboard and mobile dismissal with a small trigger, not a horizontal menu", () => {
+  it("keeps both mobile headers in flow and dismisses navigation accessibly", () => {
     const gateway = read("src/components/AppShell.tsx");
     const platform = read("src/components/platform/PlatformSidebar.tsx");
+    const bar = read("src/components/MobileAppBar.tsx");
     for (const source of [gateway, platform]) {
-      expect(source).toContain('className="fixed start-3 top-3 z-30');
+      expect(source).toContain("<MobileAppBar");
       expect(source).toContain("useDialog(mobileOpen");
       expect(source).toContain("setMobileOpen(false)");
       expect(source).toContain('max-w-[85vw]');
-      expect(source).toContain("pt-14 lg:pt-0");
+      expect(source).not.toContain("tg-mobile-nav-trigger");
+      expect(source).not.toContain("pt-14 lg:pt-0");
     }
-    expect(gateway).toContain('aria-controls="gateway-mobile-nav"');
-    expect(platform).toContain('aria-controls="platform-mobile-nav"');
+    expect(gateway).toContain('navigationId="gateway-mobile-nav"');
+    expect(platform).toContain('navigationId="platform-mobile-nav"');
+    expect(bar).toContain('aria-controls={navigationId}');
+    expect(bar).toContain('aria-expanded={navigationOpen}');
+    expect(bar).toContain('data-gateway-mobile-navigation');
+    expect(bar).toContain('data-platform-mobile-navigation');
   });
 });

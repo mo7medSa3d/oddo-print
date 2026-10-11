@@ -198,7 +198,65 @@ export default function PlatformAuditPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* The audit event's action, actor and timestamp remain visible on
+              a phone; details expand without forcing a 900px wide table. */}
+          <ul className="divide-y divide-edge-subtle lg:hidden" aria-label={t("platform.audit.tableCaption")}>
+            {filtered.map((event) => {
+              const open = expanded === event.id;
+              const hasMetadata = event.metadata && Object.keys(event.metadata).length > 0;
+              return (
+                <li key={event.id} className="min-w-0 px-4 py-4 sm:px-5">
+                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="break-all font-mono text-sm font-semibold text-ink" dir="auto">{event.action}</div>
+                      <time dateTime={event.createdAt} className="mt-1 block text-xs text-ink-3">
+                        {formatDateTime(event.createdAt)}
+                      </time>
+                    </div>
+                    <StatusBadge tone={ACTOR_TONE[event.actorType] ?? "neutral"} label={actorLabel(event.actorType, t)} size="sm" />
+                  </div>
+                  <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 rounded-md bg-surface-2/60 p-3">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">{t("platform.audit.actor")}</dt>
+                      <dd dir="ltr" className="mt-1 break-all font-mono text-xs text-ink-2 [unicode-bidi:plaintext]">{event.actorId || "—"}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">{t("platform.audit.tenant")}</dt>
+                      <dd className="mt-1 break-words text-xs font-medium text-ink-2">{event.tenantName || event.tenantId || t("platform.audit.platformScope")}</dd>
+                    </div>
+                    <div className="col-span-2 min-w-0">
+                      <dt className="text-xs text-ink-3">{t("platform.audit.resource")}</dt>
+                      <dd dir="ltr" className="mt-1 break-all font-mono text-xs text-ink-2 [unicode-bidi:plaintext]">
+                        {event.resourceType ? `${event.resourceType}: ${event.resourceId ?? "—"}` : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {hasMetadata && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(open ? null : event.id)}
+                        aria-expanded={open}
+                        aria-controls={`audit-mobile-metadata-${event.id}`}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-sm px-2 text-sm font-medium text-brand-subtle-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                      >
+                        {open ? t("platform.audit.hideMetadata") : t("platform.audit.showMetadata")}
+                        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+                      </button>
+                      {open && (
+                        <pre id={`audit-mobile-metadata-${event.id}`} dir="ltr" className="mt-2 max-h-56 min-w-0 overflow-auto rounded-md border border-edge bg-app p-3 font-mono text-xs leading-relaxed text-ink-2 [unicode-bidi:plaintext]">
+                          {JSON.stringify(event.metadata, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand lg:block"
+               role="region" aria-label={t("platform.audit.tableCaption")} tabIndex={0}>
             <table className="data-table min-w-[900px]">
               <caption className="sr-only">{t("platform.audit.tableCaption")}</caption>
               <thead>
@@ -268,6 +326,7 @@ export default function PlatformAuditPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
     </div>

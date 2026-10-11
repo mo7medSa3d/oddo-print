@@ -8,6 +8,9 @@ import {
   Info,
   LayoutDashboard,
   Menu,
+  MoreHorizontal,
+  Globe2,
+  Moon,
   Search,
   Printer as PrinterIcon,
   RefreshCw,
@@ -21,12 +24,13 @@ import {
   Drawer,
   MetaRow,
   Modal,
+  Menu as ActionMenu,
   Mono,
   StatusBadge,
   StatusDot,
   Toast as ToastView,
 } from "../components/ui";
-import { ThemeToggle } from "../components/ThemeToggle";
+import { ThemeToggle, toggleTheme } from "../components/ThemeToggle";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
@@ -111,7 +115,7 @@ import type {
 } from "./types";
 import "../app/globals.css";
 import { I18nProvider, useI18n } from "../i18n/react";
-import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "../i18n/config";
+import { DEFAULT_LOCALE, LOCALE_LABELS, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from "../i18n/config";
 import {
   emptyGatewayConnectivityEvidence,
   noteGatewayConnectivityFailure,
@@ -146,7 +150,7 @@ function useHashPage(defaultPage: Page): [Page, (p: Page) => void] {
 /* ---------- App ---------- */
 
 export default function App() {
-  const { t, locale, formatDateTime } = useI18n();
+  const { t, locale, setLocale, formatDateTime } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [navSearchOpen, setNavSearchOpen] = useState(false);
   const [navSearchQuery, setNavSearchQuery] = useState("");
@@ -1205,29 +1209,59 @@ export default function App() {
       <div
         className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[92px]" : "lg:ps-[276px]"}`}
       >
-        <header className="tg-desktop-topbar sticky top-2 z-20 mx-2 mb-2 mt-2 flex h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
+        <header className="tg-desktop-topbar tg-desktop-header sticky top-2 z-20 mx-2 mb-2 mt-2 flex min-h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
           <button
             type="button"
-            onClick={() => { setCollapsed(false); setSidebarOpen(true); }}
+            onClick={() => setSidebarOpen(true)}
             aria-label={t("desktop.app.openNavigation")}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
+            aria-expanded={sidebarOpen}
+            aria-controls="desktop-mobile-nav"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 sm:h-9 sm:w-9 lg:hidden"
           >
-            <Menu className="h-[18px] w-[18px]" />
+            <Menu className="h-5 w-5" aria-hidden />
           </button>
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">{pageMeta[page].title}</h1>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <h1 className="tg-desktop-header-title min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">{pageMeta[page].title}</h1>
+          <div className="tg-desktop-header-actions flex shrink-0 items-center gap-1 sm:gap-2">
+            <span className="inline-flex sm:hidden" role="status" title={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} aria-label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}>
+              <StatusDot tone={isOnline ? "ok" : "bad"} pulse={isOnline} />
+            </span>
             <span className="hidden sm:inline-flex"><StatusBadge tone={isOnline ? "ok" : "bad"} label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} /></span>
             <button type="button" onClick={() => { setNavSearchQuery(""); setNavSearchOpen(true); }}
               aria-label={t("common.search")} title={t("common.search")}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
-              <Search className="h-[18px] w-[18px]" />
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 sm:h-9 sm:w-9">
+              <Search className="h-[18px] w-[18px]" aria-hidden />
             </button>
-            <Button variant="ghost" onClick={() => { refreshStatus(); refreshPrinters(); if (savedGatewayUrl) void refreshJobs(); }}
-              icon={<RefreshCw className="h-[18px] w-[18px]" />} aria-label={t("desktop.app.refreshAll")}>
-              <span className="hidden xl:inline">{t("desktop.app.refresh")}</span>
-            </Button>
-            <LanguageSwitcher />
-            <ThemeToggle />
+            <div className="hidden items-center gap-1 sm:flex">
+              <Button variant="ghost" onClick={() => { refreshStatus(); refreshPrinters(); if (savedGatewayUrl) void refreshJobs(); }}
+                icon={<RefreshCw className="h-[18px] w-[18px]" />} aria-label={t("desktop.app.refreshAll")}>
+                <span className="hidden xl:inline">{t("desktop.app.refresh")}</span>
+              </Button>
+              <LanguageSwitcher />
+              <ThemeToggle />
+            </div>
+            <div className="sm:hidden">
+              <ActionMenu
+                label={t("common.actions")}
+                align="end"
+                placement="below"
+                trigger={
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-ink-2 hover:bg-surface-2">
+                    <MoreHorizontal className="h-5 w-5" aria-hidden />
+                  </span>
+                }
+                items={[
+                  { key: "refresh", label: t("desktop.app.refreshAll"), icon: <RefreshCw className="h-4 w-4" />, onSelect: () => { refreshStatus(); refreshPrinters(); if (savedGatewayUrl) void refreshJobs(); } },
+                  { key: "theme", label: t("nav.toggleTheme"), icon: <Moon className="h-4 w-4" />, onSelect: toggleTheme, separatorBefore: true },
+                  ...(["en", "ar"] as const).map((code) => ({
+                    key: `locale-${code}`,
+                    label: LOCALE_LABELS[code],
+                    icon: <Globe2 className="h-4 w-4" />,
+                    disabled: locale === code,
+                    onSelect: () => setLocale(code),
+                  })),
+                ]}
+              />
+            </div>
           </div>
         </header>
         <Modal open={navSearchOpen} onClose={() => setNavSearchOpen(false)} title={t("common.search")}>

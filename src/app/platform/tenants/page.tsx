@@ -227,7 +227,65 @@ export default function PlatformTenantsPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* On phones a 920px spreadsheet makes status and actions hard to
+              find. Keep the same authoritative rows in a semantic card list. */}
+          <ul className="divide-y divide-edge-subtle lg:hidden" aria-label={t("platform.tenants.tableCaption")}>
+            {filtered.map((tenant) => {
+              const meta = LIFECYCLE_META[tenant.lifecycle];
+              const items = tenantMenu(tenant);
+              return (
+                <li key={tenant.id} className="min-w-0 px-4 py-4 sm:px-5 sm:py-5">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="break-words text-base font-[650] leading-snug text-ink">{tenant.name}</h3>
+                      <div dir="ltr" className="mt-1 break-all font-mono text-xs text-ink-4 [unicode-bidi:plaintext]">{tenant.id}</div>
+                    </div>
+                    {items.length > 0 && (
+                      <Menu
+                        label={t("platform.tenants.actionsFor", { name: tenant.name })}
+                        items={items}
+                        placement="below"
+                        trigger={
+                          <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-edge bg-surface text-ink-2 transition-colors hover:bg-surface-2">
+                            <MoreHorizontal className="h-5 w-5" aria-hidden />
+                          </span>
+                        }
+                      />
+                    )}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <StatusBadge tone={meta.tone} label={t(meta.key)} size="sm" />
+                    <span className="rounded-sm bg-surface-2 px-2 py-1 text-xs text-ink-2">
+                      {tenant.planName || t("platform.tenants.noPlan")}
+                    </span>
+                  </div>
+                  {tenant.lifecycleReason && (
+                    <p className="mt-2 break-words text-xs leading-relaxed text-ink-3">{tenant.lifecycleReason}</p>
+                  )}
+                  <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-edge-subtle bg-surface-2/60 p-3 sm:grid-cols-3">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">{t("platform.tenants.colMembers")}</dt>
+                      <dd className="mt-1 text-sm font-semibold tabular-nums text-ink">{formatNumber(tenant.memberCount)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-ink-3">{t("platform.tenants.colFleet")}</dt>
+                      <dd className="mt-1 space-y-0.5 text-xs leading-relaxed text-ink-2">
+                        <span className="block">{tc("platform.tenants.agentsCount", tenant.agentCount, { count: formatNumber(tenant.agentCount) })}</span>
+                        <span className="block">{tc("platform.tenants.printersCount", tenant.printerCount, { count: formatNumber(tenant.printerCount) })}</span>
+                      </dd>
+                    </div>
+                    <div className="col-span-2 min-w-0 sm:col-span-1">
+                      <dt className="text-xs text-ink-3">{t("platform.tenants.colCreated")}</dt>
+                      <dd className="mt-1 text-sm font-medium text-ink-2">{formatDate(tenant.createdAt)}</dd>
+                    </div>
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand lg:block"
+               role="region" aria-label={t("platform.tenants.tableCaption")} tabIndex={0}>
             <table className="data-table min-w-[920px]">
               <caption className="sr-only">{t("platform.tenants.tableCaption")}</caption>
               <thead>
@@ -291,6 +349,7 @@ export default function PlatformTenantsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
 

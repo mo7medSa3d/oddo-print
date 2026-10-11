@@ -1085,12 +1085,37 @@ export function DataTableShell({
 export function TableScroll({
   children,
   className = "",
+  ariaLabel,
 }: {
   children: React.ReactNode;
   className?: string;
+  ariaLabel?: string;
 }) {
+  const { t } = useI18n();
+  const regionRef = useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region) return;
+    const syncOverflow = () => setOverflowing(region.scrollWidth - region.clientWidth > 1);
+    syncOverflow();
+    // The table can grow after async data arrives without the window resizing.
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncOverflow) : null;
+    observer?.observe(region);
+    if (region.firstElementChild) observer?.observe(region.firstElementChild);
+    window.addEventListener("resize", syncOverflow);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", syncOverflow); };
+  }, []);
+
   return (
-    <div className={`w-full overflow-x-auto [scrollbar-gutter:stable] ${className}`}>
+    <div
+      ref={regionRef}
+      role={overflowing ? "region" : undefined}
+      aria-label={overflowing ? (ariaLabel ?? t("ui.scrollTable")) : undefined}
+      tabIndex={overflowing ? 0 : undefined}
+      className={`w-full min-w-0 overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${className}`}
+    >
       <table className="data-table text-base">{children}</table>
     </div>
   );
@@ -1511,6 +1536,20 @@ export function Tabs<T extends string>({
 }) {
   const { t } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
+  const revealSelectedTab = () => {
+    const root = listRef.current;
+    const selected = root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!root || !selected) return;
+    const containerRect = root.getBoundingClientRect();
+    const tabRect = selected.getBoundingClientRect();
+    const inset = 8;
+    const delta = tabRect.left < containerRect.left + inset
+      ? tabRect.left - containerRect.left - inset
+      : tabRect.right > containerRect.right - inset
+        ? tabRect.right - containerRect.right + inset
+        : 0;
+    if (Math.abs(delta) > 1) root.scrollLeft += delta;
+  };
   const onListKeyDown = (e: React.KeyboardEvent) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
     e.preventDefault();
@@ -1529,6 +1568,7 @@ export function Tabs<T extends string>({
       onChange(tabs[next]);
       requestAnimationFrame(() => {
         listRef.current?.querySelector<HTMLElement>(`[data-tab="${tabs[next]}"]`)?.focus();
+        revealSelectedTab();
       });
     }
   };
@@ -1552,7 +1592,10 @@ export function Tabs<T extends string>({
             tabIndex={selected ? 0 : -1}
             data-tab={t}
             data-active={selected}
-            onClick={() => onChange(t)}
+            onClick={() => {
+              onChange(t);
+              if (listRef.current) requestAnimationFrame(revealSelectedTab);
+            }}
             className={`tg-tab-trigger relative flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-[600] capitalize ${focusRing} ${
               selected
                 ? "bg-surface text-brand-subtle-text shadow-sm"
@@ -2009,25 +2052,25 @@ export function PageHeader({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             {icon && (
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-edge bg-surface text-ink-3 shadow-xs">
+              <span className="tg-page-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-edge bg-surface text-ink-3 shadow-xs">
                 {icon}
               </span>
             )}
             <div className="min-w-0">
-              {eyebrow && <div className="text-eyebrow mb-1.5">{eyebrow}</div>}
+              {eyebrow && <div className="tg-page-eyebrow text-eyebrow mb-1.5">{eyebrow}</div>}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className="text-2xl font-[640] leading-tight tracking-[-0.024em] text-ink sm:text-3xl">
+                <h1 className="tg-page-title text-2xl font-[640] leading-tight tracking-[-0.024em] text-ink sm:text-3xl">
                   {title}
                 </h1>
                 {meta}
               </div>
               {description && (
-                <p className="mt-1.5 max-w-3xl text-base leading-relaxed text-ink-3">{description}</p>
+                <p className="tg-page-description mt-1.5 max-w-3xl text-base leading-relaxed text-ink-3">{description}</p>
               )}
             </div>
           </div>
           {actions && (
-            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>
+            <div className="tg-page-actions flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>
           )}
         </div>
       </div>

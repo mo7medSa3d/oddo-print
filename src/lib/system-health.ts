@@ -30,6 +30,7 @@ import { sql } from "drizzle-orm";
 import migrationJournal from "../../drizzle/meta/_journal.json";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
 import { agents, printers } from "../db/schema";
+import { logWarn } from "./log";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
 
@@ -66,13 +67,26 @@ export interface SystemHealth {
   policy: string;
 }
 
+/**
+ * The authenticated health API is still a customer-facing surface. PostgreSQL
+ * and driver exceptions can contain hostnames, SQL text or deployment paths;
+ * only a stable user-action message leaves this boundary. Log a bounded
+ * diagnostic classification, not the raw exception or connection string.
+ */
+function reportHealthLookupError(check: string, error: unknown): void {
+  const candidate = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+  const code = typeof candidate === "string" && /^[A-Z0-9]{1,8}$/.test(candidate) ? candidate : "UNKNOWN";
+  logWarn("system.health.lookup_failed", { check, errorCode: code });
+}
+
 export async function checkDatabase(): Promise<HealthCheck> {
   const start = Date.now();
   try {
     await queryWithTimeout(() => db.execute(sql`SELECT 1`), 2000, "systemHealthDB");
     return { name: "Database", state: "ok", messageKey: "health.dbOk", message: "Postgres reachable", latencyMs: Date.now() - start, critical: true };
   } catch (e) {
-    return { name: "Database", state: "error", messageKey: "health.dbUnreachable", message: `DB unreachable: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: true };
+    reportHealthLookupError("database", e);
+    return { name: "Database", state: "error", messageKey: "health.dbUnreachable", message: "Database health check unavailable", latencyMs: Date.now() - start, critical: true };
   }
 }
 
@@ -94,7 +108,8 @@ export async function checkQueue(tenantId?: string): Promise<HealthCheck> {
     }
     return { name: "Queue", state: "ok", messageKey: "health.queueOk", message: "Queue healthy", latencyMs: Date.now() - start, details: { stuck, tenantId }, critical: false };
   } catch (e) {
-    return { name: "Queue", state: "unknown", messageKey: "health.queueFailed", message: `Queue check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start, critical: false };
+    reportHealthLookupError("queue", e);
+    return { name: "Queue", state: "unknown", messageKey: "health.queueFailed", message: "Queue health check unavailable", latencyMs: Date.now() - start, critical: false };
   }
 }
 
@@ -109,7 +124,7 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     // STALE_AGENT_THRESHOLD_SECONDS is configured.
     const staleSeconds = agentStaleThresholdSeconds();
     const result = await queryWithTimeout(
-      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at <= NOW() AND last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
+      () => db.execute(sql`SELECT COUNT(*) FILTER (WHERE lifecycle = 'active')::int as total, COUNT(*) FILTER (WHERE lifecycle = 'active' AND status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at <= NOW() AND last_seen_at >= NOW() - make_interval(secs => ${staleSeconds}))::int as online FROM agents WHERE tenant_id=${tenantId}`),
       2000,
       "systemHealthAgents"
     );
@@ -121,7 +136,8 @@ export async function checkAgents(tenantId?: string): Promise<HealthCheck> {
     if (online < total) return { name: "Agents", state: "warn", messageKey: "health.agentsPartial", messageVars: { online, total }, message: `${online}/${total} agents online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
     return { name: "Agents", state: "ok", messageKey: "health.agentsPartial", messageVars: { online, total }, message: `${online}/${total} agents online`, latencyMs: Date.now() - start, details: { total, online, tenantId } };
   } catch (e) {
-    return { name: "Agents", state: "unknown", messageKey: "health.agentsFailed", message: `Agent check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
+    reportHealthLookupError("agents", e);
+    return { name: "Agents", state: "unknown", messageKey: "health.agentsFailed", message: "Agent health check unavailable", latencyMs: Date.now() - start };
   }
 }
 
@@ -147,7 +163,8 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
     if (total === 0) return { name: "Printers", state: "warn", messageKey: "health.printersNone", message: "No printers registered", latencyMs: Date.now() - start, details: { total, ready, routable, tenantId } };
     return { name: "Printers", state: routable > 0 ? "ok" : "warn", messageKey: "health.printersAvailable", messageVars: { available: routable, total }, message: `${routable}/${total} printers available for jobs`, latencyMs: Date.now() - start, details: { total, ready, routable, tenantId } };
   } catch (e) {
-    return { name: "Printers", state: "unknown", messageKey: "health.printersFailed", message: `Printer check failed: ${String(e).slice(0, 200)}`, latencyMs: Date.now() - start };
+    reportHealthLookupError("printers", e);
+    return { name: "Printers", state: "unknown", messageKey: "health.printersFailed", message: "Printer health check unavailable", latencyMs: Date.now() - start };
   }
 }
 

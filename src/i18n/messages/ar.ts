@@ -1558,6 +1558,7 @@ export const ar: Catalog = {
   "ui.copied": "تم النسخ",
   "ui.copyFailed": "تعذّر النسخ",
   "ui.filterOptions": "خيارات التصفية",
+  "ui.scrollTable": "جدول بيانات قابل للتمرير. استخدم مفاتيح الأسهم لعرض المزيد من الأعمدة.",
   "ui.closeDialog": "إغلاق مربع الحوار",
   "ui.closePanel": "إغلاق اللوحة",
   "ui.dismissNotification": "إخفاء الإشعار",
