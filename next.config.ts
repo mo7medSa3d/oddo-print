@@ -7,7 +7,13 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
 ];
 
+const deploymentId = process.env.YASEIR_DEPLOYMENT_ID?.trim();
+
 const nextConfig: NextConfig = {
+  // Next compares deployment IDs during navigation and refreshes stale
+  // prefetches instead of calling action IDs from an incompatible build.
+  // Never put an encryption key or secret into this public release identifier.
+  ...(deploymentId ? { deploymentId } : {}),
   experimental: {
     serverActions: {
       bodySizeLimit: "8mb",

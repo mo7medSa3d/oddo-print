@@ -5,7 +5,7 @@ on:
     branches: [main]
   merge_group:
   push:
-    branches: [main]
+    branches: [main, verify/no-pr-print-virtual-skew-20261012]
   workflow_dispatch:
 
 permissions:

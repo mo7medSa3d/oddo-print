@@ -3,6 +3,7 @@
 import { AlertTriangle, LayoutDashboard, LifeBuoy } from "lucide-react";
 import { Button, Mono } from "../components/ui";
 import { useI18n } from "../i18n/react";
+import { isServerActionVersionMismatch } from "../lib/server-action-version";
 
 /**
  * Branded error boundary for the web console.
@@ -17,6 +18,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   const { t } = useI18n();
+  const versionSkew = isServerActionVersionMismatch(error);
   return (
     <div className="ambient-surface flex min-h-[calc(100vh-3.5rem)] items-center justify-center py-14">
       <div className="relative z-10 mx-auto w-full max-w-[560px] px-5">
@@ -30,7 +32,7 @@ export default function GlobalError({
             {t("error.boundary.title")}
           </h1>
           <p className="mt-2 text-base leading-relaxed text-ink-2">
-            {t("error.boundary.body")}
+            {versionSkew ? t("errors.pageUpdatedReload") : t("error.boundary.body")}
           </p>
 
           {error?.digest && (
@@ -41,7 +43,12 @@ export default function GlobalError({
           )}
 
           <div className="mt-6 flex flex-wrap gap-2.5">
-            <Button variant="primary" href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />}>
+            {versionSkew && (
+              <Button variant="primary" onClick={() => window.location.reload()}>
+                {t("common.refresh")}
+              </Button>
+            )}
+            <Button variant={versionSkew ? "secondary" : "primary"} href="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />}>
               {t("error.boundary.backToConsole")}
             </Button>
             <Button
