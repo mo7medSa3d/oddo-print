@@ -100,6 +100,10 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 			removed++
 			continue
 		}
+		if ClassifyDeviceInfo(d).IsVirtual {
+			removed++
+			continue
+		}
 		// A record persisted by this agent (or an earlier version) is
 		// deliberate operator state. Mark it so that a queue whose metadata is
 		// simply too thin to classify is kept instead of silently dropping
@@ -119,8 +123,7 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 		production = append(production, d)
 	}
 	if removed > 0 {
-		// Rewrite the cleaned registry (best effort, not fatal). Hidden
-		// records are written back so nothing is destroyed.
+		// Rewrite the registry and remove all obsolete software-printer rows.
 		if err := saveRegistryLocked(registryPath, concatDevices(production, hidden)); err != nil {
 			log.Printf("printer registry cleanup rewrite failed: %v", err)
 		}
@@ -173,7 +176,14 @@ func saveRegistryLocked(registryPath string, printers []DeviceInfo) error {
 	if err := config.EnsureSecureDirectoryACL(dir); err != nil {
 		return fmt.Errorf("secure registry dir: %w", err)
 	}
-	data, err := json.MarshalIndent(printers, "", "  ")
+	// Never persist even legacy virtual records passed by CLI or recovery.
+	physical := make([]DeviceInfo, 0, len(printers))
+	for _, entry := range printers {
+		if !ClassifyDeviceInfo(entry).IsVirtual {
+			physical = append(physical, entry)
+		}
+	}
+	data, err := json.MarshalIndent(physical, "", "  ")
 	if err != nil {
 		return err
 	}

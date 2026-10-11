@@ -14,6 +14,7 @@ import { isTenantBillingError } from "../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
+import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, auth.agent.id))
       : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
   });
-  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!row || isVirtualPrinterRecord(row)) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const ownerAgent = await db.query.agents.findFirst({
     where: and(eq(agents.id, row.agentId), eq(agents.tenantId, tenantId)),
@@ -110,7 +111,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!ownerLifecycle) return { kind: "error" as const, message: "Printer owner agent missing" };
     await tx.execute(sql`SELECT id FROM printers WHERE id = ${id} AND tenant_id = ${tenantId} AND agent_id = ${owner.agentId} FOR UPDATE`);
     const existing = await tx.query.printers.findFirst({ where: and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, owner.agentId)) });
-    if (!existing) return { kind: "not_found" as const };
+    if (!existing || isVirtualPrinterRecord(existing)) return { kind: "not_found" as const };
+    if (parsed.data.printerType === "physical" && parsed.data.config &&
+        ("virtual_spooler_test" in parsed.data.config || "virtual_test_sink" in parsed.data.config)) return { kind: "invalid" as const, message: "Virtual test metadata is not accepted" };
     if (parsed.data.lifecycle && !canTransitionLifecycle(existing.lifecycle, parsed.data.lifecycle)) {
       return { kind: "conflict" as const, message: `invalid lifecycle transition: ${existing.lifecycle} -> ${parsed.data.lifecycle}` };
     }
@@ -127,6 +130,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (connectionType === "usb" && typeof cfg.spooler_name === "string" && cfg.spooler_name.trim()) {
       connectionType = "spooler";
       protocol = "spooler";
+    }
+    if (isVirtualPrinterRecord({ name: parsed.data.name ?? existing.name,
+      printerType: parsed.data.printerType ?? existing.printerType,
+      connectionType, protocol, config: cfg, capabilities: existing.capabilities })) {
+      return { kind: "invalid" as const, message: "Software/virtual printers are not supported" };
     }
     // passthrough_protocols is meaningful only for a Windows spooler queue.
     // Reject an explicitly invalid request, but when a manager changes an

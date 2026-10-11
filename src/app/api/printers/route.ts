@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import { db } from "../../../db";
 import { agents, printers } from "../../../db/schema";
 import { validateConsoleAuth } from "../../../lib/console-auth";
@@ -16,6 +15,7 @@ import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBilli
 import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../lib/database-clock";
 import { logError } from "../../../lib/log";
+import { isVirtualPrinterRecord } from "../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 const MAX_PRINTERS_LIST = 1000;
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
     .limit(limit + 1)
     .offset(beforeCreatedAt ? 0 : offset);
   const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const pageRows = (hasMore ? rows.slice(0, limit) : rows).filter(({ printer }) => !isVirtualPrinterRecord(printer));
   const responseRows = pageRows.map(({ printer, agent }) => ({
     ...printer,
     reportedStatus: printer.status,
@@ -140,34 +140,17 @@ export async function POST(req: Request) {
       config.address = config.spooler_name.trim();
     }
 
-    // A *paired* Agent may explicitly enable testing for its OWN locally
-    // installed software spooler. This is not Manager authentication and
-    // never grants Agent credentials permission to edit other printers.
-    // The resulting Gateway desired state remains unverified until the Agent
-    // service independently enumerates and validates that Windows queue.
-    const virtualTest = config.virtual_spooler_test === true;
-    const virtualSpoolerName = typeof config.spooler_name === "string" ? config.spooler_name.trim() : "";
-    const prohibitedSoftwareQueue = /fax|redirected| in session |citrix|thinprint|remote desktop|vmware|yaseir_virtual_test_capture/i.test(virtualSpoolerName);
-    if (virtualTest && (data.printerType !== "virtual" ||
-        connectionType !== "spooler" || protocol !== "spooler" ||
-        !virtualSpoolerName || config.passthrough_protocols?.length ||
-        prohibitedSoftwareQueue)) {
-      return NextResponse.json({ error: "Virtual test requires a local Windows software spooler queue, without redirected/FAX/capture queues or RAW passthrough", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
-    }
-    if (data.printerType === "virtual" && !virtualTest) {
-      return NextResponse.json({ error: "Virtual printer registration requires explicit test opt-in from the paired Agent or Gateway", code: "INVALID_VIRTUAL_TEST" }, { status: 400 });
+    if (isVirtualPrinterRecord({ ...data, connectionType, protocol, config, capabilities: data.capabilities }) ||
+        Object.prototype.hasOwnProperty.call(config, "virtual_spooler_test") ||
+        Object.prototype.hasOwnProperty.call(config, "virtual_test_sink")) {
+      return NextResponse.json({ error: "Only physical printers may be registered", code: "PRINTER_VIRTUAL" }, { status: 400 });
     }
     const transportProtocolError = validatePrinterTransportProtocol(connectionType, protocol);
     if (transportProtocolError) return NextResponse.json({ error: transportProtocolError }, { status: 400 });
     const error = validateConnectionConfig(connectionType, config, protocol);
     if (error) return NextResponse.json({ error }, { status: 400 });
 
-    // An Agent cannot choose arbitrary printer IDs for a virtual test. A
-    // stable per-tenant/Agent/queue ID makes ambiguous double-click/retry
-    // registration conflict rather than creating two destinations.
-    const id = virtualTest && auth.kind === "agent"
-      ? "printer_vt_" + createHash("sha256").update(JSON.stringify([tenantId, auth.agent.id, virtualSpoolerName.toLowerCase()])).digest("hex").slice(0, 24)
-      : data.id ?? `printer_${nanoid(8)}`;
+    const id = data.id ?? `printer_${nanoid(8)}`;
     try {
       const row = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${tenantId}))`);
@@ -191,8 +174,8 @@ export async function POST(req: Request) {
           // to receive and verify the opt-in, irrespective of who paired it.
           // "manager" here is the existing control-plane ownership type,
           // NOT a requirement for desktop Manager user credentials.
-          managementSource: auth.kind === "manager" || virtualTest ? "manager" : "agent",
-          desiredRevision: auth.kind === "manager" || virtualTest ? 1 : 0,
+          managementSource: auth.kind === "manager" ? "manager" : "agent",
+          desiredRevision: auth.kind === "manager" ? 1 : 0,
           appliedDesiredRevision: 0,
           observedDesiredRevision: 0,
           observedDeviceClass: null,

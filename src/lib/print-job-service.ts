@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { agents, printJobs, printers, printJobReceipts } from "../db/schema";
 import { db } from "../db";
-import { isVirtualPrinterRecord, isVirtualCaptureTestRecord, isApprovedVirtualSpoolerTestRecord } from "./printer-virtual";
+import { isVirtualPrinterRecord } from "./printer-virtual";
 import { isPrinterStatusExecutable, validatePayloadForPrinter } from "./routing";
 import { validatePrintJobPayload } from "./payload";
 import { and, eq, sql } from "drizzle-orm";
@@ -93,9 +93,6 @@ export type CreatePrintJobOptions = {
   expiresAt?: Date;
   rateLimitKeyId?: string | null;
   requestId?: string | null;
-  /** Only the paired-Agent or Manager test-print route can opt into
-   * an explicitly configured file capture; Odoo and general jobs cannot. */
-  allowVirtualTestCapture?: boolean;
   /** Generate a serialized operator reprint key for this original job inside the enqueue transaction. */
   reprintOfJobId?: string | null;
 };
@@ -116,7 +113,7 @@ function normalizeRequestedBy(value: string): string {
 
 async function insertQueuedJobAtomically({
   jobId, printerId, agentId, tenantId, validatedPayload, expiresAt, requestedBy,
-  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, allowVirtualTestCapture, managerAuthority, agentDiagnosticAuthority,
+  idempotencyKey, destination, documentType, rateLimitKeyId, requestId, reprintOfJobId, managerAuthority, agentDiagnosticAuthority,
 }: {
   jobId: string;
   printerId: string;
@@ -131,7 +128,6 @@ async function insertQueuedJobAtomically({
   rateLimitKeyId?: string | null;
   requestId?: string | null;
   reprintOfJobId?: string | null;
-  allowVirtualTestCapture?: boolean;
   managerAuthority?: { claims: ManagerClaims; permission: ManagerPermission };
   agentDiagnosticAuthority?: { agentId: string; tenantId: string };
 }): Promise<{ jobId: string; status: string; agentId: string; printerId: string; isReused: boolean }> {
@@ -412,26 +408,10 @@ async function insertQueuedJobAtomically({
       config: owner.printer_config,
       managementSource: owner.management_source,
     };
-    // Strictly TEST-ONLY: both services must opt in, the row must be an
-    // Explicit Yaseir file capture requires the gateway opt-in and a
-    // configured, Agent-attested sink. The paired Agent may run its OWN
-    // diagnostic without a Manager login; its identity has been re-fenced
-    // inside this transaction. Odoo/normal business jobs remain denied.
-    const captureDiagnosticPrincipal = requestedBy === "manager-test"
-      || (requestedBy === "agent-diagnostic"
-          && agentDiagnosticAuthority?.tenantId === tenantId
-          && agentDiagnosticAuthority?.agentId === agentId);
-    const virtualCaptureAuthorized = allowVirtualTestCapture === true
-      && process.env.YASEIR_GATEWAY_VIRTUAL_TEST_MODE === "1"
-      && captureDiagnosticPrincipal
-      && documentType === "test_page"
-      && !rateLimitKeyId
-      && !reprintOfJobId
-      && isVirtualCaptureTestRecord(printerIdentity);
-    const virtualSpoolerAuthorized = owner.management_source === "manager"
-      && isApprovedVirtualSpoolerTestRecord(printerIdentity);
-    if (isVirtualPrinterRecord(printerIdentity) && !virtualCaptureAuthorized && !virtualSpoolerAuthorized) {
-      throw new PrintJobInputError("Virtual queue is not approved for printing; explicitly enable a local test destination using the paired Agent or Gateway console and wait for Agent service verification", "PRINTER_VIRTUAL", 409);
+    // Every destination, including a previously approved test sink, must be
+    // a real physical printer. Never turn a failed virtual claim into a job.
+    if (isVirtualPrinterRecord(printerIdentity)) {
+      throw new PrintJobInputError("Virtual and software printers are not supported", "PRINTER_VIRTUAL", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);
@@ -641,7 +621,6 @@ export async function createPrintJobForPrinter(
     rateLimitKeyId: options.rateLimitKeyId ?? null,
     requestId: options.requestId ?? null,
     reprintOfJobId: options.reprintOfJobId ?? null,
-    allowVirtualTestCapture: options.allowVirtualTestCapture === true,
     managerAuthority: options.managerAuthority,
     agentDiagnosticAuthority: options.agentDiagnosticAuthority,
     tenantId: options.tenantId,

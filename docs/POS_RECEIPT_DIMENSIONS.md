@@ -43,7 +43,7 @@ This is not a workaround for missing Windows drivers or incorrect paper forms. W
 - Print the same order as a receipt and as a kitchen/order-change ticket; check item wrapping, subtotal, VAT, bold total and payment row do not overlap.
 - Validate an Arabic/English mixed name, a long product name, a QR code with a long invoice URL, and a single-item order.
 - On Windows with an actual printer, verify the selected queue's paper form is 58/80mm, no `DM_PAPERWIDTH` silent substitution, output fits the printable area and there is no unwanted shrink/clipping.
-- Test at least 58mm/203dpi (384 dots), 80mm/180dpi (512 dots), and 80mm/203dpi (576 dots) when those printers are actually supported. Use Virtual Test Capture to inspect the raw JPEG without hardware, but note that the capture is NOT evidence of physical paper output.
+- Test at least 58mm/203dpi (384 dots), 80mm/180dpi (512 dots), and 80mm/203dpi (576 dots) when those printers are actually supported. Inspect raw JPEG rendering in development; actual print acceptance requires physical hardware and paper output.
 - A missing capability must fall back conservatively; never silently report physically printed from a successful Windows spool submission.
 - Preserve arbitrary-sized report PDF documents (e.g. A4) without accidental roll scaling.
 

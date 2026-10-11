@@ -499,8 +499,8 @@ func TestIsValidSpoolerPrinter(t *testing.T) {
 		{"USB001", "HP LaserJet", "HP LaserJet", true},
 		{"WSD-123", "Generic Laser", "Office Printer", true},
 		{"IP_192.168.1.10", "HP LaserJet", "HP LaserJet", true},
-		{"PORTPROMPT:", "Microsoft Print to PDF", "Microsoft Print to PDF", true}, // virtual but valid
-		{"XPSPort:", "Microsoft XPS Document Writer", "Microsoft XPS Document Writer", true},
+		{"PORTPROMPT:", "Microsoft Print to PDF", "Microsoft Print to PDF", false}, // software writer must be rejected
+		{"XPSPort:", "Microsoft XPS Document Writer", "Microsoft XPS Document Writer", false},
 		{"USB001", "USB Input Device", "(Standard system devices) USB Input Device", false},
 		{"", "USB Composite Device", "(Standard USB Host Controller) USB Composite Device", false},
 		{"", "Intel Bluetooth", "Intel(R) Wireless Bluetooth(R)", false},
@@ -559,7 +559,7 @@ func TestIsValidDiscoveredPrinterFiltersGeneric(t *testing.T) {
 		{"camera", DeviceInfo{Name: "Microsoft HP HD Camera", ConnectionType: "usb", PrinterType: "unknown"}, false},
 		{"fingerprint", DeviceInfo{Name: "Synaptics VFS7552 Touch Fingerprint Sensor", ConnectionType: "usb", PrinterType: "unknown"}, false},
 		{"hid mouse", DeviceInfo{Name: "Microsoft HID-compliant mouse", ConnectionType: "usb", PrinterType: "unknown"}, false},
-		{"virtual pdf", DeviceInfo{Name: "Microsoft Print to PDF", ConnectionType: "spooler", PrinterType: "virtual", IsVirtual: true}, true},
+		{"virtual pdf", DeviceInfo{Name: "Microsoft Print to PDF", ConnectionType: "spooler", PrinterType: "virtual", IsVirtual: true}, false},
 		{"physical hp", DeviceInfo{Name: "HP LaserJet", ConnectionType: "usb", PrinterType: "unknown", USBVID: "03f0", USBPID: "0c17", Capabilities: map[string]interface{}{"hardware_ids": []string{"USBPRINT\\HP"}, "compatible_ids": []string{"USBPRINT"}}}, true},
 	}
 	for _, tc := range cases {

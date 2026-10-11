@@ -58,7 +58,7 @@ describe("desktop Agent Gateway response contract", () => {
     expect(route).toContain('if (auth.kind !== "manager")');
     expect(rust).not.toContain('"PATCH" => {');
     expect(cli).not.toContain('case "PATCH":');
-    expect(printersRoute).toContain('auth.kind === "manager" || virtualTest ? "manager" : "agent"');
+    expect(printersRoute).toContain('auth.kind === "manager" ? "manager" : "agent"');
     expect(printersRoute).toContain('data.agentId !== auth.agent.id');
-    expect(printersRoute).toContain("prohibitedSoftwareQueue");
+    expect(printersRoute).toContain("isVirtualPrinterRecord");
   });

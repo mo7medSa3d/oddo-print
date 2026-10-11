@@ -15,7 +15,7 @@ import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { logError } from "../../../../../lib/log";
 import { databaseNowMs } from "../../../../../lib/database-clock";
 import { getAgentAvailability } from "../../../../../lib/agent-availability";
-import { isApprovedVirtualSpoolerTestRecord } from "../../../../../lib/printer-virtual";
+import { isVirtualPrinterRecord } from "../../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ? and(eq(printers.id, id), eq(printers.tenantId, tenantId), eq(printers.agentId, pairedAgent.id))
       : and(eq(printers.id, id), eq(printers.tenantId, tenantId)),
   });
-  if (!printer) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
+  if (!printer || isVirtualPrinterRecord(printer)) return NextResponse.json({ error: "Printer not found" }, { status: 404 });
 
   const idempotencyKey = req.headers.get("Idempotency-Key")?.trim() || null;
   if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 200)) {
@@ -93,7 +93,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ...(claims ? { managerAuthority: { claims, permission: "printers.test" as const } } : {}),
       ...(pairedAgent ? { agentDiagnosticAuthority: { agentId: pairedAgent.id, tenantId: pairedAgent.tenantId } } : {}),
       documentType: "test_page",
-      allowVirtualTestCapture: true,
       idempotencyKey: effectiveKey,
       tenantId: tenantId,
       requestId: requestIdFrom(req),
@@ -121,12 +120,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ok: true, jobId: result.id, printerId: printer.id, status: result.status,
       isReused: result.isReused,
       ...(physicalOutcome ? { physicalOutcome } : {}),
-      virtualCapture: printer.printerType === "virtual" && (printer.capabilities as Record<string, unknown> | null)?.virtual_test_sink === true,
-      note: printer.printerType === "virtual"
-        ? isApprovedVirtualSpoolerTestRecord(printer)
-          ? "Test submitted to a Windows software queue; inspect its output. Some virtual drivers need an interactive user session. No paper-output claim."
-          : "Yaseir virtual capture stores a file on the Agent; no physical paper is printed."
-        : undefined,
     }, { status: 201 });
   } catch (e) {
     if (e instanceof TenantPrintQuotaExceededError) {

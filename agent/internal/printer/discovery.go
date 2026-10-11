@@ -21,6 +21,11 @@ import (
 // remain useful to manager discovery but must not be persisted/count as local
 // runnable printers until an execution backend exists.
 func IsRuntimeDiscoveryPrinter(d DeviceInfo) bool {
+	// No discovered or persisted software writer may become executable.
+	// Check before any manual/registry transport fallbacks.
+	if ClassifyDeviceInfo(d).IsVirtual {
+		return false
+	}
 	// Validate the actual execution endpoint, including historical registry
 	// rows and legacy Type-only records. A claimed verification/source or a
 	// different NetworkAddress field must never waive this destination policy.
@@ -93,9 +98,9 @@ func RuntimeDiscoveryPrinters(printers []DeviceInfo) []DeviceInfo {
 }
 
 func isValidDiscoveredPrinter(d DeviceInfo) bool {
-	// Virtual printers are always valid where they are expected
-	if d.IsVirtual {
-		return true
+	// Legacy virtual inventory entries are not valid printer candidates.
+	if d.IsVirtual || ClassifyDeviceInfo(d).IsVirtual {
+		return false
 	}
 	nameLower := strings.ToLower(d.Name + " " + d.DisplayName)
 	// Generic PnP / system devices must never be surfaced as printers

@@ -8,6 +8,8 @@ import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedEr
 import { discoveryObservationFingerprint } from "../../../../../../../lib/discovery-observation";
 import { and, eq, sql } from "drizzle-orm";
 
+import { isVirtualPrinterRecord } from "../../../../../../../lib/printer-virtual";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -54,7 +56,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const device = await tx.query.discoveredDevices.findFirst({
         where: and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)),
       });
-      if (!device) return { kind: "not_found" as const };
+      if (!device || isVirtualPrinterRecord({ name: device.spoolerName ?? device.deviceName,
+      protocol: device.protocol, connectionType: device.transport,
+      capabilities: device.capabilities ?? device.rawMetadata, config: device.rawMetadata })) {
+      return { kind: "not_found" as const };
+    }
       if (discoveryObservationFingerprint(device) !== parsed[1]) return { kind: "observation_changed" as const };
       if (device.candidateStatus === "provisioned") return { kind: "provisioned" as const };
       if (device.verification === "verified" && device.candidateStatus === "verified") return { kind: "already" as const };

@@ -11,10 +11,8 @@ A Windows Agent Service runs without the interactive desktop, while Microsoft
 Print to PDF and OneNote can require a Save As / notebook UI. First inspect the
 Windows spooler job list and any generated output. A timed-out native thread can
 still own the session; never force-unlock or blindly replay a possibly printed
-job. For unattended testing use the explicit `YASEIR_VIRTUAL_TEST_CAPTURE` sink
-per `docs/VIRTUAL_PRINTER_TESTING.md` in a disposable test deployment with
-`YASEIR_AGENT_VIRTUAL_TEST_MODE=1` and `YASEIR_GATEWAY_VIRTUAL_TEST_MODE=1`.
-This is an Agent file-capture test, not an actual physical hardware result.
+job. Software, redirected and file-output printers are not supported. Use a real physical printer for end-to-end tests.
+Only a physical print acceptance check can establish paper output.
 
 ## Next.js `Server Action ... was not found`
 

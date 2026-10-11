@@ -11,6 +11,8 @@ import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBilli
 import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
 import { logError } from "../../../../../../../lib/log";
 
+import { isVirtualPrinterRecord } from "../../../../../../../lib/printer-virtual";
+
 export const dynamic = "force-dynamic";
 
 type ProvisionResult =
@@ -78,7 +80,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const device = await tx.query.discoveredDevices.findFirst({
       where: and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)),
     });
-    if (!device) return { kind: "not_found" as const };
+    if (!device || isVirtualPrinterRecord({ name: device.spoolerName ?? device.deviceName,
+      protocol: device.protocol, connectionType: device.transport,
+      capabilities: device.capabilities ?? device.rawMetadata, config: device.rawMetadata })) {
+      return { kind: "not_found" as const };
+    }
 
     const protocolMap: Record<string, { protocol: string; connectionType: string }> = {
       ipp: { protocol: "ipp", connectionType: "ipp" },

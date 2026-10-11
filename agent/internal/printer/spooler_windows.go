@@ -1702,7 +1702,7 @@ func markInteractiveUserConnectionsCandidateOnly(infos []DeviceInfo, sessionID u
 // "unknown" status rather than a fabricated "online" — because EnumPrinters
 // proved it exists.
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
-	infos, err := enumerateSpoolerPrintersWindows(false)
+	infos, err := enumerateSpoolerPrintersWindows()
 	if sessionID, sessionErr := currentProcessSessionID(); sessionErr != nil {
 		err = errors.Join(err, fmt.Errorf("read discovery session: %w", sessionErr))
 	} else if marked := markInteractiveUserConnectionsCandidateOnly(infos, sessionID); marked > 0 {
@@ -1725,13 +1725,7 @@ func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	return infos, err
 }
 
-// EnumSpoolerQueuesForDiagnostics exposes installed queues to the *local*
-// desktop without registering them for Gateway jobs. No print submission occurs.
-func EnumSpoolerQueuesForDiagnostics() ([]DeviceInfo, error) {
-	return enumerateSpoolerPrintersWindows(true)
-}
-
-func enumerateSpoolerPrintersWindows(includeVirtual bool) ([]DeviceInfo, error) {
+func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting Windows spooler discovery (EnumPrintersW level 4 + bounded GetPrinterW level 2)")
 
 	queues, enumErr := enumPrinterQueues()
@@ -1796,7 +1790,7 @@ func enumerateSpoolerPrintersWindows(includeVirtual bool) ([]DeviceInfo, error) 
 			}
 		}
 
-		if !includeVirtual && isVirtualSpooler(portName, driverName, name) {
+		if isVirtualSpooler(portName, driverName, name) {
 			log.Printf("[discovery] hiding virtual Windows spooler queue %q (port=%q driver=%q)", name, portName, driverName)
 			continue
 		}
@@ -1849,4 +1843,14 @@ func spoolerQueueDeviceInfo(name, portName, driverName, serverName, shareName, s
 			"spooler_attributes": attributes,
 		},
 	}
+}
+
+// A queue renamed to a physical-looking label still carries its virtual driver
+// or port monitor; reject it before any spooler backend is instantiated.
+func rejectVirtualWindowsSpooler(name string) error {
+	detail, err := queueDetail(name)
+	if err == nil && isVirtualSpooler(detail.portName, detail.driverName, name) {
+		return fmt.Errorf("Windows software printer %q is not supported", name)
+	}
+	return nil
 }

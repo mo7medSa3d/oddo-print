@@ -370,8 +370,8 @@ func TestVirtualPrintersNeverEnterTheManagedRegistry(t *testing.T) {
 		t.Fatalf("virtual printer leaked into the managed list: %+v", listed)
 	}
 
-	// Hidden records are preserved on disk (never destroyed) so an operator
-	// can still inspect what this machine reports.
+	// Obsolete virtual printer records must be purged from the durable
+	// registry, not merely hidden from the managed printer list.
 	raw, err := os.ReadFile(registryPath)
 	if err != nil {
 		t.Fatalf("read registry: %v", err)
@@ -380,8 +380,8 @@ func TestVirtualPrintersNeverEnterTheManagedRegistry(t *testing.T) {
 	if err := json.Unmarshal(raw, &onDisk); err != nil {
 		t.Fatalf("parse registry: %v", err)
 	}
-	if len(onDisk) != 2 {
-		t.Fatalf("expected the hidden record to be preserved on disk, got %d entries", len(onDisk))
+	if len(onDisk) != 1 || onDisk[0].ID != "printer_hp" {
+		t.Fatalf("obsolete virtual queue must be removed from disk; got %+v", onDisk)
 	}
 
 	// A later discovery that still reports the virtual queue must not

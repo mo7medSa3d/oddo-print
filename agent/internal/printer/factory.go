@@ -22,6 +22,10 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		return nil, fmt.Errorf("printer config is missing an id")
 	}
 
+	if strings.EqualFold(cfg.PrinterType, "virtual") || strings.EqualFold(cfg.PrinterType, "redirected") ||
+		cfg.Capabilities["virtual_test_sink"] == true || cfg.Capabilities["virtual_spooler_test"] == true {
+		return nil, fmt.Errorf("printer %s: virtual and redirected printers are not supported", cfg.ID)
+	}
 	// Recheck here as well as at discovery/manual admission. Persisted rows
 	// from an older Agent and direct registration paths must not construct a
 	// backend capable of probing or printing to an out-of-policy address.
@@ -65,14 +69,11 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if spoolerName == "" {
 			return nil, fmt.Errorf("printer %s: spooler printer requires spooler_name or endpoint", cfg.ID)
 		}
-		if strings.EqualFold(spoolerName, VirtualCaptureSpoolerName) {
-			// A reserved synthetic queue never falls through to Winspool.
-			return NewVirtualCapturePrinter(cfg)
+		if isVirtualSpooler("", "", spoolerName) {
+			return nil, fmt.Errorf("printer %s: software printer queue is not supported", cfg.ID)
 		}
-		if strings.EqualFold(cfg.PrinterType, "virtual") || strings.EqualFold(cfg.PrinterType, "redirected") {
-			if err := ValidateVirtualSpoolerTestQueue(cfg); err != nil {
-				return nil, err
-			}
+		if err := rejectVirtualWindowsSpooler(spoolerName); err != nil {
+			return nil, fmt.Errorf("printer %s: %w", cfg.ID, err)
 		}
 		result := NewSpooler(spoolerName, cfg.Name)
 		result.ReceiptPaperMM, result.ReceiptRasterDots, result.ReceiptDPI = receiptPaperProfile(cfg)

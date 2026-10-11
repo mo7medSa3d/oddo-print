@@ -11,6 +11,7 @@ import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
 import { inventoryVersionAllowsPage, parseInventorySnapshotVersion } from "../../../../lib/inventory-snapshot";
 import { getDesiredPrinterPage } from "../../../../lib/desired-state-page";
+import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -128,6 +129,10 @@ function sanitizePrinter(p: ReportedPrinter): {
       // receive. The routing layer intentionally fails closed on this shape.
       return { ok: false, reason: "invalid_supported_protocols" };
     }
+  }
+  if (isVirtualPrinterRecord({ name: p.name, printerType, deviceClass,
+    connectionType: canonicalConnectionType, protocol, capabilities, config })) {
+    return { ok: false, reason: "virtual_or_software_printer" };
   }
   const status = typeof p.status === "string" && VALID_PRINTER_STATUSES.has(p.status.trim().toLowerCase()) ? p.status.trim().toLowerCase() : "unknown";
   if (utf8ByteLength(JSON.stringify(config)) > PRINTER_CONFIG_MAX_BYTES) return { ok: false, reason: "config_payload_too_large" };

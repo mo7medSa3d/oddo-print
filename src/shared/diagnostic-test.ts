@@ -12,7 +12,6 @@ export interface DiagnosticResult {
   jobId: string;
   printerId: string;
   status: DiagnosticJobStatus;
-  virtualCapture: boolean;
   isReused: boolean;
   physicalOutcome: DiagnosticPhysicalOutcome | null;
 }
@@ -35,7 +34,7 @@ export function decodeDiagnosticResult(value: unknown, printerId: string): Diagn
   if (row.ok !== true || typeof row.jobId !== "string" || !row.jobId.trim() ||
       typeof row.printerId !== "string" || row.printerId !== printerId ||
       typeof row.status !== "string" || !STATUSES.includes(row.status) ||
-      (row.virtualCapture !== undefined && typeof row.virtualCapture !== "boolean") ||
+      (row.virtualCapture !== undefined && row.virtualCapture !== false) ||
       (row.isReused !== undefined && typeof row.isReused !== "boolean") ||
       (row.physicalOutcome !== undefined && row.physicalOutcome !== null &&
        (typeof row.physicalOutcome !== "string" || !OUTCOMES.includes(row.physicalOutcome)))) {
@@ -46,7 +45,6 @@ export function decodeDiagnosticResult(value: unknown, printerId: string): Diagn
     jobId: row.jobId,
     printerId,
     status: row.status as DiagnosticJobStatus,
-    virtualCapture: row.virtualCapture === true,
     isReused: row.isReused === true,
     physicalOutcome: (row.physicalOutcome ?? null) as DiagnosticPhysicalOutcome | null,
   };
@@ -108,8 +106,8 @@ export class DiagnosticOperations {
 }
 
 export type DiagnosticMessageKey =
-  | "diagnostic.queued" | "diagnostic.virtualQueued" | "diagnostic.inProgress"
-  | "diagnostic.delivered" | "diagnostic.virtualCaptured" | "diagnostic.failed" | "diagnostic.expired"
+  | "diagnostic.queued" | "diagnostic.inProgress"
+  | "diagnostic.delivered" | "diagnostic.failed" | "diagnostic.expired"
   | "diagnostic.unverified";
 
 /** Refresh a previously accepted diagnostic with its SAME operation key.
@@ -119,9 +117,9 @@ export function diagnosticIsInProgress(result: DiagnosticResult): boolean {
 }
 
 export function diagnosticMessageKey(result: DiagnosticResult): DiagnosticMessageKey {
-  if (result.status === "queued") return result.virtualCapture ? "diagnostic.virtualQueued" : "diagnostic.queued";
+  if (result.status === "queued") return "diagnostic.queued";
   if (result.status === "claimed" || result.status === "printing") return "diagnostic.inProgress";
-  if (result.status === "success") return result.virtualCapture ? "diagnostic.virtualCaptured" : "diagnostic.delivered";
+  if (result.status === "success") return "diagnostic.delivered";
   if (result.physicalOutcome === "not_printed") {
     return result.status === "expired" ? "diagnostic.expired" : "diagnostic.failed";
   }

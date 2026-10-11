@@ -188,7 +188,18 @@ export const printers = pgTable("printers", {
   desiredAgentIdx: index("printers_agent_lifecycle_desired_idx").on(table.tenantId, table.agentId, table.lifecycle, table.managementSource),
   agentInventoryPresentIdx: index("printers_agent_inventory_present_idx").on(table.tenantId, table.agentId, table.managementSource, table.inventoryPresent),
   lifecycleCheck: check("printers_lifecycle_check", sql`${table.lifecycle} in ('active','disabled','retired')`),
-  printerTypeCheck: check("printers_type_check", sql`${table.printerType} in ('physical','virtual','redirected')`),
+  printerTypeCheck: check("printers_type_check", sql`${table.printerType} = 'physical'
+    AND lower(COALESCE(${table.name},'')) !~ '(microsoft print to pdf|onenote|xps document writer|pdf24|pdfcreator|virtual printer|print to pdf|remote desktop easy print|redirected)'
+    AND lower(COALESCE(${table.config}->>'spooler_name',${table.config}->>'address','')) !~ '(microsoft print to pdf|onenote|xps document writer|pdf24|pdfcreator|virtual printer|print to pdf|remote desktop easy print|redirected)'
+    AND lower(COALESCE(${table.capabilities}->>'driver_name',${table.capabilities}->>'driverName','')) !~ '(microsoft print to pdf|onenote|xps document writer|pdf24|pdfcreator|virtual printer|print to pdf|remote desktop easy print|redirected)'
+    AND lower(COALESCE(${table.capabilities}->>'port_name','')) !~ '^(portprompt:|xpsport:|file:|nul:|null:|shrfax:|fax:)'
+    AND lower(COALESCE(${table.capabilities}->>'printer_class','')) NOT IN ('virtual','redirected')
+    AND NOT COALESCE(${table.config} ? 'virtual_test_sink', false)
+    AND NOT COALESCE(${table.config} ? 'virtual_spooler_test', false)
+    AND NOT COALESCE(${table.capabilities} @> '{"virtual":true}'::jsonb, false)
+    AND NOT COALESCE(${table.capabilities} @> '{"is_virtual":true}'::jsonb, false)
+    AND NOT COALESCE(${table.capabilities} @> '{"virtual_test_sink":true}'::jsonb, false)
+    AND NOT COALESCE(${table.capabilities} @> '{"virtual_spooler_test":true}'::jsonb, false)`),
   deviceClassCheck: check("printers_device_class_check", sql`${table.deviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),
   connectionTypeCheck: check("printers_connection_type_check", sql`${table.connectionType} in ('network','usb','spooler','ipp','ipps')`),
   protocolCheck: check("printers_protocol_check", sql`${table.protocol} in ('raw','escpos','zpl','tspl','ipp','ipps','spooler','windows_spooler','unknown')`),

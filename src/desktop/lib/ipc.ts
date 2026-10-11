@@ -404,10 +404,6 @@ export async function registerGatewayPrinter(
     config.address = queue;
     const passthrough = [...new Set((req.spoolerPassthroughProtocols ?? []).filter((value) => value === "raw" || value === "escpos"))];
     config.passthrough_protocols = passthrough;
-    if (req.virtualSpoolerTest === true) {
-      if (passthrough.length) throw new Error("Virtual Windows spooler test does not accept RAW passthrough");
-      config.virtual_spooler_test = true;
-    }
   } else if (connectionType === "usb") {
     if (req.usbVid) config.vid = parseUsbIdentifier(req.usbVid);
     if (req.usbPid) config.pid = parseUsbIdentifier(req.usbPid);
@@ -428,18 +424,9 @@ export async function registerGatewayPrinter(
     agentId: req.agentId,
     connectionType,
     protocol: req.protocol || (connectionType === "spooler" ? "spooler" : "unknown"),
-    printerType: req.virtualSpoolerTest === true ? "virtual" : req.printerType || "physical",
+    printerType: req.printerType || "physical",
     config,
   };
-  // An explicit opt-in for a locally discovered software spooler uses the
-  // paired Agent's own credentials, never a Manager session. The Gateway
-  // enforces Agent/tenant ownership and the Windows service verifies the
-  // queue before allowing jobs. Mere Desktop discovery cannot enable it.
-  if (req.virtualSpoolerTest && (connectionType !== "spooler" ||
-      payload.printerType !== "virtual" || !config.spooler_name ||
-      (config.passthrough_protocols as string[] | undefined)?.length)) {
-    throw new Error("Virtual test requires a local software spooler without RAW passthrough");
-  }
   const { status, body } = await gatewayConsoleRequest(
     base, "/api/printers", "POST", headers, JSON.stringify(payload),
   );
@@ -451,7 +438,6 @@ export async function registerGatewayPrinter(
 
 export interface DiscoverResult {
   printers: PrinterInfo[];
-  virtualPrinters: PrinterInfo[];
   errors: string[];
 }
 
@@ -502,7 +488,6 @@ export interface RegisterPrinterRequest {
   usbPid?: string;
   usbSerial?: string;
   spoolerPassthroughProtocols?: Array<"raw" | "escpos">;
-  virtualSpoolerTest?: boolean;
 }
 
 export function registerPrinter(req: RegisterPrinterRequest): Promise<string> {

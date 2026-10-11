@@ -604,10 +604,6 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 
 	// 1. Load configured printers from YAML (legacy, still supported for backward compat)
 	for _, pc := range cfg.Printers {
-		// Annotate an explicitly configured virtual capture so that the
-		// Gateway can distinguish this test backend from arbitrary virtual
-		// or redirected Windows queues during authenticated heartbeats.
-		pc = printer.TagConfiguredVirtualCapture(pc)
 		if !pc.IsEnabled() {
 			continue
 		}
@@ -2286,6 +2282,15 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	a.printersMu.RLock()
 	ids := make([]string, 0, len(a.printers))
 	for id := range a.printers {
+		pc := a.printerConfigs[id]
+		c := printer.ClassifyDeviceInfo(printer.DeviceInfo{
+			Name: pc.Name, PrinterType: pc.PrinterType,
+			SpoolerName: pc.SpoolerName, ConnectionType: pc.NormalizedType(),
+			Protocol: pc.NormalizedProtocolOrUnknown(), Capabilities: pc.Capabilities,
+		})
+		if c.IsVirtual || c.Class == printer.ClassRedirected {
+			continue
+		}
 		ids = append(ids, id)
 	}
 	printerByID := make(map[string]printer.Printer, len(a.printers))

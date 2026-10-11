@@ -1,16 +1,9 @@
 /* ============================================================
    Virtual / software printer guard (Gateway side)
    ------------------------------------------------------------
-   Automatic discovery still excludes virtual and redirected queues
-   from managed production inventory. A Manager can now register an
-   explicitly approved Windows SOFTWARE spooler queue for local testing;
-   only the matching queue verified by the running Agent may become a
-   Gateway/Odoo destination. This is spooler admission, NOT paper output.
-
-   Legacy virtual rows remain preserved but unusable without both the
-   Manager desired-state authorization and an Agent-reported capability.
-   Synthetic Yaseir capture remains Manager-test-only; redirected and FAX
-   queues never become production destinations.
+   All virtual/software/redirected queues are forbidden for printing,
+   discovery registration and display. This classifier is deliberately
+   retained to reject legacy records and spoofed physical metadata.
 
    Detection reads normalized metadata first (printerType,
    connectionType, protocol, capabilities) and only falls back to
@@ -34,7 +27,7 @@ export interface PrinterLike {
 }
 
 /** Capability keys that mark a queue as software-only. */
-const VIRTUAL_CAPABILITY_KEYS = ["virtual", "is_virtual"] as const;
+const VIRTUAL_CAPABILITY_KEYS = ["virtual", "is_virtual", "virtual_test_sink", "virtual_spooler_test"] as const;
 const VIRTUAL_CLASSES = new Set(["virtual", "redirected"]);
 
 /**
@@ -190,6 +183,9 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   const protocol = lower(printer.protocol);
   if (type === "virtual" || type === "redirected" || connection === "virtual" || protocol === "virtual") return true;
 
+  const config = capabilitiesRecord(printer.config);
+  if ([config, capabilitiesRecord(printer.capabilities)].some((record) => record &&
+      ["virtual_test_sink", "virtual_spooler_test"].some((key) => key in record))) return true;
   const caps = capabilitiesRecord(printer.capabilities);
   if (caps) {
     for (const key of VIRTUAL_CAPABILITY_KEYS) {
@@ -241,50 +237,3 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   return SOFTWARE_WRITER_TOKENS.some((pattern) => name.includes(pattern));
 }
 
-/**
- * Deliberately configured Yaseir file-capture TEST destination. This remains
- * virtual and is never eligible for Odoo/production routing. Only an
- * authenticated Manager test-print request can opt into its admission.
- */
-export function isVirtualCaptureTestRecord(printer: PrinterLike | null | undefined): boolean {
-  if (!printer) return false;
-  const caps = capabilitiesRecord(printer.capabilities);
-  return lower(printer.printerType) === "virtual"
-    && lower(printer.connectionType) === "spooler"
-    && lower(printer.protocol) === "spooler"
-    && caps?.virtual_test_sink === true
-    && lower(caps?.registration_source) === "config"
-    && isVirtualPrinterRecord(printer);
-}
-
-/**
- * A deliberately manager-owned Windows software queue permitted for explicit
- * Gateway and Odoo validation. Both the manager desired-state flag AND the
- * Agent's observed capability are necessary: a Manager write alone cannot
- * establish that the executing Agent has validated the local queue.
- *
- * Redirected sessions, FAX destinations and synthetic file capture are never
- * eligible. This remains a virtual queue; successful spooler submission is
- * not physical-paper evidence, and drivers needing an interactive Save dialog
- * may fail or remain indeterminate in a Windows service.
- */
-export function isApprovedVirtualSpoolerTestRecord(printer: PrinterLike | null | undefined): boolean {
-  if (!printer || lower(printer.printerType) !== "virtual" ||
-      lower(printer.connectionType) !== "spooler" || lower(printer.protocol) !== "spooler") return false;
-  const desired = capabilitiesRecord(printer.config);
-  const observed = capabilitiesRecord(printer.capabilities);
-  if (desired?.virtual_spooler_test !== true || observed?.virtual_spooler_test !== true) return false;
-  // Do not ever repurpose Yaseir's separate file-capture backend as a
-  // selectable Odoo printer; it has a Manager-only test-page contract.
-  if (observed.virtual_test_sink === true) return false;
-  const name = lower(printer.name);
-  const spoolerName = lower(desired.spooler_name);
-  const metadata = identityHaystack(observed, printer);
-  const identity = [name, spoolerName, metadata].join(" ");
-  if (identity.includes("(redirected") || identity.includes(" in session ") ||
-      SESSION_REDIRECT_TOKENS.some((token) => identity.includes(token))) return false;
-  if (name === "fax" || name.endsWith(" fax") || name.endsWith(" (fax)") ||
-      spoolerName === "fax" || spoolerName.endsWith(" fax") || spoolerName.endsWith(" (fax)") ||
-      identity.includes("shrfax:") || identity.includes("brfax:")) return false;
-  return !!spoolerName && isVirtualPrinterRecord(printer);
-}

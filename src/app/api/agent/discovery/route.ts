@@ -10,6 +10,7 @@ import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { isPrivateNetworkAddress } from "../../../../lib/network-address";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { expireStaleAgentDiscovery } from "../../../../lib/discovery-session-expiry";
+import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 const MAX_DISCOVERY_BODY_BYTES = 2 * 1024 * 1024;
@@ -103,6 +104,13 @@ export async function POST(req: Request) {
       : "(unknown)";
     if (!parsed.success) {
       skippedDevices.push({ id: rawId, reason: `invalid_device: ${parsed.error.issues[0]?.message ?? "invalid payload"}` });
+      continue;
+    }
+    const d = parsed.data;
+    if (isVirtualPrinterRecord({ name: d.spoolerName ?? d.deviceName,
+      connectionType: d.transport, protocol: d.protocol, deviceClass: d.deviceClass,
+      capabilities: d.capabilities ?? d.rawMetadata, config: d.rawMetadata })) {
+      skippedDevices.push({ id: d.id ?? rawId, reason: "virtual_or_software_printer" });
       continue;
     }
     const ip = parsed.data.ipAddress;
