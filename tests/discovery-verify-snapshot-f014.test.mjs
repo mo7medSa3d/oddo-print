@@ -58,6 +58,12 @@ if(readFileSync('src/app/api/agents/[id]/discovered-printers/[deviceId]/verify/r
   observation=await load('lib/discovery-observation.ts');
   dep['/lib/discovery-observation']=mk(observation);
 }
+// Discovery view now performs opportunistic stale-session expiration.
+// Execute the actual expiration SQL builder, with the database adapter stubbed.
+const discoveryExpiry=new vm.SourceTextModule(transpile('lib/discovery-session-expiry.ts'),{context:ctx});
+await discoveryExpiry.link(()=>dr);await discoveryExpiry.evaluate();
+dep['/lib/discovery-session-expiry']=mk(discoveryExpiry.namespace);
+db.execute=async(query)=>{state.events.push(render(query));return {rows:[]};};
 const handler=await load('app/api/agents/[id]/discovered-printers/[deviceId]/verify/route.ts');
 const request=(fingerprint)=>new Request('http://localhost/api/agents/agent/discovered-printers/dev/verify',{method:'POST',headers:fingerprint?{'If-Match':`"${fingerprint}"`}:{}});
 const call=(fingerprint)=>handler.POST(request(fingerprint),{params:Promise.resolve({id:'agent',deviceId:'dev'})});

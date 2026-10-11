@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -55,6 +56,18 @@ func TestSaveGetRoundTrip(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("updated-value")) || bytes.Contains(data, []byte("beta")) {
 		t.Fatal("secret file contains plaintext secrets")
+	}
+	// Base64 framing is trivially reversible, so on non-Windows platforms the
+	// 0600 file mode is the ONLY protection. Pin it: a world-readable store
+	// file would disclose the Gateway credential to every local user.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(dir, secretFile))
+		if err != nil {
+			t.Fatalf("stat store file: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("secret store file mode = %04o, want 0600", perm)
+		}
 	}
 }
 

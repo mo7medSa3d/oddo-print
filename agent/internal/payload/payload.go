@@ -165,6 +165,15 @@ func Parse(raw interface{}) (*Payload, error) {
 				}
 			}
 		}
+		// Unknown peripheral keys are rejected, not dropped: a "cuttter"
+		// typo must fail loudly instead of printing without the cut.
+		// (The Gateway's strict schema already rejects these at admission;
+		// this is the defense-in-depth mirror for the same wire contract.)
+		for key := range periphMap {
+			if key != "drawer" && key != "cutter" && key != "buzzer" {
+				return nil, fmt.Errorf("unknown peripherals field %q; expected drawer, cutter, buzzer", key)
+			}
+		}
 		if d, ok := periphMap["drawer"].(string); ok {
 			switch d {
 			case "pin2", "pin5", "none":

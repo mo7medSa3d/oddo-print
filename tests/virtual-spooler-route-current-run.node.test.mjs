@@ -25,6 +25,9 @@ function actualModule(p,imports={},env={}) {
   return cjsModule.exports;
 }
 const virtual=actualModule('src/lib/printer-virtual.ts');
+const capability=actualModule('src/lib/printer-capability.ts',{
+  '../../contracts/print-payload-contract.json':JSON.parse(codeFile('contracts/print-payload-contract.json')),
+});
 const routing=actualModule('src/lib/routing.ts',{
   '../../contracts/print-payload-contract.json':{rawProtocols:['raw','escpos','zpl','tspl']},
   './database-clock':{gatewayNow:()=>new Date('2026-10-09T10:00:00Z')},
@@ -248,7 +251,7 @@ test('actual Manager POST printer handler stores opt-in as desired state but doe
 
 test('actual Odoo printer inventory only publishes Manager+Agent confirmed virtual queues',async()=>{
   let authenticated=true;
-  const rows=[
+  let rows=[
     {...software,id:'pdf-approved',agentId:'agent-one',agentName:'Agent A',agentStatus:'online',agentLifecycle:'active',status:'online',lastSeenAt:new Date()},
     {...software,id:'pdf-pending',agentId:'agent-one',agentName:'Agent A',agentStatus:'online',agentLifecycle:'active',capabilities:null,lastSeenAt:new Date()},
     {...software,id:'pdf-agent-only',agentId:'agent-one',agentName:'Agent A',agentStatus:'online',agentLifecycle:'active',managementSource:'agent',lastSeenAt:new Date()},
@@ -265,6 +268,7 @@ test('actual Odoo printer inventory only publishes Manager+Agent confirmed virtu
     '../../../../lib/receipt-width':{receiptRasterWidthDots:()=>null},
     '../../../../lib/entitlements':{TenantSubscriptionRequiredError:class extends Error{},requireTenantBillingAccess:async()=>{}},
     '../../../../lib/printer-virtual':virtual,
+    '../../../../lib/printer-capability':capability,
   });
   const request=new Request('https://gateway.example.test/api/odoo/printers?agent_id=agent-one');
   const result=await api.GET(request);
@@ -272,6 +276,31 @@ test('actual Odoo printer inventory only publishes Manager+Agent confirmed virtu
   const body=await result.json();
   assert.deepEqual(body.printers.map(p=>p.id),['pdf-approved','physical']);
   assert.deepEqual(body.printers[0].capabilities.supported_protocols.sort(),['image','pdf']);
+  // The Odoo inventory must advertise precisely what the actual Gateway
+  // print-admission validator accepts; misleading legacy metadata cannot
+  // turn a raw TCP connection into a Windows driver/IPP connection.
+  const physical={...rows[4],capabilities:{supported_protocols:['pdf','image','escpos','raw']}};
+  rows=[
+    {...physical,id:'network-spooler-label',connectionType:'network',protocol:'spooler'},
+    {...physical,id:'network-driver-label',connectionType:'network',protocol:'windows_spooler'},
+    {...physical,id:'network-escpos',connectionType:'network',protocol:'escpos'},
+    {...physical,id:'network-zpl',connectionType:'network',protocol:'zpl'},
+    {...physical,id:'network-ipp',connectionType:'network',protocol:'ipp'},
+    {...physical,id:'usb-driver',connectionType:'usb',protocol:'spooler'},
+    {...physical,id:'spooler-no-metadata',connectionType:'spooler',protocol:'spooler',capabilities:null},
+    {...physical,id:'malformed-metadata',connectionType:'network',protocol:'escpos',capabilities:{supported_protocols:'escpos'}},
+  ];
+  const filtered=await api.GET(request);
+  assert.equal(filtered.status,200);
+  const cases=Object.fromEntries((await filtered.json()).printers.map(p=>[p.id,p.capabilities.supported_protocols]));
+  assert.deepEqual(cases['network-spooler-label'],[]);
+  assert.deepEqual(cases['network-driver-label'],[]);
+  assert.deepEqual(cases['network-escpos'].sort(),['escpos','image','raw']);
+  assert.deepEqual(cases['network-zpl'],[],'explicit metadata excludes ZPL despite its transport label');
+  assert.deepEqual(cases['network-ipp'],['pdf']);
+  assert.deepEqual(cases['usb-driver'].sort(),['escpos','image','pdf','raw']);
+  assert.deepEqual(cases['spooler-no-metadata'],['pdf','image']);
+  assert.deepEqual(cases['malformed-metadata'],[]);
   authenticated=false;
   const denied=await api.GET(request);
   assert.equal(denied.status,401);

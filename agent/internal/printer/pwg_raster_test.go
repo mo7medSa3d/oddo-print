@@ -182,3 +182,28 @@ func TestPWGResolutionAndColorOptionSelection(t *testing.T) {
 		}
 	}
 }
+
+// Regression: PDFium FPDFBitmap_BGRA carries STRAIGHT (non-premultiplied)
+// alpha. A 50% gray (128,128,128,128) composited over white must yield 191,
+// not 255 — the premultiplied formula washed transparents to white.
+func TestPWGRasterRowStraightAlphaComposite(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	// Write Pix directly: SetRGBA would premultiply and hide the bug.
+	img.Pix[0], img.Pix[1], img.Pix[2], img.Pix[3] = 128, 128, 128, 128
+	img.Pix[4], img.Pix[5], img.Pix[6], img.Pix[7] = 0, 0, 0, 255
+
+	gray := make([]byte, 2)
+	pwgRasterRow(img, 0, gray, pwgGray8)
+	if gray[0] != 191 {
+		t.Fatalf("straight-alpha gray composite = %d, want 191", gray[0])
+	}
+	if gray[1] != 0 {
+		t.Fatalf("opaque black composite = %d, want 0", gray[1])
+	}
+
+	rgb := make([]byte, 6)
+	pwgRasterRow(img, 0, rgb, pwgRGB8)
+	if rgb[0] != 191 || rgb[1] != 191 || rgb[2] != 191 {
+		t.Fatalf("straight-alpha rgb composite = %v, want [191 191 191]", rgb[:3])
+	}
+}

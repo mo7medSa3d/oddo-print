@@ -21,6 +21,7 @@ REPORT_DOCUMENT_TYPES = {
     "pos.order": "receipt",
 }
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_BASE64_CHARS = 4 * ((MAX_IMAGE_BYTES + 2) // 3)
 _logger = logging.getLogger(__name__)
 
 
@@ -44,6 +45,34 @@ def _escpos_text(value):
     injects its own control bytes, so user content must carry none."""
     text = str(value or "")
     return "".join(ch for ch in text if ch >= " ").strip()[:80]
+
+
+def _validated_raw_command_bytes(raw_data):
+    """Validate raw command input *before* making encoded outbox copies.
+
+    Gateway/Agent enforce a 5 MiB decoded payload contract, but encoding an
+    unbounded Python object before calling create_operation() unnecessarily
+    allocates up to 4/3 more memory and builds a second diagnostic copy.
+    Never accept integers (bytes(huge_integer)), arbitrary byte conversion
+    methods, or empty printer programs as executable instructions.
+    """
+    if isinstance(raw_data, str):
+        if len(raw_data) > MAX_IMAGE_BYTES:
+            raise ValidationError(_("Raw printer command exceeds the 5 MiB safety limit."))
+        try:
+            encoded = raw_data.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValidationError(_("Raw printer command contains invalid Unicode.")) from exc
+    elif isinstance(raw_data, (bytes, bytearray, memoryview)):
+        count = raw_data.nbytes if isinstance(raw_data, memoryview) else len(raw_data)
+        if count > MAX_IMAGE_BYTES:
+            raise ValidationError(_("Raw printer command exceeds the 5 MiB safety limit."))
+        encoded = bytes(raw_data)
+    else:
+        raise ValidationError(_("Raw printer command must be text or bytes."))
+    if not encoded or len(encoded) > MAX_IMAGE_BYTES:
+        raise ValidationError(_("Raw printer command is empty or exceeds the 5 MiB safety limit."))
+    return encoded
 
 
 class PrintGatewayRouter(models.AbstractModel):
@@ -239,14 +268,28 @@ class PrintGatewayRouter(models.AbstractModel):
     def _validate_pdf(pdf_content, report):
         if isinstance(pdf_content, (list, tuple)):
             pdf_content = pdf_content[0] if pdf_content else b""
-        if not pdf_content or not bytes(pdf_content).startswith(b"%PDF-"):
-            raise ValidationError(_("The rendered report %s is not a valid PDF.") % report.display_name)
-        return bytes(pdf_content)
+        # Report renderers return bytes. Refuse oversized or incomplete PDFs
+        # BEFORE allocating another bytes object or encoding for the outbox.
+        # Match the Agent's ValidatePDF header, size, and 4 KiB EOF window.
+        if (
+            not isinstance(pdf_content, (bytes, bytearray, memoryview))
+            or not 0 < len(pdf_content) <= MAX_IMAGE_BYTES
+        ):
+            raise ValidationError(_("The rendered report %s is invalid or exceeds the 5 MiB safety limit.") % report.display_name)
+        pdf = bytes(pdf_content)
+        if not pdf.startswith(b"%PDF-") or b"%%EOF" not in pdf[-4096:]:
+            raise ValidationError(_("The rendered report %s is not a complete PDF.") % report.display_name)
+        return pdf
 
     @staticmethod
     def _validate_jpeg_base64(image):
         if not isinstance(image, str) or not image:
             raise ValidationError(_("The POS print image is missing."))
+        # Base64 decoding is an allocation. Reject giant RPC values first,
+        # even when malformed or attacker-supplied, rather than allocating a
+        # second multi-megabyte object merely to discover it exceeds 5 MiB.
+        if len(image) > MAX_BASE64_CHARS:
+            raise ValidationError(_("The POS print image exceeds the 5 MiB safety limit."))
         try:
             data = base64.b64decode(image, validate=True)
         except (ValueError, binascii.Error) as exc:
@@ -625,6 +668,28 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured for the selected preparation printer.")
             )
+        # Kitchen identity policy. An explicit key always wins: the POS client
+        # mints a fresh operation id for a deliberate reprint so Gateway
+        # idempotency cannot collapse it into the original ticket.
+        #
+        # Without a caller key, a normal kitchen print must still be
+        # deterministic. Otherwise any caller that loses the operation id (an
+        # addon calling action_print_gateway_kitchen directly, an RPC retry,
+        # a non-browser automation) falls back to a random key and a retry
+        # produces a SECOND physical kitchen ticket. Receipt and Sale Details
+        # already have deterministic fallbacks; kitchen did not.
+        #
+        # A key-less deliberate reprint keeps a random key on purpose: the
+        # caller asked for new paper output, so it must not be deduplicated.
+        if not idempotency_key and not reprint:
+            binding_id = route.get("binding") and route["binding"].id or 0
+            raw_token = "kitchen:%s:%s:%s:%s" % (
+                order.id,
+                binding_id,
+                explicit_destination.id if explicit_destination else 0,
+                getattr(order, "write_date", ""),
+            )
+            idempotency_key = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
         return self._submit_route(
             route=route, payload={"type": "image", "encoding": "base64", "data": image_base64},
             company=company, source_model=order._name, source_record_id=order.id, idempotency_key=idempotency_key,
@@ -792,10 +857,9 @@ class PrintGatewayRouter(models.AbstractModel):
                     % (target_binding.display_name, binding_proto, protocol)
                 )
 
-        if isinstance(raw_data, str):
-            raw_bytes = raw_data.encode("utf-8")
-        else:
-            raw_bytes = bytes(raw_data)
+        # Admission precedes base64 and diagnostics serialization. Do not
+        # build multi-megabyte copies of commands that the Gateway must reject.
+        raw_bytes = _validated_raw_command_bytes(raw_data)
 
         # Wire type follows the shared contract
         # (contracts/print-payload-contract.json wireTypes: raw/escpos/pdf/image):

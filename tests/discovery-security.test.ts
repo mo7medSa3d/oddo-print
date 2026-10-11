@@ -94,6 +94,9 @@ describe("discovery authorization", () => {
     state.reportAuth = true;
     const report = {
       discoveryId: "ds_trust_probe",
+      // `status` is required by the chunked-report protocol (HEAD 9c0d1786);
+      // a single unchunked terminal page carries the whole session result.
+      status: "completed",
       devices: [{
         id: "dev_selfdeclared", name: "Fake Verified", protocol: "raw", ipAddress: "10.10.10.10",
         port: 9100, confidence: "high", verification: "verified",

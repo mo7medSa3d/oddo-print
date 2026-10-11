@@ -59,12 +59,15 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		family = conn
 	}
 	hasCaps := d.SupportedProtocolDeclared || d.SupportedProtocol != nil
-	physicalPDF := conn == "spooler" || proto == "spooler" || conn == "ipp" || conn == "ipps" ||
+	// A network TCP pipe named "spooler" is still a byte pipe, never a
+	// driver-backed Windows queue. Legacy USB-backed spooler records stay
+	// valid (normally normalized to connection=spooler at registration).
+	physicalSpooler := conn == "spooler" || (conn == "usb" && proto == "spooler")
+	physicalPDF := physicalSpooler || conn == "ipp" || conn == "ipps" ||
 		(conn == "network" && (proto == "ipp" || proto == "ipps"))
-	physicalImage := conn == "spooler" || proto == "spooler" ||
-		(conn == "network" && proto == "escpos")
+	physicalImage := physicalSpooler || (conn == "network" && proto == "escpos")
 	physicalByteProtocol := func(protocol string) bool {
-		if conn == "spooler" || proto == "spooler" {
+		if physicalSpooler {
 			return protocol == "raw" || protocol == "escpos"
 		}
 		if conn != "network" && conn != "usb" {
@@ -124,7 +127,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		if !physicalImage {
 			return false, "image payload not supported by printer"
 		}
-		if conn == "spooler" || proto == "spooler" {
+		if physicalSpooler {
 			return true, ""
 		}
 		if hasCaps && capabilityListed("image", "jpeg", "escpos") {
@@ -141,7 +144,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 		// Windows spooler queues render documents through the driver by
 		// default. A raw ESC/POS byte stream bypasses rendering and is only
 		// valid for passthrough-mode queues with explicit escpos support.
-		if conn == "spooler" || proto == "spooler" {
+		if physicalSpooler {
 			if hasCaps && capabilityListed("escpos") {
 				return true, ""
 			}
@@ -161,7 +164,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 			return false, "unsupported raw protocol " + pp
 		}
 		// Same spooler passthrough rule as ESC/POS above.
-		if conn == "spooler" || proto == "spooler" {
+		if physicalSpooler {
 			if (pp == "raw" || pp == "escpos") && hasCaps && capabilityListed(pp) {
 				return true, ""
 			}
@@ -215,6 +218,9 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	case "raw":
 		return []string{"raw"}
 	case "spooler":
+		if conn != "spooler" && conn != "usb" {
+			return []string{}
+		}
 		// Document transports by default. Raw byte passthrough (raw/escpos)
 		// requires an explicit operator-declared supported_protocols list;
 		// it is never inferred, so office printers are never sent raw bytes.

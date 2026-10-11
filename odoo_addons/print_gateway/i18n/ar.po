@@ -3123,8 +3123,8 @@ msgstr "صورة تفاصيل المبيعات المُنشأة مطلوبة."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
-msgid "The rendered report %s is not a valid PDF."
-msgstr "التقرير المُنشأ %s ليس PDF صالحًا."
+msgid "The rendered report %s is not a complete PDF."
+msgstr "التقرير المُنشأ %s ليس ملف PDF مكتملًا."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/binding.py:0
@@ -3813,3 +3813,38 @@ msgstr "الطباعة التجريبية معلقة أو غير مؤكدة"
 #: code:addons/print_gateway/models/binding.py:0
 msgid "The failover binding must use the same report action as the primary binding."
 msgstr "يجب أن يستخدم ربط الطابعة البديلة إجراء التقرير نفسه المستخدم في الربط الأساسي."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_job.py:0
+msgid "Stored PDF is incomplete (missing the %%EOF trailer)."
+msgstr "ملف PDF المخزّن غير مكتمل (علامة نهاية الملف %%EOF مفقودة)."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "The POS print image exceeds the 5 MiB safety limit."
+msgstr "صورة طباعة نقطة البيع تتجاوز حد الأمان البالغ 5 ميغابايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "The rendered report %s is invalid or exceeds the 5 MiB safety limit."
+msgstr "التقرير المُنشأ %s غير صالح أو يتجاوز حد الأمان البالغ 5 ميغابايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Raw printer command contains invalid Unicode."
+msgstr "يحتوي أمر الطابعة المباشر على أحرف يونيكود غير صالحة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Raw printer command exceeds the 5 MiB safety limit."
+msgstr "يتجاوز أمر الطابعة المباشر حد الأمان البالغ 5 ميبيبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Raw printer command is empty or exceeds the 5 MiB safety limit."
+msgstr "أمر الطابعة المباشر فارغ أو يتجاوز حد الأمان البالغ 5 ميبيبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Raw printer command must be text or bytes."
+msgstr "يجب أن يكون أمر الطابعة المباشر نصًا أو بيانات ثنائية."

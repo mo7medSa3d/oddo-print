@@ -479,15 +479,16 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 				bytesWritten = remaining
 			}
 			written += bytesWritten
-			totalWritten := written
-			if totalWritten > 0 {
-				return spoolerTaskResult{
-					written: totalWritten,
-					jobID:   jobID,
-					err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, totalWritten, len(data), writeErr),
-				}
+			// The Windows spooler can have accepted or forwarded bytes even when
+			// a failed call leaves pcWritten at zero. Zero CONFIRMED bytes is not
+			// evidence of zero physical delivery. Once WritePrinter was entered,
+			// any failure is ambiguous and must never trigger an automatic retry
+			// that could duplicate a receipt.
+			return spoolerTaskResult{
+				written: written,
+				jobID:   jobID,
+				err:     fmt.Errorf("UNKNOWN_PARTIAL_DELIVERY: WritePrinter(%q) failed after %d/%d confirmed bytes (printer may have received data): %w", spoolerName, written, len(data), writeErr),
 			}
-			return spoolerTaskResult{written: written, jobID: jobID, err: fmt.Errorf("WritePrinter(%q) failed after %d/%d bytes: %w", spoolerName, written, len(data), writeErr)}
 		}
 		if bytesWritten == 0 {
 			if written > 0 {

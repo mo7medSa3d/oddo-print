@@ -61,6 +61,14 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 		return err
 	}
 	if probeErr != nil {
+		// A failed TCP dial proves no capability probe reached this printer.
+		// A second dial carrying the entire PDF cannot fix an unreachable
+		// endpoint: it only adds another network timeout on the critical path.
+		// Preserve the safely pre-dispatch failure classification and give the
+		// operator the actionable IPP/port diagnosis from the first failure.
+		if preDispatchIRErr(probeErr) {
+			return fmt.Errorf("IPP printer %s unreachable (request not sent): capability probe could not connect; verify the IPP address, TCP port and protocol from the Windows Agent: %w", p.URL, probeErr)
+		}
 		// Legacy IPP servers can implement Print-Job but reject the probe.
 		// An unknown capability list is not proof that PDF is unsupported.
 		// Attempt native PDF, report any explicit 0x040A rejection clearly.

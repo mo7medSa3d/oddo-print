@@ -19,6 +19,31 @@ describe("cookie-authenticated mutation CSRF boundary", () => {
     }))).toBe(true);
   });
 
+  it("checks HTTPS scheme and the configured public host, including behind TLS termination", () => {
+    const savedBaseUrl = process.env.APP_BASE_URL;
+    const savedFile = process.env.APP_BASE_URL_FILE;
+    try {
+      delete process.env.APP_BASE_URL_FILE;
+      process.env.APP_BASE_URL = "https://app.example.com";
+      const req = (source: Record<string, string>) => request({
+        host: "app.example.com",
+        cookie: "mgr_session=token",
+        "sec-fetch-site": "same-site",
+        ...source,
+      });
+      expect(isCookieMutationSameOrigin(req({ origin: "https://app.example.com" }))).toBe(true);
+      expect(isCookieMutationSameOrigin(req({ origin: "http://app.example.com" }))).toBe(false);
+      expect(isCookieMutationSameOrigin(req({ referer: "http://app.example.com/settings" }))).toBe(false);
+      expect(isCookieMutationSameOrigin(req({ referer: "https://app.example.com/settings" }))).toBe(true);
+      expect(isCookieMutationSameOrigin(req({ host: "different.example.com", origin: "https://app.example.com" }))).toBe(false);
+    } finally {
+      if (savedBaseUrl === undefined) delete process.env.APP_BASE_URL;
+      else process.env.APP_BASE_URL = savedBaseUrl;
+      if (savedFile === undefined) delete process.env.APP_BASE_URL_FILE;
+      else process.env.APP_BASE_URL_FILE = savedFile;
+    }
+  });
+
   it("rejects cross-site browser mutations even when SameSite is relied upon by the browser", () => {
     expect(isCookieMutationSameOrigin(request({
       host: "app.example.com",

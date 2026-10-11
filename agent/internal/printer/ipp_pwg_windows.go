@@ -38,7 +38,10 @@ func renderIPPPDFToPWG(ctx context.Context, pdfData []byte, attrs map[string]str
 	if err != nil {
 		return nil, fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
-	defer func() { _ = instance.Close() }()
+	// pwgKilled records cancellation interrupts so the deferred Close does not
+	// report the expected "already closed" state as a worker-cleanup failure.
+	var pwgKilled pdfiumKillTracker
+	defer func() { _ = pwgKilled.close(instance) }()
 	pdf, err := instance.OpenDocument(&requests.OpenDocument{File: &pdfData})
 	if err != nil {
 		return nil, fmt.Errorf("open PDF for PWG Raster: %w", err)
@@ -78,7 +81,7 @@ func renderIPPPDFToPWG(ctx context.Context, pdfData []byte, attrs map[string]str
 			Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: pdf.Document, Index: page}},
 			Width:  int(w),
 			Height: int(h),
-		})
+		}, &pwgKilled)
 		if err != nil {
 			return nil, fmt.Errorf("render PDF page %d to PWG Raster: %w", page+1, err)
 		}

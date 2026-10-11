@@ -18,6 +18,7 @@ const drizzle=mk({sql:frag,eq:(...args)=>args,and:(...args)=>args,desc:x=>x});
 const schema=mk({agents:{id:'id',tenantId:'tenantId'},discoverySessions:{agentId:'agentId',tenantId:'tenantId',status:'status',createdAt:'createdAt'},tenantUsers:{userId:'userId',tenantId:'tenantId'}});
 const auth=new vm.SourceTextModule(js(R+'lib/authorization.ts'),{context:ctx});await auth.link(()=>{throw Error('unexpected auth import')});await auth.evaluate();
 const guard=new vm.SourceTextModule(js(R+'lib/manager-mutation-authorization.ts'),{context:ctx});await guard.link((id)=>id==='drizzle-orm'?drizzle:id.endsWith('db/schema')?schema:auth);await guard.evaluate();
+const expiry=new vm.SourceTextModule(js(R+'lib/discovery-session-expiry.ts'),{context:ctx});await expiry.link(()=>drizzle);await expiry.evaluate();
 const tx={
  execute:async(q)=>{
   const t=queryText(q);state.events.push(t);
@@ -28,6 +29,7 @@ const tx={
   if(/refresh_tokens/i.test(t))return {rows:state.familyActive?[{id:'active'}]:[]};
   if(/manager_sessions/i.test(t))return {rows:state.legacySessionActive?[{jti:'active'}]:[]};
   if(/pg_notify/i.test(t)){state.notifies++;return {rows:[]};}
+  if(/UPDATE discovery_sessions AS s/i.test(t)){state.expiries++;return {rows:[]};}
   throw Error('Unexpected tx query: '+t);
  },
  query:{ tenantUsers:{findFirst:async()=>state.memberRole?{role:state.memberRole}:null},discoverySessions:{findFirst:async()=>null}},
@@ -54,13 +56,13 @@ const supports={
  '/lib/tenant-guard':tenant,
 };
 const route=new vm.SourceTextModule(js(R+'app/api/agents/[id]/discovery/route.ts'),{context:ctx});
-await route.link((name)=>name.endsWith('/lib/authorization')?auth:name.endsWith('/lib/manager-mutation-authorization')?guard:name.endsWith('/db/schema')?schema:name.endsWith('/db')?supports['/db']:name.endsWith('/lib/manager-auth')?supports['/lib/manager-auth']:name.endsWith('/lib/nanoid')?supports['/lib/nanoid']:name.endsWith('/lib/discovery')?supports['/lib/discovery']:name.endsWith('/lib/log')?supports['/lib/log']:name.endsWith('/lib/tenant-guard')?tenant:supports[name]);
+await route.link((name)=>name.endsWith('/lib/authorization')?auth:name.endsWith('/lib/manager-mutation-authorization')?guard:name.endsWith('/db/schema')?schema:name.endsWith('/db')?supports['/db']:name.endsWith('/lib/manager-auth')?supports['/lib/manager-auth']:name.endsWith('/lib/nanoid')?supports['/lib/nanoid']:name.endsWith('/lib/discovery')?supports['/lib/discovery']:name.endsWith('/lib/log')?supports['/lib/log']:name.endsWith('/lib/tenant-guard')?tenant:name.endsWith('/lib/discovery-session-expiry')?expiry:supports[name]);
 await route.evaluate();
-function reset(patch={}) {state={events:[],inserted:[],notifies:0,role:'admin',memberRole:'admin',familyActive:true,legacySessionActive:true,activeTenant:true,userless:false,legacy:false,customer:false,...patch};}
+function reset(patch={}) {state={events:[],inserted:[],notifies:0,expiries:0,role:'admin',memberRole:'admin',familyActive:true,legacySessionActive:true,activeTenant:true,userless:false,legacy:false,customer:false,...patch};}
 const call=(body)=>route.namespace.POST(new Request('http://localhost/api/agents/agent/discovery',{method:'POST',body:JSON.stringify(body)}),{params:Promise.resolve({id:'agent'})});
 test('unchanged admin gets a running session and NOTIFY after tenant/session guard',async()=>{
  reset();const r=await call({cidr:'192.168.10.0/24'});assert.equal(r.status,201);
- assert.equal(state.inserted.length,1);assert.equal(state.notifies,1);
+ assert.equal(state.inserted.length,1);assert.equal(state.notifies,1);assert.equal(state.expiries,1);
  const steps=state.events;assert.ok(steps.findIndex(t=>/FROM agents/i.test(t))<steps.findIndex(t=>/FROM tenants/i.test(t)));
  assert.ok(steps.findIndex(t=>/FROM tenants/i.test(t))<steps.findIndex(t=>/refresh_tokens/i.test(t)));
 });

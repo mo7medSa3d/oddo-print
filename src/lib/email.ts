@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { runtimeSecret } from "./runtime-secret";
@@ -47,14 +48,33 @@ export async function sendTransactionalEmail(message: TransactionalEmail): Promi
     throw new Error("Transactional email provider is not configured");
   }
   const maxAttempts = 3;
+  // The provider supports idempotent POST /emails for 24 hours. Retry the
+  // *same* logical operation with one key; generating a new key per attempt
+  // risks duplicate invitations if an earlier 5xx was actually accepted.
+  // Independent sends deliberately receive independent keys.
+  const idempotencyKey = randomUUID();
+  const body = JSON.stringify({ from, to: [message.to], subject: message.subject, html: message.html, text: message.text });
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
-      signal: AbortSignal.timeout(10_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body,
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // A transport timeout is NOT proof the provider did not accept the
+      // email. Reuse the exact payload and idempotency key for every retry;
+      // do not echo possibly sensitive transport details into UI errors.
+      lastError = new Error("Transactional email provider did not respond");
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 8000)));
+        continue;
+      }
+      throw lastError;
+    }
     if (res.ok) return;
     const text = await res.text().catch(() => "");
     lastError = new Error(`Transactional email provider rejected the request (${res.status})${text ? `: ${text.slice(0, 200)}` : ""}`);

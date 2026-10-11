@@ -194,7 +194,17 @@ class PrintGatewayIntent(models.Model):
                 record = record.with_env(new_env)
             router = new_env["print_gateway.print_router"]
             try:
-                route_res = router.route_intent(intent, record)
+                # A failed ORM/SQL statement must not poison the transaction
+                # used to calculate retry timing or inspect the claimed intent.
+                with cr.savepoint():
+                    route_res = router.route_intent(intent, record)
+                    # A transport admission response is not a completed durable
+                    # route. Only an actual committed outbox ID can terminalize
+                    # this intent as dispatched; otherwise keep it retryable.
+                    if not (route_res and route_res.get("job_id")) and not (
+                        route_res and route_res.get("status") in ("skipped", "no_action")
+                    ):
+                        raise ValueError("Policy routing returned no durable outbox job or explicit skip")
                 if route_res and route_res.get("job_id"):
                     cls._finalize_intent_state(
                         env, intent_id, claim_token,
@@ -206,12 +216,6 @@ class PrintGatewayIntent(models.Model):
                     cls._finalize_intent_state(
                         env, intent_id, claim_token,
                         status="skipped",
-                    )
-                else:
-                    cls._finalize_intent_state(
-                        env, intent_id, claim_token,
-                        status="dispatched",
-                        last_error=False,
                     )
             except Exception as exc:
                 _logger.warning("Failed to route print intent %s for %s(%s): %s", intent.intent_key[:12], res_model, res_id, exc)

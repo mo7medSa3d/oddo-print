@@ -19,8 +19,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id: agentId, discoveryId } = await params;
   let result;
   try { result = await db.transaction(async (tx) => {
-    // Serialize cancellation with the Agent's discovery report. The row lock
-    // makes the running-state check and terminal transition one atomic decision.
+    // Follow Agent -> Tenant -> Actor -> Session consistently with discovery
+    // start. Reports also take the Agent and Tenant locks before Session;
+    // reversing this order can deadlock with a manager starting a new scan.
+    const agentLock = await tx.execute(sql`
+      SELECT id FROM agents
+      WHERE id = ${agentId} AND tenant_id = ${claims.tenantId}
+      FOR SHARE
+    `);
+    if (!agentLock.rows[0]) return { kind: "not_found" as const };
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+    await requireManagerActorInTransaction(tx, claims, "agents.pair");
+    // The session lock arbitrates between an accepted report and cancellation.
     const locked = await tx.execute(sql`
       SELECT id, status
       FROM discovery_sessions
@@ -32,8 +42,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const session = locked.rows[0] as { id?: string; status?: string } | undefined;
     if (!session?.id) return { kind: "not_found" as const };
     if (session.status !== "running") return { kind: "already" as const, status: session.status ?? "unknown" };
-    await requireActiveTenantInTransaction(tx, claims.tenantId);
-    await requireManagerActorInTransaction(tx, claims, "agents.pair");
     await tx.update(discoverySessions)
       .set({ status: "cancelled", completedAt: sql`now()`, updatedAt: sql`now()` })
       .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, claims.tenantId)));

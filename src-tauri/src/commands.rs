@@ -161,6 +161,35 @@ pub fn is_running_as_admin() -> bool {
     }
 }
 
+// This is the build marker of the bundled Agent executable on disk, NOT a
+// version attestation from the running Windows Service process. The Manager's
+// Cargo version is intentionally never substituted for the Agent's version.
+// Service/process ownership and running-state are separately evaluated by
+// agent::status; a service still needs a restart after an Agent upgrade.
+fn bundled_agent_build_marker(app: &tauri::AppHandle) -> String {
+    static BUNDLED_AGENT_BUILD: OnceLock<String> = OnceLock::new();
+    BUNDLED_AGENT_BUILD.get_or_init(|| {
+        let Ok(path) = agent::agent_path(app) else { return "unavailable".into(); };
+        let mut cmd = Command::new(path);
+        cmd.arg("-version");
+        let Ok(output) = agent::run_bounded_command(
+            cmd,
+            std::time::Duration::from_secs(3),
+            256,
+            256,
+        ) else { return "unavailable".into(); };
+        if !output.status.success() { return "unavailable".into(); }
+        let Ok(marker) = std::str::from_utf8(&output.stdout) else { return "unavailable".into(); };
+        let marker = marker.trim();
+        if marker.len() <= 128 && marker.starts_with("YaseirAgent go=")
+            && !marker.chars().any(char::is_control) {
+            marker.to_string()
+        } else {
+            "legacy / unverified".into()
+        }
+    }).clone()
+}
+
 #[tauri::command]
 pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
     let hostname = std::env::var("COMPUTERNAME")
@@ -169,7 +198,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
     let base = AgentStatus {
         running: false,
         service: "YaseirAgent".into(),
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: "unavailable".into(),
         hostname,
         note: String::new(),
         note_code: "not_running".into(),
@@ -182,8 +211,11 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
     // WS-connection state and last heartbeat live on the Gateway (the desktop
     // has no manager credential to query them), so they are deliberately NOT
     // included — no invented values.
-    match tauri::async_runtime::spawn_blocking(move || agent::status(&app)).await {
-        Ok((running, service_running, note)) => {
+    match tauri::async_runtime::spawn_blocking(move || {
+        let status = agent::status(&app);
+        (status.0, status.1, status.2, bundled_agent_build_marker(&app))
+    }).await {
+        Ok((running, service_running, note, version)) => {
             let note_code = if note.starts_with("service state unavailable:") {
                 "service_status_unavailable"
             } else if service_running {
@@ -203,6 +235,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
             };
             AgentStatus {
                 running,
+                version,
                 note,
                 note_code: note_code.into(),
                 ..base

@@ -35,8 +35,9 @@ describe("payload", () => {
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: huge })).toThrow();
   });
   it("validates pdf payload type only when bytes carry a PDF signature", () => {
-    const pdf = { type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4").toString("base64") };
+    const pdf = { type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4\n%%EOF\n").toString("base64") };
     expect(validatePrintJobPayload(pdf).type).toBe("pdf");
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4").toString("base64") })).toThrow(/%%EOF/);
     expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("hello").toString("base64") })).toThrow(/PDF payload/);
     expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
     expect(() => validatePrintJobPayload({ type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
@@ -143,16 +144,25 @@ describe("payload", () => {
     })).toThrow(/no supported test ticket format/i);
   });
 
-  it("normalizes legacy Windows spooler aliases when building a test page", async () => {
+  it("never fabricates a Windows driver queue from a network spooler label", async () => {
     const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
-    const payload = buildTestPrintPayloadForPrinter("Office Queue", "Agent", {
+    expect(() => buildTestPrintPayloadForPrinter("Untrusted TCP Label", "Agent", {
       connectionType: "network",
       protocol: "windows_spooler",
       capabilities: null,
-    });
-    expect(payload.type).toBe("pdf");
-    expect(payload.protocol).toBeUndefined();
-    expect(validatePrintJobPayload(payload).type).toBe("pdf");
+    })).toThrow(/no supported test ticket format/i);
+    // A real installed Windows spooler queue and legacy USB-backed queue
+    // remain valid document transports.
+    for (const connectionType of ["spooler", "usb"] as const) {
+      const payload = buildTestPrintPayloadForPrinter("Office Queue", "Agent", {
+        connectionType,
+        protocol: "windows_spooler",
+        capabilities: null,
+      });
+      expect(payload.type).toBe("pdf");
+      expect(payload.protocol).toBeUndefined();
+      expect(validatePrintJobPayload(payload).type).toBe("pdf");
+    }
   });
 
   it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {

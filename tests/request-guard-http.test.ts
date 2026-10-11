@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { connect, type AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { guardApiRequest, getReservedRequestBytes, isLikelyAuthenticated, isCookieAuthenticatedMutation, MAX_API_BODY_BYTES } from "../src/server/request-guard";
+import { guardApiRequest, getReservedRequestBytes, isLikelyAuthenticated, isCookieAuthenticatedMutation, MAX_API_BODY_BYTES, maxApiBodyBytesForRequest } from "../src/server/request-guard";
 import { parseStrictContentLength } from "../src/lib/request-limits";
 
 /**
@@ -271,5 +271,20 @@ describe("request guard (real HTTP)", () => {
 
   it("exposes the 8MB production ceiling", () => {
     expect(MAX_API_BODY_BYTES).toBe(8 * 1024 * 1024);
+  });
+});
+
+
+describe("Agent route admission budgets", () => {
+  it("enforces each published Agent write ceiling before parsing a JSON body", () => {
+    expect(maxApiBodyBytesForRequest("/api/agent/register", "POST")).toBe(64 * 1024);
+    expect(maxApiBodyBytesForRequest("/api/agent/heartbeat", "POST")).toBe(512 * 1024);
+    expect(maxApiBodyBytesForRequest("/api/agent/discovery?retry=1", "POST")).toBe(2 * 1024 * 1024);
+    expect(maxApiBodyBytesForRequest("/api/agent/jobs", "PATCH")).toBe(64 * 1024);
+  });
+  it("does not limit non-write operations, unrelated endpoints, or loosen a tighter test/global budget", () => {
+    expect(maxApiBodyBytesForRequest("/api/agent/discovery", "GET")).toBe(MAX_API_BODY_BYTES);
+    expect(maxApiBodyBytesForRequest("/api/print/jobs", "POST")).toBe(MAX_API_BODY_BYTES);
+    expect(maxApiBodyBytesForRequest("/api/agent/discovery", "POST", 1024)).toBe(1024);
   });
 });

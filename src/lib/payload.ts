@@ -16,7 +16,10 @@ export const printJobPayloadSchema = z.object({
     drawer: z.enum(DRAWER_MODES).optional(),
     cutter: z.enum(CUTTER_MODES).optional(),
     buzzer: z.enum(BUZZER_MODES).optional(),
-  }).optional(),
+    // Strict: an unknown peripheral key (e.g. a "cuttter" typo) must fail
+    // admission loudly instead of printing without the requested device
+    // action. The wire contract lists exactly these three keys.
+  }).strict().optional(),
   data: z.string().min(1).refine((value) => {
     if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
     try {
@@ -35,6 +38,12 @@ export const printJobPayloadSchema = z.object({
 
   if (payload.type === "pdf" && !looksLikePdf) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "PDF payload must start with the %PDF- signature" });
+  }
+  // The Windows Agent's ValidatePDF refuses documents without a %%EOF marker
+  // in the final 4 KiB. Reject those at Gateway admission, before creating a
+  // durable job that is guaranteed to fail after Agent delivery.
+  if (payload.type === "pdf" && looksLikePdf && !decoded.subarray(Math.max(0, decoded.length - 4096)).includes(Buffer.from("%%EOF"))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "PDF payload is incomplete (missing %%EOF trailer)" });
   }
   if (payload.type === "image" && !jpegSignature) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: "Image payload must be a JPEG" });
@@ -253,8 +262,12 @@ export function buildTestPrintPayloadForPrinter(
     return { type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from(raw, "utf-8").toString("base64") };
   }
 
-  const physicalDocumentTransport =
-    conn === "spooler" || declared === "spooler" ||
+  // Same physical transport predicate as validatePayloadForPrinter(): a
+  // network/TCP printer merely labelled "spooler" is not a Windows print
+  // queue, so it must not receive a driver-rendered PDF test ticket.
+  // Existing USB-backed Windows queues retain their documented compatibility.
+  const physicalSpooler = conn === "spooler" || (conn === "usb" && declared === "spooler");
+  const physicalDocumentTransport = physicalSpooler ||
     conn === "ipp" || conn === "ipps" ||
     (conn === "network" && (declared === "ipp" || declared === "ipps"));
   // Document transports keep their intrinsic document-rendering baseline.

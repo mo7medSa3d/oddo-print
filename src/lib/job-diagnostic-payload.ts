@@ -17,6 +17,11 @@ function safeEnum(value: unknown, allowed: readonly string[]): string | null {
   return typeof value === "string" && allowed.includes(value) ? value : null;
 }
 
+// Keep the diagnostic path bounded even for legacy/corrupt DB rows that
+// bypassed admission validation. Aligned with contracts/print-payload-contract.json
+// maxPayloadBytes = 5 MiB; a canonical base64 document needs at most this
+// many characters. Do not decode or hash arbitrarily large stored strings.
+const MAX_DIAGNOSTIC_BASE64_CHARS = 4 * Math.ceil((5 * 1024 * 1024) / 3);
 const PAYLOAD_TYPES = ["raw", "escpos", "pdf", "image"] as const;
 const PAYLOAD_ENCODINGS = ["base64"] as const;
 const RAW_PROTOCOLS = ["raw", "escpos", "zpl", "tspl"] as const;
@@ -54,6 +59,9 @@ export function buildJobDiagnosticPayload(payload: unknown): JobDiagnosticPayloa
     let decodedBytes: number | null = null;
     let sha256: string | null = null;
     try {
+      if (rawData.length > MAX_DIAGNOSTIC_BASE64_CHARS) {
+        throw new Error("diagnostic document exceeds the 5 MiB admission limit");
+      }
       const decoded = Buffer.from(rawData, "base64");
       // Stored payloads are validated on admission. Re-check canonical base64
       // here so a legacy/corrupt row cannot produce a misleading byte digest.

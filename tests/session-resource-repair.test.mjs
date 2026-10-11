@@ -7,7 +7,10 @@ import vm from 'node:vm';
 
 async function actual(file, globals={}, select=s=>s) {
   const source=select(await readFile(file,'utf8'));
-  const context=vm.createContext({ console, Date, Set, Map, WeakMap, Promise, Response, Request, URL, AbortController, setTimeout, clearTimeout, ...globals });
+  // AbortSignal is a standard global in every production runtime (Node 18+,
+  // browsers, Next.js edge/node). The sandbox must provide it too, or modules
+  // using AbortSignal.timeout() fail here for harness reasons, not source reasons.
+  const context=vm.createContext({ console, Date, Set, Map, WeakMap, Promise, Response, Request, URL, AbortController, AbortSignal, setTimeout, clearTimeout, ...globals });
   const loadedModule=new vm.SourceTextModule(stripTypeScriptTypes(source,{mode:'transform'}),{context});
   await loadedModule.link(()=>{throw new Error('Unexpected external dependency');});
   await loadedModule.evaluate();

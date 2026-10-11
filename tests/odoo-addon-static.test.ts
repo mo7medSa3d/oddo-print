@@ -322,7 +322,11 @@ describe("Odoo addon static contracts", () => {
     const physicalImageIdx = routing.indexOf("const physicalImage");
     expect(physicalImageIdx).toBeGreaterThan(-1);
     const physicalImage = routing.slice(physicalImageIdx, physicalImageIdx + 300);
-    expect(physicalImage).toContain("spooler");
+    // The image predicate is `physicalSpooler || (network && escpos)`: it must
+    // keep the driver-backed spooler transport and the ESC/POS raster path,
+    // and must never widen to the IPP document transports (document-only for
+    // images, so routing one would be a guaranteed CAPABILITY_MISMATCH).
+    expect(physicalImage).toMatch(/spooler/i);
     expect(physicalImage).toContain("escpos");
     expect(physicalImage).not.toContain("ipp");
   });

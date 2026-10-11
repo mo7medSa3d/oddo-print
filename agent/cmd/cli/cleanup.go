@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yaseir-agent/agent/internal/config"
 	"github.com/yaseir-agent/agent/internal/queue"
@@ -39,7 +40,7 @@ func init() {
 		}
 		fmt.Println(string(payload))
 	} else if includeUnknown {
-		fmt.Printf("Removed %d provably terminal and %d reconciled unknown-outcome local print jobs.\n", deleted, purged)
+		fmt.Printf("Removed %d provably terminal and %d reconciled unknown-outcome local print jobs. %d unacknowledged unknown-outcome record(s) were KEPT pending Gateway reconciliation.\n", deleted, purged, remainingUnknown)
 	} else {
 		fmt.Printf("Removed %d provably terminal local print jobs. %d unknown-outcome record(s) were KEPT: verify the printer, then re-run with --include-unknown once reconciled.\n", deleted, remainingUnknown)
 	}
@@ -52,30 +53,14 @@ func init() {
 //	--config <path> jobs cleanup
 //
 // Global flags may therefore appear before or after the maintenance command,
-// while unrelated arguments make the command not match and are left to the
-// normal CLI parser. This keeps cleanup deterministic without depending on the
-// standard flag package's "flags before first positional" rule.
+// while unrelated commands are left to the normal CLI parser. Once an exact
+// `jobs cleanup` command is recognized, unsupported arguments are rejected:
+// this operation deletes data and cannot silently ignore a `--dry-run` typo.
+// This remains independent of flag package positional-argument behavior.
 func parseCleanupArgs(args []string) (configPath string, jsonOutput, includeUnknown, matched bool, err error) {
 	configPath = config.DefaultConfigPath()
-	jobsIndex, cleanupIndex := -1, -1
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "jobs":
-			if jobsIndex != -1 {
-				return "", false, false, true, fmt.Errorf("jobs cleanup command may appear only once")
-			}
-			jobsIndex = i
-		case "cleanup":
-			if cleanupIndex != -1 {
-				return "", false, false, true, fmt.Errorf("jobs cleanup command may appear only once")
-			}
-			cleanupIndex = i
-		}
-	}
-	if jobsIndex == -1 || cleanupIndex != jobsIndex+1 {
-		return "", false, false, false, nil
-	}
-
+	positionals := make([]string, 0, 2)
+	configSeen := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--json", "-json":
@@ -83,14 +68,25 @@ func parseCleanupArgs(args []string) (configPath string, jsonOutput, includeUnkn
 		case "--include-unknown":
 			includeUnknown = true
 		case "--config", "-config":
-			if i+1 >= len(args) || args[i+1] == "" {
-				return "", false, false, true, fmt.Errorf("--config requires a path")
+			if configSeen || i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				// A malformed config flag must not turn an accidental
+				// destructive invocation into an operation on the default DB.
+				return "", false, false, true, fmt.Errorf("--config requires one non-empty path")
 			}
+			configSeen = true
 			configPath = args[i+1]
 			i++
+		default:
+			positionals = append(positionals, args[i])
 		}
 	}
-	return configPath, jsonOutput, includeUnknown, true, nil
+	if len(positionals) >= 2 && positionals[0] == "jobs" && positionals[1] == "cleanup" {
+		if len(positionals) != 2 {
+			return "", false, false, true, fmt.Errorf("jobs cleanup received unsupported arguments: %v", positionals[2:])
+		}
+		return configPath, jsonOutput, includeUnknown, true, nil
+	}
+	return "", false, false, false, nil
 }
 
 // cleanupJobs removes provably terminal rows, and only when explicitly
@@ -121,9 +117,16 @@ func cleanupJobs(dbPath string, includeUnknown bool) (int, int, int, error) {
 	if includeUnknown && kept > 0 {
 		purged, err := q.PurgeOutcomeUnknown()
 		if err != nil {
-			return deleted, 0, 0, err
+			return deleted, 0, kept, err
 		}
-		return deleted, purged, 0, nil
+		// The operator flag may only delete ACKNOWLEDGED records. Pending
+		// unknown-outcome reports remain in the durable outbox and must be
+		// counted accurately, not reported as zero after a partial purge.
+		remaining, err := q.CountOutcomeUnknown()
+		if err != nil {
+			return deleted, purged, kept, err
+		}
+		return deleted, purged, remaining, nil
 	}
 	return deleted, 0, kept, nil
 }

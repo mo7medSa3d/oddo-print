@@ -77,18 +77,24 @@ class PrintGatewayBinding(models.Model):
     destination_type = fields.Selection(
         DESTINATION_MODELS, string="Destination Type", required=True, default="pos",
     )
+    # NOTE: no check_company=True here by design. The binding's company_id is
+    # always the ROOT company, but a branch-scoped binding must accept a
+    # branch-owned destination (effective_company_id). Odoo's automatic
+    # check_company would compare against the root company_id and make branch
+    # bindings unsatisfiable. _check_binding() enforces the effective-company
+    # rule instead (and still admits company-less global destinations).
     destination_pos_config_id = fields.Many2one(
-        "pos.config", string="POS Shop", ondelete="restrict", check_company=True,
+        "pos.config", string="POS Shop", ondelete="restrict",
         domain="['&', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]",
         help="Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below.",
     )
     destination_pos_printer_id = fields.Many2one(
-        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict", check_company=True,
+        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict",
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
         help="Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives.",
     )
     destination_picking_type_id = fields.Many2one(
-        "stock.picking.type", string="Operation Type", ondelete="restrict", check_company=True,
+        "stock.picking.type", string="Operation Type", ondelete="restrict",
         domain="['&', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]",
     )
     destination_report_id = fields.Many2one(
@@ -242,8 +248,10 @@ class PrintGatewayBinding(models.Model):
             elif record.report_id or record.destination_report_id:
                 # Legacy rows may still carry only destination_report_id until
                 # the 2.10 migration completes. New rows use report_id.
+                # Coerce the id fallback to str: an empty report_name would
+                # otherwise call .strip() on an int and crash this compute.
                 report = record.report_id or record.destination_report_id
-                record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % (report.report_name or report.id).strip().lower())
+                record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % ((report.report_name or str(report.id)) or "").strip().lower())
             elif record.destination_type == "picking_type":
                 # Direct inventory/warehouse operations address label
                 # hardware with byte-stream protocols (route_raw_command
@@ -329,37 +337,58 @@ class PrintGatewayBinding(models.Model):
 
     @api.model
     def _canonical_runtime_printer_protocol(self, printer):
-        """Return the executable protocol represented by a Gateway printer row.
+        """Resolve a protocol only when its physical backend can execute it.
 
-        A spooler/IPP connection type is itself an explicit document transport,
-        so it remains safe to use when the legacy/optional protocol field is
-        unknown. For direct byte transports we never guess a printer language.
+        A network/9100 byte stream mislabelled as ``spooler`` is not a
+        Windows driver and must not pass Odoo binding validation. A legacy
+        USB-backed Windows queue is explicitly supported for compatibility.
         """
         if not isinstance(printer, dict):
             return "unknown"
         connection_type = str(printer.get("connectionType") or "").strip().lower()
+        protocol = str(printer.get("protocol") or "").strip().lower()
+        # Normalize legacy Windows aliases ONLY for a real installed spooler
+        # transport. A TCP byte stream claiming this protocol never becomes a
+        # Windows document renderer as a side effect.
         if connection_type == "windows_spooler":
             connection_type = "spooler"
-        protocol = str(printer.get("protocol") or "").strip().lower()
         if protocol == "windows_spooler" and connection_type == "spooler":
             protocol = "spooler"
-        supported = {"spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"}
-        if protocol in supported:
-            return protocol
-        if connection_type in {"spooler", "ipp", "ipps"}:
+        if connection_type == "spooler":
+            return "spooler"
+        if connection_type in ("ipp", "ipps"):
             return connection_type
+        if connection_type not in ("network", "usb"):
+            return "unknown"
+        if protocol in ("escpos", "zpl", "tspl", "raw"):
+            return protocol
+        if connection_type == "network" and protocol in ("ipp", "ipps"):
+            return protocol
+        if connection_type == "usb" and protocol in ("spooler", "windows_spooler"):
+            return "spooler"
         return "unknown"
 
     @api.model
     def _runtime_printer_accepts_image(self, printer):
         if not isinstance(printer, dict):
             return False
-        connection_type = str(printer.get("connectionType") or "").strip().lower()
-        protocol = self._canonical_runtime_printer_protocol(printer)
-        # Mirror Gateway validatePayloadForPrinter( type=image ): Windows
-        # spooler queues render JPEG through the installed driver; ESC/POS
-        # image conversion is supported for the explicit network backend.
-        return connection_type == "spooler" or protocol == "spooler" or (connection_type == "network" and protocol == "escpos")
+        conn = str(printer.get("connectionType") or "").strip().lower()
+        proto = self._canonical_runtime_printer_protocol(printer)
+        if proto == "spooler":
+            return conn in ("spooler", "windows_spooler", "usb")
+        if conn != "network" or proto != "escpos":
+            return False
+        caps = printer.get("capabilities")
+        raw = caps.get("supported_protocols") if isinstance(caps, dict) else None
+        # Matches Gateway validatePayloadForPrinter: missing metadata allows
+        # the declared ESC/POS raster converter, but an explicit list limits it.
+        if raw is None and (not isinstance(caps, dict) or "supported_protocols" not in caps):
+            return True
+        if not isinstance(raw, list):
+            return False
+        return bool({"image", "jpeg", "escpos"} & {
+            value.strip().lower() for value in raw if isinstance(value, str)
+        })
 
     @api.model
     def _runtime_supported_protocols(self, printer):
@@ -383,7 +412,6 @@ class PrintGatewayBinding(models.Model):
         self.ensure_one()
         selected = str(self.printer_protocol or "").strip().lower()
         runtime_protocol = self._canonical_runtime_printer_protocol(printer)
-        connection_type = str((printer or {}).get("connectionType") or "").strip().lower()
         supported = self._runtime_supported_protocols(printer)
 
         if not selected:
@@ -394,7 +422,7 @@ class PrintGatewayBinding(models.Model):
             ))
         if selected == runtime_protocol:
             return True
-        if (runtime_protocol == "spooler" or connection_type == "spooler") and selected in ("raw", "escpos"):
+        if runtime_protocol == "spooler" and selected in ("raw", "escpos"):
             if selected in supported:
                 return True
             if selected == "escpos":

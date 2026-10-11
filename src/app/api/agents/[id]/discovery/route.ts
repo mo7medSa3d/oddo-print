@@ -9,6 +9,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
 import { logError } from "../../../../../lib/log";
+import { expireStaleAgentDiscovery } from "../../../../../lib/discovery-session-expiry";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await requireActiveTenantInTransaction(tx, claims.tenantId);
       await requireManagerActorInTransaction(tx, claims, "agents.pair");
 
+      // Reclaim an abandoned scan before enforcing the one-active-session
+      // invariant. The update is conditional and serializes with Agent report
+      // commits, so an actively uploading Agent cannot lose its claim.
+      await expireStaleAgentDiscovery((query) => tx.execute(query), claims.tenantId, agentId);
       const active = await tx.query.discoverySessions.findFirst({
         where: and(
           eq(discoverySessions.agentId, agentId),
@@ -103,6 +108,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id: agentId } = await params;
   const agent = await db.query.agents.findFirst({ where: and(eq(agents.id, agentId), eq(agents.tenantId, claims.tenantId)) });
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+  await expireStaleAgentDiscovery((query) => db.execute(query), claims.tenantId, agentId);
   const rows = await db.query.discoverySessions.findMany({ where: and(eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, claims.tenantId)), orderBy: [desc(discoverySessions.createdAt)], limit: 20 });
   return NextResponse.json(rows);
 }

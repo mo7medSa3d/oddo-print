@@ -38,13 +38,10 @@ func discoverNetworkPrinters(ctx context.Context) ([]DeviceInfo, error) {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		ifNameLower := strings.ToLower(iface.Name)
-		if strings.HasPrefix(ifNameLower, "veth") ||
-			strings.HasPrefix(ifNameLower, "docker") ||
-			strings.HasPrefix(ifNameLower, "br-") ||
-			strings.HasPrefix(ifNameLower, "tailscale") ||
-			strings.HasPrefix(ifNameLower, "tap") ||
-			strings.HasPrefix(ifNameLower, "tun") {
+		// Shared exclusion list (see isDiscoveryInterfaceExcluded): virtual
+		// bridges, VPN tunnels and tailscale/tap devices never consume scan
+		// budget on any discovery source.
+		if isDiscoveryInterfaceExcluded(iface.Name) {
 			continue
 		}
 		addrs, err := iface.Addrs()

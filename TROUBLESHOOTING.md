@@ -25,6 +25,32 @@
 3. Verify the agent is online on the Gateway dashboard
 4. Run discovery from the Desktop Manager to force a fresh scan
 
+### Discovery is stuck in running / only some printers appear
+
+**Cause**: A discovery scan may complete locally but fail to upload its observations
+if the Agent disconnects, the Gateway rejects a report, or a scan produces a
+large inventory. This is distinct from a printer being offline.
+
+**Resolution**:
+1. Check the Agent log for `[discovery]` page numbers, HTTP status, and the
+   `report incomplete` warning. Candidate reports are uploaded in sequential,
+   bounded chunks; the Gateway acknowledges each committed chunk, including
+   a replay of an already-committed final chunk after a lost HTTP response.
+2. If a report stops partway through, do **not** infer that a device disappeared.
+   Previously observed devices remain in the inventory, with individual
+   approval/verification rules unchanged.
+3. A scan with no committed progress for **10 minutes** is marked failed, or
+   partial when it has preserved observations. Expiration is performed when
+   the Agent polls or a manager starts/views discovery; it is not a continuous
+   background timer. This reclaims the one-active-scan slot without deleting
+   earlier observations.
+4. Investigate Agent/Gateway connectivity, authentication, source timeouts and
+   payload rejection before triggering a new scan. A restarted scan may report
+   a different set of devices; it does not silently resume an unfinished
+   snapshot from the previous scan.
+5. These controls are independently testable at the API and Agent boundaries;
+   end-to-end Windows discovery still requires staging hardware acceptance.
+
 ### Print job stuck in "claimed" status
 
 **Cause**: The agent received the claim but did not report a terminal status.
@@ -146,3 +172,65 @@ reverse proxy. The error alone does not prove either cause.
 ### IPP endpoint configuration or capability probe errors
 
 An invalid IPP URI produces a sanitized error; the Agent does not echo a malformed URI that may contain credentials. IPP addresses configured through the Agent must use an allowed private/link-local IP, an approved port and **no embedded user credentials**. Confirm the printer URI through the authorized console rather than pasting credentials into logs. Large or malformed IPP capability responses fail explicitly instead of being interpreted as a valid truncated response. These checks validate configuration/protocol evidence, **not** physical paper output.
+
+## Windows deployment: IPP timeout and headless PDFium failures
+
+These two errors refer to different transports. Do **not** retry an ambiguous
+post-submission error just because a printer status screen later says `unknown`.
+
+### `IPP printer ...:631/ipp/print unreachable (request not sent)`
+
+This is a TCP **dial** failure, before document submission, so it proves only
+that this attempt did not send a Print-Job request. On the **Agent Windows PC**
+(not the Gateway server), run:
+
+```powershell
+Test-NetConnection 192.168.8.34 -Port 631  # substitute the configured printer address
+Test-NetConnection 192.168.8.34 -Port 9100 # diagnostic only, not permission to switch protocols
+```
+
+If 631 is closed or times out, verify the current printer IP, network/VLAN,
+firewall, IPP/IPP Everywhere support and **actual** advertised queue resource
+path. An open 631 port still needs a successful `Get-Printer-Attributes`
+response and a `document-format-supported` match. If this is an ESC/POS thermal
+printer that uses RAW TCP/9100 rather than IPP, configure the documented RAW or
+ESC/POS **byte** path and send compatible commands; do not send PDF to it. If
+Windows has an installed driver and the queue works for that service identity,
+select its Windows **spooler** transport instead. Do not silently change an
+existing printer or infer support from an open port.
+
+Agent IPP traffic uses direct TCP without inheriting HTTP proxy environment
+settings. Connection setup is bounded to five seconds; print submission still
+obeys its own document deadline. A timeout **after** submission might have
+reached the printer and therefore carries an unknown physical-outcome marker.
+
+### `PDFium ... GetFileType /dev/stdout: The handle is invalid`
+
+Windows services may have no valid standard output/error handles. The repaired
+PDFium WebAssembly pool explicitly sends WASM stdout/stderr to `io.Discard`; a
+subprocess regression exercises closed standard handles on every supported
+platform (on Windows it drives the production pool, elsewhere the identical
+shared configuration). This exact
+error strongly suggests an **older installed/running Agent executable** or an
+unverified runtime variant, not proof that the PDF or printer hardware is bad.
+
+From an elevated PowerShell, inspect the **service's actual executable path**
+(rather than an installer download or desktop shortcut):
+
+```powershell
+Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" |
+  Select-Object Name, State, ProcessId, PathName
+```
+
+The newly built executable supports `YaseirAgent.exe -version`; its output
+includes `feature=pdfium-headless-stdio-v1`. Run it using the **exact path** from
+`PathName`, respecting its command-line arguments and quoting. If the flag is
+absent, install the corrected build through the supported installer/upgrade
+flow and restart the owned `YaseirAgent` service. Verify the new process ID and
+`-version` output, then submit **one** controlled PDF test. A service restart
+without installing the corrected executable cannot apply a source-only fix.
+
+The Gateway timeline's `printing` stage is **admission pending**, not a
+successful spooler call or verified paper output. Preserve the original job
+error and evidence, and avoid automatically repeating attempts with an
+unknown physical outcome.

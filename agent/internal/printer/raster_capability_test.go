@@ -63,6 +63,28 @@ func TestRasterMaxWidthFromCapabilities(t *testing.T) {
 	}
 }
 
+func TestRasterMaxWidthClampedToHardware(t *testing.T) {
+	// An absurd capability (unit typo, hostile value) must never become an
+	// execution raster width the 576-dot thermal path cannot take.
+	cases := []struct {
+		name string
+		caps map[string]interface{}
+	}{
+		{"huge dot width", map[string]interface{}{"max_paper_width": 5000}},
+		{"huge paper widths", map[string]interface{}{"paper_widths": []int{500}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RasterMaxWidthFromCapabilities(tc.caps); got > maxRasterWidth {
+				t.Fatalf("got %d dots, exceeds hardware ceiling %d", got, maxRasterWidth)
+			}
+		})
+	}
+	if got := RasterMaxWidthFromPaperWidthMM(200); got > maxRasterWidth {
+		t.Fatalf("200mm paper: got %d dots, exceeds hardware ceiling %d", got, maxRasterWidth)
+	}
+}
+
 func TestJPEGToESCPOSWithMaxWidthHonors58mmCapability(t *testing.T) {
 	jpegData := createTestJPEG(576, 1)
 	out, err := JPEGToESCPOSWithMaxWidth(jpegData, 256, 384)

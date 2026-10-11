@@ -173,3 +173,11 @@ describe("printer-capability-matrix", () => {
     expect(getSupportedDocumentTypes("raw", "network", { supported_protocols: ["pdf"] })).toEqual([]);
     expect(getSupportedDocumentTypes("ipp", "ipp", { supported_protocols: ["image"] })).toEqual(["pdf"]);
   });
+
+describe("physical IPP transport must not be inferred from a bare protocol label", () => {
+  it("rejects USB or unknown IPP labels while keeping network IPP", () => {
+    expect(isIppTransport("usb", "ipp")).toBe(false);
+    expect(isIppTransport("network", "ipps")).toBe(true);
+    expect(isSpoolerTransport("usb", "spooler")).toBe(true);
+  });
+});

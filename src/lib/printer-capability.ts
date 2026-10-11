@@ -137,13 +137,17 @@ export function validatePayloadForPrinter(
   // Explicit capabilities can add byte passthrough to a document transport,
   // but they cannot remove the baseline renderer provided by that transport
   // or add a renderer/language the concrete backend does not implement.
-  const physicalPdf = conn === "spooler" || proto === "spooler"
+  // A spooler protocol label must not magically turn a TCP/9100 byte pipe
+  // into a Windows driver. Preserve legacy USB-backed queues, whose spooler
+  // configuration is normalized at registration, but reject network+spooler.
+  const physicalSpooler = conn === "spooler" || (conn === "usb" && proto === "spooler");
+  const physicalPdf = physicalSpooler
     || conn === "ipp" || conn === "ipps"
     || (conn === "network" && (proto === "ipp" || proto === "ipps"));
-  const physicalImage = conn === "spooler" || proto === "spooler"
+  const physicalImage = physicalSpooler
     || (conn === "network" && proto === "escpos");
   const physicalByteProtocol = (protocol: string) => {
-    if (conn === "spooler" || proto === "spooler") {
+    if (physicalSpooler) {
       return protocol === "raw" || protocol === "escpos";
     }
     return (conn === "network" || conn === "usb")
@@ -170,7 +174,7 @@ export function validatePayloadForPrinter(
       return { ok: false, reason: "CAPABILITY_MISMATCH: image payloads cannot specify a printer protocol" };
     }
     if (!physicalImage) return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
-    if (conn === "spooler" || proto === "spooler") return { ok: true };
+    if (physicalSpooler) return { ok: true };
     if (!hasExplicitCaps || anyCap("image", "jpeg", "escpos")) return { ok: true };
     return { ok: false, reason: "CAPABILITY_MISMATCH: image payload not supported by printer" };
   }
@@ -184,7 +188,7 @@ export function validatePayloadForPrinter(
     // A raw ESC/POS byte stream bypasses driver rendering (WritePrinter RAW)
     // and is only valid for passthrough-mode queues whose operator explicitly
     // declared escpos support. Without that declaration, route pdf/image.
-    if (conn === "spooler" || proto === "spooler") {
+    if (physicalSpooler) {
       if (hasExplicitCaps && anyCap("escpos")) return { ok: true };
       return { ok: false, reason: "CAPABILITY_MISMATCH: This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable." };
     }
@@ -202,7 +206,7 @@ export function validatePayloadForPrinter(
       return { ok: false, reason: `CAPABILITY_MISMATCH: unsupported raw protocol ${payloadProto}` };
     }
     // Same spooler passthrough rule as ESC/POS above.
-    if (conn === "spooler" || proto === "spooler") {
+    if (physicalSpooler) {
       if (payloadProto === "escpos" && hasExplicitCaps && anyCap("escpos")) return { ok: true };
       if (payloadProto === "raw" && hasExplicitCaps && anyCap("raw")) return { ok: true };
       const label = payloadProto === "escpos" ? "ESC/POS" : payloadProto.toUpperCase();
@@ -245,12 +249,17 @@ export function getSupportedDocumentTypes(protocol: ProtocolType, transport: Tra
 }
 
 export function isIppTransport(transport: string, protocol: string): boolean {
-  return transport === "ipp" || transport === "ipps" || protocol === "ipp" || protocol === "ipps";
+  const conn = (transport ?? "").trim().toLowerCase();
+  const proto = (protocol ?? "").trim().toLowerCase();
+  return conn === "ipp" || conn === "ipps" ||
+    (conn === "network" && (proto === "ipp" || proto === "ipps"));
 }
 
 export function isSpoolerTransport(transport: string, protocol: string): boolean {
-  const conn = transport === "windows_spooler" ? "spooler" : transport;
-  return conn === "spooler" || (protocol === "spooler" && conn === "spooler") || (protocol === "windows_spooler" && conn === "spooler");
+  const conn = (transport ?? "").trim().toLowerCase();
+  const proto = (protocol ?? "").trim().toLowerCase();
+  return conn === "spooler" || conn === "windows_spooler" ||
+    (conn === "usb" && (proto === "spooler" || proto === "windows_spooler"));
 }
 
 export function isRawTransport(protocol: string): boolean {
@@ -275,9 +284,9 @@ export function getPrinterLanguageBadges(
   if (proto === "escpos") badges.push("ESC/POS");
   if (proto === "zpl") badges.push("ZPL");
   if (proto === "tspl") badges.push("TSPL");
-  if (proto === "ipp" || proto === "ipps" || conn === "ipp" || conn === "ipps") badges.push("IPP · PDF");
-  if (proto === "spooler" || proto === "windows_spooler" || conn === "spooler") badges.push("Spooler · PDF");
-  if (proto === "raw") badges.push("Raw 9100");
+  if (isIppTransport(conn, proto)) badges.push("IPP · PDF");
+  if (isSpoolerTransport(conn, proto)) badges.push("Spooler · PDF");
+  if (proto === "raw") badges.push(conn === "usb" ? "RAW" : "Raw 9100");
   return badges;
 }
 

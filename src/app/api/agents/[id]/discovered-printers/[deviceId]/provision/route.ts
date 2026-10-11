@@ -6,7 +6,7 @@ import { validateWorkspaceManager } from "../../../../../../../lib/manager-auth"
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
-import { validateConnectionConfig } from "../../../../../../../lib/printer-model";
+import { discoveryIppUriMatchesEndpoint, validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
 import { logError } from "../../../../../../../lib/log";
@@ -100,8 +100,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const rawProtocol = (device.protocol ?? "").toLowerCase();
     const transport = protocolMap[rawProtocol];
     if (!transport) return { kind: "unsupported_transport" as const, protocol: device.protocol ?? "unknown" };
+    // An Agent's discovery report contains both the language and the observed
+    // physical connection. Do not manufacture a Windows queue from a network
+    // device just because legacy discovery called its protocol "spooler".
+    // Existing Agent versions may omit transport; preserve their explicit
+    // operator approval, and accept USB-backed queues only with a real name.
+    const observedTransport = (device.transport ?? "").trim().toLowerCase();
+    if (transport.connectionType === "spooler" && observedTransport
+      && observedTransport !== "spooler"
+      && !(observedTransport === "usb" && Boolean(device.spoolerName?.trim()))) {
+      return { kind: "unsupported_transport" as const, protocol: `${rawProtocol}/${observedTransport}` };
+    }
     if (["ipp", "ipps", "raw", "escpos", "zpl", "tspl"].includes(transport.protocol) && (!device.ipAddress || !device.port)) {
       return { kind: "missing_endpoint" as const };
+    }
+    if ((transport.protocol === "ipp" || transport.protocol === "ipps") && device.uri
+      && !discoveryIppUriMatchesEndpoint(device.uri, device.ipAddress!, device.port!, transport.protocol)) {
+      // Operator verified the candidate with this observed IP/port. A
+      // different URI target is not the approved destination, even when it
+      // is another RFC1918 printer on the same LAN.
+      return { kind: "invalid_endpoint" as const, error: "Discovery IPP URI does not match observed printer IP, port, or transport security" };
     }
 
     if (device.ipAddress && device.port) {
@@ -115,7 +133,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       for (const p of all) {
         const cfg = p.config as { ip?: string; address?: string; port?: number } | null;
         const ip = cfg?.ip ?? cfg?.address;
-        if (ip === device.ipAddress && cfg?.port === device.port) {
+        // An endpoint may support multiple declared printer languages, but
+        // an existing *different* language is not the approved destination.
+        // Never bind a ZPL candidate to an ESC/POS queue merely because both
+        // describe the same host:port.
+        if (p.connectionType === transport.connectionType && p.protocol === transport.protocol
+          && ip === device.ipAddress && cfg?.port === device.port) {
           await tx.update(discoveredDevices)
             .set({ candidateStatus: "provisioned", provisionedPrinterId: p.id, updatedAt: sql`now()` })
             .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.candidateStatus, "verified")));
@@ -123,7 +146,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         }
         // IPP/IPPS convergence: match the persisted address URL (or the
         // reported discovery URI) since those rows carry no ip/port fields.
-        if ((transport.connectionType === "ipp" || transport.connectionType === "ipps")
+        if (p.connectionType === transport.connectionType && p.protocol === transport.protocol
+          && (transport.connectionType === "ipp" || transport.connectionType === "ipps")
           && typeof cfg?.address === "string"
           && (cfg.address === expectedIppAddress || (device.uri != null && cfg.address === device.uri))) {
           await tx.update(discoveredDevices)

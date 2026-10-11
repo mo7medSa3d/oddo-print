@@ -143,11 +143,11 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 
 | Aspect | Detail |
 |---|---|
-| Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name` |
+| Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name`. The wire URL uses HTTP(S), but the **IPP operation** `printer-uri` attribute uses `ipp://` or `ipps://` as RFC 8010 requires; the original network port and TLS binding are preserved. |
 | Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL`; `ipp://` and `ipps://` default to port 631 when omitted |
 | Capability reporting | `supported_protocols: [pdf]` |
-| Error handling | Non-2xx HTTP and IPP client/server error classes (`0x04xx`/`0x05xx`) become job errors with decoded status text; the complete `0x00xx` success class is accepted. Responses shorter than the IPP header are rejected. The client timeout is 15 s, shortened to the job deadline when smaller |
+| Error handling | A definite, correlated IPP `0x04xx` refusal is a non-printed error. HTTP 3xx redirects are **never followed or silently retried**: the request already reached the first endpoint, so the physical result remains **unknown**. HTTP 5xx, ambiguous network failures, malformed submission evidence and IPP `0x05xx` are likewise unknown; the complete IPP `0x00xx` success class requires a valid returned Job. The HTTP submission timeout follows the bounded job deadline when provided, otherwise defaults to 15 s. A protocol ACK does not prove paper output. |
 | Status probe | `Get-Printer-Attributes` (5 s): idle/processing → `online`/`busy`; explicit `offline`/`shutdown` reasons → `offline`; stopped/paused/admission/media/cover/toner/jam faults → `error`; probe/auth/protocol/transport failure → `unknown`. `printer-state-reasons` is retained as diagnostic detail |
 | Platform limits | None |
 | Discovery | Bounded mDNS/DNS-SD browse for `_ipp._tcp`, `_ipps._tcp`, and `_printer._tcp`, merged with the TCP 631 scan in `ipp_discovery.go`; partial mDNS failures do not discard successful candidates. |

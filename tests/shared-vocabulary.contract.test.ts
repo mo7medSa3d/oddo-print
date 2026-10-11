@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
+import { classifyJobFailure, jobFailurePresentation } from "../src/shared/job-vocabulary";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -11,6 +12,19 @@ function read(path: string): string {
 // adds a runtime import that would drag node-only modules into the
 // browser/desktop bundles, these tests fail before CI does.
 describe("shared vocabulary single-authority contracts", () => {
+  it("classifies pre-dispatch IPP and headless PDFium failures with bilingual action guidance", () => {
+    const ipp = 'IPP printer http://192.168.8.34:631/ipp/print unreachable (request not sent): Post: dial tcp timeout';
+    const pdf = 'PDF print on "POS80 Printer" failed: acquire embedded PDFium worker: could not instantiate webassembly module: GetFileType /dev/stdout: The handle is invalid.';
+    expect(classifyJobFailure(ipp)).toBe("ipp_unreachable");
+    expect(classifyJobFailure(pdf)).toBe("pdfium_headless");
+    expect(jobFailurePresentation(ipp, "en")?.guidance).toContain("port 631");
+    expect(jobFailurePresentation(ipp, "ar")?.guidance).toContain("631");
+    expect(jobFailurePresentation(pdf, "en")?.guidance).toContain("service");
+    expect(jobFailurePresentation(pdf, "ar")?.title).toContain("PDF");
+    expect(classifyJobFailure('IPP printer X returned HTTP 500 (submission may have been accepted)')).toBeNull();
+    expect(classifyJobFailure('UNKNOWN_PARTIAL_DELIVERY: print timed out')).toBeNull();
+  });
+
   it("stale thresholds stay dependency-free for client bundles", () => {
     const source = read("src/lib/stale-threshold.ts");
     // Any runtime import here (db, pg, drizzle) would break the dashboard

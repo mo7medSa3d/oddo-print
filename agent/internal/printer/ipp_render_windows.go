@@ -40,7 +40,10 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("acquire embedded PDFium worker: %w", err)
 	}
-	defer func() { _ = instance.Close() }()
+	// jpegKilled records cancellation interrupts so the deferred Close does not
+	// report the expected "already closed" state as a worker-cleanup failure.
+	var jpegKilled pdfiumKillTracker
+	defer func() { _ = jpegKilled.close(instance) }()
 
 	doc, err := instance.OpenDocument(&requests.OpenDocument{File: &pdfData})
 	if err != nil {
@@ -67,7 +70,7 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 		Page:   requests.Page{ByIndex: &requests.PageByIndex{Document: doc.Document, Index: 0}},
 		Width:  width,
 		Height: height,
-	})
+	}, &jpegKilled)
 	if err != nil {
 		return nil, fmt.Errorf("render PDF page to JPEG for IPP: %w", err)
 	}
@@ -77,11 +80,16 @@ func renderIPPPDFToJPEG(ctx context.Context, pdfData []byte) ([]byte, error) {
 	if img == nil {
 		return nil, fmt.Errorf("PDFium returned an empty page")
 	}
-	// JPEG has no transparency. Composite PDFium's RGBA over white to avoid
-	// black backgrounds on transparent PDF pages.
+	// JPEG has no transparency. Composite PDFium's bitmap over white to avoid
+	// black backgrounds on transparent PDF pages. PDFium's FPDFBitmap_BGRA
+	// carries STRAIGHT (non-premultiplied) alpha, but Go's image.RGBA type is
+	// defined as premultiplied — draw.Over on the raw value double-applies
+	// alpha and washes transparents out. Wrap as NRGBA exactly as go-pdfium's
+	// own renderer does so Over uses the straight-alpha formula.
 	white := image.NewRGBA(img.Bounds())
 	draw.Draw(white, white.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-	draw.Draw(white, white.Bounds(), img, img.Bounds().Min, draw.Over)
+	straight := &image.NRGBA{Pix: img.Pix, Stride: img.Stride, Rect: img.Rect}
+	draw.Draw(white, white.Bounds(), straight, straight.Bounds().Min, draw.Over)
 	var output bytes.Buffer
 	if err := jpeg.Encode(&output, white, &jpeg.Options{Quality: 88}); err != nil {
 		return nil, fmt.Errorf("encode rendered IPP JPEG: %w", err)

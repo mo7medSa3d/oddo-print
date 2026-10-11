@@ -152,7 +152,11 @@ class PosOrderGatewayPrinting(models.Model):
             if order.state not in ("paid", "done", "invoiced"):
                 continue
             try:
-                result = policy_model.dispatch_for_record(order, "pos_order_paid")
+                # Isolate the optional policy query/write; catching a PostgreSQL
+                # exception without a savepoint leaves the business transaction
+                # aborted even when posting/validation should succeed.
+                with self.env.cr.savepoint():
+                    result = policy_model.dispatch_for_record(order, "pos_order_paid")
                 if result.get("failed"):
                     _logger.error(
                         "Automated print scheduling completed with %s policy failure(s) for POS order %s",

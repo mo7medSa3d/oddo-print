@@ -122,10 +122,17 @@ export default function UpgradeLimitDialog({
                 <Button
                   variant="primary"
                   onClick={() => {
-                    void navigator.clipboard.writeText(billingUrl).then(
-                      () => setCopiedUrl(billingUrl),
-                      () => setCopiedUrl(""),
-                    );
+                    // navigator.clipboard is undefined in insecure contexts;
+                    // optional chaining + catch keeps the manual-select input
+                    // above as the fallback instead of throwing.
+                    try {
+                      void navigator.clipboard?.writeText(billingUrl).then(
+                        () => setCopiedUrl(billingUrl),
+                        () => setCopiedUrl(""),
+                      );
+                    } catch {
+                      setCopiedUrl("");
+                    }
                   }}
                 >
                   {copiedUrl === billingUrl ? t("limit.linkCopied") : t("limit.copyBillingLink")}

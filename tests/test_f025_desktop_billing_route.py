@@ -16,7 +16,10 @@ def test_shared_dialog_web_link_preserved_while_native_requires_explicit_copy_mo
     shared=(ROOT/'src/components/UpgradeLimitDialog.tsx').read_text()
     assert 'copyBillingDestination?: { url: string | null }' in shared
     assert 'copyBillingDestination ? (' in shared
-    assert 'navigator.clipboard.writeText(billingUrl)' in shared
+    # Guarded for insecure contexts (optional chaining); the clipboard write
+    # itself plus the read-only manual-select input must both remain.
+    assert 'navigator.clipboard' in shared
+    assert 'writeText(billingUrl)' in shared
     assert 'href="/billing"' in shared
     assert 'readOnly' in shared and 'value={billingUrl}' in shared
     assert 't("limit.copyBillingLink")' in shared

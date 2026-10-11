@@ -11,6 +11,8 @@ describe("isPrivateNetworkAddress", () => {
 
   it("rejects cloud metadata endpoints even inside private/link-local ranges", () => {
     expect(isPrivateNetworkAddress("169.254.169.254")).toBe(false);
+    expect(isPrivateNetworkAddress("169.254.170.2")).toBe(false);
+    expect(isPrivateNetworkAddress("fd00:0ec2:0000:0000:0000:0000:0000:0254")).toBe(false);
     expect(isPrivateNetworkAddress("fd00:ec2::254")).toBe(false);
   });
 

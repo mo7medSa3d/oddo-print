@@ -8,35 +8,27 @@ import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { receiptRasterWidthDots } from "../../../../lib/receipt-width";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 import { isVirtualPrinterRecord, isApprovedVirtualSpoolerTestRecord } from "../../../../lib/printer-virtual";
+import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "../../../../lib/printer-capability";
 
 export const dynamic = "force-dynamic";
 
-const ODOO_CAPABILITY_PROTOCOLS = new Set(["pdf", "image", "raw", "escpos", "zpl", "tspl", "spooler", "ipp", "ipps"]);
-
+/** Publish only document languages admitted by the Gateway's physical transport
+ * validator. A TCP byte stream labelled "spooler" must not look like a
+ * Windows driver, regardless of legacy supported_protocols metadata.
+ * Keep raw capability JSON untrusted: malformed lists fail closed in the
+ * shared validator rather than being interpreted as missing metadata.
+ */
 function odooPrinterCapabilities(value: unknown, connectionType: string, protocol: string) {
-  const supported = new Set<string>();
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const raw = (value as { supported_protocols?: unknown }).supported_protocols;
-    if (Array.isArray(raw)) {
-      for (const item of raw) {
-        if (typeof item !== "string") continue;
-        const normalized = item.trim().toLowerCase();
-        if (ODOO_CAPABILITY_PROTOCOLS.has(normalized)) supported.add(normalized);
-      }
-    }
-  }
-  const conn = connectionType.trim().toLowerCase();
-  const proto = protocol.trim().toLowerCase();
-  // Backward compatibility: document capability belongs to the transport,
-  // not to incidental discovery metadata. Old spooler rows with no capability
-  // blob remain fully usable for ordinary driver-rendered printing.
-  if (conn === "spooler" || proto === "spooler" || proto === "windows_spooler") {
-    supported.add("pdf");
-    supported.add("image");
-  } else if (conn === "ipp" || conn === "ipps" || proto === "ipp" || proto === "ipps") {
-    supported.add("pdf");
-  }
-  return { supported_protocols: [...supported] };
+  const reported = value && typeof value === "object" && !Array.isArray(value)
+    ? value as { supported_protocols?: string[] }
+    : null;
+  return {
+    supported_protocols: getSupportedDocumentTypes(
+      protocol.trim().toLowerCase() as ProtocolType,
+      connectionType.trim().toLowerCase() as TransportType,
+      reported,
+    ),
+  };
 }
 
 export async function GET(req: Request) {

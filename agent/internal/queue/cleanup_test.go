@@ -170,3 +170,39 @@ func TestCleanupTerminalOlderThanPurgesAcknowledgedHistoryAfter48Hours(t *testin
 		}
 	}
 }
+
+// Manual maintenance cannot erase a terminal report that has not yet been
+// acknowledged by the Gateway. On a reconnect that claim token is the sole
+// durable evidence needed to report the physical outcome without reprinting.
+func TestPurgeOutcomeUnknownPreservesUnacknowledgedReport(t *testing.T) {
+	q := newTestQueue(t)
+	for _, id := range []string{"pending-unknown", "acknowledged-unknown"} {
+		if err := q.BeginPrint(id, "printer-1", []byte("receipt"), "claim-"+id, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.UpdateStatusWithError(id, "failed", "UNKNOWN_PARTIAL_DELIVERY: outcome uncertain"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.ClearClaimToken("acknowledged-unknown", "claim-acknowledged-unknown"); err != nil {
+		t.Fatal(err)
+	}
+	purged, err := q.PurgeOutcomeUnknown()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if purged != 1 {
+		t.Fatalf("PurgeOutcomeUnknown removed %d, expected only acknowledged record", purged)
+	}
+	pending, err := q.PendingTerminalReports(10)
+	if err != nil || len(pending) != 1 || pending[0].ID != "pending-unknown" || pending[0].ClaimToken != "claim-pending-unknown" {
+		t.Fatalf("pending terminal report was erased or corrupted: %+v err=%v", pending, err)
+	}
+	if _, _, found, err := q.Get("acknowledged-unknown"); err != nil || found {
+		t.Fatalf("acknowledged record not purged: found=%v err=%v", found, err)
+	}
+	n, err := q.CountOutcomeUnknown()
+	if err != nil || n != 1 {
+		t.Fatalf("CountOutcomeUnknown = %d, %v; expected one pending record", n, err)
+	}
+}

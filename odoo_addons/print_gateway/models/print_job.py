@@ -18,6 +18,8 @@ from ..runtime_clock import db_now_utc
 
 
 _logger = logging.getLogger(__name__)
+MAX_PRINT_CONTENT_BYTES = 5 * 1024 * 1024
+MAX_PRINT_BASE64_CHARS = 4 * ((MAX_PRINT_CONTENT_BYTES + 2) // 3)
 
 
 class PrintGatewayJob(models.Model):
@@ -499,6 +501,12 @@ class PrintGatewayJob(models.Model):
                 payload = dict(payload, peripherals=active)
             else:
                 payload = {k: v for k, v in payload.items() if k != "peripherals"}
+        # Bound encoded content before JSON serialization or base64 decoding.
+        # Large POS RPC data must not make the worker allocate multiple copies
+        # of a document that the Gateway's 5 MiB wire contract will reject.
+        data_field = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data_field, str) and len(data_field) > MAX_PRINT_BASE64_CHARS:
+            raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
         try:
             payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         except (TypeError, ValueError) as exc:
@@ -510,15 +518,14 @@ class PrintGatewayJob(models.Model):
         # decoded bytes the wire enforces; without a data field fall back to
         # the serialized size against the same 5 MiB number (such rows are
         # invalid regardless — the data check below rejects them).
-        data_field = payload.get("data") if isinstance(payload, dict) else None
         if isinstance(data_field, str) and data_field:
             try:
                 decoded_size = len(base64.b64decode(data_field.encode("ascii"), validate=True))
             except (TypeError, ValueError, base64.binascii.Error):
                 decoded_size = None
-            if decoded_size is not None and decoded_size > 5 * 1024 * 1024:
+            if decoded_size is not None and decoded_size > MAX_PRINT_CONTENT_BYTES:
                 raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
-        elif len(payload_json.encode("utf-8")) > 5 * 1024 * 1024:
+        elif len(payload_json.encode("utf-8")) > MAX_PRINT_CONTENT_BYTES:
             raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
 
         # Strict kind resolution with NO defaults: a malformed payload fails
@@ -917,13 +924,15 @@ class PrintGatewayJob(models.Model):
         raw_data = payload.get("data")
         if not raw_data or not isinstance(raw_data, str):
             raise ValidationError(_("Stored print payload data must be a non-empty string."))
+        if len(raw_data) > MAX_PRINT_BASE64_CHARS:
+            raise ValidationError(_("Stored print payload exceeds the 5 MiB Gateway/Agent safety limit."))
         try:
             decoded = base64.b64decode(raw_data.encode("ascii"), validate=True)
-            if not decoded:
-                raise ValidationError(_("Stored print payload decoded to empty content."))
-        except Exception as exc:
+        except (UnicodeEncodeError, ValueError, base64.binascii.Error) as exc:
             raise ValidationError(_("Stored print payload data is not valid base64.")) from exc
-        if len(decoded) > 5 * 1024 * 1024:
+        if not decoded:
+            raise ValidationError(_("Stored print payload decoded to empty content."))
+        if len(decoded) > MAX_PRINT_CONTENT_BYTES:
             raise ValidationError(_("Stored print payload exceeds the 5 MiB Gateway/Agent safety limit."))
         # Content/signature parity with the Gateway and agent validators:
         # what claims to be a PDF must start with %PDF-, a raster must be a
@@ -932,6 +941,8 @@ class PrintGatewayJob(models.Model):
         looks_like_jpeg = len(decoded) >= 3 and decoded[0] == 0xFF and decoded[1] == 0xD8 and decoded[2] == 0xFF
         if self.payload_type == "pdf" and not looks_like_pdf:
             raise ValidationError(_("PDF payload must start with the %%PDF- signature."))
+        if self.payload_type == "pdf" and b"%%EOF" not in decoded[-4096:]:
+            raise ValidationError(_("Stored PDF is incomplete (missing the %%EOF trailer)."))
         if self.payload_type == "raster_jpeg" and not looks_like_jpeg:
             raise ValidationError(_("Raster payload must be a JPEG."))
         if self.payload_type == "raw_cmd" and looks_like_pdf:
@@ -984,14 +995,21 @@ class PrintGatewayJob(models.Model):
         return body
 
     def _post_source_audit(self, message):
-        """Post audit message to source record chatter if supported."""
+        """Post optional chatter without poisoning the print-job transaction.
+
+        An ORM write can raise a PostgreSQL error, which aborts the current
+        transaction until rolled back. Chatter is best-effort: isolate every
+        message in a savepoint before catching a failure so print delivery,
+        retry bookkeeping and claim finalization remain valid.
+        """
         for job in self:
             if not job.source_model or not job.source_record_id:
                 continue
             try:
-                record = self.env[job.source_model].browse(job.source_record_id).exists()
-                if record and hasattr(record, "message_post"):
-                    record.message_post(body=message, subtype_xmlid="mail.mt_note")
+                with job.env.cr.savepoint():
+                    record = job.env[job.source_model].browse(job.source_record_id).exists()
+                    if record and hasattr(record, "message_post"):
+                        record.message_post(body=message, subtype_xmlid="mail.mt_note")
             except Exception as exc:
                 _logger.debug("Chatter audit logging skipped: %s", exc)
 
@@ -1924,40 +1942,46 @@ class PrintGatewayJob(models.Model):
         failed_count = 0
         for job in candidates:
             gateway_config = job.gateway_config_id.sudo()
+            # Isolate every job in its own savepoint. Without it, one job whose
+            # Gateway reconciliation is rejected (ValidationError from
+            # _apply_gateway_late_success) aborts the whole RPC and silently
+            # discards the statuses already applied for earlier jobs in the
+            # same batch. cron_sync_status already does this per job.
             try:
-                if not job.gateway_job_id:
-                    body = self._lookup_gateway_job_for_ambiguous_submission(job)
-                    if body is None:
-                        failed_count += 1
+                with self.env.cr.savepoint():
+                    if not job.gateway_job_id:
+                        body = self._lookup_gateway_job_for_ambiguous_submission(job)
+                        if body is None:
+                            failed_count += 1
+                            continue
+                        if self._apply_synced_status(job, body):
+                            synced_count += 1
+                        else:
+                            failed_count += 1
                         continue
+                    response = requests.get(
+                        "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
+                        params={"id": job.gateway_job_id}, headers=gateway_config._gateway_headers(),
+                        timeout=10, allow_redirects=False,
+                    )
+                    if response.status_code == 404:
+                        changed = self._mark_gateway_job_missing(
+                            job,
+                            "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
+                        )
+                        if changed:
+                            job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
+                            failed_count += 1
+                        continue
+                    response.raise_for_status()
+                    body = response.json()
                     if self._apply_synced_status(job, body):
                         synced_count += 1
                     else:
                         failed_count += 1
-                    continue
-                response = requests.get(
-                    "%s/api/print/jobs" % gateway_config._gateway_base(for_request=True),
-                    params={"id": job.gateway_job_id}, headers=gateway_config._gateway_headers(),
-                    timeout=10, allow_redirects=False,
-                )
-                if response.status_code == 404:
-                    changed = self._mark_gateway_job_missing(
-                        job,
-                        "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
-                    )
-                    if changed:
-                        job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
-                        failed_count += 1
-                    continue
-                response.raise_for_status()
-                body = response.json()
-                if self._apply_synced_status(job, body):
-                    synced_count += 1
-                else:
-                    failed_count += 1
-            except (requests.RequestException, ValueError):
+            except Exception as exc:
                 failed_count += 1
-                _logger.warning("Gateway status sync failed for job %s", job.idempotency_key[:8])
+                _logger.warning("Gateway status sync failed for job %s: %s", job.idempotency_key[:8], exc)
 
         if synced_count > 0 and failed_count == 0:
             notif_type = "success"
@@ -2265,12 +2289,18 @@ class PrintGatewayJob(models.Model):
                                     with self.env.cr.savepoint():
                                         self._apply_synced_status(job, returned[job.gateway_job_id])
                                 else:
-                                    changed = self._mark_gateway_job_missing(
-                                        job,
-                                        "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
-                                    )
-                                    if changed:
-                                        job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
+                                    # A missing remote ID is not proof that
+                                    # no paper came out. Mark UNKNOWN under a
+                                    # savepoint: a failing SQL/audit statement
+                                    # must not abort the cron transaction and
+                                    # poison its per-job fallback/recovery.
+                                    with self.env.cr.savepoint():
+                                        changed = self._mark_gateway_job_missing(
+                                            job,
+                                            "GATEWAY_JOB_NOT_FOUND: the Gateway no longer has this job (expired or cleaned up). Physical outcome unknown - verify at the printer, then use Force Reprint if needed.",
+                                        )
+                                        if changed:
+                                            job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
                                 total_synced += 1
                         else:
                             for job in known_jobs:

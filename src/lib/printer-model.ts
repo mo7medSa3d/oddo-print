@@ -65,8 +65,42 @@ export function isAllowedPrinterDestination(ip: string): boolean {
   // Reject the IPv4/IPv6 cloud-instance metadata endpoints even though they
   // are technically link-local/ULA destinations. A printer configuration
   // must never become a metadata-service proxy.
-  if (host === "169.254.169.254" || host.toLowerCase() === "fd00:ec2::254") return false;
+  // isPrivateNetworkAddress also excludes cloud metadata addresses, in
+  // every accepted IPv6 textual form (including fully expanded literals).
+  if (host === "169.254.169.254" || host === "169.254.170.2" || host.toLowerCase() === "fd00:ec2::254") return false;
   return isPrivateNetworkAddress(host);
+}
+
+/**
+ * An approved IPP discovery candidate authorizes one observed network
+ * destination. The optional printer-uri must not silently redirect that
+ * approval to a different private printer (or a different port/security
+ * binding). RFC 8010 maps ipp(s) to HTTP(S) on 631 by default.
+ */
+export function discoveryIppUriMatchesEndpoint(
+  uri: string,
+  observedIp: string,
+  observedPort: number,
+  protocol: "ipp" | "ipps",
+): boolean {
+  if (!Number.isInteger(observedPort) || observedPort < 1 || observedPort > 65535) return false;
+  try {
+    const target = new URL(uri);
+    const host = observedIp.includes(":") ? `[${observedIp.replace(/^\[|\]$/g, "")}]` : observedIp;
+    const observed = new URL(`ipp://${host}:${observedPort}/ipp/print`);
+    const scheme = target.protocol.toLowerCase();
+    if (protocol === "ipps" ? !["ipps:", "https:"].includes(scheme) : !["ipp:", "http:"].includes(scheme)) {
+      return false;
+    }
+    if (target.username || target.password || target.search || target.hash) return false;
+    const effectivePort = target.port
+      ? Number(target.port)
+      : scheme === "http:" ? 80 : scheme === "https:" ? 443 : 631;
+    return target.hostname.toLowerCase() === observed.hostname.toLowerCase()
+      && effectivePort === observedPort;
+  } catch {
+    return false;
+  }
 }
 
 function validatePrivatePrinterHost(value: string): string | null {

@@ -183,3 +183,13 @@ describe("getSupportedDocumentTypes", () => {
     expect(getSupportedDocumentTypes("unknown", "network")).toEqual([]);
   });
 });
+
+// Routing parity: a protocol label cannot change the physical transport.
+describe("display capability parity with printing admission", () => {
+  it("does not badge network or USB byte sinks as document renderers", () => {
+    expect(getPrinterLanguageBadges("spooler", "network")).not.toContain("Spooler · PDF");
+    expect(getPrinterLanguageBadges("windows_spooler", "network")).not.toContain("Spooler · PDF");
+    expect(getPrinterLanguageBadges("ipp", "usb")).not.toContain("IPP · PDF");
+    expect(getPrinterLanguageBadges("spooler", "usb")).toContain("Spooler · PDF");
+  });
+});

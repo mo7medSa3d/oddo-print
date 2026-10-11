@@ -761,8 +761,8 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 	}()
 
 	log.Printf("[discovery] starting bounded async full discovery (network+USB)")
-	full, completed, finishedCh := runBoundedDiscovery(ctx, defaultDiscoveryTimeout, func(scanCtx context.Context) printer.DiscoveryResult {
-		return printer.DiscoverLiveWithContext(scanCtx, a.cfg, a.registryPath)
+	full, completed, finishedCh := runBoundedDiscovery(ctx, defaultDiscoveryTimeout, func(scanCtx context.Context, onProgress printer.DiscoveryProgressFunc) printer.DiscoveryResult {
+		return printer.DiscoverLiveWithProgress(scanCtx, a.cfg, a.registryPath, onProgress)
 	})
 	if !completed {
 		// A synchronous Win32 call can outlive its Go context. Keep the semaphore
@@ -1905,6 +1905,23 @@ func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string)
 		log.Printf("Job %s: server rejected the pre-execution rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
 		return fmt.Errorf("gateway rejected job hand-back: HTTP %d", resp.StatusCode)
 	}
+	// A bare 2xx is not proof the hand-back applied: require the same shaped
+	// acknowledgement as every other status report, so a misbehaving proxy
+	// cannot silently drop the requeue while the agent stops tracking it.
+	ackBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes+1))
+	if readErr != nil || len(ackBody) > maxGatewayErrorBodyBytes {
+		return fmt.Errorf("%w: unreadable or oversized hand-back acknowledgement", ErrTransitionRejected)
+	}
+	var accepted struct {
+		Success bool   `json:"success"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal(ackBody, &accepted); err != nil {
+		return fmt.Errorf("%w: invalid hand-back acknowledgement: %v", ErrTransitionRejected, err)
+	}
+	if !accepted.Success || accepted.Status != "queued" {
+		return fmt.Errorf("%w: Gateway did not acknowledge %q (status %q)", ErrTransitionRejected, "queued", accepted.Status)
+	}
 	return nil
 }
 
@@ -2144,6 +2161,31 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 		SupportedProtocol:         caps,
 		SupportedProtocolDeclared: supportedProtocolsDeclared,
 	}, true
+}
+
+// printStatusTransport describes the selected, configured transport, NOT a
+// successful hardware submission. It only uses the connection/protocol facts
+// that passed the dispatch capability gate; do not invent transport proof from
+// a printer's friendly name or from the payload kind.
+func printStatusTransport(facts printer.TransportFacts) string {
+	connection := strings.ToLower(strings.TrimSpace(facts.Connection))
+	protocol := strings.ToLower(strings.TrimSpace(facts.Protocol))
+	if connection == "spooler" || connection == "windows_spooler" || (connection == "usb" && protocol == "spooler") {
+		return "windows_spooler"
+	}
+	if connection == "ipp" || connection == "ipps" {
+		return connection
+	}
+	if connection == "network" && (protocol == "ipp" || protocol == "ipps") {
+		return protocol
+	}
+	if connection == "network" && (protocol == "raw" || protocol == "escpos" || protocol == "zpl" || protocol == "tspl") {
+		return protocol + "_tcp"
+	}
+	if connection == "usb" && (protocol == "raw" || protocol == "escpos" || protocol == "zpl" || protocol == "tspl") {
+		return protocol + "_usb"
+	}
+	return ""
 }
 
 func (a *Agent) gatewayOwnedPrinterIDs() []string {
@@ -2978,6 +3020,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 
+	// This is a declaration of the route selected for this attempt. It is
+	// evidence of configuration, not evidence of transport I/O or paper output.
+	statusTransport := printStatusTransport(facts)
+
 	if a.queue.IsProcessed(jobID) {
 		log.Printf("Job %s was already processed while waiting for dispatch. Skipping.", jobID)
 		return
@@ -3003,7 +3049,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	}
 
 	reportStart := time.Now()
-	if err := a.updateJobStatus(ctx, jobID, "printing", "", claimToken, ""); err != nil {
+	if err := a.updateJobStatusWithTransport(ctx, jobID, "printing", "", claimToken, "", statusTransport); err != nil {
 		// Context cancellation is an authoritative local lifecycle signal, not
 		// a generic gateway transport failure. Never use the stale-claim
 		// freshness heuristic to proceed to hardware after shutdown/session
@@ -3032,7 +3078,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) {
 			return fmt.Errorf("dispatch refused: agent or printer configuration changed before this transport submission")
 		}
-		if err := a.updateJobStatus(admissionCtx, jobID, "printing", "", claimToken, ""); err != nil {
+		if err := a.updateJobStatusWithTransport(admissionCtx, jobID, "printing", "", claimToken, "", statusTransport); err != nil {
 			return fmt.Errorf("dispatch refused after preparation: %w", err)
 		}
 		return nil
@@ -3146,7 +3192,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatus(ctx, jobID, "failed", failureMsg, claimToken, spoolerJobID)
+		a.updateJobStatusWithTransport(ctx, jobID, "failed", failureMsg, claimToken, spoolerJobID, statusTransport)
 		return
 	}
 
@@ -3154,7 +3200,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	// Surface the platform job identity (Windows spooler) when the backend
 	// reports one for this dispatch. Non-publishing backends return "", so
 	// this stays a no-op off Windows and the Gateway contract is unchanged.
-	a.updateJobStatus(ctx, jobID, "success", "", claimToken, spoolerJobID)
+	a.updateJobStatusWithTransport(ctx, jobID, "success", "", claimToken, spoolerJobID, statusTransport)
 }
 
 // dispatchDocumentWithEvidence gives the worker, observer and terminal path
@@ -3229,6 +3275,13 @@ var ErrStaleClaim = errors.New("gateway rejected claim fence: stale or reclaimed
 var ErrTransitionRejected = errors.New("gateway rejected status transition")
 
 func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID string, reason ...string) error {
+	return a.updateJobStatusWithTransport(ctx, jobID, status, errMsg, claimToken, spoolerJobID, "", reason...)
+}
+
+// updateJobStatusWithTransport adds optional route diagnostics to the existing
+// status contract. Empty transport is intentionally omitted for legacy/replay
+// call sites with no verified local printer facts.
+func (a *Agent) updateJobStatusWithTransport(ctx context.Context, jobID, status, errMsg, claimToken, spoolerJobID, transport string, reason ...string) error {
 	// The caller owns this immutable attempt token; never substitute a newer delivery.
 	reqURL := "/api/agent/jobs"
 	body := map[string]interface{}{
@@ -3238,6 +3291,9 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 	}
 	if claimToken != "" {
 		body["claimToken"] = claimToken
+	}
+	if transport != "" {
+		body["transport"] = transport
 	}
 	// Spooler evidence is additive and optional: older Gateway versions
 	// ignore unknown fields, and printers without a platform identity
@@ -3270,7 +3326,7 @@ func (a *Agent) updateJobStatus(ctx context.Context, jobID, status, errMsg, clai
 		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
 	}
-	if status == "printing" || status == "success" || status == "failed" {
+	if status == "printing" || status == "success" || status == "failed" || status == "queued" {
 		var accepted struct {
 			Success bool   `json:"success"`
 			Status  string `json:"status"`

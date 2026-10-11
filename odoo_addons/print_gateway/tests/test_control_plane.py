@@ -1269,7 +1269,7 @@ class TestControlPlane(TransactionCase):
             "payload": json.dumps({
                 "type": "pdf",
                 "encoding": "base64",
-                "data": "JVBERi0xLjQK",
+                "data": "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4KJSVFT0YK",  # %PDF-1.4 + %%EOF trailer (persisted-PDF validator parity)
                 "peripherals": {"drawer": "none", "cutter": "none", "buzzer": "none"},
             }),
             "idempotency_key": "test_periph_pdf_none_01",
@@ -1287,7 +1287,7 @@ class TestControlPlane(TransactionCase):
             "payload": json.dumps({
                 "type": "pdf",
                 "encoding": "base64",
-                "data": "JVBERi0xLjQK",
+                "data": "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4KJSVFT0YK",  # %PDF-1.4 + %%EOF trailer (persisted-PDF validator parity)
                 "peripherals": {"drawer": "pin2"},
             }),
             "idempotency_key": "test_periph_pdf_active_01",

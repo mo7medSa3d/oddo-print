@@ -89,6 +89,9 @@ func TestIPPPrintDoesNotFollowRedirects(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "HTTP 307") {
 		t.Fatalf("expected redirect response to be surfaced, got %v", err)
 	}
+	if !OutcomeUnknown(err) {
+		t.Fatalf("a Print-Job redirect is not correlated IPP refusal evidence; never auto-retry: %v", err)
+	}
 	if redirectedHits != 0 {
 		t.Fatalf("IPP client followed redirect and resubmitted the print payload")
 	}
@@ -600,6 +603,50 @@ func TestInterpretIPPPrinterStatusSharesDiscoveryAndRuntimeMapping(t *testing.T)
 			}
 			if detail == "" {
 				t.Fatal("detail must always describe the evidence behind the status")
+			}
+		})
+	}
+}
+
+// Print document payloads are operator/customer data. The agent must not
+// accidentally forward them to a configured global HTTP proxy merely because
+// the device was discovered as a local IPP peer.
+func TestIPPTransportUsesDirectPrivateNetworkDialAndBoundedSetup(t *testing.T) {
+	if ippDirectTransport.Proxy != nil {
+		t.Fatal("IPP transport must never inherit a process HTTP(S) proxy")
+	}
+	if ippDirectTransport.DialContext == nil || ippDirectTransport.TLSHandshakeTimeout <= 0 {
+		t.Fatal("IPP transport needs bounded dial and TLS handshake")
+	}
+	if ippDirectTransport.MaxIdleConnsPerHost < 1 {
+		t.Fatal("IPP connection pooling should be enabled for successive receipts")
+	}
+}
+
+// RFC 8010: the request-target is HTTP(S), but the printer-uri operation
+// attribute MUST be ipp(s). A converted HTTP URL without an explicit port
+// must not silently switch from HTTP 80/HTTPS 443 to IPP 631.
+func TestIPPPrinterURIUsesIPPTransportSchemeAndOriginalPort(t *testing.T) {
+	tests := []struct{ input, wire, attribute string }{
+		{"ipp://192.168.8.34/ipp/print", "http://192.168.8.34:631/ipp/print", "ipp://192.168.8.34:631/ipp/print"},
+		{"ipps://192.168.8.34/ipp/print", "https://192.168.8.34:631/ipp/print", "ipps://192.168.8.34:631/ipp/print"},
+		{"http://192.168.8.34:631/ipp/print", "http://192.168.8.34:631/ipp/print", "ipp://192.168.8.34:631/ipp/print"},
+		{"https://192.168.8.34:631/ipp/print", "https://192.168.8.34:631/ipp/print", "ipps://192.168.8.34:631/ipp/print"},
+		{"http://192.168.8.34/ipp/print", "http://192.168.8.34/ipp/print", "ipp://192.168.8.34:80/ipp/print"},
+		{"https://192.168.8.34/ipp/print", "https://192.168.8.34/ipp/print", "ipps://192.168.8.34:443/ipp/print"},
+		{"https://[fd12:3456::10]:631/ipp/print", "https://[fd12:3456::10]:631/ipp/print", "ipps://[fd12:3456::10]:631/ipp/print"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			printer, err := NewIPPPrinter(tc.input, "office")
+			if err != nil {
+				t.Fatalf("NewIPPPrinter: %v", err)
+			}
+			if printer.URL != tc.wire {
+				t.Fatalf("HTTP(S) destination changed: %q want %q", printer.URL, tc.wire)
+			}
+			if printer.PrinterURI != tc.attribute {
+				t.Fatalf("incorrect IPP printer-uri: %q want %q", printer.PrinterURI, tc.attribute)
 			}
 		})
 	}
