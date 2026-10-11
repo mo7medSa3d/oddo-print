@@ -356,7 +356,22 @@ jobs:
         run: |
           set -euo pipefail
           credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
-          docker pull public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c
+          # ECR Public can temporarily rate-limit the pinned Odoo image.
+          # Retry only registry-throttling errors against Docker Hub with the
+          # same immutable OCI digest. Never substitute an unpinned tag.
+          odoo_image="public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"
+          pull_log="$(mktemp)"
+          if docker pull "$odoo_image" > "$pull_log" 2>&1; then
+            cat "$pull_log"
+          else
+            cat "$pull_log" >&2
+            if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$pull_log"; then
+              exit 1
+            fi
+            echo "Odoo ECR Public throttled; retrying exact pinned digest from Docker Hub" >&2
+            odoo_image="odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"
+            docker pull "$odoo_image"
+          fi
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
             docker run --rm --network host --name odoo19_test_run \
@@ -369,7 +384,7 @@ jobs:
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
               -v "$GITHUB_WORKSPACE/agent:/mnt/agent:ro" \
               -v "$GITHUB_WORKSPACE/src:/mnt/src:ro" \
-              public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c \
+              "$odoo_image" \
               odoo \
                 --database=odoo19_test \
                 --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \
