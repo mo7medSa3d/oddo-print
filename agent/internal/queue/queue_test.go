@@ -805,3 +805,37 @@ func TestPreDispatchReservationCannotReopenTerminalOrPrinting(t *testing.T) {
 		}
 	}
 }
+
+// A previously unsuccessful, provably zero-byte attempt is a valid retry. If
+// its next claim crashes while waiting on the printer mutex, startup must
+// hand back that NEW token rather than replaying the stale failed outcome.
+func TestRetryableFailureReservesNewPreDispatchClaim(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("safe-retry", "p1", []byte("old"), "old-claim", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatusWithError("safe-retry", "failed", "network connection refused before bytes sent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("safe-retry", "old-claim"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ReserveBeforeDispatch("safe-retry", "p1", []byte("new"), "new-claim"); err != nil {
+		t.Fatal(err)
+	}
+	_, status, _, err := q.Get("safe-retry")
+	if err != nil || status != "queued" {
+		t.Fatalf("safe retry must remain queued before hardware: %q %v", status, err)
+	}
+	if got := q.ClaimTokenFor("safe-retry"); got != "new-claim" {
+		t.Fatalf("new safe retry claim lost: %q", got)
+	}
+	unknown, err := q.MarkInterrupted()
+	if err != nil || len(unknown) != 0 {
+		t.Fatalf("pre-dispatch retry must never be classified physically UNKNOWN: %#v %v", unknown, err)
+	}
+	pending, err := q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 1 || pending[0].ID != "safe-retry" || pending[0].ClaimToken != "new-claim" {
+		t.Fatalf("the new retry token must be returned exactly: %#v %v", pending, err)
+	}
+}

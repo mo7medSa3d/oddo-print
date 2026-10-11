@@ -211,12 +211,34 @@ func (q *Queue) ReserveBeforeDispatch(id, printerID string, payload []byte, clai
 		VALUES (?, ?, ?, 'queued', ?, CURRENT_TIMESTAMP)`, id, printerID, payload, token); err != nil {
 		return err
 	}
-	// A newer legitimate claim may replace the previous queued attempt's token
-	// because queued records have never crossed a physical side-effect fence.
-	// Never reopen a completed, ambiguous, or currently printing attempt here.
-	if _, err := tx.Exec(`UPDATE print_jobs SET claim_token = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND status = 'queued'`, token, id); err != nil {
+	// A previously failed attempt can be retried only when its physical outcome
+	// was provably NOT printed. In that case, the new delivery must persist its
+	// own queued claim before waiting on hardware: leaving the old failed row
+	// untouched would lose the new token on crash and strand the Gateway claim.
+	// Unknown outcomes retain their terminal row and are reopened, if ever, only
+	// by the operator's explicit opt-in in BeginPrint. Success and live printing
+	// rows must never be mutated here.
+	var status string
+	var lastErr sql.NullString
+	if err := tx.QueryRow(`SELECT status, last_error FROM print_jobs WHERE id = ?`, id).Scan(&status, &lastErr); err != nil {
 		return err
+	}
+	if status == "failed" {
+		for _, marker := range UnknownOutcomeMarkers {
+			if lastErr.Valid && strings.HasPrefix(lastErr.String, marker) {
+				return tx.Commit()
+			}
+		}
+		if _, err := tx.Exec(`UPDATE print_jobs
+			SET status = 'queued', claim_token = ?, last_error = NULL, spooler_job_id = NULL, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status = 'failed'`, token, id); err != nil {
+			return err
+		}
+	} else if status == "queued" {
+		if _, err := tx.Exec(`UPDATE print_jobs SET claim_token = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status = 'queued'`, token, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
