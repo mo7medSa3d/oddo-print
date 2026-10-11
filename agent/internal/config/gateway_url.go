@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -29,6 +30,19 @@ func parseServerOrigin(raw string) (*url.URL, error) {
 	}
 	if strings.Contains(u.Hostname(), ":") && !strings.HasPrefix(u.Host, "[") {
 		return nil, fmt.Errorf("server.url IPv6 addresses must be enclosed in brackets")
+	}
+	if strings.Contains(u.Hostname(), "%") {
+		return nil, fmt.Errorf("server.url IPv6 zone identifiers are not supported")
+	}
+	if host := u.Hostname(); net.ParseIP(host) == nil {
+		if len(host) > 253 || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
+			return nil, fmt.Errorf("server.url host is invalid")
+		}
+		for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+			if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return nil, fmt.Errorf("server.url host is invalid")
+			}
+		}
 	}
 	if strings.HasSuffix(u.Host, ":") {
 		return nil, fmt.Errorf("server.url port is empty")

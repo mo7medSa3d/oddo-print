@@ -23,4 +23,11 @@ describe("receipt raster print width comes from the actual device rather than br
     expect(receiptRasterWidthDots({ paper_widths: [80, 58], dpi: 203 })).toBe(384);
     expect(receiptRasterWidthDots({ paper_widths: [80, 58], dpi: 180 })).toBe(360);
   });
+  it("rejects absent or malformed roll dimensions rather than treating null as zero", () => {
+    expect(receiptRasterWidthDots({ paper_width_mm: null, paper_widths: [80], dpi: 203 })).toBe(576);
+    expect(receiptRasterWidthDots({ paper_width_mm: "", paper_widths: [58], dpi: 203 })).toBe(384);
+    expect(receiptRasterWidthDots({ paper_widths: [null, 80], dpi: 203 })).toBeNull();
+    expect(receiptRasterWidthDots({ max_paper_width: " 384 " })).toBe(384);
+    expect(receiptRasterWidthDots({ max_paper_width: "3.84e2" })).toBeNull();
+  });
 });

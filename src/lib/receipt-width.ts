@@ -1,7 +1,7 @@
 /** A physical printer's usable horizontal dot budget, never browser CSS DPI. */
 type Caps = Record<string, unknown> | null | undefined;
 const widthRange = (value: unknown): number | null => {
-  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  const n = typeof value === "string" && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value;
   return typeof n === "number" && Number.isInteger(n) && n >= 288 && n <= 576 ? n : null;
 };
 function dotsForPaper(mm: number, dpi: number | null): number | null {
@@ -20,19 +20,19 @@ function dotsForPaper(mm: number, dpi: number | null): number | null {
  * width. The Agent independently bounds output by the configured backend.
  */
 export function receiptRasterWidthDots(capabilities: Caps): number | null {
-  if (!capabilities || typeof capabilities !== "object") return null;
+  if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities)) return null;
   const explicit = widthRange(capabilities.max_paper_width);
   if (explicit !== null) return explicit;
   const dpi = Number(capabilities.print_dpi ?? capabilities.dpi);
   const knownDPI = dpi === 180 || dpi === 203 ? dpi : null;
-  const declaredMM = Number(capabilities.paper_width_mm);
+  const declaredMM = capabilities.paper_width_mm == null ? NaN : Number(capabilities.paper_width_mm);
   if (Number.isFinite(declaredMM)) {
     const w = dotsForPaper(declaredMM, knownDPI);
     if (w !== null) return w;
   }
   const widths = capabilities.paper_widths;
   if (Array.isArray(widths) && widths.length) {
-    const values = widths.map(v => Number(v)).filter(Number.isFinite);
+    const values = widths.map(v => v == null || typeof v === "boolean" || (typeof v === "string" && v.trim() === "") ? NaN : Number(v)).filter(Number.isFinite);
     if (values.length !== widths.length) return null;
     const candidates = values.map(v => dotsForPaper(v, knownDPI));
     // Multiple possible rolls: lay out for the *narrowest* usable width.

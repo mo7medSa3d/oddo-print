@@ -10,6 +10,12 @@ test("agent health collection bounds fleet cardinality before per-Agent fan-out"
   assert.match(health, /\.orderBy\(asc\(agents\.id\)\)/);
   assert.match(health, /\.limit\(boundedLimit\)/);
   assert.match(health, /\.offset\(boundedOffset\)/);
+  const collection = health.slice(health.indexOf("export async function getAllAgentsHealth"));
+  assert.doesNotMatch(collection, /getAgentHealth\(/);
+  assert.match(collection, /\.groupBy\(printJobs\.agentId\)/);
+  assert.match(collection, /\.groupBy\(printers\.agentId\)/);
+  assert.match(collection, /inArray\(printers\.agentId, ids\)/);
+  assert.match(collection, /inArray\(printJobs\.agentId, ids\)/);
 });
 
 test("agent health route preserves array response while exposing bounded pagination evidence", () => {

@@ -47,6 +47,8 @@ func TestGatewayURLContractRejectsUnsupportedOrSecretBearingOrigins(t *testing.T
 		"https://gateway.example.com/?", "https://gateway.example.com/#", "https://gateway.example.com/#fragment",
 		"https://gateway.example.com:0/", "https://gateway.example.com:65536/", "https://gateway.example.com:/",
 		"https://2001:db8::1/", "https://2001:db8::1:8443/",
+		"https://.example.com/", "https://gateway..example.com/", "https://-gateway.example.com/",
+		"https://gateway-.example.com/", "https://[fe80::1%25eth0]/",
 		"ftp://gateway.example.com/", "https:///missing-host",
 	} {
 		t.Run(raw, func(t *testing.T) {

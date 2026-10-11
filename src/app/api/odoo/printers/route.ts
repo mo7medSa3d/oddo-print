@@ -103,7 +103,10 @@ export async function GET(req: Request) {
       connectionType: row.connectionType,
       protocol: row.protocol,
       capabilities: odooPrinterCapabilities(row.capabilities, row.connectionType, row.protocol),
-      printableWidthDots: receiptRasterWidthDots(row.capabilities as Record<string, unknown> | null),
+      printableWidthDots: receiptRasterWidthDots({
+        ...(row.config ?? {}),
+        ...(row.capabilities ?? {}),
+      }),
       agent: {
         id: row.agentId,
         name: row.agentName,

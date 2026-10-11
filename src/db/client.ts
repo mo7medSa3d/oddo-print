@@ -1,5 +1,6 @@
 import { db, pool } from "./index";
 import { CircuitBreaker } from "../lib/circuit-breaker";
+import { BoundedQueryRunner } from "../lib/bounded-query";
 
 export { db, pool };
 
@@ -9,23 +10,12 @@ const dbCircuitBreaker = new CircuitBreaker({
   name: "postgresql",
 });
 
+
+// Diagnostic reads are best-effort. Reserve at least 12 of the 20 pooled
+// connections for printing, auth and durable job state transitions. A timed-out
+// read is still counted until its PostgreSQL operation ACTUALLY settles.
+const boundedDiagnosticQueries = new BoundedQueryRunner(8);
+
 export async function queryWithTimeout<T>(query: () => Promise<T>, ms: number, label: string): Promise<T> {
-  return dbCircuitBreaker.execute(async () => {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`DB timeout ${label} after ${ms}ms`)), ms);
-        // Do not keep the event loop alive for an abandoned query probe.
-        if (typeof timer.unref === "function") timer.unref();
-      });
-      // NOTE: the timeout abandons the caller-side wait but does NOT abort the
-      // underlying query — it keeps running on the pooled connection until the
-      // database finishes or statement_timeout fires. Callers must not assume
-      // cancellation, only bounded waiting.
-      const result = await Promise.race([query(), timeout]);
-      return result as T;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  });
+  return dbCircuitBreaker.execute(() => boundedDiagnosticQueries.run(query, ms, label));
 }

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, pool, closePool } from "./helpers/pg";
 import { renderPrometheusMetrics } from "../src/lib/metrics";
-import { getAgentHealth } from "../src/lib/agent-health";
+import { getAgentHealth, getAllAgentsHealth } from "../src/lib/agent-health";
+import { BoundedQueryRunner } from "../src/lib/bounded-query";
+import { Pool as IsolatedPool } from "pg";
 
 /**
  * Database-backed coverage for the two lines changed when the `as any` casts
@@ -113,4 +115,82 @@ suite("agent health (database-backed)", () => {
     health = await getAgentHealth(f.tenantId, f.agentId);
     expect(health!.onlinePrinterCount).toBe(0);
   });
+  it("fleet aggregates match detail health, respect tenant bounds and include busy-but-fresh printers", async () => {
+    const f = await seedFixture();
+    const otherTenant = await seedFixture();
+    const secondAgentId = "agt_fleet_health_second";
+    await pool().query(
+      "INSERT INTO agents (id, tenant_id, name, status, lifecycle, last_seen_at) VALUES ($1, $2, 'Second agent', 'online', 'active', now())",
+      [secondAgentId, f.tenantId],
+    );
+    await pool().query(
+      "INSERT INTO printers (id, tenant_id, agent_id, name, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, 'Busy printer', 'busy', 'active', now())",
+      ["fleet_busy_printer", f.tenantId, secondAgentId],
+    );
+    await pool().query(
+      "INSERT INTO printers (id, tenant_id, agent_id, name, status, lifecycle, last_seen_at) VALUES ($1, $2, $3, 'Stale printer', 'online', 'active', now() - interval '5 minutes')",
+      ["fleet_stale_printer", f.tenantId, secondAgentId],
+    );
+    await pool().query("UPDATE printers SET status = 'busy' WHERE tenant_id = $1 AND id = $2", [f.tenantId, f.printerId]);
+    await pool().query(
+      "INSERT INTO print_jobs (id, tenant_id, agent_id, printer_id, status, payload, expires_at) VALUES ($1, $2, $3, $4, 'queued', $5::jsonb, now() + interval '1 hour')",
+      ["fleet_health_pending", f.tenantId, f.agentId, f.printerId, JSON.stringify({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" })],
+    );
+    const fleet = await getAllAgentsHealth(f.tenantId, 50, 0);
+    expect(fleet.map((agent) => agent.agentId)).toEqual([f.agentId, secondAgentId].sort());
+    expect(fleet.every((agent) => agent.tenantId === f.tenantId)).toBe(true);
+    expect(fleet.some((agent) => agent.agentId === otherTenant.agentId)).toBe(false);
+    for (const summary of fleet) {
+      const detail = await getAgentHealth(f.tenantId, summary.agentId);
+      expect(summary).toMatchObject({
+        status: detail!.status,
+        queueDepth: detail!.queueDepth,
+        printerCount: detail!.printerCount,
+        onlinePrinterCount: detail!.onlinePrinterCount,
+      });
+      expect(summary.checks.map((c) => [c.name, c.status]))
+        .toEqual(detail!.checks.map((c) => [c.name, c.status]));
+    }
+    expect(fleet.find((agent) => agent.agentId === secondAgentId)).toMatchObject({
+      printerCount: 2, onlinePrinterCount: 1, queueDepth: 0,
+    });
+    expect(fleet.find((agent) => agent.agentId === f.agentId)).toMatchObject({
+      printerCount: 1, onlinePrinterCount: 1, queueDepth: 1,
+    });
+    const page = await getAllAgentsHealth(f.tenantId, 1, 1);
+    expect(page).toHaveLength(1);
+    expect(page[0].agentId).toBe(secondAgentId);
+  });
+
+  it("caller timeouts cannot silently exceed the underlying PostgreSQL pool budget", async () => {
+    // pg's server-side statement_timeout bounds actual execution; unlike
+    // query_timeout this leaves Drizzle's transaction BEGIN path untouched.
+    const limitedPool = new IsolatedPool({
+      connectionString: process.env.DATABASE_URL!,
+      max: 2,
+      connectionTimeoutMillis: 2_000,
+      statement_timeout: 400,
+    });
+    const runner = new BoundedQueryRunner(2);
+    try {
+      const attempts = Array.from({ length: 2 }, (_, i) =>
+        runner.run(() => limitedPool.query("SELECT pg_sleep(0.25)"), 20, `saturated-${i}`));
+      const expired = await Promise.allSettled(attempts);
+      expect(expired.every((r) => r.status === "rejected")).toBe(true);
+      expect(runner.activeCount).toBe(2);
+      await expect(runner.run(() => limitedPool.query("SELECT 1"), 20, "overflow"))
+        .rejects.toThrow("DB diagnostics overloaded");
+      // Wait for the actual two server queries, not just their caller deadlines.
+      for (let i = 0; i < 30 && runner.activeCount > 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(runner.activeCount).toBe(0);
+      expect(limitedPool.waitingCount).toBe(0);
+      expect(limitedPool.totalCount).toBeLessThanOrEqual(2);
+      expect((await limitedPool.query("SELECT 1 AS ok")).rows[0].ok).toBe(1);
+    } finally {
+      await limitedPool.end();
+    }
+  });
+
 });
