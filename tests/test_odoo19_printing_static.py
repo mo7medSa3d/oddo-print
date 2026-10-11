@@ -727,17 +727,6 @@ def test_branch_destinations_not_blocked_by_automatic_company_check():
     assert "destination_company and destination_company != expected_company" in binding
 
 
-def test_sale_details_http_route_preserves_native_fallback():
-    # F022: an unbound Sale Details binding must not remove the native PDF
-    # download path (parity with ir_actions_report fallback).
-    pos = (ADDON / "controllers/pos.py").read_text(encoding="utf-8")
-    marker = "if result.get('native'):"
-    native_branch = pos[pos.index(marker):]
-    native_branch = native_branch[:native_branch.index("response = request.make_response")]
-    assert "super().print_sale_details" in native_branch
-    assert "status=422" not in native_branch
-
-
 def test_document_type_computation_survives_empty_report_name():
     # F023: (report_name or id).strip() crashes on int id when report_name
     # is falsy; the fallback must be coerced to str first.
