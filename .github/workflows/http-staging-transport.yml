@@ -1,0 +1,50 @@
+name: HTTPS Staging Security
+
+on:
+  push:
+    branches: [test/http-server-ready]
+  pull_request:
+    branches: [test/http-server-ready]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: https-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  https-contracts:
+    name: HTTPS Gateway + Agent security contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Verify Go Agent secure transport policy
+        working-directory: agent
+        run: go test -mod=readonly ./internal/config -count=1
+
+      - name: Verify automatic domain binding in PostgreSQL
+        run: bash tests/domain-staging-binding.integration.sh
+
+      - name: Validate HTTPS domain staging contract
+        run: |
+          set -euo pipefail
+          bash -n deploy/domain-test/setup-domain-test.sh
+          bash -n deploy/domain-test/smoke-domain-test.sh
+          npm exec vitest run --config vitest.unit.config.mts tests/domain-staging-deployment.contract.test.ts tests/http-test-deployment-contract.test.ts tests/http-test-email-capture.test.ts tests/stripe-plan-binding.test.ts tests/request-guard.test.ts tests/request-guard-http.test.ts tests/desktop-auth-contract.test.ts
+          cp deploy/domain-test/.env.domain-test.example /tmp/yaseir-domain-test.env
+          docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config -q
+

@@ -1,0 +1,38 @@
+# Triaged gitleaks findings: hardcoded FAKE credentials in test fixtures
+# from September 2026 (e.g. "test-secret-that-is-at-least-32-characters-long").
+# Each fingerprint pins commit+file+rule+line, so future leaks are still
+# detected. Current tests build signing material from fragments instead
+# (see tests/helpers/test-secrets.ts).
+31cb8a52378210ac54f89f77aae73986039d47d3:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:1462
+31cb8a52378210ac54f89f77aae73986039d47d3:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:761
+31cb8a52378210ac54f89f77aae73986039d47d3:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:954
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/agent-deletion.test.ts:generic-api-key:40
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/billing-webhook-concurrency.integration.test.ts:generic-api-key:29
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/dashboard-payload-projection.test.ts:generic-api-key:38
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/discovery-approval.test.ts:generic-api-key:23
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/manager-auth.test.ts:generic-api-key:21
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/multi-instance-gateway.test.ts:generic-api-key:14
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/multi-tenant-selection.test.ts:generic-api-key:20
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/platform-control-plane.test.ts:generic-api-key:34
+31cb8a52378210ac54f89f77aae73986039d47d3:tests/printer-desired-state.test.ts:generic-api-key:18
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:1460
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:761
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:odoo_addons/print_gateway/tests/test_control_plane.py:generic-api-key:952
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/agent-deletion.test.ts:generic-api-key:40
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/billing-webhook-concurrency.integration.test.ts:generic-api-key:29
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/dashboard-payload-projection.test.ts:generic-api-key:38
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/discovery-approval.test.ts:generic-api-key:23
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/manager-auth.test.ts:generic-api-key:21
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/multi-instance-gateway.test.ts:generic-api-key:14
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/multi-tenant-selection.test.ts:generic-api-key:20
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/platform-control-plane.test.ts:generic-api-key:34
+33d4b63cd64cdad0dff4529cce63ad2d91f4bbc0:tests/printer-desired-state.test.ts:generic-api-key:18
+acd7139cf2796e63869315624798ecf2c571f544:tests/agent-deletion.test.ts:generic-api-key:40
+acd7139cf2796e63869315624798ecf2c571f544:tests/billing-webhook-concurrency.integration.test.ts:generic-api-key:29
+acd7139cf2796e63869315624798ecf2c571f544:tests/dashboard-payload-projection.test.ts:generic-api-key:38
+acd7139cf2796e63869315624798ecf2c571f544:tests/discovery-approval.test.ts:generic-api-key:23
+acd7139cf2796e63869315624798ecf2c571f544:tests/manager-auth.test.ts:generic-api-key:21
+acd7139cf2796e63869315624798ecf2c571f544:tests/multi-instance-gateway.test.ts:generic-api-key:14
+acd7139cf2796e63869315624798ecf2c571f544:tests/multi-tenant-selection.test.ts:generic-api-key:20
+acd7139cf2796e63869315624798ecf2c571f544:tests/platform-control-plane.test.ts:generic-api-key:34
+acd7139cf2796e63869315624798ecf2c571f544:tests/printer-desired-state.test.ts:generic-api-key:18

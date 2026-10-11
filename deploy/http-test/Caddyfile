@@ -1,0 +1,22 @@
+http:// {
+  encode gzip zstd
+
+  request_body {
+    max_size 8MiB
+  }
+
+  # Caddy's reverse_proxy sanitizes X-Forwarded-* inputs by default, so
+  # client-supplied forwarding values are not trusted by the Gateway.
+
+  @gateway_host host {$HTTP_TEST_HOST} {$HTTP_TEST_HOST}:{$HTTP_TEST_PORT}
+  handle @gateway_host {
+    reverse_proxy gateway:3000 {
+      header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
+      header_up -X-Real-Ip
+    }
+  }
+
+  handle {
+    respond "Yaseir HTTP test Gateway is available only through the configured server IP." 421
+  }
+}

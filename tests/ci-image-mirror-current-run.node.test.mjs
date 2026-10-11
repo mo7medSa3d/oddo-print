@@ -47,10 +47,38 @@ test('Compose CLI selects the CI overlay without changing default production ref
   assert.match(dockerfile, /^ARG NODE_BASE_IMAGE=node:24\.21\.0-alpine@sha256:[a-f0-9]{64}$/m);
 });
 
-test('Odoo Community CI image stays immutable and does not pull from Docker Hub', () => {
-  const odoo = 'public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
-  assert.equal(ci.split(odoo).length - 1, 2, 'pull and run must use same immutable image');
-  assert.equal(ci.includes('docker pull odoo:19.0@'), false);
+test('CI uses the same reviewed image digests on ECR failure, without floating tags', () => {
+  const reviewed = [
+    'node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1',
+    'postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
+    'caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e',
+  ];
+  for (const image of reviewed) {
+    assert.ok(workflow.includes(`"${mirrorPrefix}${image}"`), `missing pinned mirror ${image}`);
+  }
+  assert.match(workflow, /if ! docker pull "\$image"; then/);
+  assert.match(workflow, /grep -Fxq "postgres:16\.15-alpine@sha256:/);
+  assert.match(workflow, /grep -Fxq "caddy:2\.11\.4-alpine@sha256:/);
+  assert.match(workflow, /grep -Fq "ARG NODE_BASE_IMAGE=node:24\.21\.0-alpine@sha256:/);
+  assert.match(workflow, /echo "COMPOSE_FILE=docker-compose\.yml" >> "\$GITHUB_ENV"/);
+  assert.doesNotMatch(workflow, /docker pull (?:node|postgres|caddy):[^\s@]+(?:\s|$)/m);
+});
+
+test('Odoo CI has two registry origins pinned to the identical reviewed image digest', () => {
+  const digest = 'sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
+  const ecr = `public.ecr.aws/docker/library/odoo:19.0@${digest}`;
+  const hub = `docker.io/library/odoo:19.0@${digest}`;
+  const candidatesLine = ci.split('\n').find(line => line.includes('for candidate in '));
+  assert.ok(candidatesLine, 'image selection must be explicit');
+  const refs = [...candidatesLine.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(refs, [ecr, hub], 'no floating tag or unexpected registry fallback');
+  assert.equal(ci.split(ecr).length - 1, 1);
+  assert.equal(ci.split(hub).length - 1, 1);
+  assert.match(ci, /if docker pull "\$candidate"; then/);
+  assert.match(ci, /odoo_image="\$candidate"/);
+  assert.match(ci, /if \[ -z "\$odoo_image" \]; then\s*echo[^\n]+\n\s*exit 1/);
+  assert.match(ci, /"\$odoo_image" \\/);
+  assert.doesNotMatch(ci, /docker pull (?:odoo|docker\.io\/library\/odoo):19\.0(?:\s|$)/m);
 });
 
 test('all CI mirror image overrides remain immutable and reject mutable tags', () => {

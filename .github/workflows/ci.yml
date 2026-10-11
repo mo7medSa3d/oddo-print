@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   pull_request:
     branches: [main]
   merge_group:
@@ -356,7 +356,25 @@ jobs:
         run: |
           set -euo pipefail
           credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
-          docker pull public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c
+          # ECR Public can throttle concurrent push/PR runs. Both references
+          # are immutable and use the exact same Odoo 19 image-index digest.
+          # Never fall back to a floating latest / major-version tag.
+          odoo_image=""
+          for candidate in "public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c" "docker.io/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"; do
+            for attempt in 1 2; do
+              if docker pull "$candidate"; then
+                odoo_image="$candidate"
+                break 2
+              fi
+              echo "Pinned Odoo image pull unavailable: $candidate, attempt $attempt/2" >&2
+              if [ "$attempt" -lt 2 ]; then sleep 5; fi
+            done
+          done
+          if [ -z "$odoo_image" ]; then
+            echo "ERROR: both digest-pinned Odoo registries unavailable" >&2
+            exit 1
+          fi
+          echo "Odoo 19 CI using verified pinned manifest: $odoo_image"
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
             docker run --rm --network host --name odoo19_test_run \
@@ -369,7 +387,7 @@ jobs:
               -v "$GITHUB_WORKSPACE/odoo_addons:/mnt/extra-addons:ro" \
               -v "$GITHUB_WORKSPACE/agent:/mnt/agent:ro" \
               -v "$GITHUB_WORKSPACE/src:/mnt/src:ro" \
-              public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c \
+              "$odoo_image" \
               odoo \
                 --database=odoo19_test \
                 --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons \

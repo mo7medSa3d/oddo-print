@@ -60,7 +60,18 @@ describe("deployment security contracts", () => {
     expect(agentMain).toContain('YaseirAgent service is already uninstalled');
     expect(windowsWorkflow).toContain('NSIS did not install the YaseirAgent Windows service');
     expect(windowsWorkflow).toContain('NSIS service did not preserve the legacy config path');
-    expect(windowsWorkflow).toContain('NSIS uninstall verified: service, install files, ProgramData, and current-user data are removed.');
+    // Elevated machine uninstall cannot safely enumerate or delete user
+    // profiles. Keep strict service/install/ProgramData checks, and expose
+    // per-user residual state instead of pretending it was removed.
+    expect(windowsWorkflow).toContain("NSIS uninstall left the YaseirAgent Windows service behind");
+    expect(windowsWorkflow).toContain("NSIS uninstall left files behind in");
+    expect(windowsWorkflow).toContain("NSIS uninstall left shared runtime data behind:");
+    expect(windowsWorkflow).toContain("NSIS uninstall left per-user state outside its owned machine cleanup scope:");
+    expect(windowsWorkflow).toContain("NSIS machine uninstall verified: owned service, install files, and ProgramData removed; per-user cleanup remains separate.");
+    expect(windowsWorkflow).not.toContain("current-user data are removed.");
+    expect(nsisHooks).toContain("only the current uninstall caller's product-");
+    expect(nsisHooks).toContain("checking for reparse roots");
+    expect(nsisHooks).toContain("must never recurse over other accounts or HKCU keys.");
   });
 
   it("keeps the Windows workflow read-only and immutable", () => {

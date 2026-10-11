@@ -12,6 +12,16 @@ async function loadEmailHandler(fetchStub) {
   const sourceModule = new vm.SourceTextModule(stripTypeScriptTypes(source, {mode: 'transform'}), {context});
   await sourceModule.link((specifier) => {
     if (specifier === 'node:crypto') return new vm.SyntheticModule(['randomUUID'],function(){this.setExport('randomUUID',randomUUID)},{context});
+    // Staging adds a capture-only branch to the email module. Keep the Resend
+    // retry VM hermetic: file writes must never occur in these production-path tests.
+    if (specifier === 'node:fs') return new vm.SyntheticModule(['appendFileSync', 'mkdirSync'], function() {
+      const unexpectedCapture = () => { throw new Error('Staging email capture unexpectedly invoked in Resend retry test'); };
+      this.setExport('appendFileSync', unexpectedCapture);
+      this.setExport('mkdirSync', unexpectedCapture);
+    }, {context});
+    if (specifier === 'node:path') return new vm.SyntheticModule(['dirname'], function() {
+      this.setExport('dirname', () => { throw new Error('Staging email capture unexpectedly invoked in Resend retry test'); });
+    }, {context});
     if (specifier === './runtime-secret') return new vm.SyntheticModule(['runtimeSecret'],function(){this.setExport('runtimeSecret',name => ({RESEND_API_KEY:'fixture',EMAIL_FROM:'print@example.test'})[name])},{context});
     throw new Error(`Unexpected import ${specifier}`);
   });
