@@ -2030,8 +2030,8 @@ export function PageHeader({
   sticky?: boolean;
   width?: "default" | "wide" | "narrow";
   /**
-   * "band"    — full-bleed page band with its own container + bottom border,
-   *             used when the header sits directly under the app shell.
+   * "band"    — page header aligned to the content grid without a separate
+   *             boxed surface or border; sticky headers retain their divider.
    * "inline"  — header block meant to live inside a `PageContainer`.
    */
   variant?: "band" | "inline";
@@ -2042,14 +2042,14 @@ export function PageHeader({
     <header
       className={[
         variant === "band"
-          ? `tg-page-heading border-b border-edge-subtle ${sticky ? "sticky top-0 z-30 glass-chrome" : ""}`
+          ? `tg-page-heading ${sticky ? "sticky top-0 z-30 glass-chrome border-b border-edge-subtle" : ""}`
           : "",
         className,
       ].join(" ")}
     >
-      <div className={variant === "band" ? `mx-auto w-full min-w-0 max-w-full ${max} px-3 py-5 sm:px-6 lg:px-8` : ""}>
+      <div className={variant === "band" ? `mx-auto w-full min-w-0 max-w-full ${max} px-3 pt-5 pb-0 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7` : ""}>
         {breadcrumbs && <div className="mb-2 text-sm text-ink-3">{breadcrumbs}</div>}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             {icon && (
               <span className="tg-page-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-edge bg-surface text-ink-3 shadow-xs">

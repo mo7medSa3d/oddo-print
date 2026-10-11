@@ -175,6 +175,35 @@ test('Gateway and Platform dock their rails flush to the content; Desktop retain
   assert.match(rail, /flex h-14 shrink-0 items-center gap-3 border-b/);
 });
 
+test('dashboard titles merge with the web canvas instead of a full-width tinted box', () => {
+  const css = read('src/app/globals.css');
+  const header = ui.PageHeader({
+    title: 'Print dashboard',
+    description: 'Current jobs',
+    actions: jsx('button', { children: 'Refresh' }),
+  });
+  const sticky = ui.PageHeader({ title: 'Sticky', sticky: true });
+  assert.match(header.props.className, /tg-page-heading/);
+  assert.doesNotMatch(header.props.className, /border-b|glass-chrome|shadow/);
+  assert.match(sticky.props.className, /glass-chrome border-b border-edge-subtle/);
+  const headerLayout = walk(header, node =>
+    typeof node.props?.className === 'string' && node.props.className.includes('sm:justify-between')
+  );
+  assert.equal(headerLayout.length, 1);
+  assert.match(headerLayout[0].props.className, /sm:items-center/);
+  const headerContent = walk(header, node =>
+    typeof node.props?.className === 'string' && node.props.className.includes('lg:pt-7')
+  );
+  assert.equal(headerContent.length, 1);
+  assert.match(headerContent[0].props.className, /pb-0/);
+
+  // Gateway + Platform share the same solid canvas and logical RTL sidebar.
+  assert.match(css, /\.tg-console-content\s*\{\s*min-height: 100vh;\s*background: var\(--bg\);/);
+  assert.match(css, /\.tg-page-heading:not\(\.glass-chrome\)\s*\{\s*background: transparent;\s*border: 0;\s*box-shadow: none;/);
+  assert.match(css, /border-inline-end: 1px solid var\(--border-subtle\)/);
+  assert.match(css, /\.tg-desktop-rail\s*\{\s*background: var\(--surface\);/);
+});
+
 test('motion remains optional and Arabic/English themes share one token layer', () => {
   const css = read('src/app/globals.css');
   const desktopCss = read('src/desktop/theme-light.css');
