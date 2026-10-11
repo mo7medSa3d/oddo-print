@@ -1150,6 +1150,14 @@
       var(--bg);
   }
 
+  /* Give Gateway and Platform pages a single uninterrupted canvas. The
+     ambient shell wash is useful for login/marketing, but behind a transparent
+     heading it looked like a second rectangular header surface. */
+  .tg-console-content {
+    min-height: 100vh;
+    background: var(--bg);
+  }
+
   /* The Gateway and Platform sidebar is docked, not a floating card.
      Only a quiet divider on the content edge separates navigation from the
      page. Logical borders work identically in RTL and LTR. */
@@ -1248,10 +1256,12 @@
     background: color-mix(in srgb, var(--surface) 92%, var(--brand) 8%);
   }
 
-  /* Let the title band flow into the page canvas instead of creating
-     a second rectangular surface next to the docked sidebar. */
+  /* No floating card, accent wash or horizontal rule around ordinary page
+     headings. Only explicitly sticky headings get glass chrome and a rule. */
   .tg-page-heading:not(.glass-chrome) {
     background: transparent;
+    border: 0;
+    box-shadow: none;
   }
 
   .tg-view-reveal {
