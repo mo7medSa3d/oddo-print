@@ -175,7 +175,17 @@ func TestPreDispatchHandBackScansPastBusyWaiters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ag.Close()
+	// The test deliberately inserts synthetic in-flight IDs without starting
+	// real goroutines. Remove them before Agent.Close or Windows keeps the
+	// SQLite ledger handle open and TempDir cleanup fails with sharing denied.
+	defer func() {
+		ag.inFlightMu.Lock()
+		for _, id := range []string{"busy-a", "busy-b", "busy-c", "busy-d"} {
+			delete(ag.inFlight, id)
+		}
+		ag.inFlightMu.Unlock()
+		ag.Close()
+	}()
 	for _, id := range []string{"busy-a", "busy-b", "busy-c", "busy-d"} {
 		if err := ag.queue.ReserveBeforeDispatch(id, "p1", []byte("receipt"), "live-"+id); err != nil {
 			t.Fatal(err)
