@@ -10,10 +10,14 @@ def read(rel): return (ROOT/rel).read_text(encoding='utf-8')
 def test_migration_inventory_matches_current_journal():
     journal=json.loads(read('drizzle/meta/_journal.json'))['entries']
     sql=sorted((ROOT/'drizzle').glob('*.sql'))
-    assert len(journal)==len(sql)==81
-    assert journal[-1]['tag']=='0080_inventory_snapshot_version'
-    assert '0080 | 1 |' in read('MIGRATION.md')
-    assert '**Total**: 81 forward-only SQL migrations (0000–0080)' in read('MIGRATION.md')
+    # Enforce a one-to-one ordered mapping between the immutable migration
+    # journal and the SQL files, including new forward-only migrations.
+    tags=[entry['tag'] for entry in journal]
+    assert tags==[path.stem for path in sql]
+    assert len(journal)==len(sql)==82
+    assert journal[-1]['tag']=='0081_physical_printers_only'
+    assert '| 0081 | 1 |' in read('MIGRATION.md')
+    assert '**Total**: 82 forward-only SQL migrations (0000–0081)' in read('MIGRATION.md')
 
 def test_adr_targets_are_not_presented_as_measured_guarantees():
     content=read('ADR.md')

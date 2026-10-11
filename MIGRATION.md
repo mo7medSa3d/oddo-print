@@ -54,8 +54,11 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0078 | 1 | Hot-path query indexes for jobs, audit events, Agents, and printers |
 | 0079 | 1 | Stable bounded Team member/invitation pagination indexes |
 | 0080 | 1 | Inventory snapshot version tracking |
+| 0081 | 1 | Physical-only printer admission; transactional removal of legacy virtual/redirected destinations and associated history |
 
-**Total**: 81 forward-only SQL migrations (0000–0080), plus retained hash-versioned forward repairs in `scripts/db-migrate.ts`.
+**Total**: 82 forward-only SQL migrations (0000–0081), plus retained hash-versioned forward repairs in `scripts/db-migrate.ts`.
+
+**Deployment warning for 0081:** Back up PostgreSQL and drain active print jobs before running this migration. Migration 0081 removes virtual/redirected printer records and their associated historical jobs/receipts; it refuses to proceed while any affected job is claimed or printing. This is a permanent data-removal migration already present in the source, **not** introduced by the CI documentation update.
 
 The production migrator applies every unapplied hash under one advisory lock, regardless of regressing historical timestamps. Forward repairs add retained terminal receipts, Stripe revision/checkout intent fields and price history, terminal claim hashes, and the payload null-check repair; existing SQL and repair hashes must never be rewritten.
 
