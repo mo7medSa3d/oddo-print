@@ -148,3 +148,53 @@ func TestPreDispatchHandBackRetriesWithoutTouchingLiveJob(t *testing.T) {
 		t.Fatal("successful hand-back must clear original claim only after gateway ACK")
 	}
 }
+
+// Exhausting the SQL scan limit with live waiters must not starve an abandoned
+// pre-dispatch claim on every periodic sweep. Only idle claims are sent back.
+func TestPreDispatchHandBackScansPastBusyWaiters(t *testing.T) {
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
+	var returns atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			JobID      string `json:"jobId"`
+			ClaimToken string `json:"claimToken"`
+			Status     string `json:"status"`
+		}
+		if r.Method != http.MethodPatch || json.NewDecoder(r.Body).Decode(&body) != nil ||
+			body.JobID != "abandoned" || body.ClaimToken != "abandoned-claim" || body.Status != "queued" {
+			http.Error(w, "unexpected or live job returned", http.StatusBadRequest)
+			return
+		}
+		returns.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": "queued"})
+	}))
+	defer srv.Close()
+	cfg := &config.Config{}
+	cfg.Agent.ID, cfg.Agent.Secret, cfg.Server.URL = "agt_test", "secret", srv.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "agent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ag.Close()
+	for _, id := range []string{"busy-a", "busy-b", "busy-c", "busy-d"} {
+		if err := ag.queue.ReserveBeforeDispatch(id, "p1", []byte("receipt"), "live-"+id); err != nil {
+			t.Fatal(err)
+		}
+		ag.inFlightMu.Lock()
+		ag.inFlight[id] = struct{}{}
+		ag.inFlightMu.Unlock()
+	}
+	// SQLite timestamps have second granularity; make the ordering
+	// deterministic even when the test runner uses a slow filesystem.
+	time.Sleep(1200 * time.Millisecond)
+	if err := ag.queue.ReserveBeforeDispatch("abandoned", "p1", []byte("receipt"), "abandoned-claim"); err != nil {
+		t.Fatal(err)
+	}
+	ag.reportPendingTerminalStatuses(context.Background())
+	if got := returns.Load(); got != 1 {
+		t.Fatalf("abandoned claim starved behind live waiters: %d returns", got)
+	}
+	if got := ag.queue.ClaimTokenFor("abandoned"); got != "" {
+		t.Fatalf("acknowledged abandoned claim not cleared: %q", got)
+	}
+}

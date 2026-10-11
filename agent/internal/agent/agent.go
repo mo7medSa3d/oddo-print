@@ -1136,13 +1136,18 @@ func (a *Agent) reportPendingPreDispatchReturns(ctx context.Context) {
 	// network requests. Remaining durable returns are retried next tick.
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	pending, err := a.queue.PendingPreDispatchReturns(4)
+	// Up to maxPendingJobs active waiters may sort ahead of abandoned claims.
+	// Fetch that entire bounded prefix plus one hand-back batch; otherwise the
+	// oldest four live waiters could starve all orphaned claims forever.
+	const handBackBatch = 4
+	pending, err := a.queue.PendingPreDispatchReturns(maxPendingJobs + handBackBatch)
 	if err != nil {
 		log.Printf("Pre-dispatch return outbox scan failed: %v", err)
 		return
 	}
+	attempted := 0
 	for _, item := range pending {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || attempted >= handBackBatch {
 			return
 		}
 		a.inFlightMu.Lock()
@@ -1154,6 +1159,7 @@ func (a *Agent) reportPendingPreDispatchReturns(ctx context.Context) {
 		if busy {
 			continue
 		}
+		attempted++
 		func() {
 			defer func() {
 				a.inFlightMu.Lock()

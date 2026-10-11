@@ -258,7 +258,7 @@ func (q *Queue) PendingPreDispatchReturns(limit int) ([]PreDispatchReturn, error
 	}
 	rows, err := q.db.Query(`SELECT id, claim_token FROM print_jobs
 		WHERE status = 'queued' AND claim_token IS NOT NULL AND claim_token <> ''
-		ORDER BY updated_at ASC LIMIT ?`, limit)
+		ORDER BY updated_at ASC, id ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
