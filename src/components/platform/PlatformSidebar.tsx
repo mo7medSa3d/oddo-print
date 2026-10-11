@@ -5,9 +5,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { LogOut, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import type { TopNavItem } from "../TopNavbar";
 import { BrandMark } from "../brand";
+import { MobileAppBar } from "../MobileAppBar";
 import { LanguageSwitcher } from "../LanguageSwitcher";
 import { ThemeToggle } from "../ThemeToggle";
 import { useDialog } from "../ui";
@@ -78,6 +79,8 @@ export function PlatformSidebar({
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
+  const currentItem = items.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const currentTitle = currentItem?.labelKey ? t(currentItem.labelKey) : currentItem?.label ?? t("platform.brand.controlPlane");
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -189,20 +192,16 @@ export function PlatformSidebar({
         </div>
       </aside>
 
-      {/* The mobile view uses only a floating drawer trigger, never a top bar. */}
-      <button
-        type="button"
-        data-platform-mobile-navigation
-        aria-label={t("nav.openNavigation")}
-        aria-expanded={mobileOpen}
-        aria-controls="platform-mobile-nav"
-        onClick={() => setMobileOpen(true)}
-        className="fixed start-3 top-3 z-30 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 shadow-md transition-colors hover:border-edge-accent hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
-      >
-        <MenuIcon className="h-5 w-5" aria-hidden />
-      </button>
       <div className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out">
-        <div className="pt-14 lg:pt-0">{children}</div>
+        <MobileAppBar
+          area="platform"
+          title={currentTitle}
+          section={t("nav.controlPlaneBadge")}
+          navigationId="platform-mobile-nav"
+          navigationOpen={mobileOpen}
+          onOpenNavigation={() => setMobileOpen(true)}
+        />
+        {children}
       </div>
 
       {mobileOpen && (

@@ -13,7 +13,6 @@ import {
   Settings as SettingsIcon,
   Activity,
   LogOut,
-  Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
   Moon,
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
+import { MobileAppBar } from "./MobileAppBar";
 import { Avatar, Menu, useDialog, type MenuItemSpec } from "./ui";
 import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
@@ -397,22 +397,16 @@ function ConsoleShell({
       <div
         className="tg-console-content min-w-0 max-w-full motion-safe:transition-[padding-inline-start] motion-safe:duration-200 motion-safe:ease-out"
       >
-        {/* Navigation and actions live in the sidebar. This single mobile
-            trigger is not a top navbar and stays reachable while scrolling. */}
-        <button
-          type="button"
-          data-gateway-mobile-navigation
-          aria-label={t("nav.openNavigation")}
-          aria-expanded={mobileOpen}
-          aria-controls="gateway-mobile-nav"
-          onClick={() => setMobileOpen(true)}
-          className="fixed start-3 top-3 z-30 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 shadow-md transition-colors hover:border-edge-accent hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
-        >
-          <MenuIcon className="h-5 w-5" aria-hidden />
-        </button>
-        <div className="pt-14 lg:pt-0">
-          <main className="page-transition min-w-0 max-w-full">{children}</main>
-        </div>
+        <MobileAppBar
+          area="gateway"
+          title={navLabel(NAV_ITEMS.find((item) => isActive(pathname, item.href)) ?? NAV_ITEMS[0], t)}
+          section={t("nav.section.workspace")}
+          navigationId="gateway-mobile-nav"
+          navigationOpen={mobileOpen}
+          onOpenNavigation={() => setMobileOpen(true)}
+          onSearch={() => setPaletteOpen(true)}
+        />
+        <main className="page-transition min-w-0 max-w-full">{children}</main>
       </div>
 
       {/* Mobile navigation sheet */}

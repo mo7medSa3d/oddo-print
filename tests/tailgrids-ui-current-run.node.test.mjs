@@ -124,7 +124,8 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.doesNotMatch(gateway, /<BreadcrumbTrail/);
   assert.match(gateway, /<NavIconFrame active=\{active\}/);
   assert.match(gateway, /<ShellSearchButton/);
-  assert.match(gateway, /data-gateway-mobile-navigation/);
+  assert.match(gateway, /<MobileAppBar/);
+  assert.match(read('src/components/MobileAppBar.tsx'), /data-gateway-mobile-navigation/);
   assert.match(platformLayout, /<PlatformSidebar items=\{NAV_ITEMS\}/);
   assert.match(platformSidebar, /tg-console-rail/);
   assert.match(gateway, /main className="page-transition min-w-0 max-w-full"/);
@@ -151,11 +152,12 @@ test('Gateway and Platform use matching 12px sidebar insets; Desktop keeps its o
   assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px/);
   assert.match(gateway, /tg-console-rail fixed/);
   assert.match(platformSidebar, /tg-console-rail fixed/);
-  assert.match(gateway, /fixed start-3 top-3/);
-  assert.match(platformSidebar, /fixed start-3 top-3/);
+  assert.match(gateway, /area="gateway"/);
+  assert.match(platformSidebar, /area="platform"/);
+  assert.match(read('src/components/MobileAppBar.tsx'), /tg-mobile-appbar sticky top-0/);
   assert.doesNotMatch(gateway, /tg-console-topbar/);
   assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
-  assert.match(desktop, /tg-desktop-topbar sticky top-2/);
+  assert.match(desktop, /tg-desktop-topbar tg-desktop-header sticky top-2/);
   assert.match(desktop, /lg:mx-3/);
   assert.match(desktop, /lg:ps-\[92px\]/);
   assert.match(desktop, /lg:ps-\[276px\]/);

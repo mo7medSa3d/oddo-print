@@ -1350,3 +1350,103 @@
     transform: none !important;
   }
 }
+
+/* ============================================================
+   Operational responsive refinements — shared Gateway / Platform / Desktop
+   ============================================================ */
+@layer components {
+  /* Side rails behave like a readable sheet on phones, including short
+     viewports and devices with home-indicator/safe-area insets. */
+  @media (max-width: 1023.98px) {
+    .tg-mobile-sheet,
+    .tg-desktop-rail {
+      max-height: 100dvh;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      overscroll-behavior: contain;
+    }
+    .tg-console-content { padding-inline-start: 0; }
+  }
+
+  /* The phone toolbar has a single predictable row. Rare controls move to
+     its accessible overflow menu; Arabic titles must never lose their row. */
+  @media (max-width: 639.98px) {
+    .tg-desktop-topbar.tg-desktop-header {
+      position: sticky;
+      top: 0;
+      margin: 0 0 12px;
+      min-height: calc(64px + env(safe-area-inset-top, 0px));
+      padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+      flex-wrap: nowrap;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      box-shadow: none;
+    }
+    .tg-desktop-header-title {
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tg-desktop-header-actions {
+      flex: 0 0 auto;
+      width: auto;
+      padding: 0;
+      border: 0;
+    }
+  }
+
+  @media (max-width: 479.98px) {
+    .tg-page-actions > :is(button, a) {
+      min-height: 44px;
+      max-width: 100%;
+    }
+    .tg-page-actions > :is(button, a):only-child { flex: 1 1 auto; }
+    .tg-page-actions > :is(button, a) { white-space: normal; text-align: center; }
+  }
+
+  /* Active horizontal filters and overflowed data remain discoverable
+     without clipping translations, long IDs, or focused controls. */
+  .tg-tab-list { scroll-padding-inline: 8px; }
+  .data-table :is(th, td) { min-width: 0; }
+  .data-table td :is(code, pre) { overflow-wrap: anywhere; }
+  .tg-mobile-sheet :is(a, button):focus-visible,
+  .tg-desktop-rail :is(a, button):focus-visible { outline-offset: -2px; }
+
+  @media (pointer: coarse) and (max-width: 1023.98px) {
+    .tg-mobile-sheet .tg-nav-item,
+    .tg-desktop-rail .tg-nav-item { min-height: 48px; }
+    .tg-mobile-sheet :is(button[aria-label], a[aria-label]) { min-height: 44px; }
+  }
+}
+
+/* Unified mobile navigation chrome: unlike a detached floating hamburger,
+   this never covers page content, respects notches, and remains stable in RTL. */
+@layer components {
+  @media (max-width: 1023.98px) {
+    .tg-mobile-appbar {
+      padding-top: env(safe-area-inset-top, 0px);
+      -webkit-backdrop-filter: blur(18px) saturate(150%);
+      backdrop-filter: blur(18px) saturate(150%);
+      box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 3%, transparent);
+    }
+    .tg-mobile-appbar-inner { width: 100%; }
+    .tg-mobile-appbar-button:active { transform: scale(0.97); }
+    .tg-mobile-appbar + main,
+    .tg-mobile-appbar + .page-transition { min-width: 0; }
+  }
+  @media (max-width: 639.98px) {
+    /* The page heading is a secondary layer under the app bar: no competing
+       giant hero/padding on 320–390px phones. Desktop headings are unchanged. */
+    .tg-page-heading > div { padding-block: 16px 18px; }
+    .tg-page-heading .tg-page-eyebrow,
+    .tg-page-heading .tg-page-icon { display: none; }
+    .tg-page-heading .tg-page-title { font-size: clamp(1.375rem, 6vw, 1.75rem); }
+    .tg-page-heading .tg-page-description {
+      font-size: 0.875rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+  }
+}

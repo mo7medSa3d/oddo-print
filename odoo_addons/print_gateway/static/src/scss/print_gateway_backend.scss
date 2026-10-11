@@ -416,3 +416,44 @@
     }
 }
 
+
+/* Narrow Odoo backend surfaces: keep actions and multi-line identifiers
+   available without changing Odoo's native form/list semantics. Scoped to
+   Print Gateway only; no global .o_form_view or .btn overrides. */
+@media (max-width: 767.98px) {
+    .o_pg_view {
+        --pg-fs-body: 14px;
+        --pg-fs-small: 13px;
+
+        .o_pg_connection_banner,
+        .o_pg_partial_alert,
+        .o_pg_step_header {
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+        }
+
+        .o_pg_partial_alert {
+            align-items: stretch;
+
+            > .btn,
+            > a.btn {
+                min-height: 44px;
+                max-width: 100%;
+                white-space: normal;
+            }
+            .o_pg_partial_content { min-width: 0; flex: 1 1 auto; }
+        }
+
+        .o_pg_pairing_wizard,
+        .o_pg_pairing_code_input {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .o_notebook .nav-tabs {
+            scroll-padding-inline: 12px;
+            scrollbar-width: thin;
+        }
+    }
+}

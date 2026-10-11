@@ -6,6 +6,28 @@ import { NavIconFrame } from "../../components/visual-system";
 import type { Page } from "../types";
 import { useI18n } from "../../i18n/react";
 
+// A rail can be icon-only on desktop, but a phone-width drawer must never
+// inherit that state: it would hide all navigation labels. Subscribe to a
+// media query instead of reading window.innerWidth only once (resize/zoom).
+const NARROW_NAV_QUERY = "(max-width: 1023px)";
+
+function subscribeNarrowNavigation(onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => undefined;
+  const query = window.matchMedia(NARROW_NAV_QUERY);
+  if (typeof query.addEventListener === "function") {
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }
+  // Support older Windows WebView2 builds using the legacy event API.
+  query.addListener(onChange);
+  return () => query.removeListener(onChange);
+}
+
+function isNarrowNavigation(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(NARROW_NAV_QUERY).matches : false;
+}
+
 export interface NavItem {
   id: Page;
   label: string;
@@ -33,13 +55,15 @@ export function Sidebar({
   isOnline: boolean; version: string; lastStatusCheck: string | null;
 }) {
   const { t, formatTime } = useI18n();
+  const isNarrow = React.useSyncExternalStore(subscribeNarrowNavigation, isNarrowNavigation, () => false);
+  const compact = collapsed && !isNarrow;
   const asideRef = React.useRef<HTMLElement | null>(null);
   // Mobile drawer keyboard behavior: while open on small screens the drawer
   // acts as a dialog - Escape closes, Tab cycles inside (C048). Desktop
   // widths keep the persistent sidebar.
   React.useEffect(() => {
     if (!sidebarOpen) return;
-    if (typeof window === "undefined" || window.matchMedia("(min-width: 1024px)").matches) return;
+    if (!isNarrow) return;
     const aside = asideRef.current;
     if (!aside) return;
     aside.setAttribute("role", "dialog");
@@ -81,12 +105,19 @@ export function Sidebar({
       aside.removeAttribute("aria-modal");
       previous?.focus?.();
     };
-  }, [sidebarOpen, setSidebarOpen]);
+  }, [sidebarOpen, isNarrow, setSidebarOpen]);
+  React.useEffect(() => {
+    if (!sidebarOpen || !isNarrow) return;
+    // Prevent keyboard/touch scrolling of the content behind the drawer.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [sidebarOpen, isNarrow]);
   return (
-    <aside ref={asideRef} className={`tg-desktop-rail fixed inset-y-0 start-0 z-40 lg:inset-y-3 lg:start-3 flex flex-col border-e border-edge bg-surface shadow-sm transition-[width,transform] duration-200 ease-out ${collapsed ? "w-[80px]" : "w-[264px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
-      <div className={`flex h-14 shrink-0 items-center gap-3 border-b border-edge/80 ${collapsed ? "justify-center px-0" : "px-5"}`}>
+    <aside ref={asideRef} id="desktop-mobile-nav" tabIndex={-1} className={`tg-desktop-rail fixed inset-y-0 start-0 z-40 flex w-[min(320px,90vw)] flex-col border-e border-edge bg-surface shadow-sm transition-[width,transform] duration-200 ease-out lg:inset-y-3 lg:start-3 ${compact ? "lg:w-[80px]" : "lg:w-[264px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
+      <div className={`flex h-14 shrink-0 items-center gap-3 border-b border-edge/80 ${compact ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
-        {!collapsed && (
+        {!compact && (
           <div className="min-w-0 flex-1">
             <div className="truncate text-base font-semibold tracking-[-0.02em] text-ink">{t("desktop.sidebar.productName")}</div>
             <div className="mt-0.5 truncate text-xs font-medium text-ink-3">
@@ -100,7 +131,7 @@ export function Sidebar({
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5" aria-label={t("nav.consoleNavigation")}>
-        {!collapsed && <div className="tg-sidebar-label px-3 pb-2">{t("nav.section.workspace")}</div>}
+        {!compact && <div className="tg-sidebar-label px-3 pb-2">{t("nav.section.workspace")}</div>}
         <div className="space-y-1">
           {items.map((item) => {
             const active = page === item.id;
@@ -111,13 +142,13 @@ export function Sidebar({
                 onClick={() => { navigate(item.id); setSidebarOpen(false); }}
                 aria-current={active ? "page" : undefined}
                 data-active={active}
-                title={collapsed ? item.label : undefined}
-                className={`sidebar-item tg-nav-item relative flex w-full items-center gap-2 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${collapsed ? "justify-center px-1 py-2.5" : "px-2.5 py-2"} ${active ? "sidebar-item-active font-semibold text-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
+                title={compact ? item.label : undefined}
+                className={`sidebar-item tg-nav-item relative flex w-full items-center gap-2 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${compact ? "justify-center px-1 py-2.5" : "px-2.5 py-2"} ${active ? "sidebar-item-active font-semibold text-brand" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
               >
                 <NavIconFrame active={active}>
                   <Icon className="h-[18px] w-[18px]" />
                 </NavIconFrame>
-                {!collapsed && <span className="flex-1 truncate text-start">{item.label}</span>}
+                {!compact && <span className="flex-1 truncate text-start">{item.label}</span>}
               </button>
             );
           })}
@@ -125,7 +156,7 @@ export function Sidebar({
       </nav>
 
       <div className="shrink-0 border-t border-edge/80 p-3">
-        {collapsed ? (
+        {compact ? (
           <div className="flex flex-col items-center gap-3 py-2" aria-label={t("desktop.sidebar.systemStatus")}>
             <span title={gatewayConnected ? t("desktop.status.gatewayConnected") : t("desktop.status.gatewayOffline")}><StatusDot tone={gatewayConnected ? "ok" : "bad"} pulse={gatewayConnected} /></span>
             <span title={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}><StatusDot tone={isOnline ? "ok" : "bad"} pulse={isOnline} /></span>
@@ -142,8 +173,8 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <button onClick={() => setCollapsed(!collapsed)} className="mt-3 hidden min-h-10 w-full items-center justify-center rounded-sm px-2 py-2 text-ink-3 transition hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:inline-flex" aria-label={collapsed ? t("nav.expandNavigation") : t("nav.collapseNavigation")}>
-          {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+        <button onClick={() => setCollapsed(!compact)} className="mt-3 hidden min-h-10 w-full items-center justify-center rounded-sm px-2 py-2 text-ink-3 transition hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:inline-flex" aria-label={compact ? t("nav.expandNavigation") : t("nav.collapseNavigation")}>
+          {compact ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
         </button>
       </div>
     </aside>

@@ -373,3 +373,14 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yaseir Print Manager_*-setup.exe
           if-no-files-found: error
           compression-level: 0
+      # If the install/smoke/uninstall acceptance above fails, the built
+      # installer is still useful for diagnosis. Publish it under a clearly
+      # distinct name so nothing can mistake it for an acceptance-verified build.
+      - name: Upload unverified Windows installer for diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: Yaseir-Manager-Windows-NSIS-UNVERIFIED-DIAGNOSTIC
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yaseir Print Manager_*-setup.exe
+          if-no-files-found: ignore
+          compression-level: 0

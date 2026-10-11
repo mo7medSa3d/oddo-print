@@ -1549,6 +1549,7 @@ export const en = {
   "ui.copied": "Copied",
   "ui.copyFailed": "Copy failed",
   "ui.filterOptions": "Filter options",
+  "ui.scrollTable": "Scrollable data table. Use arrow keys to view more columns.",
   "ui.closeDialog": "Close dialog",
   "ui.closePanel": "Close panel",
   "ui.dismissNotification": "Dismiss notification",
