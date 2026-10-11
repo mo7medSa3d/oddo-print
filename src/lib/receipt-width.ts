@@ -1,7 +1,7 @@
 /** A physical printer's usable horizontal dot budget, never browser CSS DPI. */
 type Caps = Record<string, unknown> | null | undefined;
 const widthRange = (value: unknown): number | null => {
-  const n = typeof value === "string" && /^\\d+$/.test(value.trim()) ? Number(value.trim()) : value;
+  const n = typeof value === "string" && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value;
   return typeof n === "number" && Number.isInteger(n) && n >= 288 && n <= 576 ? n : null;
 };
 function dotsForPaper(mm: number, dpi: number | null): number | null {
