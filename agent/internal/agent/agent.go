@@ -1113,7 +1113,6 @@ func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
 	reports, err := a.queue.PendingTerminalReports(32)
 	if err != nil {
 		log.Printf("Terminal status outbox scan failed: %v", err)
-		return
 	}
 	for _, report := range reports {
 		if ctx.Err() != nil {
@@ -1122,6 +1121,66 @@ func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
 		if err := a.updateJobStatus(ctx, report.ID, report.Status, report.LastError, report.ClaimToken, report.SpoolerJobID); err != nil {
 			log.Printf("Job %s: pending terminal status report failed: %v", report.ID, err)
 		}
+	}
+	// Claim receipt is not physical execution. Recover claims that crashed or
+	// were cancelled before BeginPrint with the original fenced token.
+	a.reportPendingPreDispatchReturns(ctx)
+}
+
+// reportPendingPreDispatchReturns reserves each idle job under the SAME
+// in-flight mutex used by dispatchJob. This closes the race where a new
+// delivery might begin printing while a recovery worker returns its claim.
+// No live waiter is ever requeued by this sweep.
+func (a *Agent) reportPendingPreDispatchReturns(ctx context.Context) {
+	// Do not delay service startup or heartbeat/poll ticks behind many stale
+	// network requests. Remaining durable returns are retried next tick.
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	pending, err := a.queue.PendingPreDispatchReturns(4)
+	if err != nil {
+		log.Printf("Pre-dispatch return outbox scan failed: %v", err)
+		return
+	}
+	for _, item := range pending {
+		if ctx.Err() != nil {
+			return
+		}
+		a.inFlightMu.Lock()
+		_, busy := a.inFlight[item.ID]
+		if !busy {
+			a.inFlight[item.ID] = struct{}{}
+		}
+		a.inFlightMu.Unlock()
+		if busy {
+			continue
+		}
+		func() {
+			defer func() {
+				a.inFlightMu.Lock()
+				delete(a.inFlight, item.ID)
+				a.inFlightMu.Unlock()
+			}()
+			// The reservation was established under inFlightMu. Recheck the
+			// durable token before calling the Gateway: it may have changed
+			// during an older, interrupted attempt.
+			if a.queue.ClaimTokenFor(item.ID) != item.ClaimToken {
+				return
+			}
+			if err := a.rejectJobExact(ctx, item.ID, item.ClaimToken, "agent_shutting_down"); err != nil {
+				var rejected gatewayHandBackError
+				if !errors.As(err, &rejected) || (rejected.status != http.StatusConflict && rejected.status != http.StatusNotFound) {
+					log.Printf("Job %s: pre-dispatch claim return pending: %v", item.ID, err)
+					return
+				}
+				// An authoritative 404/409 means this exact fenced claim can
+				// no longer be returned. Discard only its LOCAL queued token;
+				// the Gateway outcome and any newer claim remain untouched.
+				log.Printf("Job %s: previous pre-dispatch claim is stale; clearing local return token", item.ID)
+			}
+			if err := a.queue.ClearPreDispatchClaim(item.ID, item.ClaimToken); err != nil {
+				log.Printf("Job %s: pre-dispatch return acknowledged but local token clear failed: %v", item.ID, err)
+			}
+		}()
 	}
 }
 
@@ -1877,6 +1936,14 @@ func (a *Agent) rejectJob(ctx context.Context, jobID, token, reason string) erro
 	return a.rejectJobExact(ctx, jobID, token, reason)
 }
 
+// gatewayHandBackError preserves the status code for internal recovery of
+// stale pre-dispatch claims. It is not a new HTTP or public API contract.
+type gatewayHandBackError struct{ status int }
+
+func (e gatewayHandBackError) Error() string {
+	return fmt.Sprintf("gateway rejected job hand-back: HTTP %d", e.status)
+}
+
 // rejectJobExact is the fenced form used by the asynchronous rejection worker.
 // Its claim token is immutable: it MUST NOT be replaced with a newer token
 // that may now be active for the same job, otherwise an old saturation event
@@ -1903,7 +1970,7 @@ func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string)
 			log.Printf("Job %s: failed to read gateway rejection body: %v", jobID, readErr)
 		}
 		log.Printf("Job %s: server rejected the pre-execution rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
-		return fmt.Errorf("gateway rejected job hand-back: HTTP %d", resp.StatusCode)
+		return gatewayHandBackError{status: resp.StatusCode}
 	}
 	// A bare 2xx is not proof the hand-back applied: require the same shaped
 	// acknowledgement as every other status report, so a misbehaving proxy
@@ -2936,38 +3003,17 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	log.Printf("Printing job %s on printer %s (%d bytes, type=%s, path=%s)", jobID, printerID, len(pl.Data), pl.Type, kind)
 
-	// The durable local ledger is established before the gateway is told this
-	// delivery reached the printing stage. This is the local evidence base
-	// that survives a crash.
-	ledgerStart := time.Now()
-	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
-		if errors.Is(err, queue.ErrAlreadyPrinting) {
-			log.Printf("Job %s: duplicate delivery for the live local claim; suppressing a second physical dispatch", jobID)
-			return
-		}
-		if errors.Is(err, queue.ErrTerminalState) {
-			log.Printf("Job %s: local ledger is terminal; refusing dispatch and re-reporting stored outcome", jobID)
-			_, storedStatus, found, getErr := a.queue.Get(jobID)
-			if getErr != nil {
-				log.Printf("Job %s: failed to read local terminal state: %v", jobID, getErr)
-				found = false
-			}
-			if found && storedStatus == "success" {
-				a.updateJobStatus(ctx, jobID, "success", "", claimToken, "")
-			} else {
-				marker := "UNKNOWN_PARTIAL_DELIVERY"
-				if a.queue.WasInterrupted(jobID) {
-					marker = queue.InterruptedMarker
-				}
-				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken, "")
-			}
-			return
-		}
-		log.Printf("Job %s: local durable ledger unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
+	// Persist the job while it waits for the per-printer mutex. Waiting for
+	// hardware is NOT a physical attempt: marking it `printing` here caused
+	// startup recovery to report UNKNOWN for jobs that never reached a device.
+	// The in-flight job fence and per-printer mutex suppress duplicate live
+	// deliveries. BeginPrint provides the durable physical-attempt fence only
+	// after all local scheduling waits have completed.
+	if err := a.queue.ReserveBeforeDispatch(jobID, printerID, pl.Data, claimToken); err != nil {
+		log.Printf("Job %s: local durable pending row unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
 		a.rejectJob(ctx, jobID, claimToken, "ledger_unavailable")
 		return
 	}
-	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
 
 	// Serialize Gateway aliases and bare local IDs on the same backend.
 	// Admission must follow all local waits so TTL and lifecycle are checked
@@ -3036,17 +3082,49 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	case a.execSem <- struct{}{}:
 		defer func() { <-a.execSem }()
 	case <-ctx.Done():
-		// BeginPrint already persisted `printing`, but no physical execution
-		// slot was acquired, so zero hardware bytes can have been sent. Roll the
-		// local attempt back before returning the claim to Gateway; otherwise a
-		// later same-token redelivery could reopen the stale `printing` row and
-		// dispatch the physical side effect twice.
+		// The durable row is only `queued`, not `printing`: no physical
+		// attempt happened. Its claim token remains available for the
+		// periodic fenced hand-back if the immediate rejection fails.
 		if err := a.queue.AbortPrint(jobID, "dispatch_refused: agent shutting down before physical execution slot; zero bytes transmitted"); err != nil {
 			log.Printf("Job %s: failed to abort local ledger after execution-slot cancellation: %v", jobID, err)
 		}
 		a.rejectJob(ctx, jobID, claimToken, "agent_shutting_down")
 		return
 	}
+
+	// With the printer lock and execution slot held, this attempt is now
+	// eligible for physical execution. Persist the claim-fenced printing
+	// transition BEFORE the first hardware byte (never after) so a crash
+	// beyond this boundary conservatively remains UNKNOWN.
+	ledgerStart := time.Now()
+	if err := a.queue.BeginPrint(jobID, printerID, pl.Data, claimToken, a.cfg.ReprintAfterCrashEnabled()); err != nil {
+		if errors.Is(err, queue.ErrAlreadyPrinting) {
+			log.Printf("Job %s: duplicate delivery for the live local claim; suppressing a second physical dispatch", jobID)
+			return
+		}
+		if errors.Is(err, queue.ErrTerminalState) {
+			log.Printf("Job %s: local ledger is terminal; refusing dispatch and re-reporting stored outcome", jobID)
+			_, storedStatus, found, getErr := a.queue.Get(jobID)
+			if getErr != nil {
+				log.Printf("Job %s: failed to read local terminal state: %v", jobID, getErr)
+				found = false
+			}
+			if found && storedStatus == "success" {
+				a.updateJobStatus(ctx, jobID, "success", "", claimToken, "")
+			} else {
+				marker := "UNKNOWN_PARTIAL_DELIVERY"
+				if a.queue.WasInterrupted(jobID) {
+					marker = queue.InterruptedMarker
+				}
+				a.updateJobStatus(ctx, jobID, "failed", marker+": local ledger terminal with an unknown outcome; this delivery was not dispatched (agent.reprint_after_crash=false)", claimToken, "")
+			}
+			return
+		}
+		log.Printf("Job %s: local durable ledger unavailable; refusing dispatch (no bytes sent): %v", jobID, err)
+		a.rejectJob(ctx, jobID, claimToken, "ledger_unavailable")
+		return
+	}
+	log.Printf("print.trace local_ledger_ready request_id=%s job_id=%s printer_id=%s ledger_latency_ms=%d", requestID, jobID, printerID, time.Since(ledgerStart).Milliseconds())
 
 	reportStart := time.Now()
 	if err := a.updateJobStatusWithTransport(ctx, jobID, "printing", "", claimToken, "", statusTransport); err != nil {

@@ -734,3 +734,74 @@ func TestMarkInterruptedRetainsSpoolerJobID(t *testing.T) {
 		t.Fatalf("crash recovery lost the platform identity: %q", marked[0].SpoolerJobID)
 	}
 }
+
+// A local reservation that has not crossed BeginPrint is provably free of
+// physical output, including after a process crash and SQLite reopen.
+func TestPreDispatchClaimOutboxSurvivesRestartWithoutUnknownOutcome(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "predispatch.db")
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ReserveBeforeDispatch("waiting", "p1", []byte("receipt"), "claim-before-crash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatal(err)
+	}
+	q, err = New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	interrupted, err := q.MarkInterrupted()
+	if err != nil || len(interrupted) != 0 {
+		t.Fatalf("waiting job must not be treated as physically unknown: %#v %v", interrupted, err)
+	}
+	_, status, found, err := q.Get("waiting")
+	if err != nil || !found || status != "queued" {
+		t.Fatalf("pre-dispatch crash must preserve queued status: found=%v status=%q err=%v", found, status, err)
+	}
+	pending, err := q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 1 || pending[0].ClaimToken != "claim-before-crash" {
+		t.Fatalf("original fenced pre-dispatch claim must survive restart: %#v %v", pending, err)
+	}
+	if err := q.ClearPreDispatchClaim("waiting", "wrong-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("waiting"); got != "claim-before-crash" {
+		t.Fatalf("wrong claim must not clear original fence: %q", got)
+	}
+	if err := q.ClearPreDispatchClaim("waiting", "claim-before-crash"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("acknowledged hand-back must leave no pending claim: %#v %v", pending, err)
+	}
+}
+
+func TestPreDispatchReservationCannotReopenTerminalOrPrinting(t *testing.T) {
+	q := newTestQueue(t)
+	for _, status := range []string{"printing", "success", "failed"} {
+		id := "protected-" + status
+		if err := q.BeginPrint(id, "p1", []byte("receipt"), "original-claim", false); err != nil {
+			t.Fatal(err)
+		}
+		if status != "printing" {
+			if err := q.UpdateStatusWithError(id, status, "UNKNOWN_PARTIAL_DELIVERY: previous device attempt"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := q.ReserveBeforeDispatch(id, "p1", []byte("new"), "new-claim"); err != nil {
+			t.Fatal(err)
+		}
+		_, got, _, err := q.Get(id)
+		if err != nil || got != status {
+			t.Fatalf("reservation changed %s to %s, err=%v", status, got, err)
+		}
+		if tok := q.ClaimTokenFor(id); tok != "original-claim" {
+			t.Fatalf("reservation replaced token for %s: %q", status, tok)
+		}
+	}
+}

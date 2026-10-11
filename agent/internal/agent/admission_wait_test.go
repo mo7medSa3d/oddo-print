@@ -56,7 +56,18 @@ func TestPrinterWaiterRequestsFreshAdmissionBeforeHardware(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if count == 2 {
+		// Only the first job may be in the physical-attempt phase.
+		// A waiter must remain durable but provably not dispatched, so a
+		// crash while the printer mutex is occupied cannot manufacture an
+		// UNKNOWN physical outcome for the waiting job.
+		_, waiterStatus, waiterFound, lookupErr := ag.queue.Get("waiter")
+		if lookupErr != nil {
+			t.Fatal(lookupErr)
+		}
+		if waiterFound {
+			if count != 1 || waiterStatus != "queued" {
+				t.Fatalf("waiting job is not a physical attempt: printing=%d waiter=%q", count, waiterStatus)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
@@ -76,5 +87,64 @@ func TestPrinterWaiterRequestsFreshAdmissionBeforeHardware(t *testing.T) {
 	}
 	if p.Calls() != 1 {
 		t.Fatalf("refused waiter reached hardware: %d calls", p.Calls())
+	}
+}
+
+// The queued reservation has the original claim token. Its return to Gateway
+// must be durable, fenced, and must not requeue a LIVE waiter.
+func TestPreDispatchHandBackRetriesWithoutTouchingLiveJob(t *testing.T) {
+	t.Setenv("YASEIR_AGENT_ALLOW_INSECURE_HTTP", "1")
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/agent/jobs" {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			JobID      string `json:"jobId"`
+			Status     string `json:"status"`
+			Reason     string `json:"reason"`
+			ClaimToken string `json:"claimToken"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || body.JobID != "waiting" || body.Status != "queued" || body.ClaimToken != "original-claim" || body.Reason != "agent_shutting_down" {
+			http.Error(w, "invalid fenced hand-back", http.StatusBadRequest)
+			return
+		}
+		if attempts.Add(1) == 1 {
+			http.Error(w, "transient Gateway outage", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": "queued"})
+	}))
+	defer srv.Close()
+	cfg := &config.Config{}
+	cfg.Agent.ID, cfg.Agent.Secret, cfg.Server.URL = "agt_test", "secret", srv.URL
+	ag, err := New(cfg, filepath.Join(t.TempDir(), "agent.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ag.Close()
+	if err := ag.queue.ReserveBeforeDispatch("waiting", "p1", []byte("receipt"), "original-claim"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the scheduler's active waiter reservation. A health tick is
+	// forbidden from returning a job that is still waiting on a printer.
+	ag.inFlightMu.Lock()
+	ag.inFlight["waiting"] = struct{}{}
+	ag.inFlightMu.Unlock()
+	ag.reportPendingTerminalStatuses(context.Background())
+	if got := attempts.Load(); got != 0 {
+		t.Fatalf("live waiter was incorrectly returned to Gateway: %d", got)
+	}
+	ag.inFlightMu.Lock()
+	delete(ag.inFlight, "waiting")
+	ag.inFlightMu.Unlock()
+	ag.reportPendingTerminalStatuses(context.Background())
+	if attempts.Load() != 1 || ag.queue.ClaimTokenFor("waiting") != "original-claim" {
+		t.Fatal("first failed hand-back must preserve original durable claim")
+	}
+	ag.reportPendingTerminalStatuses(context.Background())
+	if attempts.Load() != 2 || ag.queue.ClaimTokenFor("waiting") != "" {
+		t.Fatal("successful hand-back must clear original claim only after gateway ACK")
 	}
 }

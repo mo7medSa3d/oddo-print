@@ -193,6 +193,77 @@ func (q *Queue) Push(id, printerID string, payload []byte) error {
 	return err
 }
 
+// ReserveBeforeDispatch persists claim ownership without claiming that printer
+// I/O has begun. A crash while this row is queued is provably pre-dispatch;
+// startup recovery can return the original fenced Gateway claim. Existing
+// terminal/printing rows are never changed by this reservation.
+func (q *Queue) ReserveBeforeDispatch(id, printerID string, payload []byte, claimToken string) error {
+	tx, err := q.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var token interface{}
+	if claimToken != "" {
+		token = claimToken
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO print_jobs (id, printer_id, payload, status, claim_token, updated_at)
+		VALUES (?, ?, ?, 'queued', ?, CURRENT_TIMESTAMP)`, id, printerID, payload, token); err != nil {
+		return err
+	}
+	// A newer legitimate claim may replace the previous queued attempt's token
+	// because queued records have never crossed a physical side-effect fence.
+	// Never reopen a completed, ambiguous, or currently printing attempt here.
+	if _, err := tx.Exec(`UPDATE print_jobs SET claim_token = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = 'queued'`, token, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+type PreDispatchReturn struct {
+	ID         string
+	ClaimToken string
+}
+
+// PendingPreDispatchReturns is a durable hand-back outbox for received claims
+// which never entered the local 'printing' phase. It can be scanned after an
+// Agent crash AND after an orderly pre-dispatch cancellation. The Agent must
+// exclude active in-flight jobs before returning a claim to Gateway.
+func (q *Queue) PendingPreDispatchReturns(limit int) ([]PreDispatchReturn, error) {
+	if limit <= 0 {
+		limit = 32
+	}
+	rows, err := q.db.Query(`SELECT id, claim_token FROM print_jobs
+		WHERE status = 'queued' AND claim_token IS NOT NULL AND claim_token <> ''
+		ORDER BY updated_at ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]PreDispatchReturn, 0)
+	for rows.Next() {
+		var item PreDispatchReturn
+		if err := rows.Scan(&item.ID, &item.ClaimToken); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+// ClearPreDispatchClaim marks a claim's hand-back acknowledged. Only the exact
+// still-queued claim is cleared; a concurrent physical/terminal attempt is
+// never modified by this acknowledgement.
+func (q *Queue) ClearPreDispatchClaim(id, token string) error {
+	if token == "" {
+		return fmt.Errorf("cannot clear an empty pre-dispatch claim")
+	}
+	_, err := q.db.Exec(`UPDATE print_jobs SET claim_token = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND status = 'queued' AND claim_token = ?`, id, token)
+	return err
+}
+
 // validLocalLedgerStatus is an application-layer guard for legacy SQLite
 // queue files. CREATE TABLE IF NOT EXISTS does not retrofit CHECK constraints
 // onto an existing table, so the SQL schema alone is not a reliable boundary.
