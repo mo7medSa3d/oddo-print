@@ -1150,15 +1150,26 @@
       var(--bg);
   }
 
-  .tg-console-rail,
+  /* The Gateway and Platform sidebar is docked, not a floating card.
+     Only a quiet divider on the content edge separates navigation from the
+     page. Logical borders work identically in RTL and LTR. */
+  .tg-console-rail {
+    background: var(--surface);
+    border: 0;
+    border-inline-end: 1px solid var(--border-subtle);
+    box-shadow: none;
+  }
+
+  /* The Windows desktop keeps its separate floating rail treatment. */
   .tg-desktop-rail {
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-md);
   }
 
-  /* Floating app-frame chrome: matches the inset rail's radius, border and
-     elevation instead of looking like a detached full-bleed toolbar. */
+  /* Windows Desktop keeps its floating topbar. The unused legacy console
+     topbar selector remains for compatibility, but Gateway/Platform now use
+     the full-height docked sidebar and an integrated page heading. */
   .tg-console-topbar,
   .tg-desktop-topbar {
     background: var(--surface-overlay);
@@ -1237,9 +1248,10 @@
     background: color-mix(in srgb, var(--surface) 92%, var(--brand) 8%);
   }
 
-  .tg-page-heading {
-    background:
-      linear-gradient(115deg, color-mix(in srgb, var(--surface) 91%, var(--brand) 9%), var(--surface) 68%);
+  /* Let the title band flow into the page canvas instead of creating
+     a second rectangular surface next to the docked sidebar. */
+  .tg-page-heading:not(.glass-chrome) {
+    background: transparent;
   }
 
   .tg-view-reveal {
@@ -1325,13 +1337,13 @@
 
 @media (min-width: 1024px) {
   .tg-console-rail {
-    inset-block: 12px;
-    inset-inline-start: 12px;
-    border-radius: var(--r-2xl);
+    inset-block: 0;
+    inset-inline-start: 0;
+    border-radius: 0;
     overflow: hidden;
   }
   .tg-console-content {
-    padding-inline-start: calc(var(--nav-w) + 12px);
+    padding-inline-start: var(--nav-w);
   }
   .tg-desktop-rail {
     inset-block: 12px;

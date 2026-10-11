@@ -122,7 +122,7 @@ export function PlatformSidebar({
     <div className="tg-shell-root tg-platform-shell min-h-screen min-w-0 max-w-full bg-app text-ink font-sans selection:bg-brand/20" style={{ "--nav-w": collapsed ? "80px" : "264px" } as CSSProperties}>
       <aside
         aria-label={t("platform.brand.controlPlane")}
-        className="tg-console-rail fixed z-40 hidden flex-col border-e border-edge bg-surface lg:flex"
+        className="tg-console-rail fixed z-40 hidden flex-col lg:flex"
         style={{ width: "var(--nav-w)", transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined }}
       >
         <div className={["flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle", collapsed ? "justify-center px-2" : "px-4"].join(" ")}>
