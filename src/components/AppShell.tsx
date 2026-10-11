@@ -328,7 +328,7 @@ function ConsoleShell({
       {/* Desktop rail */}
       <aside
         aria-label={t("nav.consoleNavigation")}
-        className="tg-console-rail fixed z-40 hidden flex-col border-e border-edge bg-surface lg:flex"
+        className="tg-console-rail fixed z-40 hidden flex-col lg:flex"
         style={{
           width: "var(--nav-w)",
           transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined,

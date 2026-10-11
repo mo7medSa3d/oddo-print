@@ -202,7 +202,7 @@ Refresh rotation, password reset, membership edits, ownership transfers and work
 
 Cached test-connection responses retain `live:false` and expose `printerLastSeenAt`/`printerObservationFresh`. Reachability requires fresh printer observation as well as a fresh online active Agent; a new Agent heartbeat alone cannot revive an old printer observation.
 
-Billing status includes `entitlementBlocked`; `hasSubscription` matches enforcement: active/trialing need a live recorded period, past_due retains payment-recovery access, and an entitlement block disables all three.
+Billing status includes `entitlementBlocked`; `hasSubscription` matches current enforcement: active/trialing need a non-expired period **when a period end is recorded**; a null `current_period_end` currently permits access for legacy/incompletely reconciled active/trialing subscriptions. `past_due` retains payment-recovery access, and an entitlement block disables all three. Null-period grace is a deliberate compatibility behavior requiring a separate billing-policy decision before it can be tightened.
 
 Checkout intents persist `checkout_request_params` with their Stripe idempotency key before any external request. Recovery replays the original price, URLs and metadata, even after catalog/origin changes; the separately fenced tenant customer remains stable. Legacy creating intents without a snapshot return CHECKOUT_RECONCILIATION_REQUIRED and need Stripe/operator reconciliation, because their original accepted parameters cannot safely be reconstructed.
 

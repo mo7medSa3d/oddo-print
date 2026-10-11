@@ -138,25 +138,35 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.match(desktopNav, /<NavIconFrame active=\{active\}/);
 });
 
-test('Gateway and Platform use matching 12px sidebar insets; Desktop keeps its own chrome', () => {
+test('Gateway and Platform dock their rails flush to the content; Desktop retains its own chrome', () => {
   const css = read('src/app/globals.css');
   const gateway = read('src/components/AppShell.tsx');
   const desktop = read('src/desktop/main.tsx');
   const rail = read('src/desktop/components/Sidebar.tsx');
   const platformSidebar = read('src/components/platform/PlatformSidebar.tsx');
-  const railCss = css.slice(css.indexOf('  .tg-console-rail,'));
-  assert.match(railCss, /border: 1px solid var\(--border\)/);
-  assert.match(railCss, /border-radius: var\(--r-2xl\)/);
-  assert.match(railCss, /box-shadow: var\(--shadow-md\)/);
-  assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: calc\(var\(--nav-w\) \+ 12px\)/);
-  assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px/);
-  assert.match(gateway, /tg-console-rail fixed/);
-  assert.match(platformSidebar, /tg-console-rail fixed/);
+
+  // The web rail must not look like a card floating 12px away from the page.
+  // Logical CSS properties keep the seam correct in Arabic/RTL and English/LTR.
+  assert.match(css, /\.tg-console-rail\s*\{\s*background: var\(--surface\);\s*border: 0;\s*border-inline-end: 1px solid var\(--border-subtle\);\s*box-shadow: none;/);
+  assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 0;\s*inset-inline-start: 0;\s*border-radius: 0;\s*overflow: hidden;/);
+  assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: var\(--nav-w\);/);
+  assert.match(css, /\.tg-console-content\s*\{ padding-inline-start: 0; \}/);
+  assert.match(css, /\.tg-page-heading:not\(\.glass-chrome\)\s*\{\s*background: transparent;/);
+  for (const shell of [gateway, platformSidebar]) {
+    assert.match(shell, /tg-console-rail fixed/);
+    assert.doesNotMatch(shell, /tg-console-rail fixed[^"]*\bborder-e\b/);
+    assert.match(shell, /tg-console-content min-w-0 max-w-full/);
+  }
   assert.match(gateway, /area="gateway"/);
   assert.match(platformSidebar, /area="platform"/);
   assert.match(read('src/components/MobileAppBar.tsx'), /tg-mobile-appbar sticky top-0/);
   assert.doesNotMatch(gateway, /tg-console-topbar/);
   assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
+
+  // Desktop is a different product surface and intentionally keeps its
+  // independent 12px inset, radius, and elevated Tauri header.
+  assert.match(css, /\.tg-desktop-rail\s*\{\s*background: var\(--surface\);\s*border: 1px solid var\(--border\);\s*box-shadow: var\(--shadow-md\);/);
+  assert.match(css, /\.tg-desktop-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px;\s*border-radius: var\(--r-2xl\)/);
   assert.match(desktop, /tg-desktop-topbar tg-desktop-header sticky top-2/);
   assert.match(desktop, /lg:mx-3/);
   assert.match(desktop, /lg:ps-\[92px\]/);

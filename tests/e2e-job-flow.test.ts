@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { createServer, type Server } from "http";
 import { AddressInfo } from "net";
 import WebSocket from "ws";
-import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, jobRow, closePool, pool, type Fixture } from "./helpers/pg";
+import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, insertQueuedJob, jobRow, closePool, pool, type Fixture } from "./helpers/pg";
 import { attachAgentWSS, handleAgentMessage, __getNotificationListenerPidForTests } from "../src/server/ws";
 import { POST as printJobsPOST, GET as printJobsGET } from "../src/app/api/print/jobs/route";
 import { GET as agentJobsGET, PATCH as agentJobsPATCH } from "../src/app/api/agent/jobs/route";
@@ -77,6 +77,42 @@ suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
     expect(retry.status).toBe(200);
     expect((await retry.json()).jobId).toBe(created.jobId);
   });
+
+  it("retries a NOTIFY whose claim misses a short-lived printer row lock without duplicate delivery", async () => {
+    const ws = await connectAgent();
+    const jobId = `job_lock_notify_${Date.now()}`;
+    await insertQueuedJob(f, jobId);
+    const locker = await pool().connect();
+    let open = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await locker.query("BEGIN");
+      open = true;
+      // Claim uses FOR UPDATE OF p,a,pr,t SKIP LOCKED; under a concurrent
+      // config/health update it is not safe to turn that miss into a send.
+      await locker.query("SELECT id FROM printers WHERE id = $1 FOR UPDATE", [f.printerId]);
+      const received = new Promise<any>((resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error("queued job was never pushed after the printer lock cleared")), 5_000);
+        ws.once("message", (raw) => resolve(JSON.parse(raw.toString())));
+        ws.once("error", reject);
+      });
+      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: f.agentId })]);
+      // The first (and possibly second) fenced attempt must skip the lock.
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      expect((await jobRow(jobId)).status).toBe("queued");
+      await locker.query("COMMIT");
+      open = false;
+      const envelope = await received;
+      expect(envelope.type).toBe("print_job");
+      expect(envelope.job.id).toBe(jobId);
+      expect(envelope.job.claimToken).toMatch(/.{8,}/);
+      expect((await jobRow(jobId)).delivery_attempts).toBe(1);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (open) await locker.query("ROLLBACK");
+      locker.release();
+    }
+  }, 10_000);
 
   it("rejects a PDF for an ESC/POS-only printer", async () => {
     const escpos = await seedFixture({ printerCapabilities: { supported_protocols: ["escpos", "raw"] } });

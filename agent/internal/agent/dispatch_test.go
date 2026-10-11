@@ -390,11 +390,19 @@ func TestSamePrinterWaitersDoNotConsumeGlobalExecutionSlots(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		count, err := ag.queue.CountByStatus("printing")
+		physical, err := ag.queue.CountByStatus("printing")
 		if err != nil {
 			t.Fatal(err)
 		}
+		waiting, err := ag.queue.CountByStatus("queued")
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := physical + waiting
 		if count == blockedJobs {
+			if physical != 1 || waiting != blockedJobs-1 {
+				t.Fatalf("only the active device call is physically ambiguous: printing=%d queued=%d", physical, waiting)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
