@@ -120,7 +120,10 @@ async function renderFleetGauges(): Promise<string> {
     ].join("\n");
   } catch (error) {
     logWarn("metrics.gauges_unavailable", { error });
-    return "";
+    // A partial fleet-collector failure must fail the scrape. HTTP 200 with
+    // absent gauge names otherwise looks healthy to Prometheus and conceals
+    // growing queues / offline printers. Never expose SQL/error details.
+    throw new Error("Fleet metrics collection unavailable");
   }
 }
 

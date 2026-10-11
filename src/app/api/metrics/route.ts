@@ -16,8 +16,17 @@ export async function GET(req: Request) {
     }
     return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
-  return new Response(await renderPrometheusMetrics(), {
-    status: 200,
-    headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" },
-  });
+  try {
+    return new Response(await renderPrometheusMetrics(), {
+      status: 200,
+      headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  } catch {
+    // Authentication already succeeded, but an incomplete scrape must not
+    // appear healthy. Return no collector/SQL details to the caller.
+    return new Response("Metrics temporarily unavailable\n", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
 }
