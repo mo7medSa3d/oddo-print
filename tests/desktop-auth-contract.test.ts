@@ -52,7 +52,10 @@ describe("paired-Agent desktop security contract", () => {
     const source=read("src/desktop/lib/ipc.ts");
     const gateway=read("agent/cmd/cli/gateway.go");
     expect(source).toContain('gatewayConsoleRequest(');
-    expect(source).toContain("enforces Agent/tenant ownership");
+    // The removed virtual spooler opt-in no longer exists; the only test
+    // mutation uses the paired native Agent transport and printer-scoped route.
+    expect(source).toContain('"/api/printers/" + encodeURIComponent(printerId) + "/test-print"');
+    expect(source).not.toContain("virtual_spooler_test");
     expect(gateway).not.toContain('case "PATCH":');
   });
 
