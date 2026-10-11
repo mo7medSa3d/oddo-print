@@ -47,9 +47,16 @@ test('Compose CLI selects the CI overlay without changing default production ref
   assert.match(dockerfile, /^ARG NODE_BASE_IMAGE=node:24\.21\.0-alpine@sha256:[a-f0-9]{64}$/m);
 });
 
-test('Odoo Community CI image stays immutable and does not pull from Docker Hub', () => {
-  const odoo = 'public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
-  assert.equal(ci.split(odoo).length - 1, 2, 'pull and run must use same immutable image');
+test('Odoo Community CI pulls the same immutable digest and uses Docker Hub only after throttling', () => {
+  const tag = 'odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c';
+  const ecr = officialMirrorOf(tag);
+  assert.ok(ci.includes(`odoo_image="${ecr}"`));
+  assert.ok(ci.includes(`odoo_image="${tag}"`));
+  // The selected image variable must be used for BOTH pull and test run.
+  assert.ok(ci.includes('docker pull "$odoo_image"'));
+  assert.ok(ci.includes('"$odoo_image" \\'));
+  // No registry switch after a normal error; only 429 may activate fallback.
+  assert.match(ci, /if ! grep -Eqi '[^']*toomanyrequests[^']*rate exceeded[^']*429[^']*'/);
   assert.equal(ci.includes('docker pull odoo:19.0@'), false);
 });
 
