@@ -705,6 +705,48 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
   let activeClient: PoolClient | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempt = 0;
+  // SKIP LOCKED is a safe, non-blocking claim fence, but a short-lived lock on
+  // an Agent/printer/tenant row can make a newly committed job miss the only
+  // NOTIFY. Agents poll as the durable backstop; these small, bounded retries
+  // avoid needless POS receipt latency while that poll interval elapses.
+  const notificationRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const MAX_NOTIFICATION_RETRY_TIMERS = 128;
+  const NOTIFICATION_RETRY_DELAYS_MS = [125, 375, 1_000] as const;
+  type JobNotice = { jobId: string; agentId: string; requestId: string | null };
+
+  const pushNotifiedJob = (notice: JobNotice, retryCount = 0): void => {
+    if (stopped || (!hasOpenAgentSocket(notice.agentId)
+        && (pendingAgentSocketRegistrations.get(notice.agentId) ?? 0) === 0)) return;
+    void claimAndPushJobToAgent({ id: notice.jobId, agentId: notice.agentId }).then((outcome) => {
+      logInfo("print.job.dispatch_boundary", {
+        requestId: notice.requestId,
+        jobId: notice.jobId,
+        agentId: notice.agentId,
+        dispatchOutcome: outcome,
+        notificationRetry: retryCount,
+      });
+      if (outcome !== "not_claimable" || stopped || retryCount >= NOTIFICATION_RETRY_DELAYS_MS.length
+          || !hasOpenAgentSocket(notice.agentId)) return;
+      const key = `${notice.agentId}:${notice.jobId}`;
+      // A later notification should not multiply retry timers for this job.
+      // After the bounded budget, polling is authoritative recovery.
+      if (notificationRetryTimers.has(key) || notificationRetryTimers.size >= MAX_NOTIFICATION_RETRY_TIMERS) return;
+      const timer = setTimeout(() => {
+        notificationRetryTimers.delete(key);
+        pushNotifiedJob(notice, retryCount + 1);
+      }, NOTIFICATION_RETRY_DELAYS_MS[retryCount]);
+      timer.unref?.();
+      notificationRetryTimers.set(key, timer);
+    }).catch((error) => {
+      logWarn("ws.job_cross_instance_delivery_failed", { jobId: notice.jobId, error });
+      logWarn("print.job.ws_push_deferred", {
+        requestId: notice.requestId,
+        jobId: notice.jobId,
+        agentId: notice.agentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
 
   const handleNotification = (notification: { channel?: string; payload?: string }) => {
     if (!notification.payload) return;
@@ -769,21 +811,10 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       // readiness wait for exactly this pending-registration window.
       if (!hasOpenAgentSocket(message.agentId)
           && (pendingAgentSocketRegistrations.get(message.agentId) ?? 0) === 0) return;
-      void claimAndPushJobToAgent({ id: message.jobId, agentId: message.agentId }).then((pushOutcome) => {
-        logInfo("print.job.dispatch_boundary", {
-          requestId: typeof message.requestId === "string" ? message.requestId : null,
-          jobId: message.jobId,
-          agentId: message.agentId,
-          dispatchOutcome: pushOutcome,
-        });
-      }).catch((error) => {
-        logWarn("ws.job_cross_instance_delivery_failed", { jobId: message.jobId, error: error });
-        logWarn("print.job.ws_push_deferred", {
-          requestId: typeof message.requestId === "string" ? message.requestId : null,
-          jobId: message.jobId,
-          agentId: message.agentId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      pushNotifiedJob({
+        jobId: message.jobId,
+        agentId: message.agentId,
+        requestId: typeof message.requestId === "string" ? message.requestId : null,
       });
     } catch {
       logWarn("[ws] ignored malformed PostgreSQL job notification");
@@ -876,6 +907,10 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    // Listener teardown must cancel every delayed claim; never let a retry
+    // outlive its owning HTTP/WS server or keep re-dispatching after shutdown.
+    for (const timer of notificationRetryTimers.values()) clearTimeout(timer);
+    notificationRetryTimers.clear();
     const client = activeClient;
     activeClient = null;
     notificationListenerPid = null;
