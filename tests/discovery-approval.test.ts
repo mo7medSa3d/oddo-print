@@ -211,7 +211,7 @@ suite("discovery trust and approval flow", () => {
       new Request("http://gateway.test/api/agent/discovery", {
         method: "POST",
         headers: { Authorization: f.agentAuth, "content-type": "application/json" },
-        body: JSON.stringify({ discoveryId, status: "running", chunkIndex, chunkCount, devices: [] }),
+        body: JSON.stringify({ discoveryId, status: chunkIndex === chunkCount - 1 ? "completed" : "running", chunkIndex, chunkCount, devices: [] }),
       }),
     );
     const earlyCompletion = await discoveryReportPOST(new Request("http://gateway.test/api/agent/discovery", {
@@ -402,7 +402,8 @@ suite("discovery trust and approval flow", () => {
     expect(result.status).toBe(422);
     expect((await result.json()).code).toBe("UNSUPPORTED_DISCOVERY_TRANSPORT");
     const printers = await pool().query(`SELECT id FROM printers WHERE tenant_id = $1 AND agent_id = $2`, [f.tenantId, f.agentId]);
-    expect(printers.rows).toHaveLength(0);
+    // seedFixture creates a real printer; rejection must not provision a second one.
+    expect(printers.rows).toEqual([{ id: f.printerId }]);
   });
 
   it("report wins over a later cancellation without lifecycle inconsistency", async () => {
