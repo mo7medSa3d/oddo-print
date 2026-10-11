@@ -138,23 +138,21 @@ test('both shells consume shared navigation primitives and retain routes and pag
   assert.match(desktopNav, /<NavIconFrame active=\{active\}/);
 });
 
-test('Gateway and Platform dock their rails flush to the content; Desktop retains its own chrome', () => {
+test('Gateway and Platform float above the page with an inset rounded rail; Desktop keeps its chrome', () => {
   const css = read('src/app/globals.css');
   const gateway = read('src/components/AppShell.tsx');
   const desktop = read('src/desktop/main.tsx');
   const rail = read('src/desktop/components/Sidebar.tsx');
   const platformSidebar = read('src/components/platform/PlatformSidebar.tsx');
 
-  // The web rail must not look like a card floating 12px away from the page.
-  // Logical CSS properties keep the seam correct in Arabic/RTL and English/LTR.
-  assert.match(css, /\.tg-console-rail\s*\{\s*background: var\(--surface\);\s*border: 0;\s*border-inline-end: 1px solid var\(--border-subtle\);\s*box-shadow: none;/);
-  assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 0;\s*inset-inline-start: 0;\s*border-radius: 0;\s*overflow: hidden;/);
-  assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: var\(--nav-w\);/);
+  // Desktop Gateway/Platform navigation has an inset, radius and elevation,
+  // with logical positions that work in both Arabic RTL and English LTR.
+  assert.match(css, /\.tg-console-rail\s*\{\s*background: var\(--surface\);\s*border: 1px solid var\(--border\);\s*box-shadow: var\(--shadow-md\);/);
+  assert.match(css, /\.tg-console-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px;\s*border-radius: var\(--r-2xl\);\s*overflow: hidden;/);
+  assert.match(css, /\.tg-console-content\s*\{\s*padding-inline-start: calc\(var\(--nav-w\) \+ 12px\);/);
   assert.match(css, /\.tg-console-content\s*\{ padding-inline-start: 0; \}/);
-  assert.match(css, /\.tg-page-heading:not\(\.glass-chrome\)\s*\{\s*background: transparent;/);
   for (const shell of [gateway, platformSidebar]) {
     assert.match(shell, /tg-console-rail fixed/);
-    assert.doesNotMatch(shell, /tg-console-rail fixed[^"]*\bborder-e\b/);
     assert.match(shell, /tg-console-content min-w-0 max-w-full/);
   }
   assert.match(gateway, /area="gateway"/);
@@ -163,8 +161,7 @@ test('Gateway and Platform dock their rails flush to the content; Desktop retain
   assert.doesNotMatch(gateway, /tg-console-topbar/);
   assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
 
-  // Desktop is a different product surface and intentionally keeps its
-  // independent 12px inset, radius, and elevated Tauri header.
+  // Tauri Windows chrome is unchanged.
   assert.match(css, /\.tg-desktop-rail\s*\{\s*background: var\(--surface\);\s*border: 1px solid var\(--border\);\s*box-shadow: var\(--shadow-md\);/);
   assert.match(css, /\.tg-desktop-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px;\s*border-radius: var\(--r-2xl\)/);
   assert.match(desktop, /tg-desktop-topbar tg-desktop-header sticky top-2/);
@@ -173,6 +170,20 @@ test('Gateway and Platform dock their rails flush to the content; Desktop retain
   assert.match(desktop, /lg:ps-\[276px\]/);
   assert.match(rail, /lg:inset-y-3 lg:start-3/);
   assert.match(rail, /flex h-14 shrink-0 items-center gap-3 border-b/);
+});
+
+test('console hides only the page scrollbar without disabling native scrolling', () => {
+  const css = read('src/app/globals.css');
+  assert.match(css, /html:has\(\.tg-console-content\),\s*html:has\(\.tg-console-content\) body\s*\{\s*scrollbar-width: none;/);
+  assert.match(css, /html:has\(\.tg-console-content\)::\-webkit-scrollbar/);
+  assert.match(css, /html:has\(\.tg-console-content\) body::\-webkit-scrollbar/);
+  const baseStart = css.indexOf('/* The console\'s document scrollbar');
+  const baseEnd = css.indexOf('@media (max-width: 767.98px)', baseStart);
+  const rule = css.slice(baseStart, baseEnd);
+  assert.ok(baseStart >= 0 && baseEnd > baseStart);
+  assert.doesNotMatch(rule, /overflow(?:-y)?:\s*(?:hidden|clip)/);
+  assert.match(read('src/components/AppShell.tsx'), /overflow-y-auto py-3/);
+  assert.match(read('src/components/platform/PlatformSidebar.tsx'), /overflow-y-auto py-3/);
 });
 
 test('dashboard titles merge with the web canvas instead of a full-width tinted box', () => {
@@ -200,7 +211,7 @@ test('dashboard titles merge with the web canvas instead of a full-width tinted 
   // Gateway + Platform share the same solid canvas and logical RTL sidebar.
   assert.match(css, /\.tg-console-content\s*\{\s*min-height: 100vh;\s*background: var\(--bg\);/);
   assert.match(css, /\.tg-page-heading:not\(\.glass-chrome\)\s*\{\s*background: transparent;\s*border: 0;\s*box-shadow: none;/);
-  assert.match(css, /border-inline-end: 1px solid var\(--border-subtle\)/);
+  assert.match(css, /border: 1px solid var\(--border\)/);
   assert.match(css, /\.tg-desktop-rail\s*\{\s*background: var\(--surface\);/);
 });
 

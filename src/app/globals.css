@@ -1127,6 +1127,21 @@
    inside their own layout tracks, while preserving fixed/portal popovers. */
 @layer base {
   html, body { max-width: 100%; }
+
+  /* The console's document scrollbar is visual chrome, not a progress
+     indicator. Hide ONLY the outer viewport track while preserving native
+     wheel, touch, keyboard, anchor and programmatic scrolling. Other pages
+     (auth, marketing, desktop) and independently scrollable menus/tables
+     keep their original scrollbar behavior. */
+  html:has(.tg-console-content),
+  html:has(.tg-console-content) body {
+    scrollbar-width: none;
+  }
+  html:has(.tg-console-content)::-webkit-scrollbar,
+  html:has(.tg-console-content) body::-webkit-scrollbar {
+    display: none;
+  }
+
   @media (max-width: 767.98px) {
     html, body { overflow-x: clip; }
   }
@@ -1158,14 +1173,13 @@
     background: var(--bg);
   }
 
-  /* The Gateway and Platform sidebar is docked, not a floating card.
-     Only a quiet divider on the content edge separates navigation from the
-     page. Logical borders work identically in RTL and LTR. */
+  /* Gateway and Platform navigation floats within the desktop viewport.
+     Keep a real, inset card with a visible outer edge and calm elevation.
+     Its placement uses logical properties to remain correct for RTL/LTR. */
   .tg-console-rail {
     background: var(--surface);
-    border: 0;
-    border-inline-end: 1px solid var(--border-subtle);
-    box-shadow: none;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
   }
 
   /* The Windows desktop keeps its separate floating rail treatment. */
@@ -1175,9 +1189,9 @@
     box-shadow: var(--shadow-md);
   }
 
-  /* Windows Desktop keeps its floating topbar. The unused legacy console
-     topbar selector remains for compatibility, but Gateway/Platform now use
-     the full-height docked sidebar and an integrated page heading. */
+  /* Windows Desktop keeps its floating topbar. The legacy console topbar
+     selector remains for compatibility, but Gateway/Platform have no
+     separate top navbar; their floating navigation lives in the sidebar. */
   .tg-console-topbar,
   .tg-desktop-topbar {
     background: var(--surface-overlay);
@@ -1347,13 +1361,13 @@
 
 @media (min-width: 1024px) {
   .tg-console-rail {
-    inset-block: 0;
-    inset-inline-start: 0;
-    border-radius: 0;
+    inset-block: 12px;
+    inset-inline-start: 12px;
+    border-radius: var(--r-2xl);
     overflow: hidden;
   }
   .tg-console-content {
-    padding-inline-start: var(--nav-w);
+    padding-inline-start: calc(var(--nav-w) + 12px);
   }
   .tg-desktop-rail {
     inset-block: 12px;
