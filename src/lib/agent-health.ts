@@ -11,7 +11,7 @@
 
 import { db, queryWithTimeout } from "../db/client";
 import { agents, printers, printJobs } from "../db/schema";
-import { eq, and, count, sql, asc } from "drizzle-orm";
+import { eq, and, count, sql, asc, inArray } from "drizzle-orm";
 import { logWarn } from "./log";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
@@ -78,69 +78,23 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
   return "OFFLINE";
 }
 
-export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
-  const agentRows = await queryWithTimeout(
-    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
-    3000,
-    "getAgentHealth"
-  );
-  if (agentRows.length === 0) return null;
-  // Typed row from the Drizzle select above. The previous `as any` erased the
-  // row type on the health-classification decision below, so a renamed/absent
-  // column would have silently degraded to STATUS "OFFLINE" instead of failing
-  // to compile.
-  const agent = agentRows[0];
+type AgentHealthRow = typeof agents.$inferSelect;
+type HealthEvidence = {
+  queueDepth: number;
+  printerCount: number;
+  onlinePrinterCount: number;
+  queueDataAvailable: boolean;
+  printerDataAvailable: boolean;
+};
 
-  const now = gatewayNow();
+/** One projection for both detail and fleet endpoints; no divergent health rules. */
+function buildHealth(agent: AgentHealthRow, now: Date, evidence: HealthEvidence): AgentHealth {
+  const { queueDepth, printerCount, onlinePrinterCount, queueDataAvailable, printerDataAvailable } = evidence;
   const baseStatus = agent.lifecycle !== "active"
     ? "OFFLINE"
     : agent.status === "offline"
       ? "OFFLINE"
       : computeAgentHealthStatus(agent.lastSeenAt, agent.createdAt, now, agent.status);
-
-  let queueRows: Array<{ cnt: number }> = [];
-  let queueDataAvailable = true;
-  try {
-    queueRows = await queryWithTimeout(
-      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
-      3000,
-      "agentQueueDepth"
-    );
-  } catch (error) {
-    queueDataAvailable = false;
-    logWarn("agent.health.queue_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
-  }
-  const queueDepth = queueRows[0]?.cnt ?? 0;
-
-  let printerRows: Array<{ id: string; status: string; lifecycle: string; lastSeenAt: Date | string | null }> = [];
-  let printerDataAvailable = true;
-  try {
-    printerRows = await queryWithTimeout(
-      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
-      3000,
-      "agentPrinters"
-    );
-  } catch (error) {
-    printerDataAvailable = false;
-    logWarn("agent.health.printer_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
-  }
-  const printerCount = printerRows.length;
-  // "busy" is an executable state (queue accepted work, still claimable — see
-  // isPrinterStatusExecutable). Counting only "online" reports error for an
-  // all-busy (actively processing) fleet.
-  // Health counts are observation evidence, not raw DB status: retired or
-  // disabled printers and stale observations must not read as available
-  // capacity, or fleet counts advertise healthy evidence execution gates
-  // would reject.
-  const printerFreshnessMs = printerStaleThresholdSeconds() * 1000;
-  const onlinePrinterCount = printerRows.filter((p) => {
-    if (p.lifecycle !== "active") return false;
-    if (p.status !== "online" && p.status !== "busy") return false;
-    const seenMs = parseDbTimeMs(p.lastSeenAt);
-    if (seenMs === null) return false;
-    const ageMs = now.getTime() - seenMs;
-    return ageMs >= 0 && ageMs <= printerFreshnessMs;
-  }).length;
 
   const checks: HealthCheckResult[] = [];
 
@@ -241,12 +195,76 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   };
 }
 
+export async function getAgentHealth(tenantId: string, agentId: string): Promise<AgentHealth | null> {
+  const agentRows = await queryWithTimeout(
+    () => db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.id, agentId))).limit(1),
+    3000,
+    "getAgentHealth"
+  );
+  if (agentRows.length === 0) return null;
+  // Typed row from the Drizzle select above. The previous `as any` erased the
+  // row type on the health-classification decision below, so a renamed/absent
+  // column would have silently degraded to STATUS "OFFLINE" instead of failing
+  // to compile.
+  const agent = agentRows[0];
+
+  const now = gatewayNow();
+  let queueRows: Array<{ cnt: number }> = [];
+  let queueDataAvailable = true;
+  try {
+    queueRows = await queryWithTimeout(
+      () => db.select({ cnt: count() }).from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.agentId, agentId), sql`${printJobs.status} in ('queued','claimed','printing')`)),
+      3000,
+      "agentQueueDepth"
+    );
+  } catch (error) {
+    queueDataAvailable = false;
+    logWarn("agent.health.queue_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
+  }
+  const queueDepth = queueRows[0]?.cnt ?? 0;
+
+  let printerRows: Array<{ id: string; status: string; lifecycle: string; lastSeenAt: Date | string | null }> = [];
+  let printerDataAvailable = true;
+  try {
+    printerRows = await queryWithTimeout(
+      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      3000,
+      "agentPrinters"
+    );
+  } catch (error) {
+    printerDataAvailable = false;
+    logWarn("agent.health.printer_lookup_failed", { tenantId, agentId, error: error instanceof Error ? error.message : "unknown" });
+  }
+  const printerCount = printerRows.length;
+  // "busy" is an executable state (queue accepted work, still claimable — see
+  // isPrinterStatusExecutable). Counting only "online" reports error for an
+  // all-busy (actively processing) fleet.
+  // Health counts are observation evidence, not raw DB status: retired or
+  // disabled printers and stale observations must not read as available
+  // capacity, or fleet counts advertise healthy evidence execution gates
+  // would reject.
+  const printerFreshnessMs = printerStaleThresholdSeconds() * 1000;
+  const onlinePrinterCount = printerRows.filter((p) => {
+    if (p.lifecycle !== "active") return false;
+    if (p.status !== "online" && p.status !== "busy") return false;
+    const seenMs = parseDbTimeMs(p.lastSeenAt);
+    if (seenMs === null) return false;
+    const ageMs = now.getTime() - seenMs;
+    return ageMs >= 0 && ageMs <= printerFreshnessMs;
+  }).length;
+
+  return buildHealth(agent, now, {
+    queueDepth,
+    printerCount,
+    onlinePrinterCount,
+    queueDataAvailable,
+    printerDataAvailable,
+  });
+}
+
 export async function getAllAgentsHealth(tenantId: string, limit = 100, offset = 0): Promise<AgentHealth[]> {
   const boundedLimit = Math.max(1, Math.min(201, Math.trunc(limit)));
   const boundedOffset = Math.max(0, Math.min(100_000, Math.trunc(offset)));
-  // Bound tenant cardinality before the per-Agent fan-out. Stable ID ordering
-  // keeps offset pagination deterministic for this diagnostic endpoint while
-  // preserving the historical array response contract at the route boundary.
   const allAgents = await queryWithTimeout(
     () => db.select().from(agents)
       .where(eq(agents.tenantId, tenantId))
@@ -254,18 +272,77 @@ export async function getAllAgentsHealth(tenantId: string, limit = 100, offset =
       .limit(boundedLimit)
       .offset(boundedOffset),
     3000,
-    "getAllAgentsHealth"
+    "getAllAgentsHealth",
   );
-  // Bounded fan-out (5): the old sequential loop degraded linearly on large
-  // fleets, while an unbounded Promise.all over N agents × 3 queries each
-  // would exhaust the 20-connection pool. Chunks keep latency flat without
-  // stampeding the database.
-  const results: AgentHealth[] = [];
-  for (let i = 0; i < allAgents.length; i += 5) {
-    const chunk = await Promise.all(
-      allAgents.slice(i, i + 5).map((a) => getAgentHealth(tenantId, a.id)),
+  if (allAgents.length === 0) return [];
+
+  // Both aggregates are tenant-scoped AND restricted to the paginated agent
+  // IDs. Regardless of fleet size this endpoint executes at most three reads,
+  // instead of SELECT + (3 * agents) and connection-pool fan-out.
+  const ids = allAgents.map((agent) => agent.id);
+  const now = gatewayNow();
+  let queueDataAvailable = true;
+  let queueRows: Array<{ agentId: string; cnt: number }> = [];
+  try {
+    queueRows = await queryWithTimeout(
+      () => db.select({ agentId: printJobs.agentId, cnt: count() })
+        .from(printJobs)
+        .where(and(
+          eq(printJobs.tenantId, tenantId),
+          inArray(printJobs.agentId, ids),
+          sql`${printJobs.status} in ('queued','claimed','printing')`,
+        ))
+        .groupBy(printJobs.agentId),
+      3000,
+      "allAgentsQueueDepth",
     );
-    for (const h of chunk) if (h) results.push(h);
+  } catch (error) {
+    queueDataAvailable = false;
+    logWarn("agent.health.queue_lookup_failed", {
+      tenantId, error: error instanceof Error ? error.message : "unknown",
+    });
   }
-  return results;
+
+  let printerDataAvailable = true;
+  let printerRows: Array<{ agentId: string; cnt: number; onlineCnt: number }> = [];
+  // Mirror the detail endpoint's freshness bounds, including rejecting future
+  // observations. Timestamps are stored in UTC and the pool pins timezone UTC.
+  const earliestFresh = new Date(now.getTime() - printerStaleThresholdSeconds() * 1000);
+  try {
+    printerRows = await queryWithTimeout(
+      () => db.select({
+        agentId: printers.agentId,
+        cnt: count(),
+        onlineCnt: sql<number>`CAST(COUNT(*) FILTER (WHERE
+          ${printers.lifecycle} = 'active'
+          AND ${printers.status} IN ('online', 'busy')
+          AND ${printers.lastSeenAt} >= ${earliestFresh}
+          AND ${printers.lastSeenAt} <= ${now}
+        ) AS INTEGER)`,
+      })
+        .from(printers)
+        .where(and(eq(printers.tenantId, tenantId), inArray(printers.agentId, ids)))
+        .groupBy(printers.agentId),
+      3000,
+      "allAgentsPrinters",
+    );
+  } catch (error) {
+    printerDataAvailable = false;
+    logWarn("agent.health.printer_lookup_failed", {
+      tenantId, error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+
+  const queues = new Map(queueRows.map((r) => [r.agentId, r.cnt]));
+  const printerCounts = new Map(printerRows.map((r) => [r.agentId, r]));
+  return allAgents.map((agent) => {
+    const summary = printerCounts.get(agent.id);
+    return buildHealth(agent, now, {
+      queueDepth: queues.get(agent.id) ?? 0,
+      printerCount: summary?.cnt ?? 0,
+      onlinePrinterCount: summary?.onlineCnt ?? 0,
+      queueDataAvailable,
+      printerDataAvailable,
+    });
+  });
 }
