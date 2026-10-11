@@ -157,9 +157,14 @@ suite("agent health (database-backed)", () => {
     expect(fleet.find((agent) => agent.agentId === f.agentId)).toMatchObject({
       printerCount: 1, onlinePrinterCount: 1, queueDepth: 1,
     });
-    const page = await getAllAgentsHealth(f.tenantId, 1, 1);
-    expect(page).toHaveLength(1);
-    expect(page[0].agentId).toBe(secondAgentId);
+    // The fixture's first Agent ID is random. SQL orders by agent ID, so
+    // either Agent may occupy page two. Assert stable pagination against the
+    // actual ordering contract instead of a particular fixture identity.
+    const orderedIds = [f.agentId, secondAgentId].sort();
+    const firstPage = await getAllAgentsHealth(f.tenantId, 1, 0);
+    const secondPage = await getAllAgentsHealth(f.tenantId, 1, 1);
+    expect(firstPage.map((agent) => agent.agentId)).toEqual(orderedIds.slice(0, 1));
+    expect(secondPage.map((agent) => agent.agentId)).toEqual(orderedIds.slice(1));
   });
 
   it("caller timeouts cannot silently exceed the underlying PostgreSQL pool budget", async () => {
