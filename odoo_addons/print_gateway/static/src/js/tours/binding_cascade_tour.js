@@ -87,6 +87,16 @@ registry.category("web_tour.tours").add("binding_cascade_tour", {
             run: "selectByIndex 1",
         },
         {
+            trigger: '.o_field_widget[name="destination_pos_config_id"] input',
+            content: "6. Focus POS Shop destination input (required for POS Receipt bindings)",
+            run: "click",
+        },
+        {
+            trigger: '.ui-autocomplete > li:first-child > a, .o-autocomplete--dropdown-item:first-child, .dropdown-item:first-child',
+            content: "Select POS Shop destination via dynamic autocomplete",
+            run: "click",
+        },
+        {
             trigger: "button.o_form_button_save",
             content: "Click Save",
             run: "click",

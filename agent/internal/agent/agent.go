@@ -1905,6 +1905,23 @@ func (a *Agent) rejectJobExact(ctx context.Context, jobID, token, reason string)
 		log.Printf("Job %s: server rejected the pre-execution rejection (%d): %s", jobID, resp.StatusCode, string(respBody))
 		return fmt.Errorf("gateway rejected job hand-back: HTTP %d", resp.StatusCode)
 	}
+	// A bare 2xx is not proof the hand-back applied: require the same shaped
+	// acknowledgement as every other status report, so a misbehaving proxy
+	// cannot silently drop the requeue while the agent stops tracking it.
+	ackBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxGatewayErrorBodyBytes+1))
+	if readErr != nil || len(ackBody) > maxGatewayErrorBodyBytes {
+		return fmt.Errorf("%w: unreadable or oversized hand-back acknowledgement", ErrTransitionRejected)
+	}
+	var accepted struct {
+		Success bool   `json:"success"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal(ackBody, &accepted); err != nil {
+		return fmt.Errorf("%w: invalid hand-back acknowledgement: %v", ErrTransitionRejected, err)
+	}
+	if !accepted.Success || accepted.Status != "queued" {
+		return fmt.Errorf("%w: Gateway did not acknowledge %q (status %q)", ErrTransitionRejected, "queued", accepted.Status)
+	}
 	return nil
 }
 
@@ -3309,7 +3326,7 @@ func (a *Agent) updateJobStatusWithTransport(ctx context.Context, jobID, status,
 		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
 	}
-	if status == "printing" || status == "success" || status == "failed" {
+	if status == "printing" || status == "success" || status == "failed" || status == "queued" {
 		var accepted struct {
 			Success bool   `json:"success"`
 			Status  string `json:"status"`

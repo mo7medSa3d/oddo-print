@@ -44,7 +44,15 @@ type desiredStateDisk struct {
 }
 
 func desiredStatePath(configPath string) string {
+	// Resolve exactly like RegistryPath/QueueDBPath (config/paths.go): a
+	// bare "agent.yaml" lives in the working directory, not beside the
+	// executable. Splitting desired-state.json away from queue.db/printers.json
+	// strands tombstones and applied revisions — and under Program Files the
+	// exe-dir write fails, fencing execution forever.
 	dir := filepath.Dir(configPath)
+	if absolute, err := filepath.Abs(configPath); err == nil {
+		dir = filepath.Dir(absolute)
+	}
 	if configPath == "" || dir == "." {
 		if exe, err := os.Executable(); err == nil {
 			dir = filepath.Dir(exe)
@@ -183,6 +191,12 @@ func (a *Agent) persistDesiredState() error {
 
 	dir := filepath.Dir(a.desiredStatePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	// Mode bits are ignored on Windows: harden the directory itself, or
+	// printer inventory (internal IPs, spooler names, USB serials) is
+	// world-readable on a fresh machine. Same pattern as config.Save.
+	if err := config.EnsureSecureDirectoryACL(dir); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".desired-state-*.json")

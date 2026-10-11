@@ -16,13 +16,25 @@ describe("System Interface Contracts (Section 36)", () => {
       expect(validEscpos.type).toBe("escpos");
       expect(validEscpos.protocol).toBe("escpos");
 
-      // Valid PDF payload
+      // Valid PDF payload (the Windows Agent's ValidatePDF refuses a document
+      // without a %%EOF trailer in its final 4 KiB, so the fixture must carry
+      // one; see agent/internal/printer/pdf.go).
       const validPdf = validatePrintJobPayload({
         type: "pdf",
         encoding: "base64",
-        data: Buffer.from("%PDF-1.4 test").toString("base64"),
+        data: Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n").toString("base64"),
       });
       expect(validPdf.type).toBe("pdf");
+
+      // A well-signed but truncated PDF is refused at admission rather than
+      // delivered as a durable job that must fail after Agent delivery.
+      expect(() =>
+        validatePrintJobPayload({
+          type: "pdf",
+          encoding: "base64",
+          data: Buffer.from("%PDF-1.4 test").toString("base64"),
+        })
+      ).toThrow();
 
       // Invalid: PDF data labeled as escpos
       expect(() =>

@@ -91,16 +91,25 @@ export async function GET(req: Request) {
   if (agentId) conditions.push(eq(printJobs.agentId, agentId));
 
   if (searchParam) {
-    const term = `%${searchParam.toLowerCase()}%`;
+    // Escape LIKE wildcards: `%`/`_` in user input must match literally and
+    // `\` is the ESCAPE character (same policy as getDashboardJobs in
+    // src/app/actions.ts and the reprint LIKE in print-job-service.ts).
+    // Without this, a job-search term containing `_` matches far more rows
+    // than the operator typed.
+    const escaped = searchParam.toLowerCase().replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    const term = `%${escaped}%`;
     conditions.push(
       // Non-null: or() always receives six fixed LIKE clauses.
+      // ESCAPE is literal SQL text (NOT an interpolated binding —
+      // Drizzle would send that as a parameter and Postgres would
+      // reject `LIKE $1 $2`).
       or(
-        sql`LOWER(${printJobs.id}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term}`,
-        sql`LOWER(${printJobs.printerId}) LIKE ${term}`,
-        sql`LOWER(${printJobs.agentId}) LIKE ${term}`,
-        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term}`
+        sql`LOWER(${printJobs.id}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.destination}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.documentType}, '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.printerId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${printJobs.agentId}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printJobs.error}, '')) LIKE ${term} ESCAPE '\\'`
       )!
     );
   }
@@ -184,15 +193,21 @@ export async function DELETE(req: Request) {
     for (let offset = 0; offset < candidateIds.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
       const batchIds = candidateIds.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS).map((row) => row.id);
       const candidates = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds)).for("update");
-      for (const row of candidates) {
-        await tx.insert(printJobReceipts).values({
+      // One multi-row INSERT per inner batch (same shape as the automatic
+      // retention sweep in cleanupTerminalPrintJobs): a per-row INSERT here
+      // costs one round-trip per terminal job, up to MAX_CLEANUP_ROWS statements.
+      // No conflict guard is needed — this transaction holds the tenant
+      // advisory lock, so no concurrent cleanup can materialize the same
+      // receipt id (receipt id = job id, job still locked here).
+      if (candidates.length > 0) {
+        await tx.insert(printJobReceipts).values(candidates.map((row) => ({
           id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
           fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
           printerId: row.printerId, agentId: row.agentId, apiKeyId: row.apiKeyId,
           destination: row.destination, documentType: row.documentType, requestedBy: row.requestedBy,
           status: row.status, error: row.error, closedClaimTokenHash: row.closedClaimTokenHash,
           deliveredAt: row.deliveredAt, ackedAt: row.ackedAt, createdAt: row.createdAt, updatedAt: row.updatedAt,
-        });
+        })));
       }
       const result = await tx.delete(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, batchIds)));
       count += result.rowCount ?? 0;

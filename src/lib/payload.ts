@@ -16,7 +16,10 @@ export const printJobPayloadSchema = z.object({
     drawer: z.enum(DRAWER_MODES).optional(),
     cutter: z.enum(CUTTER_MODES).optional(),
     buzzer: z.enum(BUZZER_MODES).optional(),
-  }).optional(),
+    // Strict: an unknown peripheral key (e.g. a "cuttter" typo) must fail
+    // admission loudly instead of printing without the requested device
+    // action. The wire contract lists exactly these three keys.
+  }).strict().optional(),
   data: z.string().min(1).refine((value) => {
     if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
     try {

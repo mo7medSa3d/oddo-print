@@ -713,3 +713,44 @@ def test_picking_destination_without_report_computes_label_document_type():
     # POS routing is preserved.
     assert 'record.document_type = "receipt"' in compute
     assert 'record.document_type = "kitchen"' in compute
+
+
+def test_branch_destinations_not_blocked_by_automatic_company_check():
+    # F021: binding.company_id is always ROOT while a branch binding needs a
+    # branch-owned destination. check_company=True on the destination fields
+    # made the two checks jointly unsatisfiable; _check_binding (effective
+    # company) is the authority instead.
+    binding = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    for field in ("destination_pos_config_id", "destination_pos_printer_id", "destination_picking_type_id"):
+        block = binding[binding.index(field):binding.index(field) + 600]
+        assert "check_company" not in block, field
+    assert "destination_company and destination_company != expected_company" in binding
+
+
+def test_sale_details_http_route_preserves_native_fallback():
+    # F022: an unbound Sale Details binding must not remove the native PDF
+    # download path (parity with ir_actions_report fallback).
+    pos = (ADDON / "controllers/pos.py").read_text(encoding="utf-8")
+    marker = "if result.get('native'):"
+    native_branch = pos[pos.index(marker):]
+    native_branch = native_branch[:native_branch.index("response = request.make_response")]
+    assert "super().print_sale_details" in native_branch
+    assert "status=422" not in native_branch
+
+
+def test_document_type_computation_survives_empty_report_name():
+    # F023: (report_name or id).strip() crashes on int id when report_name
+    # is falsy; the fallback must be coerced to str first.
+    binding = (ADDON / "models/binding.py").read_text(encoding="utf-8")
+    compute = binding[binding.index("def _compute_document_type"):]
+    compute = compute[:compute.index("def _compute_name")]
+    assert "(report.report_name or report.id).strip()" not in compute
+    assert "str(report.id)" in compute
+
+
+def test_printer_widget_normalizes_legacy_spooler_alias():
+    # F024: legacy windows_spooler transports must resolve like the server
+    # canonicalization, not to "unknown".
+    widget = (ADDON / "static/src/components/runtime_printer_field.js").read_text(encoding="utf-8")
+    assert 'connectionType === "windows_spooler"' in widget
+    assert 'protocol === "windows_spooler"' in widget

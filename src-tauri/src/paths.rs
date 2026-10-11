@@ -58,24 +58,10 @@ fn development_data_override(names: &[&str]) -> Option<PathBuf> {
 }
 
 #[cfg(windows)]
-fn windows_program_data_root() -> PathBuf {
+fn windows_known_folder_root(folder_id: Guid) -> Option<PathBuf> {
     use std::ffi::{c_void, OsString};
     use std::os::windows::ffi::OsStringExt;
 
-    #[repr(C)]
-    struct Guid {
-        data1: u32,
-        data2: u16,
-        data3: u16,
-        data4: [u8; 8],
-    }
-    // FOLDERID_ProgramData = {62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}
-    const FOLDERID_PROGRAM_DATA: Guid = Guid {
-        data1: 0x62ab5d82,
-        data2: 0xfdc1,
-        data3: 0x4dc3,
-        data4: [0xa9, 0xdd, 0x07, 0x0d, 0x1d, 0x49, 0x5d, 0x97],
-    };
     #[link(name = "shell32")]
     unsafe extern "system" {
         fn SHGetKnownFolderPath(
@@ -91,14 +77,7 @@ fn windows_program_data_root() -> PathBuf {
     }
 
     let mut raw: *mut u16 = std::ptr::null_mut();
-    let hr = unsafe {
-        SHGetKnownFolderPath(
-            &FOLDERID_PROGRAM_DATA,
-            0,
-            std::ptr::null_mut(),
-            &mut raw,
-        )
-    };
+    let hr = unsafe { SHGetKnownFolderPath(&folder_id, 0, std::ptr::null_mut(), &mut raw) };
     if hr >= 0 && !raw.is_null() {
         let mut len = 0usize;
         while len < 32_768 && unsafe { *raw.add(len) } != 0 {
@@ -113,10 +92,35 @@ fn windows_program_data_root() -> PathBuf {
         };
         unsafe { CoTaskMemFree(raw.cast()) };
         if let Some(path) = value.filter(|path| !path.as_os_str().is_empty()) {
-            return path;
+            return Some(path);
         }
     } else if !raw.is_null() {
         unsafe { CoTaskMemFree(raw.cast()) };
+    }
+    None
+}
+
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Guid {
+    data1: u32,
+    data2: u16,
+    data3: u16,
+    data4: [u8; 8],
+}
+
+#[cfg(windows)]
+fn windows_program_data_root() -> PathBuf {
+    // FOLDERID_ProgramData = {62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}
+    const FOLDERID_PROGRAM_DATA: Guid = Guid {
+        data1: 0x62ab5d82,
+        data2: 0xfdc1,
+        data3: 0x4dc3,
+        data4: [0xa9, 0xdd, 0x07, 0x0d, 0x1d, 0x49, 0x5d, 0x97],
+    };
+    if let Some(path) = windows_known_folder_root(FOLDERID_PROGRAM_DATA) {
+        return path;
     }
     // Fail closed to the standard machine location rather than consulting an
     // inherited PROGRAMDATA variable when Known Folder resolution fails.
@@ -230,9 +234,31 @@ fn agent_data_root_candidate() -> PathBuf {
 
 /// Autostart belongs to the logged-in user, independently of shared service data.
 pub fn autostart_choice_path() -> Result<PathBuf, String> {
-    let root = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA is unavailable; cannot persist a per-user autostart choice")?;
-    if root.trim().is_empty() { return Err("LOCALAPPDATA is empty".into()); }
-    Ok(PathBuf::from(root).join("YaseirManager").join("autostart-user-choice"))
+    #[cfg(windows)]
+    {
+        // Never inherit LOCALAPPDATA from the parent environment: an
+        // elevated relaunch inherits the unelevated caller's variables, so a
+        // caller-controlled value would redirect the first-launch marker and
+        // the explicit-disable record. Resolve the real per-user profile path
+        // through the Known Folder API like every other privileged root.
+        // FOLDERID_LocalAppData = {F1B32785-6FBA-4FCF-9D55-7B8E7F157091}
+        const FOLDERID_LOCAL_APPDATA: Guid = Guid {
+            data1: 0xf1b32785,
+            data2: 0x6fba,
+            data3: 0x4fcf,
+            data4: [0x9d, 0x55, 0x7b, 0x8e, 0x7f, 0x15, 0x70, 0x91],
+        };
+        if let Some(root) = windows_known_folder_root(FOLDERID_LOCAL_APPDATA) {
+            return Ok(root.join("YaseirManager").join("autostart-user-choice"));
+        }
+        return Err("LocalAppData is unavailable; cannot persist a per-user autostart choice".into());
+    }
+    #[cfg(not(windows))]
+    {
+        let root = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA is unavailable; cannot persist a per-user autostart choice")?;
+        if root.trim().is_empty() { return Err("LOCALAPPDATA is empty".into()); }
+        Ok(PathBuf::from(root).join("YaseirManager").join("autostart-user-choice"))
+    }
 }
 
 pub fn settings_path() -> PathBuf {

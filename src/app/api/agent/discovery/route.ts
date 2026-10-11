@@ -64,12 +64,20 @@ export async function POST(req: Request) {
   const chunkIndex = bodyRecord.chunkIndex;
   const chunkCount = bodyRecord.chunkCount;
   const hasChunk = chunkIndex !== undefined || chunkCount !== undefined;
-  if (hasChunk && (!Number.isInteger(chunkIndex) || !Number.isInteger(chunkCount)
-    || (chunkCount as number) < 1 || (chunkCount as number) > 128
-    || (chunkIndex as number) < 0 || (chunkIndex as number) >= (chunkCount as number))) {
-    return NextResponse.json({ error: "Invalid discovery chunk sequence" }, { status: 400 });
+  const isChunkOrdinal = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
+  let chunkIndexValue: number | undefined;
+  let chunkCountValue: number | undefined;
+  if (hasChunk) {
+    if (!isChunkOrdinal(chunkIndex) || !isChunkOrdinal(chunkCount)
+      || chunkCount < 1 || chunkCount > 128
+      || chunkIndex < 0 || chunkIndex >= chunkCount) {
+      return NextResponse.json({ error: "Invalid discovery chunk sequence" }, { status: 400 });
+    }
+    chunkIndexValue = chunkIndex;
+    chunkCountValue = chunkCount;
   }
-  if (hasChunk && ((chunkIndex as number) < (chunkCount as number) - 1 ? status !== "running" : status === "running")) {
+  if (chunkIndexValue !== undefined && chunkCountValue !== undefined
+    && (chunkIndexValue < chunkCountValue - 1 ? status !== "running" : status === "running")) {
     // A terminal first/middle page would close the row while more pages are
     // still in flight. The last page must always resolve a terminal outcome.
     return NextResponse.json({ error: "Only the final discovery chunk may be terminal" }, { status: 400 });
@@ -165,7 +173,7 @@ export async function POST(req: Request) {
   // A page's content must be the same across retries. A page index alone
   // cannot distinguish a lost HTTP ACK from an Agent restart/re-scan that
   // reordered devices while using the same discovery session id.
-  const chunkDigest = hasChunk
+  const chunkDigest = chunkIndexValue !== undefined
     ? createHash("sha256").update(JSON.stringify(bodyRecord)).digest("hex")
     : null;
   const result = await db.transaction(async (tx) => {
@@ -202,7 +210,7 @@ export async function POST(req: Request) {
     const acceptedChunks = Array.isArray(previousStats.acceptedChunks)
       ? previousStats.acceptedChunks.filter((v): v is number => Number.isInteger(v) && typeof v === "number" && v >= 0 && v < 128)
       : [];
-    if (hasChunk && previousStats.chunkCount !== undefined && previousStats.chunkCount !== chunkCount) {
+    if (chunkCountValue !== undefined && previousStats.chunkCount !== undefined && previousStats.chunkCount !== chunkCountValue) {
       return { kind: "chunk_conflict" as const };
     }
     // A gateway commit followed by a lost HTTP response must be replay-safe.
@@ -211,8 +219,8 @@ export async function POST(req: Request) {
     const chunkDigests = Array.isArray(previousStats.chunkDigests)
       ? previousStats.chunkDigests.map((value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : "")
       : [];
-    if (hasChunk && acceptedChunks.includes(chunkIndex as number)) {
-      const originalDigest = chunkDigests[chunkIndex as number];
+    if (chunkIndexValue !== undefined && acceptedChunks.includes(chunkIndexValue)) {
+      const originalDigest = chunkDigests[chunkIndexValue];
       if (originalDigest && originalDigest !== chunkDigest) {
         return { kind: "chunk_replay_changed" as const };
       }
@@ -223,7 +231,7 @@ export async function POST(req: Request) {
     if (currentSession.status !== "running") {
       return { kind: "not_running" as const, status: currentSession.status ?? "unknown" };
     }
-    if (hasChunk && acceptedChunks.length !== (chunkIndex as number)) {
+    if (chunkIndexValue !== undefined && acceptedChunks.length !== chunkIndexValue) {
       return { kind: "chunk_conflict" as const };
     }
 
@@ -300,9 +308,10 @@ export async function POST(req: Request) {
     // Agent/Gateway version. Appending at acceptedChunks.length would store a
     // later page's digest at index zero, falsely rejecting a legacy retry.
     const nextChunkDigests = [...chunkDigests];
-    if (hasChunk) {
-      while (nextChunkDigests.length <= (chunkIndex as number)) nextChunkDigests.push("");
-      nextChunkDigests[chunkIndex as number] = chunkDigest as string;
+    const acceptedChunkIndex = chunkIndexValue;
+    if (acceptedChunkIndex !== undefined && chunkDigest !== null) {
+      while (nextChunkDigests.length <= acceptedChunkIndex) nextChunkDigests.push("");
+      nextChunkDigests[acceptedChunkIndex] = chunkDigest;
     }
     const nextStats = {
       candidates: typeof totalCandidates === "number" ? totalCandidates : countStat("candidates") + devices.length,
@@ -310,7 +319,7 @@ export async function POST(req: Request) {
       updated: countStat("updated") + updatedCount,
       skipped: totalSkipped,
       errors: mergedErrors,
-      ...(hasChunk ? { chunkCount, acceptedChunks: [...acceptedChunks, chunkIndex as number], chunkDigests: nextChunkDigests } : {}),
+      ...(acceptedChunkIndex !== undefined && chunkCountValue !== undefined ? { chunkCount: chunkCountValue, acceptedChunks: [...acceptedChunks, acceptedChunkIndex], chunkDigests: nextChunkDigests } : {}),
     };
     const terminal = ["completed", "partial", "failed", "cancelled"].includes(effectiveStatus);
     await tx.update(discoverySessions)

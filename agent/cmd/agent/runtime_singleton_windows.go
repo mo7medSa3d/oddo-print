@@ -15,7 +15,10 @@ var (
 	procCloseHandle          = kernel32RuntimeSingleton.NewProc("CloseHandle")
 )
 
-func acquireAgentRuntimeSingleton() (func(), error) {
+func acquireAgentRuntimeSingleton(_ string) (func(), error) {
+	// Machine-global by design: the Windows service model runs one agent.
+	// The config path parameter exists for signature parity with the POSIX
+	// per-config flock; it is intentionally unused here.
 	name, err := syscall.UTF16PtrFromString(`Global\YaseirAgent.Runtime.Singleton.v1`)
 	if err != nil {
 		return nil, fmt.Errorf("encode Agent runtime mutex name: %w", err)

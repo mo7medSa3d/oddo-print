@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Source-integrity guard for the desktop app's barrel module.
 //
@@ -13,7 +14,10 @@ import { dirname, join, resolve } from "node:path";
 // how `agentLiveView` shipped broken once. This walks the real source and
 // fails here instead, with no framework dependencies.
 
-const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
+// import.meta.url keeps spaces percent-encoded (e.g. a checkout at
+// ".../odoo github/..."). Decode through fileURLToPath so this guard works
+// from any checkout path, not only space-free CI paths.
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 const HAS_EXPORT_STAR = /^\s*export\s+\*/m;
 

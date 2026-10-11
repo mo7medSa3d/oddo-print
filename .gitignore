@@ -36,3 +36,8 @@ __pycache__/
 *.egg-info/
 odoo_addons/**/__pycache__/
 odoo_addons/**/*.pyc
+
+# Local engineering audit records (mission work-state, coverage ledger,
+# findings, architecture map). Local-only by design: never shipped, never
+# committed — the corrected source tree is the deliverable.
+.engineering/

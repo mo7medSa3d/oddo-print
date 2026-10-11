@@ -1,6 +1,6 @@
 # Yaseir Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.11.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.13.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
@@ -37,18 +37,18 @@ Yaseir Cloud Printing Platform is a multi-tenant SaaS platform that enables sile
 
 ## 2. Component Architecture
 
-### 2.1 Central Gateway (Next.js 16.3.6 + Custom Server)
+### 2.1 Central Gateway (Next.js 16.3.8 + Custom Server)
 
 **Location**: `src/`, `server.ts`
 
-The Gateway is a Next.js 16.3.6 application with a **custom HTTP server** (`server.ts`) that:
+The Gateway is a Next.js 16.3.8 application with a **custom HTTP server** (`server.ts`) that:
 - Runs the Next.js request handler for API routes and dashboard UI
 - Attaches a WebSocket server for real-time agent communication (`/api/agent/ws`)
 - Runs periodic maintenance (job sweep, auth cleanup, agent presence sweep)
 - Enforces trusted proxy authentication (Caddy → Gateway)
 - Rejects known placeholder secrets in production mode
 
-**API Route Structure** (76 route files, verified 2026-09-28):
+**API Route Structure** (78 route files, verified 2026-10-11):
 - `/api/agent/*` — Agent data plane (heartbeat, jobs, register, discovery)
 - `/api/agents/*` — Agent management (CRUD, discovery sessions)
 - `/api/odoo/*` — Odoo integration endpoints (agents, printers, keys, health)

@@ -21,6 +21,12 @@ function ResetPasswordContent() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    // A missing token can never succeed: short-circuit with guidance instead
+    // of submitting an empty token for a generic server failure.
+    if (!token) {
+      setErr(t("auth.reset.linkMissing"));
+      return;
+    }
     setErr("");
     setLoading(true);
     try {

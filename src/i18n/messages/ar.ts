@@ -226,6 +226,7 @@ export const ar: Catalog = {
   "auth.reset.submitting": "جارٍ التحديث…",
   "auth.reset.failed": "تعذّرت إعادة تعيين كلمة المرور",
   "auth.reset.failedBody": "تعذّر إعادة تعيين كلمة المرور. حاول مرة أخرى.",
+  "auth.reset.linkMissing": "رابط إعادة تعيين كلمة المرور مفقود أو غير صالح. اطلب رابطًا جديدًا من صفحة تسجيل الدخول.",
   "auth.reset.success": "تم تحديث كلمة المرور. جارٍ الانتقال إلى تسجيل الدخول…",
   "auth.reset.backToSignIn": "العودة إلى تسجيل الدخول",
 
@@ -1661,6 +1662,7 @@ export const ar: Catalog = {
   "invite.acceptedTitle": "تم قبول الدعوة",
   "invite.rejectedTitle": "لم يتم قبول الدعوة",
   "invite.failed": "تعذّر قبول هذه الدعوة. ربما انتهت صلاحيتها أو تم إلغاؤها.",
+  "invite.linkMissing": "رابط الدعوة مفقود أو غير صالح. اطلب من مالك مساحة العمل إرسال دعوة جديدة.",
   "invite.accountRequired": "لا يوجد حساب بهذا البريد بعد. أنشئ حسابًا وتحقق منه، ثم ستعود إلى هنا للقبول.",
   "invite.createAccount": "إنشاء حساب لهذا البريد",
   "invite.loading": "جارٍ تحميل الدعوة",

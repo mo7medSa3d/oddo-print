@@ -15,7 +15,7 @@ import (
 
 func main() {
 	serverURL := flag.String("server", "", "Server URL (required for -pair), e.g. https://gateway.example.com")
-	pairingCode := flag.String("pair", "", "Pairing code from dashboard")
+	pairingCode := flag.String("pair", "", "Pairing code from dashboard (prefer YASEIR_PAIRING_CODE env: argv is visible to local users)")
 	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
 	// Printer subcommands also support --json flag via manual parsing
 	flag.Parse()
@@ -45,15 +45,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *pairingCode != "" {
+	// Prefer the environment channel: CLI argv is visible to other local
+	// users (Task Manager, wmic process get CommandLine) and retained in
+	// EDR/4688 logs, while process environment is not. The flag remains as
+	// a fallback for scripts that already use it.
+	code := strings.TrimSpace(*pairingCode)
+	if code == "" {
+		code = strings.TrimSpace(os.Getenv("YASEIR_PAIRING_CODE"))
+	}
+	if code != "" {
 		if strings.TrimSpace(*serverURL) == "" {
 			log.Fatal("-server is required when pairing (e.g. -server https://gateway.example.com)")
 		}
 		if err := config.ValidateServerURL(*serverURL); err != nil {
 			log.Fatalf("Invalid -server: %v", err)
-		}
-		if strings.TrimSpace(*pairingCode) == "" {
-			log.Fatal("-pair requires a non-empty pairing code")
 		}
 		// Strict single-home: pair into the canonical config path only.
 		// A per-user fallback would split-brain pairing state away from
@@ -63,8 +68,7 @@ func main() {
 		if err := config.Ensure(*configPath); err != nil {
 			log.Fatalf("Failed to prepare protected service config %s: %v. Pairing on Windows must be performed from an elevated Administrator context.", *configPath, err)
 		}
-		err := agent.Register(*serverURL, strings.ToUpper(strings.TrimSpace(*pairingCode)), *configPath)
-		if err != nil {
+		if err := agent.Register(*serverURL, strings.ToUpper(code), *configPath); err != nil {
 			log.Fatalf("Pairing failed: %v", err)
 		}
 		os.Exit(0)
@@ -78,6 +82,7 @@ func printUsage() {
 	fmt.Println("")
 	fmt.Println("Pairing (one-time):")
 	fmt.Println("  yaseir-agent-cli.exe -pair <code> -server <url> [-config <path>]")
+	fmt.Println("  Prefer YASEIR_PAIRING_CODE env over -pair: argv is visible to local users.")
 	fmt.Println("  -server is required for pairing and must be http(s).")
 	fmt.Println("  Default config path:", config.DefaultConfigPath())
 	fmt.Println("")

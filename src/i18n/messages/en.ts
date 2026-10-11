@@ -220,6 +220,7 @@ export const en = {
   "auth.reset.submitting": "Updating…",
   "auth.reset.failed": "We couldn’t reset the password",
   "auth.reset.failedBody": "We couldn’t reset your password. Please try again.",
+  "auth.reset.linkMissing": "This password-reset link is missing or invalid. Request a new one from the sign-in page.",
   "auth.reset.success": "Password updated. Taking you to sign in…",
   "auth.reset.backToSignIn": "Back to sign in",
 
@@ -1652,6 +1653,7 @@ export const en = {
   "invite.acceptedTitle": "Invitation accepted",
   "invite.rejectedTitle": "Invitation not accepted",
   "invite.failed": "We couldn’t accept this invitation. It may have expired or been revoked.",
+  "invite.linkMissing": "This invitation link is missing or invalid. Ask your workspace owner to send a new invitation.",
   "invite.accountRequired": "No account uses this email yet. Create one, verify it, and you’ll return here to accept.",
   "invite.createAccount": "Create an account for this email",
   "invite.loading": "Loading invitation",

@@ -3,12 +3,28 @@ package printer
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 // maxAutomaticDiscoveryTargets caps active probes per source across ALL local
 // subnets, not per interface. An installation with dozens of VPN/LAN adapters
 // must not enqueue unbounded TCP/SNMP/LPR/IPP probes on every discovery cycle.
 const maxAutomaticDiscoveryTargets = 512
+
+// isDiscoveryInterfaceExcluded reports virtual/tunnel interfaces whose
+// subnets must never consume discovery budget: veth/docker bridges, VPN
+// tunnels, and tailscale/tap devices. Shared by the RAW scan
+// (network_discovery.go) and the LPR/SNMP/IPP target enumeration below so
+// all sources cover the same real LAN under the target budget.
+func isDiscoveryInterfaceExcluded(ifaceName string) bool {
+	lower := strings.ToLower(ifaceName)
+	return strings.HasPrefix(lower, "veth") ||
+		strings.HasPrefix(lower, "docker") ||
+		strings.HasPrefix(lower, "br-") ||
+		strings.HasPrefix(lower, "tailscale") ||
+		strings.HasPrefix(lower, "tap") ||
+		strings.HasPrefix(lower, "tun")
+}
 
 func generateHosts(ipNet *net.IPNet) []net.IP {
 	var hosts []net.IP
@@ -131,6 +147,12 @@ func localPrivateDiscoveryTargets() ([]string, []string) {
 	var diagnostics []string
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// Same virtual/tunnel exclusion as the RAW scan: docker bridges,
+		// VPNs and tailscale subnets must not consume the shared 512-host
+		// budget ahead of the real LAN.
+		if isDiscoveryInterfaceExcluded(iface.Name) {
 			continue
 		}
 		addresses, err := iface.Addrs()

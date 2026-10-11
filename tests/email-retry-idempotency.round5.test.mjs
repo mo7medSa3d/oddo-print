@@ -9,14 +9,14 @@ const source = await readFile('src/lib/email.ts', 'utf8');
 
 async function loadEmailHandler(fetchStub) {
   const context = vm.createContext({ fetch: fetchStub, URL, AbortSignal, Promise, process, setTimeout: (fn) => {fn(); return 0;} });
-  const module = new vm.SourceTextModule(stripTypeScriptTypes(source, {mode: 'transform'}), {context});
-  await module.link((specifier) => {
+  const sourceModule = new vm.SourceTextModule(stripTypeScriptTypes(source, {mode: 'transform'}), {context});
+  await sourceModule.link((specifier) => {
     if (specifier === 'node:crypto') return new vm.SyntheticModule(['randomUUID'],function(){this.setExport('randomUUID',randomUUID)},{context});
     if (specifier === './runtime-secret') return new vm.SyntheticModule(['runtimeSecret'],function(){this.setExport('runtimeSecret',name => ({RESEND_API_KEY:'fixture',EMAIL_FROM:'print@example.test'})[name])},{context});
     throw new Error(`Unexpected import ${specifier}`);
   });
-  await module.evaluate();
-  return module.namespace.sendTransactionalEmail;
+  await sourceModule.evaluate();
+  return sourceModule.namespace.sendTransactionalEmail;
 }
 const mail = { to: 'operator@example.test', subject: 'Invite', html: '<p>Hi</p>', text: 'Hi' };
 

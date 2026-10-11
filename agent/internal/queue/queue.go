@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 // ErrTerminalState is returned by BeginPrint when the local ledger holds a
@@ -48,6 +49,15 @@ func New(dbPath string) (*Queue, error) {
 	// 0700: local queue rows contain print payloads (receipts, invoices).
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create queue directory %s: %w", dir, err)
+	}
+	// Mode bits are ignored on Windows (only the read-only flag applies), so
+	// MkdirAll alone leaves the payload directory readable by any local user
+	// via the inherited ProgramData DACL. Harden it like every other
+	// secrets-adjacent store (config, secret store, PDF temp dirs).
+	if dir != "." {
+		if err := config.EnsureSecureDirectoryACL(dir); err != nil {
+			return nil, fmt.Errorf("secure queue directory %s: %w", dir, err)
+		}
 	}
 
 	// FULL WAL commits durably fence physical execution across power loss.

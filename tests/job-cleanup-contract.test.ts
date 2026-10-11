@@ -120,4 +120,24 @@ describe("print-job bulk memory bound", () => {
     const maintenance = read("src/lib/job-maintenance.ts");
     expect(maintenance).toContain("SELECT id\n      FROM print_jobs");
   });
+
+  it("materializes cleanup receipts with one multi-row INSERT per batch (F005)", () => {
+    const src = read("src/app/api/jobs/route.ts");
+    // A per-row INSERT inside the candidate loop costs one round-trip per
+    // terminal job (up to MAX_CLEANUP_ROWS statements); the batched form
+    // matches the automatic retention sweep.
+    expect(src).toContain("await tx.insert(printJobReceipts).values(candidates.map((row) => ({");
+    expect(src).not.toContain("for (const row of candidates) {\n        await tx.insert(printJobReceipts)");
+  });
+
+  it("escapes LIKE wildcards on the jobs list search in parity with the dashboard action (F006)", () => {
+    const src = read("src/app/api/jobs/route.ts");
+    const actions = read("src/app/actions.ts");
+    // Both search paths must treat `%`/`_` literally: an unescaped `_`
+    // matches every job id containing any single character there.
+    for (const file of [src, actions]) {
+      expect(file).toContain('.replace(/%/g, "\\\\%").replace(/_/g, "\\\\_")');
+      expect(file).toContain("ESCAPE '\\\\'");
+    }
+  });
 });

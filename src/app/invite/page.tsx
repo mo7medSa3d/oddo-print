@@ -21,6 +21,15 @@ function InviteContent() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    // A missing token can never succeed: short-circuit with guidance instead
+    // of submitting an empty token for a generic failure.
+    if (!token) {
+      setMessage(t("invite.linkMissing"));
+      setSucceeded(false);
+      setNeedsAccount(false);
+      requestAnimationFrame(() => feedbackRef.current?.focus());
+      return;
+    }
     setBusy(true);
     setMessage("");
     setNeedsAccount(false);

@@ -15,7 +15,9 @@ func RasterMaxWidthFromPaperWidthMM(mm int) int {
 	if mm <= 0 {
 		return SafeRasterMaxWidth
 	}
-	return paperMillimetresToDots(mm)
+	// Execution-safe ceiling: paperMillimetresToDots scales linearly, so a
+	// huge mm value must not become a raster width the hardware cannot take.
+	return min(paperMillimetresToDots(mm), maxRasterWidth)
 }
 
 // RasterMaxWidthForConfiguredPaper prefers real operator-provided printer
@@ -53,9 +55,12 @@ func RasterMaxWidthFromCapabilities(caps map[string]interface{}) int {
 	}
 	if v, ok := capabilityInt(caps["max_paper_width"]); ok && v > 0 {
 		if v <= 128 { // backwards-compatible millimetre representation
-			return paperMillimetresToDots(v)
+			return min(paperMillimetresToDots(v), maxRasterWidth)
 		}
-		return v
+		// An explicit dot width above the thermal ceiling (e.g. a unit
+		// typo like 5000) would overrun the 576-dot hardware path and
+		// clip or overflow the printer buffer. Clamp to hardware.
+		return min(v, maxRasterWidth)
 	}
 	if widths, ok := capabilityInts(caps["paper_widths"]); ok && len(widths) > 0 {
 		// A printer may support several roll widths. Without a per-job roll
@@ -73,7 +78,9 @@ func RasterMaxWidthFromCapabilities(caps map[string]interface{}) int {
 			}
 		}
 		if minDots > 0 {
-			return minDots
+			// Clamp the narrowest advertised width to hardware: an absurd
+			// entry (e.g. 500mm) must not become an execution width.
+			return min(minDots, maxRasterWidth)
 		}
 	}
 	return SafeRasterMaxWidth

@@ -116,3 +116,18 @@ func TestAutomaticDiscoveryDeduplicatesOverlappingSubnetMasks(t *testing.T) {
 		t.Fatalf("wanted 254 unique network hosts, got %d", len(hosts))
 	}
 }
+
+func TestDiscoveryInterfaceExclusionShared(t *testing.T) {
+	excluded := []string{"veth1234", "docker0", "br-abc123", "tailscale0", "tap0", "tun0", "VETH1", "Docker1", "Tailscale0"}
+	for _, name := range excluded {
+		if !isDiscoveryInterfaceExcluded(name) {
+			t.Errorf("interface %q must be excluded from discovery budget", name)
+		}
+	}
+	included := []string{"eth0", "Ethernet", "Wi-Fi", "wlan0", "en0", "Ethernet0"}
+	for _, name := range included {
+		if isDiscoveryInterfaceExcluded(name) {
+			t.Errorf("interface %q must remain eligible for discovery", name)
+		}
+	}
+}

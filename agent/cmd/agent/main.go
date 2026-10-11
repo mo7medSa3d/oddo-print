@@ -458,7 +458,8 @@ func main() {
 
 	// 2. Normal runtime path. Enforce one runtime process per machine even
 	// when the executable is launched manually or two desktop starts race.
-	releaseRuntimeSingleton, err := acquireAgentRuntimeSingleton()
+	// (POSIX scopes the lock to the config directory; Windows is machine-global.)
+	releaseRuntimeSingleton, err := acquireAgentRuntimeSingleton(*configPath)
 	if err != nil {
 		log.Printf("Refusing duplicate Agent runtime: %v", err)
 		return

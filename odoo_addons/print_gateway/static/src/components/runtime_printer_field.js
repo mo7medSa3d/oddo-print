@@ -252,10 +252,17 @@ export class RuntimePrinterField extends Component {
             if (found && this.props.record?.fields?.printer_protocol) {
                 const protocol = String(found.protocol || "").trim().toLowerCase();
                 const connectionType = String(found.connectionType || "").trim().toLowerCase();
-                const declared = ["spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"].includes(protocol)
-                    ? protocol
-                    : ["spooler", "ipp", "ipps"].includes(connectionType)
-                        ? connectionType
+                // Normalize legacy Windows aliases exactly like the server
+                // (_canonical_runtime_printer_protocol): a legacy
+                // windows_spooler transport must resolve to spooler, not
+                // unknown, or Test/Verify rejects the binding until the
+                // operator hand-corrects Advanced protocol.
+                const normConnectionType = connectionType === "windows_spooler" ? "spooler" : connectionType;
+                const normProtocol = protocol === "windows_spooler" && normConnectionType === "spooler" ? "spooler" : protocol;
+                const declared = ["spooler", "ipp", "ipps", "escpos", "zpl", "tspl", "raw"].includes(normProtocol)
+                    ? normProtocol
+                    : ["spooler", "ipp", "ipps"].includes(normConnectionType)
+                        ? normConnectionType
                         : "unknown";
                 // Always write the selected printer's canonical transport,
                 // including unknown, so a previous printer's byte protocol

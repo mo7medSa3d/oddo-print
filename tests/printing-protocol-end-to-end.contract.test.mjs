@@ -75,7 +75,9 @@ test('Agent status reports preserve the original claim fence and ambiguous submi
   assert.match(route, /derivePhysicalOutcome\(requestedStatus, nextError\)/);
 });
 test('embedded Windows PDF engine uses in-process PDFium WASM with no configured host filesystem mounts', () => {
-  const pdf=read('agent/internal/printer/pdf_windows.go');
+  // The WASM pool configuration (FSConfig, stdio) lives in pdfium_pool.go;
+  // pdf_windows.go owns the Windows GDI submission path that consumes it.
+  const pdf = read('agent/internal/printer/pdfium_pool.go') + read('agent/internal/printer/pdf_windows.go');
   assert.match(pdf,/webassembly\.Init/);
   assert.match(pdf,/wazero\.NewFSConfig\(\)/);
   assert.match(pdf,/io\.Discard/);

@@ -17,13 +17,13 @@ const code = ts.transpileModule(readFileSync(filename, 'utf8'), {
 }).outputText;
 const context = vm.createContext({ BigInt, Number, String, Array });
 const builtin = new vm.SyntheticModule(['isIP'], function () { this.setExport('isIP', isIP); }, { context });
-const module = new vm.SourceTextModule(code, { context });
-await module.link((name) => {
+const sourceModule = new vm.SourceTextModule(code, { context });
+await sourceModule.link((name) => {
   assert.equal(name, 'node:net');
   return builtin;
 });
-await module.evaluate();
-const valid = module.namespace.isPrivateNetworkAddress;
+await sourceModule.evaluate();
+const valid = sourceModule.namespace.isPrivateNetworkAddress;
 test('cloud task credentials and instance metadata never pass the printer IP policy', () => {
   for (const address of ['169.254.169.254', '169.254.170.2', 'fd00:ec2::254',
     'fd00:0ec2:0000:0000:0000:0000:0000:0254', 'FD00:0EC2::0254']) {

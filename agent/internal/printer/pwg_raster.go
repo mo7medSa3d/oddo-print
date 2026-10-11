@@ -99,7 +99,12 @@ func encodePWGPage(out *bytes.Buffer, img *image.RGBA, dpi, totalPages int, page
 	return nil
 }
 
-// pwgRasterRow composites the premultiplied Go RGBA image over opaque white.
+// pwgRasterRow composites the PDFium bitmap over opaque white. PDFium's
+// FPDFBitmap_BGRA carries STRAIGHT (non-premultiplied) alpha (confirmed in
+// go-pdfium's own WASM renderer), so the composite is a straight lerp — the
+// same formula as the GDI path's rgbaToBGRAInPlace. Treating the channels as
+// premultiplied washes semi-transparent pixels to white (e.g. 50% gray 128
+// over white must yield 191, not 255).
 // A hardware raster cannot represent alpha and must never treat transparent
 // PDF backgrounds as black or send premultiplied color values as if opaque.
 func pwgRasterRow(img *image.RGBA, y int, row []byte, mode pwgRasterColor) {
@@ -112,10 +117,10 @@ func pwgRasterRow(img *image.RGBA, y int, row []byte, mode pwgRasterColor) {
 	for x := 0; x < w; x++ {
 		p := offset + x*4
 		a := uint32(img.Pix[p+3])
-		white := uint32(255) - a
-		r := min(uint32(255), uint32(img.Pix[p])+white)
-		g := min(uint32(255), uint32(img.Pix[p+1])+white)
-		b := min(uint32(255), uint32(img.Pix[p+2])+white)
+		inv := uint32(255) - a
+		r := (uint32(img.Pix[p])*a + 255*inv) / 255
+		g := (uint32(img.Pix[p+1])*a + 255*inv) / 255
+		b := (uint32(img.Pix[p+2])*a + 255*inv) / 255
 		if channels == 1 {
 			row[x] = byte((2126*r + 7152*g + 722*b + 5000) / 10000)
 		} else {

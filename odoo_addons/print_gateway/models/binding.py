@@ -77,18 +77,24 @@ class PrintGatewayBinding(models.Model):
     destination_type = fields.Selection(
         DESTINATION_MODELS, string="Destination Type", required=True, default="pos",
     )
+    # NOTE: no check_company=True here by design. The binding's company_id is
+    # always the ROOT company, but a branch-scoped binding must accept a
+    # branch-owned destination (effective_company_id). Odoo's automatic
+    # check_company would compare against the root company_id and make branch
+    # bindings unsatisfiable. _check_binding() enforces the effective-company
+    # rule instead (and still admits company-less global destinations).
     destination_pos_config_id = fields.Many2one(
-        "pos.config", string="POS Shop", ondelete="restrict", check_company=True,
+        "pos.config", string="POS Shop", ondelete="restrict",
         domain="['&', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]",
         help="Logical POS destination. The physical printer is selected from the Gateway Runtime Printer below.",
     )
     destination_pos_printer_id = fields.Many2one(
-        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict", check_company=True,
+        "pos.printer", string="Odoo Preparation Printer", ondelete="restrict",
         domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
         help="Native Odoo 19 preparation-printer identity. Its product categories determine which kitchen lines this Gateway binding receives.",
     )
     destination_picking_type_id = fields.Many2one(
-        "stock.picking.type", string="Operation Type", ondelete="restrict", check_company=True,
+        "stock.picking.type", string="Operation Type", ondelete="restrict",
         domain="['&', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]",
     )
     destination_report_id = fields.Many2one(
@@ -242,8 +248,10 @@ class PrintGatewayBinding(models.Model):
             elif record.report_id or record.destination_report_id:
                 # Legacy rows may still carry only destination_report_id until
                 # the 2.10 migration completes. New rows use report_id.
+                # Coerce the id fallback to str: an empty report_name would
+                # otherwise call .strip() on an int and crash this compute.
                 report = record.report_id or record.destination_report_id
-                record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % (report.report_name or report.id).strip().lower())
+                record.document_type = DOCUMENT_TYPE_BY_MODEL.get(report.model, "report:%s" % ((report.report_name or str(report.id)) or "").strip().lower())
             elif record.destination_type == "picking_type":
                 # Direct inventory/warehouse operations address label
                 # hardware with byte-stream protocols (route_raw_command

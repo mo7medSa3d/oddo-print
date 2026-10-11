@@ -278,3 +278,10 @@ func TestPresentPeripheralsMustBeObject(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownPeripheralKeyRejected(t *testing.T) {
+	input := map[string]interface{}{"type": "escpos", "protocol": "escpos", "encoding": "base64", "data": base64.StdEncoding.EncodeToString([]byte("receipt")), "peripherals": map[string]interface{}{"cuttter": "full"}}
+	if _, err := Parse(input); err == nil {
+		t.Fatal("unknown peripherals key accepted; a typo must fail instead of printing without the device action")
+	}
+}
