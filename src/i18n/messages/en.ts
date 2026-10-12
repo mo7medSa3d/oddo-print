@@ -1045,6 +1045,8 @@ export const en = {
   "desktop.testCenter.sample.kitchen": "Kitchen ticket",
   "desktop.testCenter.sample.bar": "Bar ticket",
   "desktop.testCenter.sample.invoice": "A4 invoice",
+  "desktop.testCenter.importPaperTitle": "Paper width for the imported image",
+  "desktop.testCenter.keepOriginal": "Keep original size (96 DPI)",
   "desktop.testCenter.paperTitle": "Receipt paper width",
   "desktop.testCenter.importTitle": "Import a real Odoo export",
   "desktop.testCenter.importBody": "Optional PDF, JPEG, or PNG · up to 4 MiB · stays on this PC",

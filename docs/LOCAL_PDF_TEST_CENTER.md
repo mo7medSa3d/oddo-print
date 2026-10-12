@@ -14,7 +14,7 @@ Microsoft Print to PDF, OneNote, PDF24, or any other software/redirected queue.
 1. Open **Yaseir Print Manager → Test Center**.
 2. Pick a sample POS receipt, kitchen ticket, bar ticket, or A4-scale invoice. For a real
    Odoo document, export a JPEG/PNG receipt image or PDF and import it locally.
-3. For receipts, choose **58mm** or **80mm**. PDF uploads retain their own page sizes.
+3. For sample receipts, choose **58mm** or **80mm**. Imported JPEG/PNG images default to their original 96-DPI image geometry, or can be explicitly mapped to 58/80mm receipt paper. Imported PDFs retain their embedded page sizes.
 4. Click **Run local PDF test**. The Manager writes a protected temporary input file
    under its private ProgramData capture directory, then runs the **bundled Go CLI**.
 5. The CLI converts JPEGs using the production `JPEGToPDFReceipt` (or `JPEGToPDF`

@@ -1051,6 +1051,8 @@ export const ar: Catalog = {
   "desktop.testCenter.sample.kitchen": "تذكرة المطبخ",
   "desktop.testCenter.sample.bar": "تذكرة البار",
   "desktop.testCenter.sample.invoice": "فاتورة A4",
+  "desktop.testCenter.importPaperTitle": "عرض الورق للصورة المستوردة",
+  "desktop.testCenter.keepOriginal": "الاحتفاظ بالمقاس الأصلي (96 DPI)",
   "desktop.testCenter.paperTitle": "عرض ورق الإيصال",
   "desktop.testCenter.importTitle": "استيراد مستند صادر من Odoo",
   "desktop.testCenter.importBody": "ملف PDF أو JPEG أو PNG اختياري · حتى 4 ميجابايت · يبقى على هذا الجهاز",

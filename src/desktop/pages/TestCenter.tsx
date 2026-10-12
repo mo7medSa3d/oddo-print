@@ -126,6 +126,9 @@ export function TestCenterPage() {
   const { t } = useI18n();
   const [sample, setSample] = useState<Sample>("pos");
   const [paperMM, setPaperMM] = useState<58 | 80>(80);
+  // Uploaded images may be full-sized reports or receipt rasters.
+  // Never silently squeeze an imported invoice onto 80mm roll paper.
+  const [importPaperMM, setImportPaperMM] = useState<0 | 58 | 80>(0);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -149,8 +152,8 @@ export function TestCenterPage() {
       const input = file
         ? await importedDocument(file)
         : { data: sampleJPEG(sample, paperMM), format: "jpeg" as const };
-      const width = input.format === "pdf" || (!file && sample === "invoice")
-        ? 0 : paperMM;
+      const width = input.format === "pdf" ? 0
+        : file ? importPaperMM : sample === "invoice" ? 0 : paperMM;
       const response = await captureTestDocument({
         documentBytes: Array.from(input.data),
         format: input.format,
@@ -218,6 +221,7 @@ export function TestCenterPage() {
                   onChange={(event) => {
                     const next = event.currentTarget.files?.[0] ?? null;
                     setFile(next);
+                    setImportPaperMM(0);
                     setResult(null);
                     setError(null);
                   }} />
@@ -228,6 +232,20 @@ export function TestCenterPage() {
               <Button size="sm" variant="ghost" onClick={() => chooseSample(sample)}>{t("desktop.testCenter.clearFile")}</Button>
             </div>}
           </div>
+
+          {file && !file.name.toLowerCase().endsWith(".pdf") && (
+            <fieldset>
+              <legend className="mb-2 text-sm font-semibold text-ink">{t("desktop.testCenter.importPaperTitle")}</legend>
+              <div className="flex flex-wrap gap-2">
+                {([0, 58, 80] as const).map((mm) => (
+                  <Button key={mm} variant={importPaperMM === mm ? "primary" : "secondary"}
+                    onClick={() => { setImportPaperMM(mm); setResult(null); }}>
+                    {mm === 0 ? t("desktop.testCenter.keepOriginal") : `${mm} mm`}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
           <Button variant="primary" className="min-h-11 w-full sm:w-auto"
             loading={busy} disabled={!isTauri || busy} onClick={() => void run()}
