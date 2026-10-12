@@ -32,12 +32,12 @@ const maxCapturePreviewBytes = 256 * 1024
 // E2E capture messages are not print jobs and never pass through dispatchJob,
 // printer.New, the physical queue, Windows spooler, or status "success".
 type e2eCaptureEnvelope struct {
-	RunID       string `json:"runId"`
-	ClaimToken  string `json:"claimToken"`
-	PaperMM     int    `json:"paperMm"`
-	Simulation  bool   `json:"simulationOnly"`
-	PrinterID   *string `json:"physicalPrinterId"`
-	Payload     struct {
+	RunID      string  `json:"runId"`
+	ClaimToken string  `json:"claimToken"`
+	PaperMM    int     `json:"paperMm"`
+	Simulation bool    `json:"simulationOnly"`
+	PrinterID  *string `json:"physicalPrinterId"`
+	Payload    struct {
 		Type     string `json:"type"`
 		Encoding string `json:"encoding"`
 		Data     string `json:"data"`

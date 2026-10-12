@@ -50,8 +50,10 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     expect(accepted.runId).toMatch(/^cap_[0-9a-f]{32}$/);
     expect(accepted.physicalPrinted).toBe(false);
     expect((await start(odoo(owner, "POST", body))).status).toBe(200);
-    expect((await start(odoo(owner, "POST",
-      request(owner, body.idempotencyKey, Buffer.from("%PDF-1.4\n2 0 obj\n<<>>\nendobj\n%%EOF\n")))).status).toBe(409);
+    const alternate = request(owner, body.idempotencyKey,
+      Buffer.from("%PDF-1.4\n2 0 obj\n<<>>\nendobj\n%%EOF\n"));
+    const conflict = await start(odoo(owner, "POST", alternate));
+    expect(conflict.status).toBe(409);
     expect((await claim(agent(outsider, "GET"))).status).toBe(204);
     expect((await read(odoo(outsider, "GET", undefined, accepted.runId))).status).toBe(404);
     const fetched = await claim(agent(owner, "GET"));

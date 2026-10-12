@@ -1,13 +1,14 @@
 package agent
 
 import (
-	"github.com/yaseir-agent/agent/internal/config"
 	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 func validCaptureEnvelope() e2eCaptureEnvelope {
