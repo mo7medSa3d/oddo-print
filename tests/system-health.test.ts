@@ -6,8 +6,8 @@ describe("system-health", () => {
   it("derives schema version from the latest Drizzle migration", async () => {
     const journal = await import("../drizzle/meta/_journal.json");
     expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
-    // The forward-only physical-printer admission fence is migration 0081.
-    expect(CURRENT_SCHEMA_VERSION).toBe(81);
+    // The forward-only maintenance and audit repairs fence is migration 0082.
+    expect(CURRENT_SCHEMA_VERSION).toBe(82);
   });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();

@@ -96,7 +96,7 @@ suite("end-to-end job flow (Odoo -> Gateway -> agent socket -> status)", () => {
         ws.once("message", (raw) => resolve(JSON.parse(raw.toString())));
         ws.once("error", reject);
       });
-      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: f.agentId })]);
+      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: f.agentId, tenantId: f.tenantId })]);
       // The first (and possibly second) fenced attempt must skip the lock.
       await new Promise((resolve) => setTimeout(resolve, 260));
       expect((await jobRow(jobId)).status).toBe("queued");

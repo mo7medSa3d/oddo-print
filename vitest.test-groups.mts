@@ -65,6 +65,7 @@ export const integrationVitestTestFiles = [
   "tests/heartbeat-billing-degraded.integration.test.ts",
   "tests/job-cleanup-behavior.integration.test.ts",
   "tests/tenant-isolation-extended.integration.test.ts",
+  "tests/tenant-batch-fencing.integration.test.ts",
 ] as const;
 
 export const integrationTestFiles = [

@@ -6,6 +6,8 @@ import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from
 import { sql, eq, and } from "drizzle-orm";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
 
+import { getCachedPlatformStats, setCachedPlatformStats } from "../../../../lib/platform-stats-cache";
+
 type PlatformHourlyJobStatsRow = {
   bucket: Date | string;
   total: number | string | null;
@@ -26,13 +28,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Platform authentication temporarily unavailable" }, { status: 503 });
   }
 
+  const bypassCache = req.headers.get("x-cache-bypass") === "1" || req.headers.get("cache-control") === "no-cache";
+  const cached = getCachedPlatformStats(bypassCache);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { "X-Cache": "HIT" },
+    });
+  }
+
   const [
     tenantStats,
     subscriptionStats,
     userStats,
     agentStats,
     printerStats,
-    jobStats24h,
     hourlyJobStats,
   ] = await queryWithTimeout(
     () => Promise.all([
@@ -146,17 +155,6 @@ export async function GET(req: Request) {
         // tripwire, but do not turn Agent reachability into physical status.
         .leftJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))),
 
-      db.select({
-        total: sql<number>`count(*)::int`,
-        success: sql<number>`count(*) filter (where ${printJobs.status} = 'success')::int`,
-        failed: sql<number>`count(*) filter (where ${printJobs.status} = 'failed')::int`,
-        queued: sql<number>`count(*) filter (where ${printJobs.status} = 'queued')::int`,
-        inFlight: sql<number>`count(*) filter (where ${printJobs.status} in ('claimed','printing'))::int`,
-        expired: sql<number>`count(*) filter (where ${printJobs.status} = 'expired')::int`,
-      }).from(printJobs).where(
-        sql`${printJobs.createdAt} >= clock_timestamp() - interval '24 hours'`,
-      ),
-
       db.execute(sql<PlatformHourlyJobStatsRow>`
         WITH hours AS (
           SELECT generate_series(
@@ -186,14 +184,27 @@ export async function GET(req: Request) {
     "platformStatsAggregate",
   );
 
-  return NextResponse.json({
+  const hourlyRows = (hourlyJobStats?.rows as PlatformHourlyJobStatsRow[] | undefined ?? []);
+  const aggregatedJobs24h = hourlyRows.reduce(
+    (acc, row) => ({
+      total: acc.total + Number(row.total ?? 0),
+      success: acc.success + Number(row.success ?? 0),
+      failed: acc.failed + Number(row.failed ?? 0),
+      queued: acc.queued + Number(row.queued ?? 0),
+      inFlight: acc.inFlight + Number(row.inFlight ?? 0),
+      expired: acc.expired + Number(row.expired ?? 0),
+    }),
+    { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
+  );
+
+  const responseBody = {
     tenants: tenantStats[0] ?? { total: 0, active: 0, suspended: 0, deleted: 0 },
     subscriptions: subscriptionStats[0] ?? { total: 0, active: 0, trialing: 0, pastDue: 0, incomplete: 0, incompleteExpired: 0, unpaid: 0, paused: 0, cancelled: 0, attention: 0 },
     users: userStats[0] ?? { total: 0, verified: 0 },
     agents: agentStats[0] ?? { total: 0, active: 0, online: 0, offline: 0, unknown: 0, inactive: 0 },
     printers: printerStats[0] ?? { total: 0, active: 0, online: 0, busy: 0, offline: 0, error: 0, unknown: 0, inactive: 0 },
-    jobs24h: jobStats24h[0] ?? { total: 0, success: 0, failed: 0, queued: 0, inFlight: 0, expired: 0 },
-    jobs24hHourly: (hourlyJobStats?.rows as PlatformHourlyJobStatsRow[] | undefined ?? []).map((row) => ({
+    jobs24h: aggregatedJobs24h,
+    jobs24hHourly: hourlyRows.map((row) => ({
       bucket: new Date(row.bucket).toISOString(),
       total: Number(row.total ?? 0),
       success: Number(row.success ?? 0),
@@ -202,5 +213,11 @@ export async function GET(req: Request) {
       inFlight: Number(row.inFlight ?? 0),
       expired: Number(row.expired ?? 0),
     })),
+  };
+
+  setCachedPlatformStats(responseBody);
+
+  return NextResponse.json(responseBody, {
+    headers: { "X-Cache": "MISS" },
   });
 }

@@ -71,6 +71,7 @@ export const refreshTokens = pgTable("refresh_tokens", {
   userAgent: text("user_agent"),
 }, (table) => ({
   familyIdx: index("refresh_tokens_family_idx").on(table.familyId),
+  tenantIdx: index("refresh_tokens_tenant_idx").on(table.tenantId),
   expiresIdx: index("refresh_tokens_expires_idx").on(table.expiresAt),
   userIdx: index("refresh_tokens_user_idx").on(table.userId),
   replacedByIdx: index("refresh_tokens_replaced_by_idx").on(table.replacedBy),
@@ -278,6 +279,7 @@ export const tenantInvitations = pgTable("tenant_invitations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   tenantIdx: index("tenant_invitations_tenant_idx").on(table.tenantId),
+  inviterUserIdx: index("tenant_invitations_inviter_user_idx").on(table.inviterUserId),
   tenantCreatedIdIdx: index("tenant_invitations_tenant_created_id_idx").on(table.tenantId, table.createdAt, table.id),
   emailIdx: index("tenant_invitations_email_idx").on(table.email),
   expiresIdx: index("tenant_invitations_expires_idx").on(table.expiresAt),
@@ -368,6 +370,7 @@ export const discoveredDevices = pgTable("discovered_devices", {
   discoveryFk: foreignKey({ name: "discovered_devices_tenant_id_discovery_id_fk", columns: [table.tenantId, table.discoveryId], foreignColumns: [discoverySessions.tenantId, discoverySessions.id] }),
   agentFk: foreignKey({ name: "discovered_devices_tenant_id_agent_id_agents_fk", columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }),
   provisionedPrinterFk: foreignKey({ name: "discovered_devices_tenant_id_provisioned_printer_id_fk", columns: [table.tenantId, table.provisionedPrinterId], foreignColumns: [printers.tenantId, printers.id] }),
+  provisionedPrinterIdx: index("discovered_devices_tenant_printer_idx").on(table.tenantId, table.provisionedPrinterId),
   discoveryIdIdx: index("discovered_devices_discovery_id_idx").on(table.discoveryId),
   agentIdIdx: index("discovered_devices_agent_id_idx").on(table.agentId),
   candidateStatusIdx: index("discovered_devices_candidate_status_idx").on(table.candidateStatus),
@@ -422,6 +425,7 @@ export const printJobs = pgTable("print_jobs", {
   agentStatusIdx: index("print_jobs_agent_status_idx").on(table.agentId, table.status),
   printerStatusIdx: index("print_jobs_printer_status_idx").on(table.printerId, table.status),
   statusExpiresIdx: index("print_jobs_status_expires_idx").on(table.status, table.expiresAt),
+  statusUpdatedIdx: index("print_jobs_status_updated_idx").on(table.status, table.updatedAt),
   claimedAtIdx: index("print_jobs_claimed_at_idx").on(table.status, table.claimedAt),
   // Single key on (tenantId, apiKeyId): every apiKeyId lookup in the console /
   // agent paths also filters by tenant (API-key scoping is always

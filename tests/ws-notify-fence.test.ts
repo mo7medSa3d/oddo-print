@@ -10,8 +10,9 @@ describe("NOTIFY tenant fences (T-2)", () => {
     expect(shouldCloseTenantSocketsForNotification(undefined)).toBe(false);
     expect(shouldCloseTenantSocketsForNotification("bogus")).toBe(false);
   });
-  it("allows legacy job notices without tenant, fences mismatches", () => {
-    expect(jobNoticeTenantAllowed(undefined, "t1")).toBe(true);
+  it("requires explicit matching tenant on job notices, rejecting missing or mismatched tenant", () => {
+    expect(jobNoticeTenantAllowed(undefined, "t1")).toBe(false);
+    expect(jobNoticeTenantAllowed("", "t1")).toBe(false);
     expect(jobNoticeTenantAllowed("t1", "t1")).toBe(true);
     expect(jobNoticeTenantAllowed("t2", "t1")).toBe(false);
     expect(jobNoticeTenantAllowed("t1", undefined)).toBe(false);
