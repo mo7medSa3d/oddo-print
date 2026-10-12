@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, ShieldCheck } from "lucide-react";
+import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, ShieldCheck } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, Input, LoadingState, Mono, Select, StatusBadge, StatusDot } from "../../components/ui";
 import { Toolbar, PrinterAvatar } from "../ui";
 import type { DesktopState } from "../types";
@@ -46,13 +46,6 @@ export function PrintersPage({ s }: { s: DesktopState }) {
 
       {s.printersError && !s.printersLoading && <ErrorState title={t("desktop.printers.loadFailed")} message={s.printersError} retry={s.refreshPrinters} />}
 
-      {s.discoveryWarning && (
-        <div className="flex items-start gap-2 rounded-md border border-warn-edge bg-warn-bg px-4 py-3 text-sm text-warn" role="status">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <div><div className="font-semibold">{t("desktop.printers.discoveryWarningTitle")}</div><div className="mt-1 break-words text-sm text-ink-2">{s.discoveryWarning}</div></div>
-        </div>
-      )}
-
       {pendingLocal.length > 0 && (
         <Card className="overflow-hidden">
           <CardHeader title={t("desktop.printers.localPendingTitle")} subtitle={t("desktop.printers.localPendingBody", { count: pendingLocal.length })} />
@@ -91,7 +84,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
       <Card className="overflow-hidden">
         <CardHeader title={<span className="flex items-center gap-2.5">{t("desktop.printers.title")}<span className="rounded-sm border border-edge bg-surface-2 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-ink-3">{t("desktop.printers.total", { count: total })}</span></span>} subtitle={t("desktop.printers.subtitle")} icon={<PrinterIcon className="h-4 w-4 text-brand" />} />
         {s.printersLoading ? <div className="p-5"><LoadingState rows={5} /></div> : rows.length === 0 && s.printersError ? null : rows.length === 0 ? (
-          <EmptyState icon={<PrinterIcon className="h-8 w-8" />} title={total === 0 && pendingLocal.length > 0 ? t("desktop.printers.waitingTitle") : total === 0 ? t("desktop.printers.emptyTitle") : t("desktop.printers.noMatches")} description={total === 0 && pendingLocal.length > 0 ? t("desktop.printers.waitingBody") : total === 0 ? t("desktop.printers.emptyBody") : t("desktop.printers.noMatchesBody")} action={total === 0 ? <><Button variant="primary" onClick={s.handleDiscover} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.printers.discoverPrinters")}</Button><Button variant="secondary" onClick={() => s.setShowAdd(true)} icon={<Plus className="h-4 w-4" />}>{t("desktop.printers.addPrinter")}</Button></> : undefined} />
+          <EmptyState icon={<PrinterIcon className="h-8 w-8" />} title={total === 0 && pendingLocal.length > 0 ? t("desktop.printers.waitingTitle") : total === 0 ? t("desktop.printers.emptyTitle") : t("desktop.printers.noMatches")} description={total === 0 && pendingLocal.length > 0 ? t("desktop.printers.waitingBody") : total === 0 ? t("desktop.printers.emptyBody") : t("desktop.printers.noMatchesBody")} action={total === 0 ? <><Button variant="primary" onClick={s.handleDiscover} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.printers.discoverPrinters")}</Button><Button variant="secondary" onClick={() => s.setShowAdd(true)} icon={<Plus className="h-4 w-4" />}>{t("desktop.printers.addPrinter")}</Button><Button variant="secondary" onClick={() => s.navigate("test-center")}>{t("desktop.testCenter.title")}</Button></> : undefined} />
         ) : (
           <>
           <ul className="divide-y divide-edge-subtle xl:hidden" aria-label={t("desktop.printers.title")}>

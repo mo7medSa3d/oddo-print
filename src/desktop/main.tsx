@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
   ClipboardList,
+  FlaskConical,
   Cpu,
   Info,
   LayoutDashboard,
@@ -37,6 +38,7 @@ import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
 import { AdminPrivilegeDialog } from "./components/AdminPrivilegeDialog";
 import { OverviewPage } from "./pages/Overview";
+import { TestCenterPage } from "./pages/TestCenter";
 import { PrintersPage } from "./pages/Printers";
 import { JobsPage } from "./pages/Jobs";
 import { AgentsPage } from "./pages/Agents";
@@ -122,7 +124,7 @@ import {
 /* Desktop Manager uses the shared light/dark theme tokens. */
 import "./theme-light.css";
 
-const PAGES: Page[] = ["dashboard", "printers", "jobs", "agents", "settings"];
+const PAGES: Page[] = ["dashboard", "printers", "jobs", "test-center", "agents", "settings"];
 const GATEWAY_AUTO_PROBE_INTERVAL_MS = 10_000;
 const LOCAL_AGENT_STATUS_INTERVAL_MS = 10_000;
 
@@ -211,7 +213,6 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
-  const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
   const [printersFilter, setPrintersFilter] = useState("");
@@ -516,21 +517,22 @@ export default function App() {
     if (!isTauri) return;
     setPrintersLoading(true);
     setPrintersError(null);
-    setDiscoveryWarning(null);
     try {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
-      const warning = res.errors.length > 0 ? t("desktop.app.discoveryWarningsSummary", { count: res.errors.length }) : null;
-      setDiscoveryWarning(warning);
+      // Partial-source diagnostics are retained in the protected native log.
+      // Only a failed CLI discovery itself is an actionable UI error.
       const refreshed = await refreshPrinters();
+      // Unlike per-source reachability notices, an inability to persist the
+      // inventory is actionable. Present a calm local-save error, not raw Win32
+      // diagnostics, and keep the successfully observed printer candidates.
+      const persistFailed = res.errors.some((item) => item.includes("Failed to persist discovery:"));
       setMsg({
-        text: list.length === 0
-          ? t("desktop.app.noPhysicalPrinters")
-          : warning
-            ? t("desktop.app.discoveryPartial", { count: list.length })
-            : t("desktop.app.discoveryFound", { count: list.length }),
-        type: warning || !refreshed ? "info" : list.length > 0 ? "success" : "info",
+        text: persistFailed ? t("desktop.printers.localSaveFailed")
+          : list.length === 0 ? t("desktop.app.noPhysicalPrinters")
+          : t("desktop.app.discoveryFound", { count: list.length }),
+        type: persistFailed ? "error" : !refreshed ? "info" : list.length > 0 ? "success" : "info",
       });
     } catch (e) {
       setPrintersError(friendlyPrinterError(errMsg(e), locale));
@@ -985,6 +987,7 @@ export default function App() {
     { id: "dashboard", label: t("desktop.nav.overview"), icon: LayoutDashboard },
     { id: "printers", label: t("desktop.nav.printers"), icon: PrinterIcon },
     { id: "jobs", label: t("desktop.nav.printJobs"), icon: ClipboardList },
+    { id: "test-center", label: t("desktop.testCenter.title"), icon: FlaskConical },
     { id: "agents", label: t("desktop.nav.agents"), icon: Cpu },
     { id: "settings", label: t("desktop.nav.settings"), icon: SettingsIcon },
   ];
@@ -996,6 +999,7 @@ export default function App() {
     dashboard: { title: t("desktop.nav.overview") },
     printers: { title: t("desktop.nav.printers") },
     jobs: { title: t("desktop.nav.printJobs") },
+    "test-center": { title: t("desktop.testCenter.title") },
     agents: { title: t("desktop.nav.agents"), subtitle: t("desktop.page.agentsSubtitle") },
     settings: { title: t("desktop.nav.settings"), subtitle: t("desktop.page.settingsSubtitle") },
   };
@@ -1046,7 +1050,6 @@ export default function App() {
     pair,
     printers: physicalPrinters,
     discoveredPrinters,
-    discoveryWarning,
     printersLoading,
     printersError,
     printersFilter,
@@ -1256,6 +1259,7 @@ export default function App() {
           {page === "dashboard" && <OverviewPage s={state} />}
           {page === "printers" && <PrintersPage s={state} />}
           {page === "jobs" && <JobsPage s={state} />}
+          {page === "test-center" && <TestCenterPage />}
           {page === "agents" && <AgentsPage s={state} />}
           {page === "settings" && <SettingsPage s={state} />}
           </div>
