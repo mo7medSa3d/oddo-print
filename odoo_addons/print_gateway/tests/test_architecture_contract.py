@@ -440,10 +440,17 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Kitchen binding is configured", source)
         self.assertIn("Gateway printing is enabled for this POS, but no Gateway Receipt binding is configured for Sale Details", source)
 
-    def test_sale_details_http_route_never_returns_fake_gateway_success(self):
+    def test_sale_details_http_route_falls_back_to_native_without_binding(self):
         source = (CONTROLLERS / "pos.py").read_text(encoding="utf-8")
-        self.assertIn("gateway_binding_missing", source)
-        self.assertIn("status=422", source)
+        # Unlike physical POS receipts, this optional HTTP PDF report must
+        # preserve the native Odoo download when no report binding exists.
+        native_branch = source.split("if result.get('native'):", 1)[1].split(
+            "response = request.make_response(", 1
+        )[0]
+        self.assertIn("return super().print_sale_details", native_branch)
+        # Routed jobs still return explicit JSON and 202 for queued output.
+        self.assertIn("json.dumps(result, default=str)", source)
+        self.assertIn("response.status_code = 202 if result.get('status')", source)
 
     def test_gateway_config_keeps_legacy_agent_reference_non_authoritative(self):
         source = (MODELS / "gateway_config.py").read_text(encoding="utf-8")

@@ -1640,7 +1640,13 @@ class PrintGatewayJob(models.Model):
                                         raise ValidationError(
                                             _("Printer '%s' is offline or unavailable (%s). The receipt was not sent.") % (job.printer_id, reject_code or "PRINTER_UNAVAILABLE")
                                         )
-                                    raise ValidationError(_("The printer is temporarily unavailable. The job was safely re-queued for retry."))
+                                    raise ValidationError(
+                                        "%s (%s: %s)" % (
+                                            _("The printer is temporarily unavailable. The job was safely re-queued for retry."),
+                                            job.printer_id,
+                                            reject_code,
+                                        )
+                                    )
                                 break
                             # Any other 503 (queue-full capacity, unknown
                             # shape) is transient: the printer/agent state may
