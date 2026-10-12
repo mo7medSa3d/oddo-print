@@ -23,6 +23,7 @@ to the printing service without opening the browser print dialog.
         'security/ir.model.access.csv',
         'security/security.xml',
         'views/gateway_config_views.xml',
+        'views/e2e_capture_wizard_views.xml',
         'views/binding_views.xml',
         'views/print_policy_views.xml',
         'views/print_job_views.xml',

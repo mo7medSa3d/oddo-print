@@ -11,3 +11,4 @@ from . import print_policy
 from . import print_intent
 from . import stock_picking
 from . import account_move
+from . import e2e_capture_wizard
