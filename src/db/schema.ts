@@ -620,3 +620,48 @@ export const printJobReceipts = pgTable("print_job_receipts", {
   idempotencyUnique: uniqueIndex("print_job_receipts_tenant_idempotency_unique").on(table.tenantId, table.idempotencyKey),
   statusCheck: check("print_job_receipts_status_check", sql`${table.status} in ('success','failed','expired')`),
 }));
+
+/** E2E test-only outbox: independent of printJobs, printer inventory and billing. */
+export const e2eCaptureRuns = pgTable("e2e_capture_runs", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  agentId: text("agent_id").notNull(),
+  apiKeyId: text("api_key_id").references(() => apiKeys.id, { onDelete: "cascade" }).notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  payloadJson: jsonb("payload_json").$type<{ type: "pdf" | "image"; encoding: "base64"; data: string } | null>(),
+  paperMm: integer("paper_mm").notNull().default(0),
+  status: text("status").notNull().default("queued"),
+  claimTokenHash: text("claim_token_hash"),
+  attempts: integer("attempts").notNull().default(0),
+  pages: integer("pages"),
+  pdfSha256: text("pdf_sha256"),
+  pdfBytes: integer("pdf_bytes"),
+  previewJpeg: text("preview_jpeg"),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  claimedAt: timestamp("claimed_at"),
+  finishedAt: timestamp("finished_at"),
+  expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '12 minutes'`),
+}, (table) => ({
+  tenantAgentFk: foreignKey({ name: "e2e_capture_runs_tenant_agent_fk",
+    columns: [table.tenantId, table.agentId], foreignColumns: [agents.tenantId, agents.id] }).onDelete("cascade"),
+  idempotencyUnique: unique("e2e_capture_runs_idempotency_unique")
+    .on(table.tenantId, table.apiKeyId, table.idempotencyKey),
+  agentClaimIdx: index("e2e_capture_runs_agent_claim_idx")
+    .on(table.tenantId, table.agentId, table.status, table.createdAt),
+  retentionIdx: index("e2e_capture_runs_retention_idx").on(table.tenantId, table.createdAt),
+  statusCheck: check("e2e_capture_runs_status_check",
+    sql`${table.status} IN ('queued','claimed','rendered_locally','failed','expired')`),
+  attemptsCheck: check("e2e_capture_runs_attempts_check",
+    sql`${table.attempts} >= 0 AND ${table.attempts} <= 3`),
+  paperCheck: check("e2e_capture_runs_paper_check", sql`${table.paperMm} IN (0,58,80)`),
+  pagesCheck: check("e2e_capture_runs_pages_check",
+    sql`${table.pages} IS NULL OR ${table.pages} BETWEEN 1 AND 10`),
+  pdfBytesCheck: check("e2e_capture_runs_pdf_bytes_check",
+    sql`${table.pdfBytes} IS NULL OR ${table.pdfBytes} BETWEEN 1 AND 8388608`),
+  finishedPayloadCheck: check("e2e_capture_runs_finished_payload_check", sql`
+    (${table.status} IN ('queued','claimed') AND ${table.payloadJson} IS NOT NULL)
+    OR (${table.status} IN ('rendered_locally','failed','expired') AND ${table.payloadJson} IS NULL)`),
+}));
