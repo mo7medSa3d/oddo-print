@@ -163,15 +163,14 @@ test("failed WebSocket handshake releases capacity and pending registration", as
 });
 
 
-test("desktop discovery surfaces persistence warnings and keeps local printers visible", async () => {
+test("desktop discovery shows only actionable persistence errors while retaining local printers", async () => {
   const source = await readFile("src/desktop/main.tsx", "utf8");
   const start = source.indexOf("  const handleDiscover = useCallback(");
   const end = source.indexOf("  const handleTest = useCallback(", start);
-  const warnings = [], discovered = [], messages = [];
+  const discovered = [], messages = [];
   const api = await loadModule("src/desktop/main.tsx", {
     useCallback: (fn) => fn, isTauri: true, locale: "en",
     setPrintersLoading: () => {}, setPrintersError: () => {},
-    setDiscoveryWarning: (value) => warnings.push(value),
     setDiscoveredPrinters: (value) => discovered.push(value),
     setDiscoveredVirtualPrinters: () => {},
     refreshPrinters: async () => true,
@@ -183,14 +182,16 @@ test("desktop discovery surfaces persistence warnings and keeps local printers v
   }, () => `${source.slice(start, end)}\nexport { handleDiscover };`);
   await api.handleDiscover();
   assert.equal(discovered.at(-1).length, 1);
-  assert.equal(warnings.at(-1), "desktop.app.discoveryWarningsSummary:1");
-  assert.equal(messages.at(-1).text, "desktop.app.discoveryPartial:1");
-  assert.equal(messages.at(-1).type, "info");
+  assert.equal(messages.at(-1).text, "desktop.printers.localSaveFailed:");
+  assert.equal(messages.at(-1).type, "error");
+  // Routine source notices must not create alarming customer banners.
+  assert.doesNotMatch(source.slice(start, end), /setDiscoveryWarning|discoveryWarningsSummary/);
 
   const page = await readFile("src/desktop/pages/Printers.tsx", "utf8");
   assert.match(page, /pendingLocal/);
   assert.match(page, /waitingForSync/);
   assert.match(page, /s\.discoveredPrinters/);
+  assert.doesNotMatch(page, /s\.discoveryWarning/);
 });
 
 test("printer evidence stays independent from agent reachability in shared UI vocabulary", async () => {
