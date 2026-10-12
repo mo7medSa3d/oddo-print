@@ -234,8 +234,10 @@ func (a *Agent) releaseDiscoverySemaphoreWhenFinished(finished <-chan struct{}, 
 			<-a.discoverySem
 		case <-timer.C:
 			if a.discoveryGen.CompareAndSwap(myGen, myGen+1) {
-				<-a.discoverySem
+				// Publish wedged before releasing ownership: a successor can
+				// acquire the slot immediately and must observe the new state.
 				a.discoveryWedged.Store(true)
+				<-a.discoverySem
 				log.Printf("[discovery] WARNING: scan wedged past %s; semaphore force-released, late finish will not free another slot", bound)
 			}
 		}
