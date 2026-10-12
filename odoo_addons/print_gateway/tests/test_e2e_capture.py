@@ -4,7 +4,7 @@ import base64
 from unittest.mock import MagicMock, patch
 
 from odoo.tests.common import TransactionCase
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import ValidationError
 
 
 class TestE2ECaptureWizard(TransactionCase):
