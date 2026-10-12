@@ -76,7 +76,12 @@ describe("isolated Odoo -> Agent E2E capture admission", () => {
     expect(agent).not.toContain("createPrintJobForPrinter");
     expect(captureAgent).toContain("printer.CaptureTestDocument");
     expect(captureAgent).not.toMatch(/dispatchJob\(|printer.New\(|OpenPrinter\(/);
-    expect(view).toContain("Rendered locally — not printed");
+    // The rendered/printed distinction is a Selection label in Odoo Python;
+    // the XML displays that field as a badge rather than duplicating the text.
+    const wizard = readFileSync("odoo_addons/print_gateway/models/e2e_capture_wizard.py", "utf8");
+    expect(wizard).toContain('("rendered_locally", "Rendered locally — not printed")');
+    expect(view).toContain('<field name="capture_status" widget="badge"');
+    expect(view).toContain("capture_status == 'rendered_locally'");
     expect(readFileSync("src/lib/printer-virtual.ts", "utf8")).toContain("isVirtualPrinterRecord");
   });
 });
