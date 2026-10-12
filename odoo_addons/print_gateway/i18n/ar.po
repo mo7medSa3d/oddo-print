@@ -3889,7 +3889,7 @@ msgstr "الفرع المحدد لا يتبع هذه الشركة."
 #. module: print_gateway
 #: code:addons/print_gateway/models/e2e_capture_wizard.py:0
 msgid "Select an enabled Windows Agent assigned to this company or branch."
-msgstr "اختر وكيل ويندوز مفعّلًا ومخصصًا لهذه الشركة أو لهذا الفرع."
+msgstr "اختر Windows Agent مفعّلًا ومخصصًا لهذه الشركة أو لهذا الفرع."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/e2e_capture_wizard.py:0
@@ -3965,7 +3965,7 @@ msgstr "يتعذّر الوصول إلى Gateway. تحقق من اتصال HTTPS
 #. module: print_gateway
 #: code:addons/print_gateway/models/e2e_capture_wizard.py:0
 msgid "Gateway refused the capture test (HTTP %s). Check the feature flag and Agent assignment."
-msgstr "رفض Gateway اختبار الالتقاط (HTTP %s). تحقق من تفعيل الميزة وتخصيص الوكيل."
+msgstr "رفض Gateway اختبار الالتقاط (HTTP %s). تحقق من تفعيل الميزة وتخصيص Agent."
 
 #. module: print_gateway
 #: code:addons/print_gateway/models/e2e_capture_wizard.py:0
@@ -4020,7 +4020,7 @@ msgstr "معرّف الفرع"
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__runtime_agent_id
 msgid "Windows Agent"
-msgstr "وكيل ويندوز"
+msgstr "Agent على ويندوز"
 
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__document_kind
@@ -4085,12 +4085,12 @@ msgstr "جاهز للاختبار"
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__queued
 msgid "Waiting for Windows Agent"
-msgstr "في انتظار وكيل ويندوز"
+msgstr "في انتظار Windows Agent"
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__claimed
 msgid "Rendering on Windows Agent"
-msgstr "تجري معالجة المستند على وكيل ويندوز"
+msgstr "تجري معالجة المستند على Windows Agent"
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__rendered_locally
@@ -4141,7 +4141,7 @@ msgstr "اختبار الالتقاط من البداية للنهاية"
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
 msgid "Select assigned Windows Agent"
-msgstr "اختر وكيل ويندوز المخصص"
+msgstr "اختر Windows Agent المخصص"
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
@@ -4161,4 +4161,4 @@ msgstr "تحديث النتيجة"
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
 msgid "This runs a diagnostic from Odoo through Gateway to the assigned Windows Agent.\n                        It creates a local PDF capture, never registers a virtual printer or prints paper."
-msgstr "يجري هذا الاختبار تشخيصًا من أودو عبر Gateway إلى وكيل ويندوز المخصص. ينشئ ملف PDF محليًا فقط، ولا يسجّل طابعة افتراضية أو يطبع ورقًا."
+msgstr "يجري هذا الاختبار تشخيصًا من Odoo عبر Gateway إلى Windows Agent المخصص. ينشئ ملف PDF محليًا فقط، ولا يسجّل طابعة افتراضية أو يطبع ورقًا."
