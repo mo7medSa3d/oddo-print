@@ -227,6 +227,7 @@ fn main() {
             commands::get_app_version,
             commands::get_printers,
             commands::discover_printers,
+            commands::capture_test_document,
             commands::test_printer,
             cleanup::cleanup_local_jobs,
             commands::register_printer,

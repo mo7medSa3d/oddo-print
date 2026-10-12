@@ -193,7 +193,7 @@ describe("desktop manager", () => {
     await waitUntil(() => text().includes("HP LaserJet Pro M404"));
 
     expect(text()).toContain("Yaseir Print Manager");
-    for (const label of ["Overview", "Printers", "Print Jobs", "Agents", "Settings"]) {
+    for (const label of ["Overview", "Printers", "Print Jobs", "Test Center", "Agents", "Settings"]) {
       expect(text()).toContain(label);
     }
     expect(text()).toContain("HP LaserJet Pro M404");
@@ -201,7 +201,7 @@ describe("desktop manager", () => {
     // The virtual queue survives the IPC stub but must never reach the screen.
     expect(text()).not.toContain("Microsoft Print to PDF");
 
-    for (const page of ["printers", "jobs", "agents", "settings"] as const) {
+    for (const page of ["printers", "jobs", "test-center", "agents", "settings"] as const) {
       window.location.hash = page;
       window.dispatchEvent(new Event("hashchange"));
       await new Promise((r) => setTimeout(r, 80));

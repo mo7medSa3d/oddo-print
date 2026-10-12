@@ -1,6 +1,6 @@
 import type { AgentStatus, PrinterInfo, RuntimePaths } from "./lib/ipc";
 
-export type Page = "dashboard" | "printers" | "jobs" | "agents" | "settings";
+export type Page = "dashboard" | "printers" | "jobs" | "test-center" | "agents" | "settings";
 export type JobTab = "all" | "in_flight" | "queued" | "unassigned" | "delivered" | "failed" | "unknown" | "expired";
 export type PrinterStatusFilter = "all" | "online" | "offline" | "busy" | "error" | "unknown" | "stale";
 
