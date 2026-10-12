@@ -152,10 +152,8 @@ export function jobNoticeTenantAllowed(
   noticeTenant: unknown,
   socketTenant: string | undefined,
 ): boolean {
-  // Legacy senders omit tenantId; allow those (claim fencing still applies)
-  // so rolling deployments keep instant dispatch until every instance emits
-  // the fenced payload. A present tenantId must match the connected socket.
-  if (typeof noticeTenant !== "string" || !noticeTenant) return true;
+  // Job notifications must be explicitly tenant-scoped and match the connected socket tenant.
+  if (typeof noticeTenant !== "string" || !noticeTenant) return false;
   if (!socketTenant) return false;
   return noticeTenant === socketTenant;
 }

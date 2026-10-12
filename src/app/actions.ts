@@ -86,7 +86,7 @@ export async function deleteAgent(id: string) {
       if (!idRows.length) break;
       for (let offset = 0; offset < idRows.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
         const batchIds = idRows.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS).map((row) => row.id);
-        const jobs = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds)).for("update");
+        const jobs = await tx.select().from(printJobs).where(and(eq(printJobs.tenantId, manager.tenantId), inArray(printJobs.id, batchIds))).for("update");
         for (const row of jobs) {
           const terminal = isTerminal(row.status as JobStatus);
           const uncertain = row.status === "printing" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;

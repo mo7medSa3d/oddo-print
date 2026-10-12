@@ -192,7 +192,7 @@ export async function DELETE(req: Request) {
     let count = 0;
     for (let offset = 0; offset < candidateIds.length; offset += RECEIPT_MATERIALIZE_BATCH_ROWS) {
       const batchIds = candidateIds.slice(offset, offset + RECEIPT_MATERIALIZE_BATCH_ROWS).map((row) => row.id);
-      const candidates = await tx.select().from(printJobs).where(inArray(printJobs.id, batchIds)).for("update");
+      const candidates = await tx.select().from(printJobs).where(and(eq(printJobs.tenantId, claims.tenantId), inArray(printJobs.id, batchIds))).for("update");
       // One multi-row INSERT per inner batch (same shape as the automatic
       // retention sweep in cleanupTerminalPrintJobs): a per-row INSERT here
       // costs one round-trip per terminal job, up to MAX_CLEANUP_ROWS statements.
