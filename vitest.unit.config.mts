@@ -21,6 +21,7 @@ export default defineConfig({
     clearMocks: false,
     include: ["tests/**/*.test.ts"],
     exclude: [...integrationVitestTestFiles],
+    reporters: ["default", resolve(rootDir, "tests/reporters/skip-summary.ts")],
     testTimeout: 30000,
     hookTimeout: 30000,
   },

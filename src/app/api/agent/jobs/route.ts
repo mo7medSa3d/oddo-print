@@ -233,8 +233,8 @@ export async function GET(req: Request) {
       UPDATE print_jobs
       SET
         status = 'claimed',
-        claimed_at = now(),
-        updated_at = now(),
+        claimed_at = clock_timestamp(),
+        updated_at = clock_timestamp(),
         claim_token = gen_random_uuid()::text,
         closed_claim_token_hash = NULL,
         acked_at = NULL,
@@ -378,14 +378,14 @@ export async function PATCH(req: Request) {
         error: expiryError,
         // Use DB-native now() to match the sweeper's clock (updated_at < now() - interval).
         // JS new Date() is the app-server clock and can drift from the DB host.
-        updatedAt: sql`now()`,
+        updatedAt: sql`clock_timestamp()`,
         // Same delivery-evidence rule as the status-transition path below:
         // only a printing expiry may stamp deliveredAt (the agent provably
         // holds the job). A claimed-but-undelivered expiry keeps error=null
         // (honest not_printed) and must not gain delivery proof, or the row
         // would later look reconcilable/partially-delivered without basis.
         ...(currentStatus === "printing"
-          ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+          ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, clock_timestamp())` }
           : {}),
       })
       .where(and(
@@ -438,7 +438,7 @@ export async function PATCH(req: Request) {
         ackedAt: null,
         error: "AGENT_RESTART_DURING_PRINT: operator-enabled at-least-once crash recovery; prior physical outcome is unknown and a new delivery may duplicate output",
         retries: sql`${printJobs.retries} + 1`,
-        updatedAt: sql`now()`,
+        updatedAt: sql`clock_timestamp()`,
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
@@ -488,7 +488,7 @@ export async function PATCH(req: Request) {
         ackedAt: null,
         claimedAt: null,
         error: `Agent returned job before execution (${reason})`,
-        updatedAt: sql`now()`,
+        updatedAt: sql`clock_timestamp()`,
         // claimed has not crossed printing admission, even when WS delivery
         // and ACK evidence exist. This is a pre-execution hand-back: no printer bytes were
         // sent. Refund the delivery attempt so the physical-delivery budget
@@ -586,8 +586,8 @@ export async function PATCH(req: Request) {
         claimToken: sql`NULL`,
         closedClaimTokenHash,
         // DB-native now() to stay on the same clock as the sweeper.
-        updatedAt: sql`now()`,
-        deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
+        updatedAt: sql`clock_timestamp()`,
+        deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, clock_timestamp())`,
       })
       .where(and(
         fencedJobWrite(jobId, agent.tenantId, agent.id, currentStatus, claimToken),
@@ -621,7 +621,7 @@ export async function PATCH(req: Request) {
       error: nextError,
       ...(isTerminal(requestedStatus) ? { closedClaimTokenHash } : {}),
       ...(isTerminal(requestedStatus) && !retainsLateSuccessFence ? { claimToken: sql`NULL` } : {}),
-      updatedAt: sql`now()`,
+      updatedAt: sql`clock_timestamp()`,
       // deliveredAt is delivery EVIDENCE: it must only be stamped when the
       // agent provably received the job (entering printing/success, or a
       // printing->failed report where delivery already happened at the
@@ -631,7 +631,7 @@ export async function PATCH(req: Request) {
       // UNKNOWN_PARTIAL_DELIVERY, blocking auto-retry and forcing
       // unknown-outcome handling for a job that provably never dispatched.
       ...((requestedStatus === "printing" || requestedStatus === "success" || (requestedStatus === "failed" && currentStatus === "printing"))
-        ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())` }
+        ? { deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, clock_timestamp())` }
         : {}),
       // Spooler linkage is part of the same claim-fenced status transition.
       // A second id+tenant-only UPDATE here could let a stale attempt overwrite

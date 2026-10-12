@@ -54,7 +54,24 @@ function sanitize(fields: LogFields): LogFields {
   return normalizeLogValue(fields) as LogFields;
 }
 
+const LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 } as const;
+type LogLevel = keyof typeof LEVEL_ORDER;
+
+function configuredLevel(): LogLevel {
+  const raw = (process.env.LOG_LEVEL ?? "").trim().toLowerCase();
+  if (raw === "debug" || raw === "info" || raw === "warn" || raw === "error") return raw;
+  // Production defaults to info so per-request debug lines (e.g. WS
+  // lifecycle admission) don't pay correlation/sanitize work or fill
+  // aggregators; development keeps debug for local diagnosis.
+  return process.env.NODE_ENV === "development" ? "debug" : "info";
+}
+
+export function currentLogLevel(): LogLevel {
+  return configuredLevel();
+}
+
 function emit(level: "debug" | "info" | "warn" | "error", event: string, fields: LogFields): void {
+  if (LEVEL_ORDER[level] < LEVEL_ORDER[configuredLevel()]) return;
   let correlation: Record<string, unknown> = {};
   try {
     // Avoid hard import cycle: correlation lives in server/, log lives in lib/

@@ -134,7 +134,7 @@ for (const key of sourceKeys) {
 const callSites: Array<{ file: string; base: string }> = [];
 for (const file of sourceFiles("src")) {
   const source = readFileSync(file, "utf8");
-  for (const match of source.matchAll(/\btc\(\s*"([^"]+)"/g)) {
+  for (const match of source.matchAll(/\btc\(\s*["'`]([^"'`]+)["'`]/g)) {
     callSites.push({ file, base: match[1] });
   }
 }

@@ -117,6 +117,19 @@ function verifyJwtQuick(token: string): boolean {
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   const [h, p, s] = parts;
+  // Budget-only expiry screen: a stolen/expired session must not retain the
+  // larger authenticated concurrency pool while route auth later rejects it.
+  // No DB lookup here; a missing/unparseable exp preserves the legacy
+  // signature-only behavior so exotic flows cannot lose budget spuriously.
+  try {
+    const payload = JSON.parse(Buffer.from(p.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as { exp?: unknown };
+    if (typeof payload.exp === "number" && Number.isFinite(payload.exp)) {
+      const nowSec = Date.now() / 1000;
+      if (payload.exp <= nowSec - 60) return false;
+    }
+  } catch {
+    // Unparseable payload: fall through to signature verification below.
+  }
   let secret: string | undefined;
   try {
     secret = runtimeSecret("GATEWAY_JWT_SECRET");

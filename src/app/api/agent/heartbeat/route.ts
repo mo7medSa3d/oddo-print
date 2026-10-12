@@ -376,9 +376,22 @@ export async function POST(req: Request) {
           .filter((id): id is string => id !== null),
       )].sort();
       const overLimitIds = new Set<string>();
+      // Billing/entitlement failure must not abort the heartbeat transport:
+      // presence, lease keep-alives and desired-state ACKs (already written
+      // above) commit regardless. New/reactivated inventory is fenced while
+      // billing is unresolved, and the response carries billingBlocked so
+      // operators can distinguish "agent dead" from "plan lapsed".
+      let billingBlocked = false;
       if (capacityCandidateIds.length > 0) {
-        const printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
-        if (printerLimit !== null) {
+        let printerLimit: number | null = null;
+        try {
+          printerLimit = await getTenantEntitlementLimit(tx, agent.tenantId, "max_printers", true);
+        } catch (error) {
+          if (!isTenantBillingError(error)) throw error;
+          billingBlocked = true;
+          for (const id of capacityCandidateIds) overLimitIds.add(id);
+        }
+        if (!billingBlocked && printerLimit !== null) {
           const countResult = await tx.execute(sql`
             SELECT COUNT(*)::int AS count
             FROM printers
@@ -406,7 +419,7 @@ export async function POST(req: Request) {
           && existing.inventoryPresent === false
           && overLimitIds.has(p.id);
         if (reactivationBlocked) {
-          skipped.push({ id: p.id, reason: "max_printers_exceeded" });
+          skipped.push({ id: p.id, reason: billingBlocked ? "billing_required" : "max_printers_exceeded" });
         }
 
         const observedUpdateSet = {
@@ -446,7 +459,7 @@ export async function POST(req: Request) {
           continue;
         }
         if (overLimitIds.has(p.id)) {
-          skipped.push({ id: p.id, reason: "max_printers_exceeded" });
+          skipped.push({ id: p.id, reason: billingBlocked ? "billing_required" : "max_printers_exceeded" });
           continue;
         }
 
@@ -544,6 +557,7 @@ export async function POST(req: Request) {
         kind: "ok" as const,
         skippedPrinters: skipped,
         printerIdAliases,
+        billingBlocked,
         desiredState: desiredPage && (desiredStatePaging || desiredPage.nextCursor === null) ? desiredPage.items : null,
         desiredStateNextCursor: desiredStatePaging ? desiredPage?.nextCursor ?? null : null,
         desiredStateUpgradeRequired: desiredPage !== null && !desiredStatePaging && desiredPage.nextCursor !== null,
@@ -564,6 +578,10 @@ export async function POST(req: Request) {
       success: true,
       skippedPrinters: result.skippedPrinters,
     };
+    if (result.billingBlocked) {
+      response.billingBlocked = true;
+      logWarn("agent.heartbeat.billing_blocked", { agentId: agent.id, tenantId: agent.tenantId });
+    }
     if (Object.keys(result.printerIdAliases).length > 0) {
       response.printerIdAliases = result.printerIdAliases;
     }

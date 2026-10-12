@@ -138,6 +138,28 @@ export function __getNotificationListenerPidForTests(): number | null {
   return notificationListenerPid;
 }
 
+export function shouldCloseTenantSocketsForNotification(
+  lifecycle: unknown,
+): boolean {
+  // NOTIFY payloads are unauthenticated transport: only a durable
+  // suspended/deleted lifecycle observed in PostgreSQL may disconnect a
+  // tenant's agents. Anything else (active, missing, unexpected) is ignored
+  // so a spoofed pg_notify cannot mass-disconnect a live tenant.
+  return lifecycle === "suspended" || lifecycle === "deleted";
+}
+
+export function jobNoticeTenantAllowed(
+  noticeTenant: unknown,
+  socketTenant: string | undefined,
+): boolean {
+  // Legacy senders omit tenantId; allow those (claim fencing still applies)
+  // so rolling deployments keep instant dispatch until every instance emits
+  // the fenced payload. A present tenantId must match the connected socket.
+  if (typeof noticeTenant !== "string" || !noticeTenant) return true;
+  if (!socketTenant) return false;
+  return noticeTenant === socketTenant;
+}
+
 export function shouldCloseAgentSocketForLifecycleRevision(
   socketRevision: number | undefined,
   invalidatingRevision: number,
@@ -291,8 +313,10 @@ function websocketClientKey(req: IncomingMessage): string {
   if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
     const forwarded = req.headers["x-forwarded-for"];
     const candidates = typeof forwarded === "string" ? forwarded.split(",") : [];
-    for (const candidate of candidates) {
-      const ip = candidate.trim();
+    // Last valid entry wins: the edge overwrites X-Forwarded-For with the
+    // real client address, so attacker-supplied leftmost values are ignored.
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const ip = candidates[i]!.trim();
       if (ip && isIP(ip) !== 0) return ip.slice(0, 128);
     }
     const real = typeof req.headers["x-real-ip"] === "string" ? req.headers["x-real-ip"].trim() : "";
@@ -780,7 +804,29 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
             logWarn("[ws] failed to fence agent sockets from lifecycle notification:", { error: error });
           });
         }
-        if (typeof message.tenantId === "string" && message.tenantId) closeTenantSockets(message.tenantId);
+        if (typeof message.tenantId === "string" && message.tenantId) {
+          const tenantId = message.tenantId;
+          // Verify against the durable lifecycle before disconnecting: the
+          // NOTIFY channel is unauthenticated transport and must never close
+          // live tenants' sockets on a spoofed payload.
+          void (async () => {
+            try {
+              const current = await pool.query<{ lifecycle: string }>(
+                "SELECT lifecycle FROM tenants WHERE id = $1",
+                [tenantId],
+              );
+              if (shouldCloseTenantSocketsForNotification(current.rows[0]?.lifecycle)) {
+                closeTenantSockets(tenantId);
+              } else {
+                logWarn("[ws] ignored tenant-session notification without suspended/deleted lifecycle", { tenantId });
+              }
+            } catch (error) {
+              logWarn("[ws] failed to verify tenant lifecycle for session notification:", { error: error });
+            }
+          })().catch((error) => {
+            logWarn("[ws] failed to fence tenant sockets from lifecycle notification:", { error: error });
+          });
+        }
       } catch {
         logWarn("[ws] ignored malformed agent/tenant-session notification");
       }
@@ -802,8 +848,17 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
     }
     if (notification.channel !== PG_NOTIFY_CHANNEL) return;
     try {
-      const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown; requestId?: unknown };
+      const message = JSON.parse(notification.payload) as { jobId?: unknown; agentId?: unknown; tenantId?: unknown; requestId?: unknown };
       if (typeof message.jobId !== "string" || typeof message.agentId !== "string") return;
+      // Fence cross-instance pushes on the socket's tenant: a spoofed notice
+      // for another tenant's job/agent pair is ignored before claiming.
+      // Legacy senders omit tenantId and remain allowed (claim fencing is
+      // the second layer); the poll loop is the durable backstop either way.
+      const socketTenant = agentSockets.get(message.agentId)?.values().next().value?.tenantId;
+      if (!jobNoticeTenantAllowed(message.tenantId, socketTenant)) {
+        logWarn("[ws] ignored job notification with mismatched tenant", { agentId: message.agentId });
+        return;
+      }
       // PostgreSQL may notify us after the WebSocket HTTP upgrade but
       // before asynchronous Agent lifecycle verification finishes. Dropping
       // that notification here strands a queued job even though the client

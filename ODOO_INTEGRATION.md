@@ -149,3 +149,14 @@ against a backed-up Odoo 19 database before activating the updated polling cron.
 Confirm schema/index creation and test concurrent cron polling, job status
 reconciliation, all supported print routes, and rollback in staging. The standalone
 source tests do not establish PostgreSQL migration or native Odoo acceptance.
+
+### Why no data-migration folders for 19.0.2.11.0–19.0.2.13.0
+
+Those releases add only nullable columns with safe defaults
+(`status_sync_attempted_at`, `allow_additional_pos_output`,
+`last_status_polled_at`) plus JS assets. Odoo creates the columns and
+indexes during the required `-u print_gateway` above; no row backfill,
+rename, or split exists, so no `migrations/19.0.2.1x.0` folder is needed.
+A future release that renames a field, splits a column, or rewrites stored
+routing keys MUST ship a corresponding migration folder (as 19.0.2.10.0 did
+for `destination_ref`/`document_type`).

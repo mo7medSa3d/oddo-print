@@ -140,7 +140,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
           AND (delivered_at IS NOT NULL OR acked_at IS NOT NULL OR error = 'DELIVERY_EVIDENCE_PENDING')
           THEN claimed_at
         ELSE NULL END,
-      updated_at=now()
+      updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id, print_jobs.status, print_jobs.error
@@ -166,7 +166,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
     )
     UPDATE print_jobs SET status='queued', claimed_at=NULL, claim_token=NULL,
       delivered_at=NULL, acked_at=NULL,
-      retries=retries+1, updated_at=now()
+      retries=retries+1, updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id
@@ -194,7 +194,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       -- retry/failover is introduced by keeping this evidence.
       claim_token=claim_token,
       claimed_at=claimed_at,
-      updated_at=now()
+      updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id
@@ -218,7 +218,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       -- failed->success reconciliation, so its token can be cleared normally.
       claim_token=CASE WHEN expires_at <= now() THEN NULL ELSE claim_token END,
       claimed_at=CASE WHEN expires_at <= now() THEN NULL ELSE claimed_at END,
-      updated_at=now()
+      updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id, print_jobs.error
@@ -239,7 +239,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       error='exceeded max retries after a stale claim (agent likely crashed or lost connection)',
       claim_token=NULL,
       claimed_at=NULL,
-      updated_at=now()
+      updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id
@@ -258,7 +258,7 @@ export async function sweepPrintJobs(scope: { agentId?: string } = {}): Promise<
       error='exceeded max retries before delivery',
       claim_token=NULL,
       claimed_at=NULL,
-      updated_at=now()
+      updated_at=clock_timestamp()
     FROM candidates
     WHERE print_jobs.id = candidates.id
     RETURNING print_jobs.id

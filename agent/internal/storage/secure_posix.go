@@ -25,3 +25,10 @@ func platformDecrypt(data []byte) ([]byte, error) {
 	copy(out, data)
 	return out, nil
 }
+
+// platformAtRestWarning describes residual at-rest risk operators accept by
+// deploying on this platform. POSIX has no sealed storage: warn loudly so a
+// base64 file is never mistaken for encryption.
+func platformAtRestWarning() string {
+	return "agent credential stored with filesystem permissions only (no sealed storage on this platform); use full-disk encryption and restrict host access"
+}

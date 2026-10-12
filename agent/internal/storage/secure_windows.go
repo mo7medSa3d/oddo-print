@@ -37,6 +37,10 @@ func platformEncrypt(data []byte) ([]byte, error) {
 	return dpapi(procCryptProtectData, data, cryptProtectUIForbidden|cryptProtectLocalMachine)
 }
 
+// platformAtRestWarning describes residual at-rest risk operators accept by
+// deploying on this platform (empty when sealed storage applies).
+func platformAtRestWarning() string { return "" }
+
 // platformDecrypt opens data previously sealed with platformEncrypt.
 // CryptUnprotectData picks the correct scope from the blob header itself;
 // only the UI flag applies.

@@ -178,10 +178,13 @@ def test_gateway_api_key_view_is_password_masked_and_system_admin_only():
 
 def test_gateway_http_is_production_https_only():
     source = read("models/gateway_config.py")
-    assert 'if scheme == "http":' in source
+    assert 'Gateway URL must use HTTPS.' in source
+    # Plain HTTP is an explicitly opt-in LAN-development mode documented in
+    # INSTALLATION.md; the legacy YASSER_/ODOO_PRINT_ variable names were
+    # never valid and remain rejected.
+    assert 'YASEIR_GATEWAY_ALLOW_INSECURE_HTTP' in source
     assert "YASSER_GATEWAY_ALLOW_INSECURE_HTTP" not in source
     assert "ODOO_PRINT_GATEWAY_ALLOW_INSECURE_HTTP" not in source
-    assert 'Gateway URL must use HTTPS.' in source
 
 
 def test_gateway_config_unlink_fails_closed_when_remote_shutdown_is_unconfirmed():

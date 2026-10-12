@@ -511,7 +511,7 @@ async function insertQueuedJobAtomically({
       updatedAt: dbNow,
     });
 
-    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, requestId: requestId ?? null })})`);
+    await tx.execute(sql`SELECT pg_notify('print_gateway_agent_jobs', ${JSON.stringify({ jobId, agentId, tenantId, requestId: requestId ?? null })})`);
 
     return {
       jobId,

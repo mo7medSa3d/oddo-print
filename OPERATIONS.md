@@ -3,6 +3,24 @@
 ## Tenant configuration
 For multi-tenant Manager login, add a verified `tenant_domains` row for each customer hostname. During single-tenant bootstrap, `MANAGER_TENANT_ID` may be used.
 
+Resolution order for a login request: `Host` header → `tenant_domains`
+(verified rows only) → `MANAGER_TENANT_ID` fallback. When both a matching
+domain row and `MANAGER_TENANT_ID` are set, the domain row wins; `MANAGER_TENANT_ID`
+applies only when no domain matches. With neither configured, multi-tenant
+login cannot route to a workspace.
+
+Verify routing rows:
+
+```sql
+SELECT domain, tenant_id, verified_at, is_primary FROM tenant_domains ORDER BY domain;
+```
+
+Expected behavior: single-tenant mode logs into the pinned tenant;
+multi-tenant mode routes each hostname to its verified tenant; an unknown
+host is rejected rather than routed to a default workspace. There is no
+tenant-routing troubleshooting section: misrouting presents as login
+landing in the wrong workspace — check the table above first.
+
 ## Metrics endpoint
 `GET /api/metrics` requires a platform owner session (`plt_session`). Tenant
 manager sessions are never sufficient, even for members of the platform
@@ -17,6 +35,27 @@ Odoo jobs. New print submissions require the new active key, while status reads
 may continue through the retired key only during its persisted grace interval.
 Do not rely on indefinite compatibility: complete rotation and remove/revoke old
 credentials promptly after the grace window ends.
+
+## Billing event monitoring
+`checkout.session.completed` binds the Stripe subscription but access is
+provisioned only by the follow-up subscription lifecycle event. If that event
+is lost (endpoint filter, delivery expiry), a paying tenant stays blocked.
+Monitor continuously:
+
+```sql
+-- Unprocessed or conflicted billing events needing operator review:
+SELECT event_id, event_type, tenant_id, processed_at FROM billing_events
+WHERE processed_at IS NULL ORDER BY event_id LIMIT 50;
+```
+
+Alert on `billing.identity_conflict`, `billing.checkout_customer_conflict`,
+and `billing.stale_checkout_subscription` audit actions, and reconcile the
+Stripe dashboard delivery log against `billing_events` after every checkout
+or plan change. A `past_due` subscription retains print access during payment
+recovery by design; `unpaid`, `paused`, and canceled states do not provision
+entitlements. Rows with a missing `current_period_end` on `active`/`trialing`
+are treated as live (deliberate compatibility); backfill the period from
+Stripe rather than assuming expiry.
 
 ## Migration
 Run migrations before starting the application. Migration `0029` intentionally stops when it detects ambiguous legacy ownership. Migration `0032` intentionally stops when two pending pairing codes share one hash — regenerate the affected codes (disable/re-enable the agent) and re-run; collisions are never resolved automatically.
@@ -33,6 +72,43 @@ A configured printer may remain configured while an Agent is offline/stale. Agen
 
 ## Incident handling
 For an unknown physical outcome, inspect the printer and (for Windows jobs) the recorded spooler job identity before reprinting. Do not assume a failed acknowledgement, timeout, restart, or post-submission error means the printer definitely did not print. Automatic retry is prohibited once physical submission may have occurred. A manual reprint is an explicit new physical attempt and can produce a duplicate if the uncertain attempt already printed.
+
+### Unknown-outcome recovery runbook (no automatic duplicate printing)
+
+Unknown outcomes carry one of these durable markers (`PHYSICAL_OUTCOME_UNKNOWN_MARKERS` in `src/lib/job-status.ts`):
+
+| Marker | Meaning | First evidence to collect |
+|---|---|---|
+| `UNKNOWN_PARTIAL_DELIVERY` | Bytes may have reached the agent; no execution report arrived within the claim lease | Gateway job timeline + agent SQLite outbox row for the job |
+| `AGENT_EXECUTION_TIMEOUT` | Agent started printing but the execution lease expired | Agent logs around `transport_complete`; printer output tray |
+| `AGENT_RESTART_DURING_PRINT` | Agent restarted mid-print (crash recovery path) | Agent startup logs; `reprint_after_crash` setting |
+| `JOB_EXPIRED_DURING_PRINT` | TTL elapsed mid-execution | Timeline `expired` entry; printer output tray |
+| `UNKNOWN_SUBMISSION_OUTCOME` | Submission response lost; Gateway acceptance uncertain | Odoo outbox `gateway_job_id`; Gateway job lookup by idempotency key |
+
+Procedure:
+
+1. List unknowns (do not invent recovery state):
+   ```sql
+   SELECT id, status, error, printer_id, agent_id, updated_at FROM print_jobs
+   WHERE error LIKE 'UNKNOWN%' OR error LIKE 'AGENT%' OR error LIKE 'JOB_EXPIRED%'
+   ORDER BY updated_at DESC LIMIT 50;
+   ```
+2. For the job, read the Gateway timeline (`GET /api/jobs/[id]/timeline`) and,
+   on the agent host, the SQLite outbox row plus (Windows) the recorded
+   spooler job identity. A late `success` from the original claim token still
+   reconciles automatically within the 24-hour fenced window — wait for it
+   before touching paper.
+3. Physically inspect the printer (output tray, reprint the spooler job
+   identity only as an inspection aid, never as the recovery itself).
+4. Recover exactly once, as an explicit new attempt: dashboard Reprint
+   (`POST /api/jobs/[id]/reprint`, creates a NEW job with a NEW idempotency
+   key) or a new Odoo outbox row. Never reuse the original idempotency key
+   (returns `409 IDEMPOTENCY_CONFLICT` by design) and never flip the old row
+   back to `queued` with a database edit (that bypasses claim fencing and can
+   double-print alongside the original attempt).
+5. Only after physical reconciliation, clear the agent's retained
+   unknown-outcome row with `jobs cleanup --include-unknown`. Never delete
+   the SQLite queue file.
 
 
 ### Agent local ledger cleanup (operator action)

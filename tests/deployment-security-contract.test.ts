@@ -33,12 +33,17 @@ describe("deployment security contracts", () => {
     expect(server).toContain("TRUSTED_PROXY_REQUIRED");
     expect(server).toContain("TRUST_PROXY_SECRET");
     expect(caddy).toContain("header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}");
-    // Caddy's reverse_proxy sanitizes forwarded headers by default when no
-    // trusted-proxy list is configured, so an explicit X-Forwarded-For rewrite
-    // is neither necessary nor part of the production contract.
-    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
-    expect(caddy).not.toContain("header_up X-Forwarded-For");
+    // The edge overwrites X-Forwarded-For with the real client address so
+    // spoofed leftmost entries cannot rotate per-IP rate-limit buckets; the
+    // Gateway additionally prefers the last valid entry.
+    expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
+    expect(caddy).toContain("per-IP rate-limit buckets");
     expect(caddy).toContain("header_up -X-Real-Ip");
+  });
+
+  it("exempts liveness probes by pathname so query strings cannot change the proxy gate (S-4)", () => {
+    expect(server).toContain('split("?", 1)[0]');
+    expect(server).not.toMatch(/req\.url !== "\/api\/health"/);
   });
 
   it("keeps the NSIS Agent service lifecycle safe and preserves legacy config selection", () => {

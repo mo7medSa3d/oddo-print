@@ -57,6 +57,14 @@ export const integrationVitestTestFiles = [
   "tests/ws-claim-delivery.test.ts",
   "tests/ws-listener-setup-race.test.ts",
   "tests/ws-socket-cap.test.ts",
+  "tests/billing-checkout-renewal.integration.test.ts",
+  "tests/billing-incomplete-expired.integration.test.ts",
+  "tests/job-release-guard.integration.test.ts",
+  "tests/pairing-code-fence.integration.test.ts",
+  "tests/billing-operation-guards.integration.test.ts",
+  "tests/heartbeat-billing-degraded.integration.test.ts",
+  "tests/job-cleanup-behavior.integration.test.ts",
+  "tests/tenant-isolation-extended.integration.test.ts",
 ] as const;
 
 export const integrationTestFiles = [

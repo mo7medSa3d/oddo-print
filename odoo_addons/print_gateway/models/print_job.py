@@ -20,6 +20,13 @@ from ..runtime_clock import db_now_utc
 _logger = logging.getLogger(__name__)
 MAX_PRINT_CONTENT_BYTES = 5 * 1024 * 1024
 MAX_PRINT_BASE64_CHARS = 4 * ((MAX_PRINT_CONTENT_BYTES + 2) // 3)
+# Operator-recoverable Gateway refusals (billing limits, suspended tenant,
+# rotation grace, revoked key) requeue instead of terminalizing. Attempts are
+# capped so a permanently blocked configuration parks with a 24h backoff
+# instead of inflating `attempts` and cron load forever; parked jobs stay
+# recoverable and resume automatically once the operator fixes billing/auth.
+MAX_BILLING_PARK_ATTEMPTS = 25
+BILLING_PARK_RETRY_SECONDS = 24 * 3600
 
 
 class PrintGatewayJob(models.Model):
@@ -505,8 +512,18 @@ class PrintGatewayJob(models.Model):
         # Large POS RPC data must not make the worker allocate multiple copies
         # of a document that the Gateway's 5 MiB wire contract will reject.
         data_field = payload.get("data") if isinstance(payload, dict) else None
-        if isinstance(data_field, str) and len(data_field) > MAX_PRINT_BASE64_CHARS:
-            raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
+        if isinstance(data_field, str) and data_field:
+            if len(data_field) > MAX_PRINT_BASE64_CHARS:
+                raise ValidationError(_("Print payload exceeds the 5 MiB Gateway/Agent safety limit."))
+            # Canonicalize base64: the Gateway requires canonical encoding
+            # (decoded bytes re-encoded must equal the submitted string), so
+            # persist the canonical form once here instead of failing 422 at
+            # submit time for valid-but-non-canonical input.
+            try:
+                data_field = base64.b64encode(base64.b64decode(data_field.encode("ascii"), validate=True)).decode("ascii")
+                payload = dict(payload, data=data_field)
+            except (TypeError, ValueError, base64.binascii.Error, UnicodeEncodeError):
+                pass  # creation validators below reject undecodable content
         try:
             payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
         except (TypeError, ValueError) as exc:
@@ -985,12 +1002,18 @@ class PrintGatewayJob(models.Model):
         except (TypeError, ValueError) as exc:
             raise ValidationError(_("Stored print payload is corrupted.")) from exc
         self._validate_persisted_payload(payload)
+        # Explicit TTL (4h) instead of the Gateway 1h default: a 1h outage
+        # (agent down, network partition) would expire Odoo jobs into unknown
+        # outcomes requiring operator reprints. 4h stays well under the
+        # Gateway 24h cap and the 48h retention window.
+        expires_at = (db_now_utc(self.env.cr) + datetime.timedelta(hours=4)).isoformat() + "Z"
         body = {
             "printerId": self.printer_id,
             "documentType": self.document_type,
             "destination": self.destination,
             "payload": payload,
             "idempotencyKey": self._gateway_idempotency_key(),
+            "expiresAt": expires_at,
         }
         return body
 
@@ -1232,6 +1255,29 @@ class PrintGatewayJob(models.Model):
         # deprecated since 18.0).
         self.check_access("write")
 
+    def _billing_retry_values(self, job, last_error, retry_after):
+        """Queued-retry values for operator-recoverable Gateway refusals.
+
+        Billing/auth blocks must never terminalize (a renewed subscription or
+        rotated key resumes the same logical operation), but attempts must
+        not grow forever while blocked: past the cap the job parks with a
+        24h backoff and frozen attempts, staying recoverable.
+        """
+        next_attempt = job.attempts + 1
+        if next_attempt > MAX_BILLING_PARK_ATTEMPTS:
+            return {
+                "status": "queued",
+                "attempts": job.attempts,
+                "last_error": "GATEWAY_BILLING_PARKED: %s" % last_error,
+                "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=BILLING_PARK_RETRY_SECONDS),
+            }
+        return {
+            "status": "queued",
+            "attempts": next_attempt,
+            "last_error": last_error,
+            "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
+        }
+
     def action_submit(self, raise_on_failure=False):
         self._require_outbox_write()
         return self._action_submit_trusted(raise_on_failure=raise_on_failure)
@@ -1377,14 +1423,12 @@ class PrintGatewayJob(models.Model):
                             # Never compare Gateway periodEnd against the Odoo
                             # host clock: the two systems can legitimately have
                             # different wall clocks/timezones.
-                            next_retry = db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after)
 
-                            values = {
-                                "status": "queued",
-                                "attempts": job.attempts + 1,
-                                "last_error": "GATEWAY_BILLING_LIMIT_REACHED: %s (limit %s, used %s)" % (entitlement, limit or "unknown", used),
-                                "next_retry_at": next_retry,
-                            }
+                            values = self._billing_retry_values(
+                                job,
+                                "GATEWAY_BILLING_LIMIT_REACHED: %s (limit %s, used %s)" % (entitlement, limit or "unknown", used),
+                                retry_after,
+                            )
                             persist_submit_state(values)
 
                             message_map = {
@@ -1446,12 +1490,11 @@ class PrintGatewayJob(models.Model):
                                 except (TypeError, ValueError):
                                     retry_after = 60
                                 retry_after = min(3600, max(5, retry_after))
-                                values = {
-                                    "status": "queued",
-                                    "attempts": job.attempts + 1,
-                                    "last_error": "GATEWAY_BILLING_BLOCKED: %s" % billing_code,
-                                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_after),
-                                }
+                                values = self._billing_retry_values(
+                                    job,
+                                    "GATEWAY_BILLING_BLOCKED: %s" % billing_code,
+                                    retry_after,
+                                )
                                 persist_submit_state(values)
                                 if raise_on_failure:
                                     raise ValidationError(
@@ -1479,12 +1522,11 @@ class PrintGatewayJob(models.Model):
                             if not isinstance(grace_body, dict):
                                 grace_body = {}
                             if str(grace_body.get("code") or "").strip() == "API_KEY_READ_ONLY":
-                                values = {
-                                    "status": "queued",
-                                    "attempts": job.attempts + 1,
-                                    "last_error": "GATEWAY_KEY_ROTATION_GRACE: API key is in its rotation grace period; re-queued to retry with the current key",
-                                    "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60),
-                                }
+                                values = self._billing_retry_values(
+                                    job,
+                                    "GATEWAY_KEY_ROTATION_GRACE: API key is in its rotation grace period; re-queued to retry with the current key",
+                                    60,
+                                )
                                 persist_submit_state(values)
                                 if raise_on_failure:
                                     raise ValidationError(
@@ -1501,12 +1543,11 @@ class PrintGatewayJob(models.Model):
                         # a permanently broken configuration surfaces in the
                         # outbox instead of spinning hot.
                         if response.status_code == 401:
-                            values = {
-                                "status": "queued",
-                                "attempts": job.attempts + 1,
-                                "last_error": "GATEWAY_AUTH_RECOVERABLE_401: Gateway authentication rejected; re-queued for retry after operator recovery (rotate key, re-enable integration, or restore tenant)",
-                                "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=300),
-                            }
+                            values = self._billing_retry_values(
+                                job,
+                                "GATEWAY_AUTH_RECOVERABLE_401: Gateway authentication rejected; re-queued for retry after operator recovery (rotate key, re-enable integration, or restore tenant)",
+                                300,
+                            )
                             persist_submit_state(values)
                             if raise_on_failure:
                                 raise ValidationError(
@@ -1563,44 +1604,54 @@ class PrintGatewayJob(models.Model):
                             reject_code = str(reject_body.get("code") or "").strip()
                             reject_msg = str(reject_body.get("error") or "").strip()
                             if reject_code in ("PRINTER_OFFLINE", "PRINTER_UNAVAILABLE", "AGENT_UNAVAILABLE"):
-                                terminal_error = "GATEWAY_REJECTED_503: %s" % (
-                                    ": ".join(
-                                        part for part in (
-                                            reject_code,
-                                            reject_msg or "printer unavailable",
-                                        )
-                                        if part
-                                    )
-                                )
+                                # Transient printer/agent state (reboot, stale
+                                # heartbeat, paper-out offline): the Gateway
+                                # refused BEFORE creating a job, so zero bytes
+                                # were transmitted. Requeue with backoff like
+                                # the busy-503 path; terminalize only after 5
+                                # attempts so a brief outage does not
+                                # permanently fail the outbox row.
+                                next_attempt = job.attempts + 1
+                                terminal = next_attempt >= 5
+                                retry_delay = min(300, 60 * (2 ** min(next_attempt - 1, 3)))
                                 values = {
-                                    "status": "failed",
-                                    "attempts": job.attempts + 1,
-                                    "last_error": terminal_error,
-                                    "next_retry_at": False,
-                                    "completed_at": db_now_utc(self.env.cr),
+                                    "status": "failed" if terminal else "queued",
+                                    "attempts": next_attempt,
+                                    "last_error": "GATEWAY_REJECTED_503: %s" % (
+                                        ": ".join(
+                                            part for part in (
+                                                reject_code,
+                                                reject_msg or "printer unavailable",
+                                            )
+                                            if part
+                                        )
+                                    ),
+                                    "next_retry_at": False if terminal else db_now_utc(self.env.cr) + datetime.timedelta(seconds=retry_delay),
+                                    "completed_at": db_now_utc(self.env.cr) if terminal else False,
                                 }
                                 persist_submit_state(values)
-                                _logger.warning("Gateway refused job %s for unavailable printer/agent (%s): %s", job.idempotency_key[:8], reject_code, reject_msg[:300])
+                                _logger.warning("Gateway refused job %s for unavailable printer/agent (%s): %s (attempt %s/5)", job.idempotency_key[:8], reject_code, reject_msg[:300], next_attempt)
                                 if raise_on_failure:
-                                    if reject_code == "AGENT_UNAVAILABLE":
+                                    if terminal:
+                                        if reject_code == "AGENT_UNAVAILABLE":
+                                            raise ValidationError(
+                                                _("The printing service agent is unavailable. The receipt was not sent.")
+                                            )
                                         raise ValidationError(
-                                            _("The printing service agent is unavailable. The receipt was not sent.")
+                                            _("Printer '%s' is offline or unavailable (%s). The receipt was not sent.") % (job.printer_id, reject_code or "PRINTER_UNAVAILABLE")
                                         )
-                                    raise ValidationError(
-                                        _("Printer '%s' is offline or unavailable (%s). The receipt was not sent.") % (job.printer_id, reject_code or "PRINTER_UNAVAILABLE")
-                                    )
+                                    raise ValidationError(_("The printer is temporarily unavailable. The job was safely re-queued for retry."))
                                 break
                             # Any other 503 (queue-full capacity, unknown
                             # shape) is transient: the printer/agent state may
                             # recover, so keep the durable outbox queued with
                             # backoff exactly like the 429 path. Interactive
                             # callers get an actionable re-queued message.
-                            values = {
-                                "status": "queued",
-                                "attempts": job.attempts + 1,
-                                "last_error": "GATEWAY_BUSY_503: %s" % (reject_msg or reject_code or "printer temporarily busy"),
-                                "next_retry_at": db_now_utc(self.env.cr) + datetime.timedelta(seconds=60),
-                            }
+                            values = self._billing_retry_values(
+                                job,
+                                "GATEWAY_BUSY_503: %s" % (reject_msg or reject_code or "printer temporarily busy"),
+                                60,
+                            )
                             persist_submit_state(values)
                             if raise_on_failure:
                                 raise ValidationError(_("The printer is temporarily busy. The job was safely re-queued for retry."))

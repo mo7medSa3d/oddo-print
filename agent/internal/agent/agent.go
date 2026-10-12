@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -87,6 +88,40 @@ var pollJobsByteLimit = maxPollJobsBytes()
 // shutdownGrace bounds how long Run waits for in-flight jobs after the agent
 // is asked to stop. The Windows SCM default stop timeout is 30s.
 const shutdownGrace = 25 * time.Second
+
+// Gateway control-plane transport. Carries Bearer id:secret and print
+// payloads, so it must not inherit HTTP_PROXY/HTTPS_PROXY from the
+// environment by default (mirrors printer/ipp.go ippDirectTransport).
+// Proxy-required egress networks opt in explicitly with
+// YASEIR_AGENT_ALLOW_PROXY=1, mirroring the YASEIR_AGENT_ALLOW_INSECURE_HTTP
+// opt-in convention in internal/config.
+func gatewayProxyEnabled() bool {
+	return os.Getenv("YASEIR_AGENT_ALLOW_PROXY") == "1"
+}
+
+func gatewayProxyFunc(req *http.Request) (*url.URL, error) {
+	if gatewayProxyEnabled() {
+		return http.ProxyFromEnvironment(req)
+	}
+	return nil, nil
+}
+
+var gatewayDirectTransport = &http.Transport{
+	Proxy:               gatewayProxyFunc,
+	DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 20 * time.Second}).DialContext,
+	TLSHandshakeTimeout: 5 * time.Second,
+	MaxIdleConns:        32,
+	MaxIdleConnsPerHost: 4,
+	IdleConnTimeout:     30 * time.Second,
+}
+
+// WebSocket control-plane dialer. gorilla's DefaultDialer honors
+// HTTP_PROXY/HTTPS_PROXY, which would leak the same Bearer credential.
+// Use a direct dialer unless the proxy opt-in is set.
+var gatewayWSDialer = &websocket.Dialer{
+	Proxy:            gatewayProxyFunc,
+	HandshakeTimeout: 15 * time.Second,
+}
 
 // Bounds for Gateway-lifecycle-driven backoff. A disabled/retired agent or
 // a dead credential must not hammer the Gateway on the 5s poll cadence:
@@ -226,6 +261,13 @@ type Agent struct {
 	// would fork a scan per session. Pending sessions expire on the
 	// gateway in 60s, so the next poll tick simply picks the rest up.
 	discoverySem chan struct{}
+	// discoveryGen fences semaphore ownership across force-releases: a scan
+	// wedged in uncancellable OS I/O holds its slot until the watchdog
+	// recycles it, and the late finisher must not release another scan's
+	// slot afterwards. discoveryWedged stays true once set so the wedged
+	// scan is visible in diagnostics until process restart.
+	discoveryGen    atomic.Uint64
+	discoveryWedged atomic.Bool
 
 	// shutdownCh is closed exactly once when Run begins stopping; dispatchJob
 	// refuses new work afterwards so the queue is never closed while jobs are
@@ -572,7 +614,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 		// from the gateway/proxy would otherwise forward
 		// `Authorization: Bearer id:secret` to the redirect target.
 		// Callers treat 3xx as an error and surface it.
-		client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		client: &http.Client{Transport: gatewayDirectTransport, Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
 		printers:              make(map[string]printer.Printer),
@@ -726,10 +768,12 @@ func (a *Agent) runInitialAsyncDiscovery(ctx context.Context) {
 	}()
 
 	// Small delay to let gateway communication start first
+	delay := time.NewTimer(2 * time.Second)
 	select {
 	case <-ctx.Done():
+		delay.Stop()
 		return
-	case <-time.After(2 * time.Second):
+	case <-delay.C:
 	}
 
 	select {
@@ -1279,7 +1323,7 @@ func (a *Agent) connectWebSocket(ctx context.Context) {
 			header := http.Header{}
 			header.Set("Authorization", fmt.Sprintf("Bearer %s:%s", a.cfg.Agent.ID, a.cfg.Agent.Secret))
 
-			c, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
+			c, _, err := gatewayWSDialer.DialContext(ctx, wsURL, header)
 			if err != nil {
 				retryDelay = retry.nextDelay(0)
 				log.Printf("WebSocket dial failed: %v. Retrying in %s...", err, retryDelay.Round(time.Millisecond))
@@ -3222,13 +3266,15 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 			// later ambiguity must therefore remain UNKNOWN even when the main
 			// print stream itself has not started yet.
 			physicalPeripheralSideEffect = true
+			settle := time.NewTimer(150 * time.Millisecond)
 			select {
 			case <-printCtx.Done():
+				settle.Stop()
 				reason := "UNKNOWN_PARTIAL_DELIVERY: cash-drawer kick succeeded but the print attempt was cancelled before the main document dispatch"
 				a.queue.UpdateStatusWithError(jobID, "failed", reason)
 				a.updateJobStatus(ctx, jobID, "failed", reason, claimToken, "")
 				return
-			case <-time.After(150 * time.Millisecond):
+			case <-settle.C:
 			}
 			profile.DrawerKickMode = "none"
 		}

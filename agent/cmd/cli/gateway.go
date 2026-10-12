@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -125,6 +126,16 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 
 	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: func(req *http.Request) (*url.URL, error) {
+				if os.Getenv("YASEIR_AGENT_ALLOW_PROXY") == "1" {
+					return http.ProxyFromEnvironment(req)
+				}
+				return nil, nil
+			},
+			DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 20 * time.Second}).DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,
+		},
 		Timeout: 15 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse

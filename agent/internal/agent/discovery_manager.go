@@ -203,16 +203,43 @@ func discoverySessionTimeout(session map[string]interface{}) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// releaseDiscoverySemaphoreWhenFinished transfers semaphore cleanup to an
-// untracked waiter. The underlying detector may be stuck in synchronous OS
-// I/O that cannot be cancelled by a Go context; holding the semaphore prevents
-// overlapping scans, while keeping the waiter out of runtimeWG lets process
-// shutdown complete.
-func (a *Agent) releaseDiscoverySemaphoreWhenFinished(finished <-chan struct{}) {
-	go func() {
-		<-finished
-		<-a.discoverySem
-	}()
+// discoveryForceReleaseAfter bounds how long a finished-or-timed-out scan
+// may pin the one-scan semaphore while its worker is stuck in synchronous,
+// uncancellable OS I/O. Past this point the slot is recycled for new
+// sessions; the stuck worker's late finish releases nothing.
+const discoveryForceReleaseAfter = 5 * time.Minute
+
+// releaseDiscoverySemaphoreWhenFinished transfers semaphore cleanup to a
+// waiter with a watchdog. The underlying detector may be stuck in
+// synchronous OS I/O that cannot be cancelled by a Go context; holding the
+// semaphore prevents overlapping scans. The watchdog guarantees one wedged
+// scan cannot pin discovery forever, and the generation fence guarantees
+// the late finisher can never release a successor scan's slot.
+func (a *Agent) releaseDiscoverySemaphoreWhenFinished(finished <-chan struct{}, forceAfter ...time.Duration) {
+	bound := discoveryForceReleaseAfter
+	if len(forceAfter) > 0 && forceAfter[0] > 0 {
+		bound = forceAfter[0]
+	}
+	gen := a.discoveryGen.Add(1)
+	go func(myGen uint64) {
+		timer := time.NewTimer(bound)
+		defer timer.Stop()
+		select {
+		case <-finished:
+			// A force-release already recycled this slot for a successor:
+			// releasing again would free a slot we no longer own.
+			if a.discoveryGen.Load() != myGen {
+				return
+			}
+			<-a.discoverySem
+		case <-timer.C:
+			if a.discoveryGen.CompareAndSwap(myGen, myGen+1) {
+				<-a.discoverySem
+				a.discoveryWedged.Store(true)
+				log.Printf("[discovery] WARNING: scan wedged past %s; semaphore force-released, late finish will not free another slot", bound)
+			}
+		}
+	}(gen)
 }
 
 func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string, session map[string]interface{}) {

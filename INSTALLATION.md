@@ -20,6 +20,14 @@ npm run build
 npm start
 ```
 
+> Production (`NODE_ENV=production`) refuses startup unless the
+> `[required in production]` variables in `.env.example` are set:
+> `PLATFORM_TENANT_ID`, `GATEWAY_JWT_SECRET` (≥32 chars),
+> `TRUST_PROXY=1` + `TRUST_PROXY_SECRET` (≥32 chars) behind the reverse
+> proxy, `APP_BASE_URL` (clean `https://` origin), and `COOKIE_SECURE=1`.
+> Follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md) §3 for the full
+> first-deployment checklist instead of the abbreviated steps above.
+
 Configure PostgreSQL, manager authentication, and the production TLS reverse proxy according to deployment policy.
 
 Verify:

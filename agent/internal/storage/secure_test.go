@@ -98,3 +98,16 @@ func TestIsUserDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestPlatformAtRestWarningDocumentsResidualRisk(t *testing.T) {
+	w := platformAtRestWarning()
+	if runtime.GOOS == "windows" {
+		if w != "" {
+			t.Fatalf("Windows seals storage with DPAPI; no residual warning expected, got %q", w)
+		}
+		return
+	}
+	if w == "" {
+		t.Fatal("POSIX has no sealed storage; SaveSecret must surface a residual-risk warning")
+	}
+}

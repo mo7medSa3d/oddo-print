@@ -193,3 +193,29 @@ RPO), and rehearse restores to measure the real RTO. A backup that has never
 been restored in a recovery environment is not considered verified. Do not
 restore archives from untrusted PostgreSQL superusers: restore executes archive
 contents with database privileges.
+
+Schedule example (systemd timer, daily 02:00 UTC; equivalent cron:
+`0 2 * * *`):
+
+```ini
+# /etc/systemd/system/yaseir-backup.service
+[Service]
+Type=oneshot
+Environment=PGHOST=db.example.internal PGPORT=5432 PGDATABASE=print_gateway PGUSER=backup
+Environment=PGPASSWORD_FILE=/run/secrets/postgres_password
+Environment=BACKUP_DIR=/mnt/independent-backups/yaseir
+ExecStart=/opt/yaseir/scripts/postgres-backup.sh
+```
+
+```ini
+# /etc/systemd/system/yaseir-backup.timer
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+CI exercises the round trip on every run (see the Docker workflow's backup
+and restore verification step): backup → restore into a scratch database →
+row-count comparison → scratch database dropped.

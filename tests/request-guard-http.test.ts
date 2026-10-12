@@ -56,6 +56,27 @@ describe("request authentication budget classification", () => {
       else process.env.GATEWAY_JWT_SECRET = previous;
     }
   });
+
+  it("grants the authenticated budget only to unexpired signed sessions (T-3)", async () => {
+    const { createHmac } = await import("node:crypto");
+    const previous = process.env.GATEWAY_JWT_SECRET;
+    process.env.GATEWAY_JWT_SECRET = "test-budget-secret-that-is-at-least-32-chars";
+    try {
+      const sign = (payload: Record<string, unknown>) => {
+        const h = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+        const p = Buffer.from(JSON.stringify(payload)).toString("base64url");
+        const s = createHmac("sha256", process.env.GATEWAY_JWT_SECRET!).update(`${h}.${p}`).digest("base64url");
+        return `${h}.${p}.${s}`;
+      };
+      const live = sign({ exp: Math.floor(Date.now() / 1000) + 600 });
+      expect(isLikelyAuthenticated({ headers: { authorization: `Bearer ${live}` } } as import("http").IncomingMessage)).toBe(true);
+      const expired = sign({ exp: Math.floor(Date.now() / 1000) - 600 });
+      expect(isLikelyAuthenticated({ headers: { authorization: `Bearer ${expired}` } } as import("http").IncomingMessage)).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.GATEWAY_JWT_SECRET;
+      else process.env.GATEWAY_JWT_SECRET = previous;
+    }
+  });
 });
 
 describe("request guard (real HTTP)", () => {

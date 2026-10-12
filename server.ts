@@ -162,7 +162,11 @@ app.prepare().then(() => {
     }
 
     applyApiCacheControlDefault(req, res);
-    if (trustProxyEnabled() && req.url !== "/api/health" && req.url !== "/api/live") {
+    // Load-balancer liveness probes bypass proxy trust. Match on the URL
+    // pathname: req.url carries the query string, so an exact-string match
+    // would inconsistently gate /api/health?x=1 while exempting /api/health.
+    const probePath = (req.url ?? "").split("?", 1)[0].split("#", 1)[0];
+    if (trustProxyEnabled() && probePath !== "/api/health" && probePath !== "/api/live") {
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
         if (value == null) continue;
@@ -244,7 +248,7 @@ app.prepare().then(() => {
   presenceTimer.unref();
 
   if (trustProxyEnabled()) {
-    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the proxy token and relies on Caddy's sanitized X-Forwarded-* handling.");
+    logWarn("[security] TRUST_PROXY enabled: only requests carrying the proxy authentication token are trusted for forwarded-client-IP handling. The bundled Caddyfile injects the proxy token and overwrites X-Forwarded-For with the real client address.");
   }
 
   server.listen(port, hostname, () => {

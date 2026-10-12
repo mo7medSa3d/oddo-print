@@ -10,4 +10,4 @@ access_print_gateway_pair_wizard_admin,print_gateway.pair_agent_wizard admin,mod
 access_print_gateway_policy_user,print_gateway.policy user,model_print_gateway_policy,base.group_user,1,0,0,0
 access_print_gateway_policy_admin,print_gateway.policy admin,model_print_gateway_policy,base.group_system,1,1,1,1
 access_print_gateway_intent_user,print_gateway.intent user,model_print_gateway_intent,base.group_user,1,0,0,0
-access_print_gateway_intent_admin,print_gateway.intent admin,model_print_gateway_intent,base.group_system,1,1,1,1
+access_print_gateway_intent_admin,print_gateway.intent admin,model_print_gateway_intent,base.group_system,1,1,1,0

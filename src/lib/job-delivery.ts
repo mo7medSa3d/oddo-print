@@ -180,8 +180,8 @@ export async function claimJobForDelivery(
     const claimed = await tx.execute(sql`
       UPDATE print_jobs
       SET status = 'claimed',
-          claimed_at = now(),
-          updated_at = now(),
+          claimed_at = clock_timestamp(),
+          updated_at = clock_timestamp(),
           claim_token = gen_random_uuid()::text,
           closed_claim_token_hash = NULL,
           delivered_at = NULL,
@@ -204,11 +204,11 @@ export async function markJobDelivered(jobId: string, tenantId: string, agentId:
   if (!claimToken) return false;
   const res = await db.update(printJobs)
     .set({
-      // DB-native now() so delivered_at and updated_at are on the same clock
-      // as the sweeper's updated_at < now() - interval comparisons.
-      deliveredAt: sql`now()`,
+      // DB-native clock_timestamp() so delivered_at and updated_at are
+      // wall-clock readings matching the sweeper's lease comparisons.
+      deliveredAt: sql`clock_timestamp()`,
       error: sql`CASE WHEN ${printJobs.error} = ${DELIVERY_EVIDENCE_PENDING} THEN NULL ELSE ${printJobs.error} END`,
-      updatedAt: sql`now()`,
+      updatedAt: sql`clock_timestamp()`,
     })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed", "printing"]))
     .returning({ id: printJobs.id });
@@ -242,9 +242,9 @@ export async function markJobDeliveryUnknown(
       // would make a valid late result permanently unreconcilable while still
       // preventing any automatic retry. The normal late-success age fence
       // bounds how long this token remains useful.
-      deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, now())`,
-      claimedAt: sql`COALESCE(${printJobs.claimedAt}, now())`,
-      updatedAt: sql`now()`,
+      deliveredAt: sql`COALESCE(${printJobs.deliveredAt}, clock_timestamp())`,
+      claimedAt: sql`COALESCE(${printJobs.claimedAt}, clock_timestamp())`,
+      updatedAt: sql`clock_timestamp()`,
     })
     .where(fencedDeliveryWrite(jobId, tenantId, agentId, claimToken, ["claimed"]))
     .returning({ id: printJobs.id });
@@ -256,7 +256,7 @@ export async function recordJobAck(jobId: string, tenantId: string, agentId: str
   const res = await db.update(printJobs)
     // ACK means the Agent admitted the job into its bounded local executor.
     // Transport delivery evidence is recorded separately by markJobDelivered().
-    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, now())`, updatedAt: sql`now()` })
+    .set({ ackedAt: sql`COALESCE(${printJobs.ackedAt}, clock_timestamp())`, updatedAt: sql`clock_timestamp()` })
     // A WebSocket close notification is an optimisation, not an authority:
     // PostgreSQL LISTEN/NOTIFY is not a durable queue and a listener can be
     // disconnected during a lifecycle transition.  Keep the durable Agent
@@ -279,12 +279,18 @@ export async function recordJobAck(jobId: string, tenantId: string, agentId: str
 export type ReleaseOutcome = "requeued" | "failed" | "noop";
 
 export async function releaseUndeliveredClaim(jobId: string, tenantId: string, agentId: string, claimToken: string | null, reason: string): Promise<ReleaseOutcome> {
+  // Safe pre-dispatch release only: the job must still be live (unexpired).
+  // An expired claim is left for the sweeper's expiry classification (which
+  // preserves UNKNOWN-outcome fencing). Retry/delivery budgets are
+  // deliberately untouched here: the claim already consumed one delivery
+  // attempt, and a safe return must not also consume retry budget
+  // (pinned by ws-claim-delivery "consumes the delivery budget").
   const requeued = await db.execute(sql`
     UPDATE print_jobs
     SET status = 'queued',
         claimed_at = NULL,
         claim_token = NULL,
-        updated_at = now(),
+        updated_at = clock_timestamp(),
         error = ${reason}
     WHERE id = ${jobId}
       AND tenant_id = ${tenantId}
@@ -294,6 +300,7 @@ export async function releaseUndeliveredClaim(jobId: string, tenantId: string, a
       AND delivered_at IS NULL
       AND acked_at IS NULL
       AND delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
+      AND expires_at > now()
     RETURNING id
   `);
   if (requeued.rows.length > 0) return "requeued";
@@ -303,7 +310,7 @@ export async function releaseUndeliveredClaim(jobId: string, tenantId: string, a
     SET status = 'failed',
         claim_token = NULL,
         claimed_at = NULL,
-        updated_at = now(),
+        updated_at = clock_timestamp(),
         error = ${`${reason} (giving up after ${MAX_DELIVERY_ATTEMPTS} delivery attempts)`}
     WHERE id = ${jobId}
       AND tenant_id = ${tenantId}
