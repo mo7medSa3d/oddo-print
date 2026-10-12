@@ -4,7 +4,7 @@ import { requireTenantBillingAccess, isTenantBillingError } from "../../../../li
 import { db } from "../../../../db";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import {
-  captureEnabled, parseCaptureRequest, queueOdooCapture,
+  captureEnabled, parseCaptureRequest, queueOdooCapture, readBoundedCaptureJSON,
   readOdooCapture, CaptureError,
 } from "../../../../lib/e2e-capture";
 import { logError } from "../../../../lib/log";
@@ -34,8 +34,8 @@ export async function POST(req: Request) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: NO_STORE });
   if (auth.readOnly) return errorResponse(new CaptureError("API_KEY_READ_ONLY", 409));
   let json: unknown;
-  try { json = await req.json(); }
-  catch { return errorResponse(new CaptureError("INVALID_JSON", 400)); }
+  try { json = await readBoundedCaptureJSON(req, 6 * 1024 * 1024); }
+  catch (e) { return errorResponse(e); }
   try {
     const parsed = parseCaptureRequest(json);
     // An E2E diagnostic must not bypass suspended subscription policy.

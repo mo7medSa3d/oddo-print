@@ -448,6 +448,7 @@ msgstr "وقت حجز التنفيذ"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/gateway_limit_dialog.js:0
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
 msgid "Close"
 msgstr "إغلاق"
 
@@ -470,6 +471,7 @@ msgstr "الشركة"
 #. module: print_gateway
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_pair_agent_wizard__company_id
 #: model:ir.model.fields,field_description:print_gateway.field_print_gateway_print_job__company_id
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__company_id
 msgid "Company id"
 msgstr "معرّف الشركة"
 
@@ -3862,3 +3864,301 @@ msgstr "لم يعد الـ Gateway Runtime Agent '%s' مُسنَدًا إلى ا
 #: code:addons/print_gateway/models/print_job.py:0
 msgid "The printer is temporarily unavailable. The job was safely re-queued for retry."
 msgstr "الطابعة غير متاحة مؤقتًا. أُعيدت المهمة إلى قائمة الانتظار بأمان لإعادة المحاولة."
+
+
+#. module: print_gateway
+#: model:ir.model,name:print_gateway.model_print_gateway_e2e_capture_wizard
+msgid "End-to-End Document Capture Test"
+msgstr "اختبار التقاط المستند من البداية للنهاية"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Only Odoo administrators can run E2E capture tests."
+msgstr "يُسمح لمسؤولي أودو فقط بتشغيل اختبارات التقاط المستندات الشاملة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The selected Odoo company is not enabled or accessible."
+msgstr "الشركة المحددة في أودو غير مفعّلة أو لا تملك صلاحية الوصول إليها."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The selected branch does not belong to this company."
+msgstr "الفرع المحدد لا يتبع هذه الشركة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Select an enabled Windows Agent assigned to this company or branch."
+msgstr "اختر وكيل ويندوز مفعّلًا ومخصصًا لهذه الشركة أو لهذا الفرع."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Configure the Gateway URL first."
+msgstr "اضبط عنوان Gateway أولًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Upload an Odoo-exported receipt JPEG first."
+msgstr "ارفع صورة إيصال بصيغة JPEG مُصدّرة من أودو أولًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The receipt exceeds the 4 MiB test limit."
+msgstr "حجم الإيصال يتجاوز حد الاختبار البالغ 4 ميبيبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Invalid JPEG upload."
+msgstr "ملف JPEG المرفوع غير صالح."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "A valid JPEG smaller than 4 MiB is required."
+msgstr "يلزم ملف JPEG صالح بحجم أقل من 4 ميبيبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Select a customer invoice."
+msgstr "اختر فاتورة عميل."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The invoice must belong to the selected company or branch."
+msgstr "يجب أن تتبع الفاتورة الشركة أو الفرع المحدد."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Odoo did not return a PDF invoice."
+msgstr "لم يُرجع أودو الفاتورة بصيغة PDF."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Main company"
+msgstr "الشركة الرئيسية"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "E2E simulation only — no printer"
+msgstr "محاكاة شاملة فقط — بدون طابعة"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Odoo generated an invalid or oversized PDF (maximum 4 MiB)."
+msgstr "أنشأ أودو ملف PDF غير صالح أو يتجاوز الحجم المسموح، وهو 4 ميبيبايت."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The Odoo PDF is missing its completion marker."
+msgstr "ملف PDF الصادر من أودو يفتقد علامة اكتمال الملف."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_config_form
+msgid "E2E Capture Test"
+msgstr "اختبار التقاط شامل"
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "The Gateway is unavailable. Verify HTTPS connectivity."
+msgstr "يتعذّر الوصول إلى Gateway. تحقق من اتصال HTTPS."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Gateway refused the capture test (HTTP %s). Check the feature flag and Agent assignment."
+msgstr "رفض Gateway اختبار الالتقاط (HTTP %s). تحقق من تفعيل الميزة وتخصيص الوكيل."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Gateway returned an invalid capture acceptance."
+msgstr "أرجع Gateway استجابة قبول غير صالحة لاختبار الالتقاط."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Start a capture test first."
+msgstr "ابدأ اختبار التقاط أولًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Could not read the capture result from Gateway."
+msgstr "تعذّرت قراءة نتيجة الاختبار من Gateway."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Gateway capture status is unavailable (HTTP %s)."
+msgstr "حالة الالتقاط غير متاحة من Gateway (HTTP %s)."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Invalid Gateway capture result."
+msgstr "نتيجة الالتقاط من Gateway غير صالحة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Unexpected capture result. No print result was assumed."
+msgstr "وصلت نتيجة التقاط غير متوقعة؛ لم تُعتبر أي عملية طباعة ناجحة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Unknown Gateway capture status."
+msgstr "حالة الالتقاط الواردة من Gateway غير معروفة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/e2e_capture_wizard.py:0
+msgid "Gateway capture preview was rejected."
+msgstr "تم رفض معاينة الالتقاط الواردة من Gateway."
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__config_id
+msgid "Config id"
+msgstr "معرّف الإعداد"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__branch_id
+msgid "Branch id"
+msgstr "معرّف الفرع"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__runtime_agent_id
+msgid "Windows Agent"
+msgstr "وكيل ويندوز"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__document_kind
+msgid "Test document"
+msgstr "مستند الاختبار"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__document_kind__diagnostic
+msgid "Odoo PDF test page"
+msgstr "صفحة اختبار PDF من أودو"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__document_kind__invoice
+msgid "Odoo customer invoice PDF"
+msgstr "فاتورة عميل بصيغة PDF من أودو"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__document_kind__receipt
+msgid "Odoo POS / Kitchen / Bar JPEG"
+msgstr "صورة JPEG لنقطة البيع أو المطبخ أو البار من أودو"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__invoice_id
+msgid "Customer invoice"
+msgstr "فاتورة العميل"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__receipt_jpeg
+msgid "Exported receipt JPEG"
+msgstr "صورة JPEG للإيصال المُصدّر"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__paper_mm
+msgid "Paper mm"
+msgstr "عرض الورق بالمليمتر"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__paper_mm__58
+msgid "58 mm"
+msgstr "٥٨ مم"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__paper_mm__80
+msgid "80 mm"
+msgstr "٨٠ مم"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__run_id
+msgid "Run id"
+msgstr "معرّف التشغيل"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__capture_status
+msgid "Capture status"
+msgstr "حالة الالتقاط"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__draft
+msgid "Ready to test"
+msgstr "جاهز للاختبار"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__queued
+msgid "Waiting for Windows Agent"
+msgstr "في انتظار وكيل ويندوز"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__claimed
+msgid "Rendering on Windows Agent"
+msgstr "تجري معالجة المستند على وكيل ويندوز"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__rendered_locally
+msgid "Rendered locally — not printed"
+msgstr "تمت المعالجة محليًا — لم تتم الطباعة"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__failed
+msgid "Test failed"
+msgstr "فشل الاختبار"
+
+#. module: print_gateway
+#: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_e2e_capture_wizard__capture_status__expired
+msgid "Test expired"
+msgstr "انتهت مهلة الاختبار"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__page_count
+msgid "Page count"
+msgstr "عدد الصفحات"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__pdf_sha256
+msgid "Pdf sha256"
+msgstr "بصمة SHA-256 لملف PDF"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__pdf_bytes
+msgid "Pdf bytes"
+msgstr "حجم ملف PDF بالبايت"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__preview_image
+msgid "Preview image"
+msgstr "صورة المعاينة"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_e2e_capture_wizard__error_code
+msgid "Error code"
+msgstr "رمز الخطأ"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+#: code:addons/print_gateway/models/gateway_config.py:0
+msgid "End-to-End Capture Test"
+msgstr "اختبار الالتقاط من البداية للنهاية"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+msgid "Select assigned Windows Agent"
+msgstr "اختر وكيل ويندوز المخصص"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+msgid "Simulation result"
+msgstr "نتيجة المحاكاة"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+msgid "Start E2E Test"
+msgstr "بدء الاختبار الشامل"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+msgid "Refresh Result"
+msgstr "تحديث النتيجة"
+
+#. module: print_gateway
+#: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
+msgid "This runs a diagnostic from Odoo through Gateway to the assigned Windows Agent.\n                        It creates a local PDF capture, never registers a virtual printer or prints paper."
+msgstr "يجري هذا الاختبار تشخيصًا من أودو عبر Gateway إلى وكيل ويندوز المخصص. ينشئ ملف PDF محليًا فقط، ولا يسجّل طابعة افتراضية أو يطبع ورقًا."

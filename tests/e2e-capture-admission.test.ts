@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { captureEnabled, parseCaptureRequest, CAPTURE_MAX_BYTES } from "../src/lib/e2e-capture";
+import { captureEnabled, parseCaptureRequest, CAPTURE_MAX_BYTES, readBoundedCaptureJSON } from "../src/lib/e2e-capture";
 
 const odooPdf = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -25,6 +25,16 @@ describe("isolated Odoo -> Agent E2E capture admission", () => {
       if (original === undefined) delete process.env.YASEIR_E2E_CAPTURE_ENABLED;
       else process.env.YASEIR_E2E_CAPTURE_ENABLED = original;
     }
+  });
+
+  it("caps the actual body stream even without a Content-Length header", async () => {
+    const req = new Request("https://test.invalid/api/odoo/test-captures", {
+      method: "POST", body: "x".repeat(4096),
+    });
+    req.headers.delete("content-length");
+    await expect(readBoundedCaptureJSON(req, 128)).rejects.toMatchObject({
+      code: "DOCUMENT_TOO_LARGE", status: 413,
+    });
   });
 
   it("accepts valid Odoo PDF and JPEG, preserving source geometry", () => {

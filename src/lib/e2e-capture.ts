@@ -16,6 +16,28 @@ export const CAPTURE_MAX_ACTIVE = 4;
 export const CAPTURE_MAX_ATTEMPTS = 3;
 export const CAPTURE_MAX_PREVIEW_BYTES = 256 * 1024;
 
+/** Bound actual streamed bytes; Content-Length alone is attacker-controlled. */
+export async function readBoundedCaptureJSON(req: Request, limit: number): Promise<unknown> {
+  if (!req.body) throw new CaptureError("INVALID_JSON", 400);
+  const reader = req.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) throw new CaptureError("DOCUMENT_TOO_LARGE", 413);
+      chunks.push(Buffer.from(value));
+    }
+    try { return JSON.parse(Buffer.concat(chunks, total).toString("utf8")); }
+    catch { throw new CaptureError("INVALID_JSON", 400); }
+  } finally {
+    try { await reader.cancel(); } catch { /* already closed */ }
+    reader.releaseLock();
+  }
+}
+
 const bodySchema = z.object({
   agentId: z.string().regex(/^agt_[A-Za-z0-9_-]{8}$/),
   idempotencyKey: z.string().trim().min(16).max(150).regex(/^[a-zA-Z0-9._:-]+$/),

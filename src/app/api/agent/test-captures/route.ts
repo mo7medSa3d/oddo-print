@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { validateAgent } from "../../../../lib/agent-auth";
-import { captureEnabled, CAPTURE_MAX_ATTEMPTS, CAPTURE_MAX_PREVIEW_BYTES } from "../../../../lib/e2e-capture";
+import { captureEnabled, CAPTURE_MAX_ATTEMPTS, CAPTURE_MAX_PREVIEW_BYTES, readBoundedCaptureJSON, CaptureError } from "../../../../lib/e2e-capture";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
@@ -110,7 +110,8 @@ export async function PATCH(req: Request) {
   if (!agent) return NextResponse.json({ code: "UNAUTHORIZED" }, { status: 401, headers: NO_STORE });
   if (hasBodyOverLimit(req, 425 * 1024)) return NextResponse.json({ code: "RESULT_TOO_LARGE" }, { status: 413, headers: NO_STORE });
   let json: unknown;
-  try { json = await req.json(); } catch { return NextResponse.json({ code: "INVALID_JSON" }, { status: 400, headers: NO_STORE }); }
+  try { json = await readBoundedCaptureJSON(req, 425 * 1024); }
+  catch (e) { return NextResponse.json({ code: e instanceof CaptureError ? e.code : "INVALID_JSON" }, { status: e instanceof CaptureError ? e.status : 400, headers: NO_STORE }); }
   const parsed = finalSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ code: "INVALID_RESULT" }, { status: 400, headers: NO_STORE });
   const body = parsed.data;
