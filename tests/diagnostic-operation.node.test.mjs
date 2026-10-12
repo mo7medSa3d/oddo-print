@@ -96,7 +96,7 @@ function makeDesktop(send,{url='https://gateway.example.com'}={}) {
 test('strict decoder rejects malformed2xx and wrong printer/status/optional fields',()=>{
   for(const value of [null,{},[],{ok:false}, {ok:true,printerId:'printer1',status:'queued'},
     good('bogus'),good('queued','elsewhere'),good('queued','printer1',{jobId:'   '}),
-    good('queued','printer1',{virtualCapture:'yes'}),good('queued','printer1',{isReused:1}),
+    good('queued','printer1',{virtualCapture:'yes'}),good('queued','printer1',{virtualCapture:true}),good('queued','printer1',{isReused:1}),
     good('failed','printer1',{physicalOutcome:'maybe'})]){
       assert.throws(()=>model.decodeDiagnosticResult(value,'printer1'),model.InvalidDiagnosticResponse);
     }
@@ -113,7 +113,7 @@ test('valid terminal outcomes must not be announced as newly queued or guarantee
   ]){
     assert.equal(model.diagnosticMessageKey(model.decodeDiagnosticResult(good(status,'printer1',{physicalOutcome:outcome}),'printer1')),key);
   }
-  assert.equal(model.diagnosticMessageKey(model.decodeDiagnosticResult(good('success','printer1',{virtualCapture:true}),'printer1')),'diagnostic.virtualCaptured');
+  assert.throws(()=>model.decodeDiagnosticResult(good('success','printer1',{virtualCapture:true}),'printer1'),model.InvalidDiagnosticResponse);
   assert.equal(model.diagnosticIsInProgress(model.decodeDiagnosticResult(good('queued'),'printer1')),true);
   assert.equal(model.diagnosticIsInProgress(model.decodeDiagnosticResult(good('success'),'printer1')),false);
 });

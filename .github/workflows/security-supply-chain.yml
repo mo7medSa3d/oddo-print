@@ -129,6 +129,9 @@ jobs:
               image = $0
               sub(/^[[:space:]]*image:[[:space:]]*/, "", image)
               sub(/[[:space:]]+#.*$/, "", image)
+              # GitHub Actions matrix "image:" is a mapping/list key, not a
+              # scalar container image reference; only check actual values.
+              if (image == "") next
               if (image !~ /@sha256:[0-9a-fA-F]{64}$/) {
                 print FILENAME ":" FNR ": unpinned image reference: " image
                 bad = 1

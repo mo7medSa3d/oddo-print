@@ -71,21 +71,6 @@ const demoPrinters = [
     status: "offline",
     enabled: true,
   },
-  // Deliberately present: proves the UI safety net hides virtual queues even
-  // if an older registry file still contains one.
-  {
-    id: "printer_ms_pdf",
-    agentId: "agent-preview",
-    name: "Microsoft Print to PDF",
-    printerType: "virtual",
-    connectionType: "spooler",
-    protocol: "spooler",
-    spoolerName: "Microsoft Print to PDF",
-    status: "online",
-    enabled: true,
-    isVirtual: true,
-    capabilities: { virtual: true, port_name: "PORTPROMPT:", driver_name: "Microsoft Print To PDF" },
-  },
 ];
 
 const demoJobs = [

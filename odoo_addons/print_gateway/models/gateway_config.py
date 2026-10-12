@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import hmac
 import logging
+import os
 import requests
 
 from psycopg2 import sql
@@ -256,8 +257,11 @@ class PrintGatewayConfig(models.Model):
         scheme = parsed.scheme.lower()
         if scheme not in ("http", "https") or not parsed.hostname:
             raise ValidationError(_("Gateway URL must use HTTP or HTTPS and include a host, e.g. https://print.example.com or http://192.0.2.10:3000."))
-        if scheme == "http":
+        if scheme == "http" and os.environ.get("YASEIR_GATEWAY_ALLOW_INSECURE_HTTP") != "1":
             raise ValidationError(_("Gateway URL must use HTTPS."))
+        # Plain-HTTP LAN development is explicitly opted into (see
+        # INSTALLATION.md); never allow credentials, queries, or API paths
+        # regardless of scheme.
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValidationError(_("Gateway URL must not contain credentials, query parameters, or fragments."))
         if parsed.path not in ("", "/"):

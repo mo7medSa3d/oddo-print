@@ -71,7 +71,8 @@ func Register(serverURL, pairingCode, configPath string) error {
 	}
 
 	client := &http.Client{
-		Timeout: 15 * time.Second,
+		Transport: gatewayDirectTransport,
+		Timeout:   15 * time.Second,
 		// Never follow redirects on the registration path: a 3xx target
 		// must not receive the pairing code (mirrors the IPP client and
 		// the desktop Rust client, which both disable redirects).

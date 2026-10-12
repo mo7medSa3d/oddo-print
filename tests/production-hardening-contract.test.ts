@@ -80,12 +80,12 @@ describe("production hardening contracts", () => {
     expect(guard).toContain("CONTENT_LENGTH_REQUIRED");
   });
 
-  it("keeps the bundled Caddy sanitizing forwarded-IP headers and capping request bodies", () => {
+  it("keeps the bundled Caddy overwriting forwarded-IP headers and capping request bodies", () => {
     const caddy = read("Caddyfile");
-    // Caddy's reverse_proxy sanitizes X-Forwarded-* inputs by default. The
-    // production contract intentionally avoids a redundant explicit rewrite.
-    expect(caddy).toContain("sanitizes X-Forwarded-* inputs");
-    expect(caddy).not.toContain("header_up X-Forwarded-For");
+    // The edge overwrites X-Forwarded-For with the real client address:
+    // reverse_proxy appends to client-supplied values, so sanitize-by-default
+    // does not stop leftmost-entry spoofing of per-IP rate-limit buckets.
+    expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
     expect(caddy).toContain("header_up -X-Real-Ip");
     expect(caddy).toContain("max_size 8MiB");
   });

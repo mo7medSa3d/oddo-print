@@ -80,8 +80,6 @@ import {
   humanConnection,
   humanType,
   isProductionPrinter,
-  isPendingVirtualSpoolerTestPrinter,
-  isVirtualPrinter,
   jobDestination,
   jobDocType,
   jobGuidance,
@@ -102,7 +100,6 @@ import {
   jobTimestamp,
 } from "./lib/printers";
 import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, diagnosticIsInProgress } from "../shared/diagnostic-test";
-import { isVirtualCaptureTestRecord } from "../lib/printer-virtual";
 import { generateIdempotencyKey } from "../lib/idempotency";
 import type {
   AgentStatusView,
@@ -200,7 +197,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<ToastMessage>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [virtualConfirmCandidate, setVirtualConfirmCandidate] = useState<PrinterInfo | null>(null);
   const [repeatDiagnosticPrinterId, setRepeatDiagnosticPrinterId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [adminDismissed, setAdminDismissed] = useState<boolean>(false);
@@ -215,7 +211,6 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
-  const [discoveredVirtualPrinters, setDiscoveredVirtualPrinters] = useState<PrinterInfo[]>([]);
   const [discoveryWarning, setDiscoveryWarning] = useState<string | null>(null);
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
@@ -344,7 +339,7 @@ export default function App() {
       const list = await fetchGatewayPrinters(savedGatewayUrl);
       if (!current()) return false;
       observeGatewaySuccess(savedGatewayUrl);
-      setPrinters(list.filter((printer) => isProductionPrinter(printer) || isPendingVirtualSpoolerTestPrinter(printer) || isVirtualCaptureTestRecord(printer)));
+      setPrinters(list.filter(isProductionPrinter));
       return true;
     } catch (e) {
       if (!current()) return false;
@@ -526,7 +521,6 @@ export default function App() {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
-      setDiscoveredVirtualPrinters((res.virtualPrinters ?? []).filter(isVirtualPrinter));
       const warning = res.errors.length > 0 ? t("desktop.app.discoveryWarningsSummary", { count: res.errors.length }) : null;
       setDiscoveryWarning(warning);
       const refreshed = await refreshPrinters();
@@ -544,80 +538,6 @@ export default function App() {
       setPrintersLoading(false);
     }
   }, [refreshPrinters, t, locale]);
-
-  const requestVirtualPrinterTest = useCallback((candidate: PrinterInfo) => {
-    if (busyRef.current) return;
-    // The executor revalidates the selected queue, saved Gateway and paired
-    // Agent after the user confirms; this UI state never conveys authority.
-    setVirtualConfirmCandidate(candidate);
-  }, []);
-
-  const enableVirtualPrinterTest = useCallback(async (candidate: PrinterInfo) => {
-    if (!savedGatewayUrl) {
-      setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
-      return;
-    }
-    if (busyRef.current) return;
-    // Require a real local discovery result; an arbitrary WebView row is
-    // insufficient to request a Gateway test destination.
-    const local = discoveredVirtualPrinters.find((row) => row.id === candidate.id &&
-      (row.spoolerName ?? row.spooler_name) === (candidate.spoolerName ?? candidate.spooler_name));
-    const spoolerName = (local?.spoolerName ?? local?.spooler_name ?? "").trim();
-    if (!isTauri || !local || !isVirtualPrinter(local) || !spoolerName ||
-        /fax|redirected| in session |citrix|thinprint|remote desktop|vmware|yaseir_virtual_test_capture/i.test(spoolerName)) {
-      setMsg({ text: t("desktop.printers.virtualUnavailable"), type: "error" });
-      return;
-    }
-    if (printers.some((remote) =>
-      remote.lifecycle !== "retired" &&
-      (remote.config?.spooler_name === spoolerName || remote.spoolerName === spoolerName))) {
-      setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
-      return;
-    }
-    setBusyBoth(true);
-    try {
-      // Do not attempt a Manager-owned registration against an old deployed
-      // Gateway: its paired-Agent contract does not exist there.
-      const probe = await probeGatewayHealth(savedGatewayUrl);
-      const features = probe.features as Record<string, unknown> | undefined;
-      if (features?.agentVirtualSpoolerTest !== true) {
-        setMsg({ text: t("desktop.printers.gatewayUpgradeNeeded"), type: "error" });
-        return;
-      }
-      // User consent is collected by the accessible in-app Modal, not the
-      // unstyled window.confirm dialog labelled "tauri.localhost says".
-      // All identity, origin and discovered-queue checks still run here.
-      // GET /api/agents is fenced by the paired Agent credential, returning
-      // only that Agent. Never trust an Agent ID from UI inventory or user input.
-      const owned = await fetchGatewayAgents(savedGatewayUrl);
-      if (owned.length !== 1 || !owned[0]?.id || owned[0].lifecycle !== "active") {
-        throw Object.assign(new Error("Paired Agent is missing or inactive"), { status: 401 });
-      }
-      await registerGatewayPrinter(savedGatewayUrl, {
-        name: local.name,
-        agentId: owned[0].id,
-        connectionType: "spooler",
-        protocol: "spooler",
-        spoolerName,
-        printerType: "virtual",
-        virtualSpoolerTest: true,
-      });
-      await refreshPrinters();
-      setMsg({ text: t("desktop.printers.virtualRegistered"), type: "success" });
-    } catch (error) {
-      const status = (error as { status?: number } | null)?.status;
-      if (status === 409 && /printer id already exists|already registered/i.test(errMsg(error))) {
-        await refreshPrinters();
-        setMsg({ text: t("desktop.printers.virtualAlreadyLinked"), type: "info" });
-      } else {
-        setMsg({ text: status === 401 || status === 403 || status === 404
-          ? t("desktop.printers.virtualAgentMissing")
-          : friendlyPrinterError(errMsg(error), locale), type: "error" });
-      }
-    } finally {
-      setBusyBoth(false);
-    }
-  }, [savedGatewayUrl, discoveredVirtualPrinters, printers, refreshPrinters, setBusyBoth, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
@@ -1126,9 +1046,6 @@ export default function App() {
     pair,
     printers: physicalPrinters,
     discoveredPrinters,
-    discoveredVirtualPrinters,
-    pendingVirtualGatewayPrinters: printers.filter(isPendingVirtualSpoolerTestPrinter),
-    virtualCapturePrinters: printers.filter(isVirtualCaptureTestRecord),
     discoveryWarning,
     printersLoading,
     printersError,
@@ -1143,7 +1060,6 @@ export default function App() {
     nowMs,
     refreshPrinters,
     handleDiscover,
-    enableVirtualPrinterTest: requestVirtualPrinterTest,
     handleTest,
     showAdd,
     setShowAdd,
@@ -1382,34 +1298,6 @@ export default function App() {
         }
       >
         <p className="text-sm leading-relaxed text-ink-2">{t("diagnostic.repeatConfirm")}</p>
-      </Modal>
-
-      <Modal
-        open={virtualConfirmCandidate !== null}
-        onClose={() => setVirtualConfirmCandidate(null)}
-        title={t("desktop.printers.virtualEnable")}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setVirtualConfirmCandidate(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => {
-                const selected = virtualConfirmCandidate;
-                setVirtualConfirmCandidate(null);
-                if (selected) void enableVirtualPrinterTest(selected);
-              }}
-            >
-              {t("common.confirm")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm leading-relaxed text-ink-2">
-          {t("desktop.printers.virtualConfirm", { printer: virtualConfirmCandidate?.name ?? "" })}
-        </p>
       </Modal>
 
       <Modal

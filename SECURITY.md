@@ -97,6 +97,21 @@ The `audit_events` table records:
 - Agent secrets are hashed at creation, raw value shown once
 - Environment secrets validated on startup (reject placeholders)
 
+### Agent credential at-rest threat model
+
+- Windows: `agent-secrets.dat` is DPAPI-sealed (`LOCAL_MACHINE` scope, so the
+  LocalSystem service and the user-context desktop manager share it) and the
+  file/directory carry restrictive Windows DACLs (`EnsureSecureFileACL`).
+  Residual risk: any local principal that can read the file can DPAPI-decrypt
+  it under machine scope. Mitigation is host access control; a local
+  administrator is already outside the threat boundary.
+- POSIX (Linux/arm64): no sealed storage exists; the file is base64-framed
+  with `0600` permissions only. `SaveSecret` logs an explicit warning.
+  Deployments must use full-disk encryption and restrict host access.
+- Egress: the Gateway control-plane HTTP/WebSocket clients never inherit
+  `HTTP(S)_PROXY` unless `YASEIR_AGENT_ALLOW_PROXY=1` is set, so Bearer
+  credentials and print payloads are not routed to a proxy by default.
+
 
 ## Pairing and Job Delivery
 

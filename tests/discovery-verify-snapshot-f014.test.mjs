@@ -64,6 +64,12 @@ const discoveryExpiry=new vm.SourceTextModule(transpile('lib/discovery-session-e
 await discoveryExpiry.link(()=>dr);await discoveryExpiry.evaluate();
 dep['/lib/discovery-session-expiry']=mk(discoveryExpiry.namespace);
 db.execute=async(query)=>{state.events.push(render(query));return {rows:[]};};
+// Link the actual pure virtual-printer classifier so the preflight
+// and snapshot-policy tests execute the production reject predicate.
+const virtualGuard = new vm.SourceTextModule(transpile('lib/printer-virtual.ts'),{context:ctx});
+await virtualGuard.link(()=>{throw Error('Virtual printer classifier unexpectedly imported another module')});
+await virtualGuard.evaluate();
+dep['/lib/printer-virtual']=mk(virtualGuard.namespace);
 const handler=await load('app/api/agents/[id]/discovered-printers/[deviceId]/verify/route.ts');
 const request=(fingerprint)=>new Request('http://localhost/api/agents/agent/discovered-printers/dev/verify',{method:'POST',headers:fingerprint?{'If-Match':`"${fingerprint}"`}:{}});
 const call=(fingerprint)=>handler.POST(request(fingerprint),{params:Promise.resolve({id:'agent',deviceId:'dev'})});
@@ -89,4 +95,11 @@ test('snapshot canonicalizes JSONB capabilities object key ordering and changes 
  reset();const hash=fp(state.row);state.row.capabilities={print:{color:true}};assert.equal(fp(state.row),hash);
  state.row.capabilities={z:1,a:{y:2,x:1}};const changed=fp(state.row);state.row.capabilities={a:{x:1,y:2},z:1};assert.equal(fp(state.row),changed);
  state.row.deviceName='Renamed spooler fallback';assert.notEqual(fp(state.row),changed);
+});
+
+test('software-writer discovery cannot be approved as physical hardware',async()=>{
+ reset();state.row.deviceName='Microsoft Print to PDF';state.row.spoolerName='Microsoft Print to PDF';
+ const result=await call(fp(state.row));
+ assert.notEqual(result.status,200);
+ assert.equal(state.writes,0);
 });

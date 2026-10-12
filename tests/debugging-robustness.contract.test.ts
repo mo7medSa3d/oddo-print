@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -78,20 +78,27 @@ describe("agent message drop is observable", () => {
     // Before this fix `handleAgentMessage` returned from a bare `catch {}`, so a
     // malformed frame (e.g. a lost job_ack) left no trace anywhere. The parse
     // failure cannot be recovered from, so the behaviour is still "drop and
-    // return" — but it must now be visible in a debug session.
-    const { handleAgentMessage } = await import("../src/server/ws");
-    const original = console.debug;
-    const calls: unknown[][] = [];
-    console.debug = (...args: unknown[]) => { calls.push(args); };
+    // return" — but it must now be visible in a debug session. LOG_LEVEL is
+    // info by default outside development, so the test promotes itself to a
+    // debug session explicitly; operators do the same to diagnose drops.
+    vi.stubEnv("LOG_LEVEL", "debug");
     try {
-      await handleAgentMessage("agent_dbg", "tenant_dbg", "{not-json");
+      const { handleAgentMessage } = await import("../src/server/ws");
+      const original = console.debug;
+      const calls: unknown[][] = [];
+      console.debug = (...args: unknown[]) => { calls.push(args); };
+      try {
+        await handleAgentMessage("agent_dbg", "tenant_dbg", "{not-json");
+      } finally {
+        console.debug = original;
+      }
+      const joined = JSON.stringify(calls);
+      expect(joined).toContain("discarded unparseable agent message");
+      expect(joined).toContain("agent_dbg");
+      expect(joined).toContain("tenant_dbg");
     } finally {
-      console.debug = original;
+      vi.unstubAllEnvs();
     }
-    const joined = JSON.stringify(calls);
-    expect(joined).toContain("discarded unparseable agent message");
-    expect(joined).toContain("agent_dbg");
-    expect(joined).toContain("tenant_dbg");
   });
 
   it("still ignores a well-formed non-job_ack frame without logging an error", async () => {

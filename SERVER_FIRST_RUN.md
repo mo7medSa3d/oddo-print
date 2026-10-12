@@ -183,7 +183,11 @@ Start the stack:
 
 ```bash
 cd /opt/yaseir
-sudo docker compose up -d --build
+# Pass the same NONSECRET immutable release ID to both Next build and runtime.
+# This protects stale browser tabs from incompatible Server Action builds.
+# For git-based installs:
+RELEASE_ID="$(git rev-parse --verify HEAD)"
+sudo env YASEIR_DEPLOYMENT_ID="$RELEASE_ID" docker compose up -d --build
 sudo docker compose ps
 ```
 

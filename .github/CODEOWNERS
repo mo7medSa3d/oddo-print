@@ -1,0 +1,22 @@
+# Code owners for security-critical paths. Reviewers are requested
+# automatically; branch protection (if enabled) should require their review.
+
+# Authentication, tenant isolation, billing, real-time delivery, migrations
+/src/lib/*auth* @mo7medSa3d
+/src/lib/*session* @mo7medSa3d
+/src/lib/tenant* @mo7medSa3d
+/src/lib/entitlement* @mo7medSa3d
+/src/lib/stripe* @mo7medSa3d
+/src/app/api/billing/* @mo7medSa3d
+/src/app/api/auth/* @mo7medSa3d
+/src/app/api/platform/* @mo7medSa3d
+/src/server/* @mo7medSa3d
+/src/app/api/agent/* @mo7medSa3d
+/drizzle/* @mo7medSa3d
+/src/db/* @mo7medSa3d
+/agent/internal/agent/* @mo7medSa3d
+/odoo_addons/print_gateway/models/crypto.py @mo7medSa3d
+/odoo_addons/print_gateway/models/gateway_config.py @mo7medSa3d
+Dockerfile @mo7medSa3d
+Caddyfile @mo7medSa3d
+docker-compose.yml @mo7medSa3d

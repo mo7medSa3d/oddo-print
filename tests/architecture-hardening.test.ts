@@ -120,6 +120,16 @@ describe("architecture hardening", () => {
     expect(proxy).not.toMatch(/script-src[^;]*unsafe-inline/);
     const csp = readFileSync("src/server/content-security-policy.ts", "utf8");
     expect(csp).toContain("connect-src 'self';");
+    expect(csp).toContain("upgrade-insecure-requests;");
+  });
+
+  it("serves production only through the CSP-owning custom server (C-1)", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> };
+    // `next start` bypasses server.ts and serves pages with no
+    // Content-Security-Policy; production must use `npm start`.
+    expect(pkg.scripts["start"]).toContain("server.ts");
+    expect(pkg.scripts["start:next"]).toBeUndefined();
+    expect(readFileSync("Dockerfile", "utf8")).toContain('CMD ["npm", "start"]');
   });
 
   it("uses a request-scoped CSP nonce for the only application inline script", () => {

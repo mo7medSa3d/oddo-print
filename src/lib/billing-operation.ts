@@ -45,6 +45,7 @@ export type BillingOperation = {
 type BillingOperationState =
   | { kind: "proceed"; operationId: string; idempotencyKey: string; subscriptionId: string; subscriptionStatus: string }
   | { kind: "in_progress" }
+  | { kind: "rejected"; message: string }
   | { kind: "missing" };
 
 export function stripeBillingMutation(operation: BillingOperation, subscriptionStatus: string, subscriptionId: string) {
@@ -95,6 +96,22 @@ export async function runBillingOperation(
     } | undefined;
 
     if (!row?.stripeSubscriptionId) return { kind: "missing" as const };
+
+    // Status matrix: terminal or paused states never reach Stripe. A
+    // cancel on paused would take the generic subscription-update mutation
+    // (which Stripe rejects for paused subscriptions); a cancel/resume on a
+    // terminal subscription is a no-op with a confusing provider error.
+    // Fail fast with an actionable message instead of wasting Stripe calls.
+    const status = row.status ?? "unknown";
+    if (operation.type === "cancel" && (status === "cancelled" || status === "incomplete_expired")) {
+      return { kind: "rejected" as const, message: "This subscription has already ended; there is nothing to cancel." };
+    }
+    if (operation.type === "cancel" && status === "paused") {
+      return { kind: "rejected" as const, message: "The Stripe subscription is paused. Resume it first, or manage paused subscriptions in the Customer Portal." };
+    }
+    if (operation.type === "resume" && (status === "cancelled" || status === "incomplete_expired")) {
+      return { kind: "rejected" as const, message: "This subscription has already ended; start a new checkout instead." };
+    }
 
     // A completed webhook can replace the subscription identity while an
     // older process is still finalizing. A pending operation targeting a
@@ -159,6 +176,9 @@ export async function runBillingOperation(
 
   if (state.kind === "missing") {
     return NextResponse.json({ error: operation.missingSubscriptionError }, { status: 409 });
+  }
+  if (state.kind === "rejected") {
+    return NextResponse.json({ error: state.message }, { status: 409 });
   }
   if (state.kind === "in_progress") {
     return NextResponse.json({ error: "Another billing operation is already in progress for this workspace." }, { status: 409 });
@@ -252,10 +272,13 @@ export async function runBillingOperation(
         return { kind: "stale_identity" as const };
       }
 
+      // Local-only flip: cancelAtPeriodEnd is Gateway bookkeeping, not Stripe
+      // resource state, so it must not invalidate in-flight webhook snapshots
+      // by bumping stripeStateRevision (that caused retry churn and 503s when
+      // a cancel/resume raced webhook delivery).
       await tx.update(tenantSubscriptions)
         .set({
           cancelAtPeriodEnd: operation.cancelAtPeriodEnd,
-          stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
           billingOperationId: null,
           billingOperationType: null,
           billingOperationIdempotencyKey: null,

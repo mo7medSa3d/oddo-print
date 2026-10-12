@@ -11,6 +11,18 @@ function sanitizeMetricName(name: string): string {
   return name;
 }
 
+export function formatCounterLine(name: unknown, value: unknown): string | null {
+  if (typeof name !== "string") return null;
+  try {
+    sanitizeMetricName(name);
+  } catch {
+    return null;
+  }
+  const numeric = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  if (typeof numeric !== "number" || !Number.isFinite(numeric)) return null;
+  return `${name} ${numeric}`;
+}
+
 export async function incrementMetric(name: string, value = 1): Promise<void> {
   const safeName = sanitizeMetricName(name);
   if (!Number.isInteger(value) || value <= 0) return;
@@ -134,7 +146,16 @@ export async function renderPrometheusMetrics(): Promise<string> {
       "SELECT name, value::text FROM gateway_metrics ORDER BY name",
     );
     if (result.rows.length > 0) {
-      counterOutput = result.rows.map((row) => `# TYPE ${row.name} counter\n${row.name} ${row.value}`).join("\n");
+      const lines: string[] = [];
+      for (const row of result.rows) {
+        const line = formatCounterLine(row.name, row.value);
+        if (line === null) {
+          logWarn("metrics.counter_row_skipped", { name: typeof row.name === "string" ? row.name.slice(0, 128) : typeof row.name });
+          continue;
+        }
+        lines.push(`# TYPE ${row.name} counter\n${line}`);
+      }
+      counterOutput = lines.join("\n");
     }
   } catch (error) {
     logWarn("metrics.counters_unavailable", { error });

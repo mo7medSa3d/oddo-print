@@ -8,6 +8,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 FROM ${NODE_BASE_IMAGE} AS build
+ARG YASEIR_DEPLOYMENT_ID=""
+ENV YASEIR_DEPLOYMENT_ID=${YASEIR_DEPLOYMENT_ID}
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -21,6 +23,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 FROM ${NODE_BASE_IMAGE} AS runtime
+ARG YASEIR_DEPLOYMENT_ID=""
+ENV YASEIR_DEPLOYMENT_ID=${YASEIR_DEPLOYMENT_ID}
 WORKDIR /app
 ENV NODE_ENV=production
 ENV TZ=UTC

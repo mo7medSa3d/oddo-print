@@ -52,5 +52,14 @@ describe("Drizzle Migration Journal & File Integrity", () => {
 
     expect(schemaTables.size).toBeGreaterThan(0);
     expect(snapshotTables).toEqual(schemaTables);
+    // Version 0081 tightens the actual printers CHECK to physical-only. A
+    // snapshot that still advertises virtual printers will cause drizzle-kit
+    // to emit misleading follow-up migrations.
+    const printersSnapshot = snapshot.tables?.["public.printers"] as
+      | { checkConstraints?: { printers_type_check?: { value?: string } } }
+      | undefined;
+    const typeCheck = printersSnapshot?.checkConstraints?.printers_type_check?.value ?? "";
+    expect(typeCheck).toContain(`"printers"."printer_type" = 'physical'`);
+    expect(typeCheck).not.toContain("in ('physical','virtual','redirected')");
   });
 });

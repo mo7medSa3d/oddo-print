@@ -8,6 +8,7 @@ import { generateSecret, hashPairingCode, hashSecret, isValidPairingCode } from 
 import {
   clientIpFrom,
   reservePairingAttempt,
+  reservePairingCodeAttempt,
 } from "../../../../lib/auth-rate-limit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { z } from "zod";
@@ -83,6 +84,17 @@ export async function POST(req: Request) {
         response.headers.set("Retry-After", String(decision.retryAfterSec));
         return response;
       }
+      // Per-code fence: distributed guesses for THIS code share a bucket, so
+      // a botnet cannot scale past the IP budget. The 400/409 outcome oracle
+      // below is retained for operator diagnosis (both cases need a fresh
+      // code); brute force is what is fenced here, not enumeration.
+      const codeDecision = await reservePairingCodeAttempt(hashedCode);
+      if (!codeDecision.allowed) {
+        const response = NextResponse.json({ error: "Too many pairing attempts. Try again later." }, { status: 429 });
+        response.headers.set("Retry-After", String(codeDecision.retryAfterSec));
+        return response;
+      }
+      if (codeDecision.retryAfterSec) decision = { ...decision, retryAfterSec: codeDecision.retryAfterSec };
     } catch {
       return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
     }

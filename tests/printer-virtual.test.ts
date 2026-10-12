@@ -121,3 +121,19 @@ describe("desktop manager safety net", () => {
     expect(isVirtualPrinterRecord(printer)).toBe(true);
   });
 });
+
+
+describe("physical-only printer admission", () => {
+  it("rejects obsolete capture and software-test flags even if a row spoofs a physical type", () => {
+    for (const data of [
+      { config: { virtual_spooler_test: true } },
+      { config: { virtual_test_sink: true } },
+      { capabilities: { virtual_spooler_test: true } },
+      { capabilities: { virtual_test_sink: true } },
+      { capabilities: { virtual: true } },
+      { capabilities: { printer_class: "virtual" } },
+    ]) {
+      expect(isVirtualPrinterRecord({ printerType: "physical", name: "Ordinary printer", ...data })).toBe(true);
+    }
+  });
+});

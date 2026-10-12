@@ -7,7 +7,7 @@ import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObserv
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { receiptRasterWidthDots } from "../../../../lib/receipt-width";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
-import { isVirtualPrinterRecord, isApprovedVirtualSpoolerTestRecord } from "../../../../lib/printer-virtual";
+import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "../../../../lib/printer-capability";
 
 export const dynamic = "force-dynamic";
@@ -85,8 +85,7 @@ export async function GET(req: Request) {
     .where(and(...conditions))
     .orderBy(printers.name);
   return NextResponse.json({
-    printers: rows.filter((row) => !isVirtualPrinterRecord(row) ||
-      (row.managementSource === "manager" && isApprovedVirtualSpoolerTestRecord(row))).map((row) => ({
+    printers: rows.filter((row) => !isVirtualPrinterRecord(row)).map((row) => ({
       id: row.id,
       name: row.name,
       reportedStatus: row.status,

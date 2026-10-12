@@ -60,7 +60,9 @@ describe("auth rate limiter (pure)", () => {
     delete process.env.TRUST_PROXY;
     expect(clientIpFrom(req)).toBe("unknown");
     process.env.TRUST_PROXY = "1";
-    expect(clientIpFrom(req)).toBe("203.0.113.9");
+    // Last valid entry wins: the edge overwrites X-Forwarded-For with the
+    // real client address, so attacker-controlled leftmost values are ignored.
+    expect(clientIpFrom(req)).toBe("10.0.0.1");
     if (prev === undefined) delete process.env.TRUST_PROXY;
     else process.env.TRUST_PROXY = prev;
   });

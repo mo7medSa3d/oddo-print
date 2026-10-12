@@ -28,6 +28,35 @@ env:
   COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
 
 jobs:
+  docker-image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - 'node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1'
+          - 'postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+          - 'caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e'
+    steps:
+      - name: Scan pinned base image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: 'sarif'
+          output: 'trivy.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload Trivy findings
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: 'trivy.sarif'
+          category: 'trivy-${{ strategy.job-index }}'
+
   docker-build-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -77,7 +106,29 @@ jobs:
           docker compose up -d postgres
           docker compose up migrate
           docker compose up -d gateway
-          docker compose up -d caddy
+          # The CI-only ECR Public mirror can return 429/toomanyrequests
+          # despite an otherwise healthy application. Fall back solely for
+          # registry throttling, preserving the exact reviewed image digest.
+          caddy_log="$(mktemp)"
+          if docker compose up -d caddy > "$caddy_log" 2>&1; then
+            cat "$caddy_log"
+          else
+            cat "$caddy_log" >&2
+            if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$caddy_log"; then
+              exit 1
+            fi
+            echo "ECR Public Caddy registry rate-limited; trying the same pinned digest from Docker Hub" >&2
+            fallback_file="$RUNNER_TEMP/yaseir-ci-caddy-dockerhub.yml"
+            cat > "$fallback_file" <<'YAML'
+          services:
+            caddy:
+              image: caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e
+          YAML
+            fallback_compose="${COMPOSE_FILE}:${fallback_file}"
+            COMPOSE_FILE="$fallback_compose" docker compose config --quiet
+            COMPOSE_FILE="$fallback_compose" docker compose up -d caddy
+            printf 'COMPOSE_FILE=%s\n' "$fallback_compose" >> "$GITHUB_ENV"
+          fi
 
       - name: Verify migration and gateway health
         shell: bash
@@ -250,6 +301,37 @@ jobs:
 
           echo "CADDY_HTTP_RESPONSE:"
           curl --silent --show-error --head --max-time 10             -H 'Host: print.example.com'             http://127.0.0.1/api/live
+
+      - name: Verify backup and restore round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exercise scripts/postgres-backup.sh semantics inside the postgres
+          # container (custom-format dump + SHA-256 sidecar), restore into a
+          # scratch database, and prove row-level equivalence before dropping
+          # the scratch copy. A backup that has never been restored is not
+          # considered verified (see DEPLOYMENT.md).
+          docker compose exec -T postgres sh -c 'set -eu
+            export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+            pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /tmp/verify.dump
+            sha256sum /tmp/verify.dump | tee /tmp/verify.dump.sha256
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM tenants" > /tmp/verify.source_count
+          '
+          docker compose exec -T postgres sh -c 'set -eu
+            export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE DATABASE restore_verify"
+            pg_restore -U "$POSTGRES_USER" -d restore_verify --single-transaction /tmp/verify.dump
+            psql -U "$POSTGRES_USER" -d restore_verify -tAc "SELECT count(*) FROM tenants" > /tmp/verify.restored_count
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DROP DATABASE restore_verify"
+          '
+          source_count="$(docker compose exec -T postgres cat /tmp/verify.source_count | tr -d '[:space:]')"
+          restored_count="$(docker compose exec -T postgres cat /tmp/verify.restored_count | tr -d '[:space:]')"
+          echo "BACKUP_TENANT_ROWS source=$source_count restored=$restored_count"
+          if [ "$source_count" != "$restored_count" ]; then
+            echo "Restored row count differs from source" >&2
+            exit 1
+          fi
+          docker compose exec -T postgres rm -f /tmp/verify.dump /tmp/verify.dump.sha256 /tmp/verify.source_count /tmp/verify.restored_count
 
       - name: Show logs on failure
         if: failure()

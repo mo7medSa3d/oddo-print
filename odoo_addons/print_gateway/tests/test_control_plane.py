@@ -117,6 +117,8 @@ class TestControlPlane(TransactionCase):
 
     def _fake_persist_job(self, values):
         durable_values = dict(values)
+        # Production persistence removes routing-only binding after validating it.
+        durable_values.pop("binding", None)
         for key, model_name in (
             ("company", "res.company"),
             ("gateway_config", "print_gateway.gateway_config"),
@@ -1436,6 +1438,8 @@ class TestControlPlane(TransactionCase):
 
         def _operator_persist_job(values):
             durable_values = dict(values)
+            # Routing evidence is not accepted by create_operation.
+            durable_values.pop("binding", None)
             for key, model_name in (
                 ("company", "res.company"),
                 ("gateway_config", "print_gateway.gateway_config"),
@@ -1530,12 +1534,9 @@ class TestControlPlane(TransactionCase):
             "idempotency_key": idempotency_key,
         })
 
-    def test_26e_gateway_503_printer_offline_is_terminal_with_actionable_message(self):
-        """A deterministic Gateway printer-state rejection must terminalize
-        immediately with an actionable ValidationError — never a bare
-        RuntimeError (which the POS frontend can only render as a generic
-        "Odoo Server Error") and never burned backoff retries against a
-        printer the Gateway already proved unusable."""
+    def test_26e_gateway_503_printer_offline_requeues_then_terminalizes_at_retry_cap(self):
+        """Transient pre-admission offline refusals retry safely with a bounded
+        five-attempt budget and an actionable validation message."""
         job = self._submit_test_job("test_503_offline_%s" % uuid.uuid4().hex[:8])
         mock_resp = MagicMock()
         mock_resp.status_code = 503
@@ -1546,6 +1547,7 @@ class TestControlPlane(TransactionCase):
                 job._action_submit_trusted(raise_on_failure=True)
         self.assertIn("offline", str(ctx.exception).lower())
         self.assertIn(job.printer_id, str(ctx.exception))
+        self.assertIn("re-queued", str(ctx.exception))
         self.assertNotIsInstance(ctx.exception, RuntimeError)
 
         # The interactive raise path is asserted above. Verify durable state
@@ -1556,14 +1558,27 @@ class TestControlPlane(TransactionCase):
              patch("requests.post", return_value=mock_resp):
             persisted._action_submit_trusted(raise_on_failure=False)
         persisted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
-        self.assertEqual(persisted.status, "failed")
+        self.assertEqual(persisted.status, "queued")
         self.assertIn("offline", (persisted.last_error or "").lower())
         self.assertFalse(persisted.gateway_job_id)
-        self.assertFalse(persisted.next_retry_at)
+        self.assertTrue(persisted.next_retry_at)
+        self.assertEqual(persisted.attempts, 1)
+
+        exhausted = self._submit_test_job("test_503_offline_cap_%s" % uuid.uuid4().hex[:8])
+        exhausted.write({"attempts": 4})
+        with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
+             patch("requests.post", return_value=mock_resp):
+            exhausted._action_submit_trusted(raise_on_failure=False)
+        exhausted.invalidate_recordset(["status", "last_error", "next_retry_at", "gateway_job_id", "attempts"])
+        self.assertEqual(exhausted.status, "failed")
+        self.assertEqual(exhausted.attempts, 5)
+        self.assertIn("PRINTER_OFFLINE", exhausted.last_error)
+        self.assertFalse(exhausted.next_retry_at)
+        self.assertFalse(exhausted.gateway_job_id)
 
     def test_26e2_gateway_503_offline_marker_survives_background_submit(self):
         """Without raise_on_failure (cron/background), the same rejection
-        terminalizes with the machine-readable marker intact for forensics."""
+        requeues with the machine-readable marker intact for forensics."""
         job = self._submit_test_job("test_503_bg_%s" % uuid.uuid4().hex[:8])
         mock_resp = MagicMock()
         mock_resp.status_code = 503
@@ -1571,8 +1586,10 @@ class TestControlPlane(TransactionCase):
         with patch.object(type(self.gateway_config), "_validate_gateway_host", return_value=None), \
              patch("requests.post", return_value=mock_resp):
             job._action_submit_trusted(raise_on_failure=False)
-        self.assertEqual(job.status, "failed")
+        self.assertEqual(job.status, "queued")
         self.assertIn("GATEWAY_REJECTED_503", job.last_error)
+        self.assertIn("PRINTER_OFFLINE", job.last_error)
+        self.assertTrue(job.next_retry_at)
         self.assertEqual(job.attempts, 1)
         self.assertFalse(job.gateway_job_id)
 

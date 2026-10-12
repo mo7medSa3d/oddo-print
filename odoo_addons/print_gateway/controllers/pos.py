@@ -32,14 +32,10 @@ class PrintGatewayPosController(PosController):
             context_values={'date_start': date_start, 'date_stop': date_stop},
         )
         if result.get('native'):
-            return request.make_response(
-                json.dumps({
-                    'error': 'gateway_binding_missing',
-                    'message': request.env._('Gateway printing is enabled, but no Sale Details binding is configured for this POS.'),
-                }),
-                headers=[('Content-Type', 'application/json'), ('Cache-Control', 'no-store')],
-                status=422,
-            )
+            # No Sale Details binding: preserve Odoo's native PDF download
+            # exactly like the disabled path above. An enabled gateway without
+            # a binding must not turn a working document into a hard error.
+            return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
         response = request.make_response(
             json.dumps(result, default=str),
             headers=[

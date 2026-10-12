@@ -19,6 +19,7 @@ export default defineConfig({
   test: {
     clearMocks: false,
     include: ["tests/**/*.test.ts"],
+    reporters: ["default", resolve(rootDir, "tests/reporters/skip-summary.ts")],
     testTimeout: 30000,
     hookTimeout: 30000,
   },

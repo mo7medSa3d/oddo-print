@@ -16,11 +16,13 @@ import { parseDbTimeMs } from "./database-clock";
  *   ip:<client-ip>              — per source address when a trusted proxy is configured
  *   acct:<username>             — per login identifier (lowercased, trimmed)
  *   pairing-ip:<client-ip>      — dedicated pairing endpoint budget, independent of code value
+ *   pairing-code:<sha256>       — per-code velocity fence: distributed guessing
+ *                                 of one code shares a bucket and locks fast
  *
  * When TRUST_PROXY is not explicitly enabled, the framework Request does not
- * expose a trustworthy TCP peer address. We therefore use account-scoped
- * limiting for manager login; pairing falls back to one shared bucket until a
- * trusted proxy is configured, preventing code rotation from bypassing limits.
+ * expose a trustworthy TCP peer address. IP-scoped buckets are skipped for
+ * unknown addresses (no shared global lockout); pairing relies on the
+ * per-code fence instead, so code rotation cannot bypass limits either.
  */
 
 export const AUTH_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -79,12 +81,16 @@ export function clientIpFrom(req: Request): string {
     return "unknown";
   }
 
+  // The edge proxy overwrites X-Forwarded-For with the actual client
+  // address (see Caddyfile), but a chained or misconfigured path may still
+  // carry a list. Take the LAST valid entry (closest to the trusted proxy):
+  // attacker-controlled leftmost values must never select the bucket.
   const candidates = [
     ...(req.headers.get("x-forwarded-for")?.split(",") ?? []),
     req.headers.get("x-real-ip") ?? "",
   ];
-  for (const candidate of candidates) {
-    const ip = candidate.trim();
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const ip = candidates[i]!.trim();
     if (ip && isIP(ip) !== 0) return ip.slice(0, 128);
   }
   return "unknown";
@@ -256,7 +262,28 @@ async function reserveBucketAttempt(
 }
 
 export async function reservePairingAttempt(ip: string): Promise<RateLimitDecision> {
+  // Unknown source addresses must not share one global lockout bucket (one
+  // host's failures would block every other host). The per-code fence in the
+  // register route remains the backstop for unattributed clients.
+  if (isIP(ip) === 0) {
+    return {
+      allowed: true,
+      limit: 0,
+      remaining: 0,
+      resetAtEpochSec: Math.ceil(Date.now() / 1000) + Math.ceil(PAIRING_RATE_WINDOW_MS / 1000),
+    };
+  }
   return reserveBucketAttempt(pairingIpKey(ip), PAIRING_RATE_WINDOW_MS, "account");
+}
+
+// Per-code velocity fence (S-2): all guesses for one pairing code share a
+// bucket regardless of source IP, so a distributed brute force of a single
+// victim code locks after the account-style curve instead of scaling with
+// botnet size. The hash (not the code) is stored; rows age out via the 24h
+// cleanup like every other limiter row.
+export async function reservePairingCodeAttempt(codeHash: string): Promise<RateLimitDecision> {
+  if (!/^[0-9a-f]{64}$/.test(codeHash)) throw new Error("pairing code hash must be hex sha256");
+  return reserveBucketAttempt(`pairing-code:${codeHash}`, PAIRING_RATE_WINDOW_MS, "account");
 }
 
 export async function reserveAuthAttempt(ip: string, username: string): Promise<RateLimitDecision> {

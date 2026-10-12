@@ -24,7 +24,7 @@ func (p *statusDetailPrinter) StatusDetail() string { return "paused" }
 // The enums below are copied from src/lib/printer-model.ts; if the Gateway's
 // vocabulary changes, this test must change with it.
 func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
-	gatewayPrinterTypes := map[string]bool{"physical": true, "virtual": true, "redirected": true}
+	gatewayPrinterTypes := map[string]bool{"physical": true}
 	gatewayDeviceClasses := map[string]bool{
 		"thermal": true, "laser": true, "inkjet": true, "label": true, "other": true, "unknown": true,
 	}
@@ -62,8 +62,8 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 	}
 
 	payload := ag.printerStatusPayload()
-	if len(payload) != len(declared) {
-		t.Fatalf("expected %d entries, got %d", len(declared), len(payload))
+	if len(payload) != len(declared)-3 {
+		t.Fatalf("expected %d physical entries, got %d", len(declared)-3, len(payload))
 	}
 
 	byID := make(map[string]map[string]interface{}, len(payload))
@@ -74,6 +74,12 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 
 	for i, pt := range declared {
 		entry := byID[ids[i]]
+		if i == 1 || i == 2 || i == 11 {
+			if entry != nil {
+				t.Errorf("virtual/redirected %q leaked into heartbeat", pt)
+			}
+			continue
+		}
 		if entry == nil {
 			t.Fatalf("printer_type=%q: entry %q missing from payload", pt, ids[i])
 		}
@@ -97,22 +103,6 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 	// reporting it (behaviour preserved).
 	if entry := byID[ids[3]]; entry["deviceClass"] != "thermal" || entry["printerType"] != "physical" {
 		t.Errorf("printer_type=thermal => printerType=%v deviceClass=%v, want physical/thermal", entry["printerType"], entry["deviceClass"])
-	}
-	// A virtual queue keeps its virtual printer type and reports an accepted
-	// device class.
-	if entry := byID[ids[1]]; entry["printerType"] != "virtual" || entry["deviceClass"] != "unknown" {
-		t.Errorf("printer_type=virtual => printerType=%v deviceClass=%v, want virtual/unknown", entry["printerType"], entry["deviceClass"])
-	}
-	// Mixed case is normalized instead of being dropped (the old code compared
-	// the raw value, so "Virtual" was reported as a physical printer with the
-	// device class "Virtual" and was rejected outright).
-	if entry := byID[ids[11]]; entry["printerType"] != "virtual" || entry["deviceClass"] != "unknown" {
-		t.Errorf("printer_type=Virtual => printerType=%v deviceClass=%v, want virtual/unknown", entry["printerType"], entry["deviceClass"])
-	}
-	// redirected is a printer class, not a device class: preserve it as
-	// redirected instead of silently converting it into a physical printer.
-	if entry := byID[ids[2]]; entry["printerType"] != "redirected" || entry["deviceClass"] != "unknown" {
-		t.Errorf("printer_type=redirected => printerType=%v deviceClass=%v, want redirected/unknown", entry["printerType"], entry["deviceClass"])
 	}
 }
 

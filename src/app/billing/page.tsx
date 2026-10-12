@@ -36,6 +36,13 @@ type SubscriptionRow = typeof tenantSubscriptions.$inferSelect;
 
 function entitlementLabel(value: string, t: Translator) {
   if (value === "max_prints_per_period") return t("billing.printJobsPerPeriod");
+  // Every PLAN_ENTITLEMENT_KEYS member has an explicit catalog entry (pinned
+  // by tests/entitlement-labels.test.ts). Unknown future keys keep the
+  // prettified-English fallback so the UI never renders a raw snake_case key.
+  if (value === "max_agents") return t("billing.entitlement.max_agents");
+  if (value === "max_printers") return t("billing.entitlement.max_printers");
+  if (value === "max_jobs_per_minute") return t("billing.entitlement.max_jobs_per_minute");
+  if (value === "max_concurrent_jobs") return t("billing.entitlement.max_concurrent_jobs");
   return value.replace(/^max_/, "").replace(/_/g, " ");
 }
 

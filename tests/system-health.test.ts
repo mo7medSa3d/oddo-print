@@ -6,8 +6,8 @@ describe("system-health", () => {
   it("derives schema version from the latest Drizzle migration", async () => {
     const journal = await import("../drizzle/meta/_journal.json");
     expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
-    // The inventory replay fence advances the runtime schema through 0080.
-    expect(CURRENT_SCHEMA_VERSION).toBe(80);
+    // The forward-only physical-printer admission fence is migration 0081.
+    expect(CURRENT_SCHEMA_VERSION).toBe(81);
   });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();

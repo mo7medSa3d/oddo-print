@@ -1,4 +1,5 @@
 import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
+import { logError } from "../../../../lib/log";
 import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -7,8 +8,8 @@ import { tenantSubscriptions } from "../../../../db/schema";
 import { eq } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
-import { runtimeSecret } from "../../../../lib/runtime-secret";
 import { stripeRequest } from "../../../../lib/stripe";
+import { appBaseUrl } from "../../../../lib/email";
 
 export async function POST(req: Request) {
   const claims = await validateWorkspaceManager(req);
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No Stripe subscription is linked to this workspace yet" }, { status: 409 });
     }
 
-    const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
+    const base = appBaseUrl(req);
     // Portal sessions are short-lived (minutes). A static idempotency key would
     // cause Stripe to replay the same (now-expired) URL for 24h. Use a unique
     // key per request so each click mints a fresh portal session; retries with
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     const message = error instanceof Error ? error.message : "unknown";
-    console.error("billing portal failed", message);
+    logError("billing.portal_failed", { error: message.slice(0, 200) });
     if (message === "Stripe is not configured") {
       return NextResponse.json(
         { error: "Stripe billing is not configured on this Gateway yet.", code: "STRIPE_NOT_CONFIGURED" },

@@ -63,6 +63,14 @@ const imports = {
   } }),
   '../../../../lib/discovery-session-expiry': moduleOf({ expireStaleAgentDiscovery: async () => {} }),
 };
+// Execute the real production classifier, not a permissive stub: the
+// discovery module now rejects software writers before any database write.
+const virtualGuard = new vm.SourceTextModule(ts.transpileModule(readFileSync('src/lib/printer-virtual.ts','utf8'), {
+  fileName: 'src/lib/printer-virtual.ts', compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText, { context });
+await virtualGuard.link(() => { throw new Error('Unexpected virtual classifier dependency'); });
+await virtualGuard.evaluate();
+imports['../../../../lib/printer-virtual'] = virtualGuard;
 const route = new vm.SourceTextModule(transpiled, { context });
 await route.link((id) => {
   if (!(id in imports)) throw new Error('Unknown dependency: ' + id);

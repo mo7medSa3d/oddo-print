@@ -12,6 +12,7 @@ function buildContentSecurityPolicy(nonce: string, isDevelopment: boolean): stri
     object-src 'none';
     frame-ancestors 'none';
     form-action 'self';
+    upgrade-insecure-requests;
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""};
     style-src 'self' 'nonce-${nonce}'${isDevelopment ? " 'unsafe-inline'" : ""};
     style-src-attr 'unsafe-inline';

@@ -74,8 +74,12 @@ test('Odoo CI has two registry origins pinned to the identical reviewed image di
   assert.deepEqual(refs, [ecr, hub], 'no floating tag or unexpected registry fallback');
   assert.equal(ci.split(ecr).length - 1, 1);
   assert.equal(ci.split(hub).length - 1, 1);
-  assert.match(ci, /if docker pull "\$candidate"; then/);
+  assert.match(ci, /if docker pull "\$candidate" > "\$pull_log" 2>&1; then/);
   assert.match(ci, /odoo_image="\$candidate"/);
+  // Keep staging's two registry options, with main's 429-only switch gate.
+  assert.match(ci, /if ! grep -Eqi '[^']*toomanyrequests[^']*rate exceeded[^']*429[^']*'/);
+  assert.ok(ci.includes('if [[ "$candidate" == public.ecr.aws/* ]] && [ "$attempt" -eq 2 ]; then'));
+  assert.match(ci, /exit 1/);
   assert.match(ci, /if \[ -z "\$odoo_image" \]; then\s*echo[^\n]+\n\s*exit 1/);
   assert.match(ci, /"\$odoo_image" \\/);
   assert.doesNotMatch(ci, /docker pull (?:odoo|docker\.io\/library\/odoo):19\.0(?:\s|$)/m);

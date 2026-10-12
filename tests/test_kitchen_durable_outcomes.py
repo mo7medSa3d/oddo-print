@@ -63,11 +63,19 @@ def fixture(response=None, transport_error=None, unrecorded_error=None, lease_av
         if transport_error: raise transport_error
         return response
     requests.post = post
+    import re as _re
+    _model_source = (ROOT / "print_job.py").read_text()
+    def _const(name):
+        match = _re.search(rf"^{name} = (.+)$", _model_source, _re.MULTILINE)
+        assert match, name
+        return eval(match.group(1), {"__builtins__": {}})
     namespace = {"ValidationError": ValidationError, "_": lambda text: text,
         "requests": requests, "datetime": datetime,
         "db_now_utc": lambda _cr: datetime.datetime(2026, 10, 9),
+        "MAX_BILLING_PARK_ATTEMPTS": _const("MAX_BILLING_PARK_ATTEMPTS"),
+        "BILLING_PARK_RETRY_SECONDS": _const("BILLING_PARK_RETRY_SECONDS"),
         "_logger": logging.getLogger(__name__)}
-    job_methods = methods("print_job.py", ["_action_submit_trusted", "_record_ambiguous_submission", "_is_deterministic_failure", "_persist_state"], namespace)
+    job_methods = methods("print_job.py", ["_action_submit_trusted", "_record_ambiguous_submission", "_is_deterministic_failure", "_persist_state", "_billing_retry_values"], namespace)
     class Job:
         _TERMINAL = {"success", "failed", "unknown", "partial"}
         _GATEWAY_UNKNOWN_MARKERS = ("AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT",
@@ -142,16 +150,34 @@ def reply(status, body):
 
 
 def test_kitchen_definite_gateway_refusal_is_structured_after_real_submit_loop():
+    # A transient printer-offline refusal requeues with backoff instead of
+    # terminally failing: the outage may clear before the next cron tick.
+    # Terminalization happens only after 5 attempts (see the offline attempt
+    # terminalization test below).
     router, job, cursor, sent, order = fixture(reply(503, {"code": "PRINTER_OFFLINE", "error": "offline"}))
     result = router.route_kitchen_print(order, "JPEG_BASE64", idempotency_key="kitchen-operation")
-    assert result["status"] == "failed"
-    assert result["can_retry"] is True
-    assert result["outcome"] == "failed"
-    assert "offline or unavailable" in result["message"]
-    assert job.status == "failed"
-    assert cursor.rollbacks == 1 and cursor.closed
+    assert result["status"] == "queued"
+    assert result["can_retry"] is False
+    assert result["outcome"] == "queued"
+    assert "re-queued for retry" in result["message"]
+    assert job.status == "queued"
+    assert job.attempts == 1
+    assert job.next_retry_at
+    assert cursor.closed
     assert len(sent) == 1
     assert router.persisted_values["idempotency_key"] == "kitchen-operation"
+
+
+def test_kitchen_offline_terminalizes_after_five_attempts():
+    router, job, cursor, sent, order = fixture(reply(503, {"code": "PRINTER_OFFLINE", "error": "offline"}))
+    job.attempts = 4
+    result = router.route_kitchen_print(order, "JPEG_BASE64", idempotency_key="kitchen-operation")
+    assert result["status"] == "failed"
+    assert "offline or unavailable" in result["message"]
+    assert job.status == "failed"
+    assert job.attempts == 5
+    assert cursor.closed
+    assert len(sent) == 1
 
 
 @pytest.mark.parametrize("marker", ["UNKNOWN_PARTIAL_DELIVERY", "AGENT_EXECUTION_TIMEOUT"])
@@ -201,9 +227,10 @@ def test_unrecorded_exception_is_not_converted_into_false_failed_or_accepted_evi
 
 def test_other_producers_keep_the_existing_exception_contract_until_their_batch():
     router, job, cursor, sent, _order = fixture(reply(503, {"code": "PRINTER_OFFLINE", "error": "offline"}))
-    with pytest.raises(ValidationError, match="offline or unavailable"):
+    with pytest.raises(ValidationError, match="temporarily unavailable"):
         router._submit_durable_job(7)
-    assert job.status == "failed"
+    assert job.status == "queued"
+    assert job.attempts == 1
     assert len(sent) == 1 and cursor.closed
 
 

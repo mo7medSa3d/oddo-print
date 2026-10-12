@@ -360,13 +360,26 @@ jobs:
           # are immutable and use the exact same Odoo 19 image-index digest.
           # Never fall back to a floating latest / major-version tag.
           odoo_image=""
+          # Preserve staging's bounded registry retries, but import main's
+          # fail-closed rule: changing registries is permitted ONLY for an
+          # explicit ECR throttle (429/toomanyrequests/rate exceeded).
+          pull_log="$(mktemp)"
+          trap 'rm -f "$pull_log"' EXIT
           for candidate in "public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c" "docker.io/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"; do
             for attempt in 1 2; do
-              if docker pull "$candidate"; then
+              if docker pull "$candidate" > "$pull_log" 2>&1; then
+                cat "$pull_log"
                 odoo_image="$candidate"
                 break 2
               fi
+              cat "$pull_log" >&2
               echo "Pinned Odoo image pull unavailable: $candidate, attempt $attempt/2" >&2
+              if [[ "$candidate" == public.ecr.aws/* ]] && [ "$attempt" -eq 2 ]; then
+                if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$pull_log"; then
+                  echo "ECR returned a non-throttling failure; refusing a registry switch." >&2
+                  exit 1
+                fi
+              fi
               if [ "$attempt" -lt 2 ]; then sleep 5; fi
             done
           done

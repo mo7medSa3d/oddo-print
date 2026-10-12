@@ -6,10 +6,11 @@ import { plans, tenantSubscriptions, tenants } from "../../../../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
-import { runtimeSecret } from "../../../../lib/runtime-secret";
+import { appBaseUrl } from "../../../../lib/email";
 import { isDefinitiveStripeMutationError, stripeList, stripeRequest, stripeRetrieve, stripeSubscriptionPeriod } from "../../../../lib/stripe";
 import { gatewayNowMs, refreshClockSkew, parseDbTimeMs } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
+import { logError } from "../../../../lib/log";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 const CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = new Set(["paused", "unpaid", "incomplete"]);
@@ -150,7 +151,7 @@ export async function POST(req: Request) {
 
   const buildCheckoutRequestParams = (): Record<string, string> => {
     if (!plan.isActive || !plan.isPublic || !plan.stripePriceId) throw new Error("PLAN_NOT_BILLABLE");
-    const base = (runtimeSecret("APP_BASE_URL") ?? new URL(req.url).origin).replace(/\/$/, "");
+    const base = appBaseUrl(req);
     return {
       mode: "subscription",
       client_reference_id: claims.tenantId,
@@ -194,7 +195,27 @@ export async function POST(req: Request) {
       });
 
       if (sub?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(sub.status)) {
-        return { kind: "already_subscribed" as const };
+        // A stale status alone must not block renewal: verify the
+        // subscription is still live (unexpired period, or past_due grace)
+        // and not entitlement-blocked. Expired/blocked rows fall through to
+        // the normal proceed path so a paying tenant is never stranded with
+        // `hasSubscription:false` on status but `already_subscribed` here.
+        const live = await tx.execute(sql`
+          SELECT 1 AS ok
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = ${claims.tenantId}
+            AND ts.stripe_subscription_id = ${sub.stripeSubscriptionId}
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > clock_timestamp()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        `);
+        if (live.rows.length > 0) {
+          return { kind: "already_subscribed" as const };
+        }
       }
       if (sub?.billingOperationId) {
         return { kind: "in_progress" as const };
@@ -432,7 +453,7 @@ export async function POST(req: Request) {
           }
         }
       } catch (error) {
-        console.error("billing checkout reconciliation failed", error instanceof Error ? error.message : "unknown");
+        logError("billing.checkout_reconciliation_failed", { error: (error instanceof Error ? error.message : "unknown").slice(0, 200) });
         state = {
           kind: "recovery_blocked",
           reason: "Stripe subscription state could not be verified right now.",
@@ -778,7 +799,25 @@ export async function POST(req: Request) {
       } | undefined;
 
       if (row?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(row.status ?? "")) {
-        return { kind: "completed" as const };
+        // Same liveness rule as the pre-intent fence above: an expired or
+        // entitlement-blocked row must not masquerade as a live subscription
+        // and strand renewal in "synchronizing".
+        const live = await tx.execute(sql`
+          SELECT 1 AS ok
+          FROM tenant_subscriptions ts
+          WHERE ts.tenant_id = ${claims.tenantId}
+            AND ts.stripe_subscription_id = ${row.stripeSubscriptionId}
+            AND ts.status IN ('trialing', 'active', 'past_due')
+            AND (
+              ts.status = 'past_due'
+              OR ts.current_period_end IS NULL
+              OR ts.current_period_end > clock_timestamp()
+            )
+            AND COALESCE(ts.entitlement_blocked, false) = false
+        `);
+        if (live.rows.length > 0) {
+          return { kind: "completed" as const };
+        }
       }
 
       const result = await tx.update(tenantSubscriptions)
@@ -854,7 +893,7 @@ export async function POST(req: Request) {
             eq(tenantSubscriptions.checkoutStatus, "creating"),
           ));
       });
-      console.error("billing checkout rejected by Stripe", error.status, error.message);
+      logError("billing.checkout_rejected_by_stripe", { status: error.status, error: String(error.message ?? "unknown").slice(0, 200) });
       return NextResponse.json(
         { error: "Stripe rejected this checkout request. Correct the billing configuration and try again.", code: "STRIPE_CHECKOUT_REJECTED" },
         { status: 409 },
@@ -862,7 +901,7 @@ export async function POST(req: Request) {
     }
 
     const message = error instanceof Error ? error.message : "unknown";
-    console.error("billing checkout failed", message);
+    logError("billing.checkout_failed", { error: message.slice(0, 200) });
     if (message === "Stripe is not configured") {
       return NextResponse.json(
         { error: "Stripe billing is not configured on this Gateway yet.", code: "STRIPE_NOT_CONFIGURED" },

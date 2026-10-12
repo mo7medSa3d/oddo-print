@@ -14,9 +14,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const secretFile = "agent-secrets.dat"
@@ -60,10 +62,17 @@ func validKey(key string) bool {
 	return true
 }
 
+// atRestWarningOnce ensures the platform residual-risk warning is loud but
+// not per-save noise.
+var atRestWarningOnce sync.Once
+
 // SaveSecret seals secret under key and rewrites the store file atomically.
 func (s *Store) SaveSecret(key, secret string) error {
 	if !validKey(key) {
 		return fmt.Errorf("storage: invalid key %q", key)
+	}
+	if w := platformAtRestWarning(); w != "" {
+		atRestWarningOnce.Do(func() { log.Printf("WARNING: storage at-rest secrecy: %s", w) })
 	}
 	p, err := s.path()
 	if err != nil {

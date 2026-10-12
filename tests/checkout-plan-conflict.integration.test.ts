@@ -36,6 +36,7 @@ suite("billing checkout plan-conflict fence", () => {
   beforeAll(async () => { await applyMigrations(); });
   beforeEach(async () => {
     await truncateAll();
+    vi.stubEnv("APP_BASE_URL", "https://billing.test");
     const managerExpiry = Math.floor(Date.now() / 1000) + 3600;
     vi.mocked(validateWorkspaceManager).mockResolvedValue({
       jti: "test-manager-jti-1234567890",

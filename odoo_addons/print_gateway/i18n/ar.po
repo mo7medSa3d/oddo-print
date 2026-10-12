@@ -1085,11 +1085,6 @@ msgid "Gateway printing is enabled, but no Print Binding exists for %s (%s) in %
 msgstr "طباعة الـ Gateway مُفعّلة، ولكن لا يوجد ربط طباعة لـ %s (%s) في %s."
 
 #. module: print_gateway
-#: code:addons/print_gateway/controllers/pos.py:0
-msgid "Gateway printing is enabled, but no Sale Details binding is configured for this POS."
-msgstr "الطباعة عبر Gateway مفعّلة، لكن لم يتم إعداد ربط تقرير تفاصيل المبيعات لنقطة البيع هذه."
-
-#. module: print_gateway
 #: code:addons/print_gateway/models/print_router.py:0
 msgid "Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration."
 msgstr "طباعة الـ Gateway مُفعّلة، ولكن الربط حُلّ إلى الطباعة الأصلية. تحقّق من إعداد الربط."
@@ -3848,3 +3843,22 @@ msgstr "أمر الطابعة المباشر فارغ أو يتجاوز حد ا�
 #: code:addons/print_gateway/models/print_router.py:0
 msgid "Raw printer command must be text or bytes."
 msgstr "يجب أن يكون أمر الطابعة المباشر نصًا أو بيانات ثنائية."
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "The print binding was disabled before the durable job could be created."
+msgstr "تم تعطيل ربط الطباعة قبل إنشاء مهمة الطباعة الدائمة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "The print binding was repointed to another printer before the durable job could be created."
+msgstr "تمت إعادة توجيه ربط الطباعة إلى طابعة أخرى قبل إنشاء مهمة الطباعة الدائمة."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Gateway Runtime Agent '%s' is no longer assigned to the current Odoo scope."
+msgstr "لم يعد الـ Gateway Runtime Agent '%s' مُسنَدًا إلى النطاق الحالي في Odoo."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/print_job.py:0
+msgid "The printer is temporarily unavailable. The job was safely re-queued for retry."
+msgstr "الطابعة غير متاحة مؤقتًا. أُعيدت المهمة إلى قائمة الانتظار بأمان لإعادة المحاولة."

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "../i18n/react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -1232,13 +1232,19 @@ export function Tooltip({
     side === "top"
       ? "bottom-[calc(100%+6px)] start-1/2 ltr:-translate-x-1/2 rtl:translate-x-1/2"
       : "top-[calc(100%+6px)] start-1/2 ltr:-translate-x-1/2 rtl:translate-x-1/2";
+  // Long translations (notably Arabic) must wrap instead of clipping, and
+  // assistive tech must announce the bubble: aria-describedby belongs on the
+  // focusable trigger, not the wrapper.
+  const trigger = isValidElement<{ "aria-describedby"?: string }>(children)
+    ? cloneElement(children, { "aria-describedby": id })
+    : children;
   return (
-    <span className={`group/tooltip relative inline-flex ${className}`} aria-describedby={id}>
-      {children}
+    <span className={`group/tooltip relative inline-flex ${className}`}>
+      {trigger}
       <span
         role="tooltip"
         id={id}
-        className={`pointer-events-none absolute z-50 hidden max-w-[240px] whitespace-nowrap rounded-sm border border-edge-strong bg-surface-elevated px-2 py-1 text-xs font-[500] text-ink shadow-md group-hover/tooltip:block group-focus-within/tooltip:block ${position}`}
+        className={`pointer-events-none absolute z-50 hidden max-w-[240px] whitespace-normal break-words rounded-sm border border-edge-strong bg-surface-elevated px-2 py-1 text-xs font-[500] text-ink shadow-md group-hover/tooltip:block group-focus-within/tooltip:block ${position}`}
       >
         {label}
       </span>

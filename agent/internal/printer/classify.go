@@ -50,6 +50,10 @@ func keepPrimaryUSBDevice(hwIDs, compatIDs []string, classVal string, hwErr, com
 }
 
 func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
+	// Reject redirected and software writer queues before generic PnP validation.
+	if isVirtualSpooler(portName, driverName, printerName) {
+		return false
+	}
 	if strings.TrimSpace(printerName) == "" {
 		return false
 	}

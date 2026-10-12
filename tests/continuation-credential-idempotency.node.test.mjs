@@ -66,7 +66,7 @@ async function serviceFixture({ keyActive = true, tenantActive = true, printerPr
   const lib = await evaluate('src/lib/print-job-service.ts', {
     'node:crypto': { createHash },
     '../db': { db }, '../db/schema': { agents: table('agents'), printers: table('printers'), printJobs: table('jobs'), printJobReceipts: table('receipts') },
-    './printer-virtual': { isVirtualPrinterRecord: () => false, isVirtualCaptureTestRecord: () => false, isApprovedVirtualSpoolerTestRecord: () => false },
+    './printer-virtual': { isVirtualPrinterRecord: () => false },
     './routing': { isPrinterStatusExecutable: () => true, validatePayloadForPrinter: () => ({ ok: true }) },
     './payload': { validatePrintJobPayload: (value) => value },
     'drizzle-orm': { and: (...x) => x.join(' AND '), eq: (a,b) => `${a}=${b}`, sql },

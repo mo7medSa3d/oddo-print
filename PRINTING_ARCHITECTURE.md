@@ -96,6 +96,15 @@ sequenceDiagram
 5. Only a stale claim with no `delivered_at` or `acked_at` evidence is automatically requeued after 90 seconds. Delivered-but-silent and stale-printing outcomes are terminal and require manual reconciliation.
 6. A superseded attempt's `claimToken` is rejected with `409 Conflict / ErrStaleClaim`, preventing split-brain execution.
 
+### Delivery ordering
+
+Delivery is explicitly unordered across transports: the WebSocket path pushes
+the notified job immediately, while the poll path drains oldest-first. Two
+jobs submitted together may print in either order. Batches that require
+sequence (multi-copy receipts, invoice sets) must be submitted serially by
+the caller — Odoo policy fan-out already deduplicates same-target intents
+but does not serialize across printers.
+
 ---
 
 ## 4. Odoo Payload Generation Pipelines

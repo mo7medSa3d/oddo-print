@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isPrivateNetworkAddress } from "./network-address";
 
-export const PRINTER_TYPES = ["physical", "virtual", "redirected"] as const;
+export const PRINTER_TYPES = ["physical"] as const;
 export const DEVICE_CLASSES = ["thermal", "laser", "inkjet", "label", "other", "unknown"] as const;
 export const CONNECTION_TYPES = ["network", "usb", "spooler", "ipp", "ipps"] as const;
 // "unknown" means "not declared": the capability model never routes to it.
@@ -30,9 +30,6 @@ export const printerInputSchema = z.object({
     // passthrough is an explicit operator opt-in, never inferred from model
     // class or the presence of a local Windows queue.
     passthrough_protocols: z.array(z.enum(["raw", "escpos"])).max(2).optional(),
-    // Explicit manager consent for a local Windows software queue. The Agent
-    // still has to find this exact spooler queue and attest its type.
-    virtual_spooler_test: z.boolean().optional(),
   }).strict().default({}),
   capabilities: z.record(z.string(), z.unknown()).optional(),
 }).strict();

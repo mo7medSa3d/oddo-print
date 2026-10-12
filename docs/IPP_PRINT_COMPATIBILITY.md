@@ -12,7 +12,6 @@ generic TCP socket.
 | PDF / Odoo report | Windows spooler queue | Embedded PDFium renders pages to Windows GDI via StartDocW/EndDoc. Windows manages the installed driver and spool queue. |
 | PDF / receipt | Direct IPP/IPPS | Ask Get-Printer-Attributes for document-format-supported; use native application/pdf when accepted, convert to genuine multi-page PWG Raster when advertised, or to JPEG for a one-page PDF when JPEG-only. Do not send incorrect MIME bytes. |
 | RAW / ESC-POS / ZPL / TSPL | Network RAW port / compatible spooler | Send language-specific commands only when the device and transport explicitly declare that language. Never send ESC/POS as application/pdf or as IPP application/octet-stream by guessing. |
-| Any accepted virtual test job | Yaseir virtual file capture | Store the original document on the Agent computer for end-to-end testing. Not evidence of actual paper or driver success. |
 
 ## Why client-error-document-format-not-supported (0x040A) happens
 

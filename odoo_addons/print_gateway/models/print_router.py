@@ -349,7 +349,7 @@ class PrintGatewayRouter(models.AbstractModel):
         the row in the caller's own transaction and defer submission to
         postcommit instead of using this helper."""
         durable_values = dict(values)
-        for key in ("company", "gateway_config", "report", "fallback_binding"):
+        for key in ("company", "gateway_config", "report", "fallback_binding", "binding"):
             record = durable_values.get(key)
             durable_values[key] = record.id if record else False
 
@@ -361,6 +361,7 @@ class PrintGatewayRouter(models.AbstractModel):
                 ("gateway_config", "print_gateway.gateway_config"),
                 ("report", "ir.actions.report"),
                 ("fallback_binding", "print_gateway.binding"),
+                ("binding", "print_gateway.binding"),
             ):
                 record_id = durable_values.get(key)
                 if not record_id:
@@ -378,6 +379,26 @@ class PrintGatewayRouter(models.AbstractModel):
                     raise ValidationError(_("The durable print operation references a record that is no longer available."))
                 durable_values[key] = record
             target_company = durable_values.get("company")
+            # Revalidate the selected binding on this fresh cursor: resolve and
+            # persist run in separate transactions, so a binding disabled,
+            # repointed, or unassigned in between must fail closed here instead
+            # of printing to a stale printer. create_operation must never see
+            # the binding itself (it is routing evidence, not a job column).
+            selected_binding = durable_values.pop("binding", False)
+            if selected_binding:
+                if not selected_binding.enabled:
+                    raise ValidationError(_("The print binding was disabled before the durable job could be created."))
+                if str(selected_binding.printer_id or "").strip() != str(durable_values.get("printer_id") or "").strip():
+                    raise ValidationError(_("The print binding was repointed to another printer before the durable job could be created."))
+                if selected_binding.runtime_agent_id and target_company:
+                    router = env["print_gateway.print_router"]
+                    gateway_company, branch = router._binding_scope(target_company)
+                    assigned = env["print_gateway.runtime_agent_assignment"].is_agent_assigned(
+                        gateway_company, branch, selected_binding.runtime_agent_id)
+                    if not assigned:
+                        raise ValidationError(
+                            _("Gateway Runtime Agent '%s' is no longer assigned to the current Odoo scope.")
+                            % selected_binding.runtime_agent_id)
             model = env["print_gateway.print_job"]
             if target_company:
                 model = model.with_company(target_company)
@@ -491,6 +512,7 @@ class PrintGatewayRouter(models.AbstractModel):
             "source_model": source_model,
             "source_record_id": source_record_id,
             "report": report,
+            "binding": route.get("binding") or False,
             "fallback_binding": route["binding"].fallback_binding_id if route.get("binding") else None,
             "idempotency_key": idempotency_key or uuid.uuid4().hex,
         })
@@ -901,6 +923,7 @@ class PrintGatewayRouter(models.AbstractModel):
             "payload_type": "raw_cmd",
             "protocol": protocol,
             "raw_payload": (raw_data.replace("\x00", "\\x00") if isinstance(raw_data, str) else raw_bytes.decode("latin1", errors="replace").replace("\x00", "\\x00")),
+            "binding": target_binding or False,
             "fallback_binding": target_binding.fallback_binding_id,
             "source_model": record._name if record else ("print_gateway.binding" if binding else False),
             "source_record_id": record.id if record else (binding.id if binding else False),

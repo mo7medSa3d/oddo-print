@@ -257,7 +257,10 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
           } | undefined;
           if (checkoutSubscription && Number(current?.stripeStateRevision ?? 0) !== (fetchedRevision ?? 0)) throw new Error("BILLING_SNAPSHOT_CHANGED");
           const differentSubscription = Boolean(current?.stripeSubscriptionId && current.stripeSubscriptionId !== subId);
-          if (differentSubscription && current?.status !== "cancelled") {
+          // incomplete_expired is terminal at Stripe like cancelled: a failed
+          // first payment followed by a successful second checkout must adopt
+          // the new subscription instead of stranding the tenant.
+          if (differentSubscription && current?.status !== "cancelled" && current?.status !== "incomplete_expired") {
             await tx.update(billingEvents)
               .set({ tenantId, processedAt: sql`clock_timestamp()` })
               .where(eq(billingEvents.eventId, eventId));
@@ -397,7 +400,7 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
             storedStripeEventCreatedAtMs === null || eventCreatedAt.getTime() > storedStripeEventCreatedAtMs;
           const newerReplacementSubscription =
             differentSubscription &&
-            tenantRow.status === "cancelled" &&
+            (tenantRow.status === "cancelled" || tenantRow.status === "incomplete_expired") &&
             isNewerThanStoredEvent;
           // A live Stripe resource is authoritative even when the triggering
           // event shares a second with another event or arrived much later.
