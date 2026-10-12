@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, ShieldCheck } from "lucide-react";
+import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, Play, ShieldCheck } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, Input, LoadingState, Mono, Select, StatusBadge, StatusDot } from "../../components/ui";
 import { Toolbar, PrinterAvatar } from "../ui";
 import type { DesktopState } from "../types";
@@ -45,13 +45,6 @@ export function PrintersPage({ s }: { s: DesktopState }) {
       </Toolbar>
 
       {s.printersError && !s.printersLoading && <ErrorState title={t("desktop.printers.loadFailed")} message={s.printersError} retry={s.refreshPrinters} />}
-
-      {s.discoveryWarning && (
-        <div className="flex items-start gap-2 rounded-md border border-warn-edge bg-warn-bg px-4 py-3 text-sm text-warn" role="status">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <div><div className="font-semibold">{t("desktop.printers.discoveryWarningTitle")}</div><div className="mt-1 break-words text-sm text-ink-2">{s.discoveryWarning}</div></div>
-        </div>
-      )}
 
       {pendingLocal.length > 0 && (
         <Card className="overflow-hidden">

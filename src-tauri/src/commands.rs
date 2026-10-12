@@ -1192,6 +1192,11 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             return Err(format!("discover failed: {}", msg));
         }
         let errors = parse_discovery_diagnostics(&stderr);
+        // Retain source-level diagnostics in the protected Manager log rather
+        // than raising non-actionable warning banners in the customer UI.
+        for diagnostic in &errors {
+            logging::warn(&format!("printer discovery source: {}", diagnostic.chars().take(400).collect::<String>()));
+        }
         // --json returns this scan's inventory. Registry persistence can fail;
         // rereading the file would silently substitute stale or empty results.
         let printers = parse_discovery_stdout(&stdout)?;
