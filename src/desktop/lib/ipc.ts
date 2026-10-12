@@ -449,6 +449,28 @@ export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
 }
 
+/** Offline PDFium Test Center. No Gateway, discovery, or Windows spooler. */
+export interface LocalCaptureResult {
+  outcome: "rendered_locally";
+  renderer: "embedded_pdfium";
+  pages: number;
+  paperMm: number;
+  inputFormat: "jpeg" | "pdf";
+  pdfPath: string;
+  previewPath: string;
+  previewDataUri: string;
+  sha256: string;
+  pdfBytes: number;
+}
+
+export function captureTestDocument(input: {
+  documentBytes: number[];
+  format: "jpeg" | "pdf";
+  paperMm: 0 | 58 | 80;
+}): Promise<LocalCaptureResult> {
+  return invoke<LocalCaptureResult>("capture_test_document", { request: input });
+}
+
 export async function testGatewayPrinter(
   gatewayUrl: string,
   printerId: string,

@@ -17,6 +17,7 @@ fn main() {
         "get_app_version",
         "get_printers",
         "discover_printers",
+        "capture_test_document",
         "test_printer",
         "cleanup_local_jobs",
         "register_printer",

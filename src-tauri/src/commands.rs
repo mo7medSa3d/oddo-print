@@ -1154,6 +1154,128 @@ pub async fn get_printers(_app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, St
     .await
 }
 
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTestRequest {
+    document_bytes: Vec<u8>,
+    format: String,
+    paper_mm: u16,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTestResult {
+    outcome: String,
+    renderer: String,
+    pages: usize,
+    paper_mm: u16,
+    input_format: String,
+    pdf_path: String,
+    preview_path: String,
+    preview_data_uri: String,
+    sha256: String,
+    pdf_bytes: usize,
+}
+
+fn validate_capture_request(req: &CaptureTestRequest) -> Result<(), String> {
+    if req.document_bytes.is_empty() || req.document_bytes.len() > 4 * 1024 * 1024 {
+        return Err("test document must be 1 byte to 4 MiB".into());
+    }
+    match (req.format.as_str(), req.paper_mm) {
+        ("jpeg", 0 | 58 | 80) | ("pdf", 0) => Ok(()),
+        _ => Err("test source or paper width is unsupported".into()),
+    }
+}
+
+struct TemporaryCaptureInput(std::path::PathBuf);
+impl Drop for TemporaryCaptureInput {
+    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+}
+
+#[tauri::command]
+pub async fn capture_test_document(
+    app: tauri::AppHandle,
+    request: CaptureTestRequest,
+) -> Result<CaptureTestResult, String> {
+    validate_capture_request(&request)?;
+    run_blocking(move || {
+        let root = paths::ensure_manager_data_root()
+            .map_err(|e| format!("private Manager storage: {e}"))?;
+        let folder = root.join("test-captures");
+        std::fs::create_dir_all(&folder)
+            .map_err(|e| format!("create private capture folder: {e}"))?;
+        paths::ensure_manager_directory_security(&folder)
+            .map_err(|e| format!("secure private capture folder: {e}"))?;
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| format!("capture timestamp: {e}"))?.as_nanos();
+        let input_path = folder.join(format!("input-{}-{}.bin", std::process::id(), id));
+        let mut file = std::fs::OpenOptions::new()
+            .write(true).create_new(true).open(&input_path)
+            .map_err(|e| format!("create capture input: {e}"))?;
+        let _cleanup = TemporaryCaptureInput(input_path.clone());
+        paths::ensure_manager_file_security(&input_path)
+            .map_err(|e| format!("secure capture input: {e}"))?;
+        file.write_all(&request.document_bytes)
+            .map_err(|e| format!("write capture input: {e}"))?;
+        file.sync_all().map_err(|e| format!("sync capture input: {e}"))?;
+        drop(file);
+
+        // Bundled CLI only: no Agent service, printer queue, or Gateway request.
+        let cli = agent::cli_path(&app)?;
+        let mut cmd = Command::new(cli);
+        cmd.arg("capture-test")
+            .arg("-input").arg(&input_path)
+            .arg("-output-dir").arg(&folder)
+            .arg("-format").arg(&request.format)
+            .arg("-paper-mm").arg(request.paper_mm.to_string());
+        let output = agent::run_bounded_command(
+            cmd, std::time::Duration::from_secs(45), 3 * 1024 * 1024, 32 * 1024,
+        )?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("PDF test failed: {}",
+                stderr.trim().chars().take(600).collect::<String>()));
+        }
+        let response: CaptureTestResult = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("invalid capture response: {e}"))?;
+        if response.outcome != "rendered_locally" || response.renderer != "embedded_pdfium"
+            || response.pages == 0 || response.pages > 10
+            || !response.preview_data_uri.starts_with("data:image/png;base64,") {
+            return Err("invalid local PDFium capture result".into());
+        }
+        let canonical_folder = folder.canonicalize()
+            .map_err(|e| format!("resolve capture folder: {e}"))?;
+        for path in [&response.pdf_path, &response.preview_path] {
+            let canonical_file = std::path::Path::new(path).canonicalize()
+                .map_err(|e| format!("verify local capture file: {e}"))?;
+            if !canonical_file.starts_with(&canonical_folder) || !canonical_file.is_file() {
+                return Err("capture artifact escaped private directory".into());
+            }
+        }
+        Ok(response)
+    }).await
+}
+
+#[cfg(test)]
+mod capture_request_tests {
+    use super::{CaptureTestRequest, validate_capture_request};
+    #[test]
+    fn capture_rejects_virtual_queues_and_bad_dimensions() {
+        for (format, mm) in [("virtual", 80), ("pdf", 58), ("jpeg", 60)] {
+            assert!(validate_capture_request(&CaptureTestRequest {
+                document_bytes: vec![42], format: format.into(), paper_mm: mm,
+            }).is_err());
+        }
+        for (format, mm) in [("pdf", 0), ("jpeg", 0), ("jpeg", 58), ("jpeg", 80)] {
+            assert!(validate_capture_request(&CaptureTestRequest {
+                document_bytes: vec![42], format: format.into(), paper_mm: mm,
+            }).is_ok());
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, String> {
     run_blocking(move || {
@@ -1192,6 +1314,11 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             return Err(format!("discover failed: {}", msg));
         }
         let errors = parse_discovery_diagnostics(&stderr);
+        // Retain source-level diagnostics in the protected Manager log rather
+        // than raising non-actionable warning banners in the customer UI.
+        for diagnostic in &errors {
+            logging::warn(&format!("printer discovery source: {}", diagnostic.chars().take(400).collect::<String>()));
+        }
         // --json returns this scan's inventory. Registry persistence can fail;
         // rereading the file would silently substitute stale or empty results.
         let printers = parse_discovery_stdout(&stdout)?;
