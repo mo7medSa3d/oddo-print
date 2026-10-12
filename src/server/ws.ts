@@ -850,8 +850,8 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       if (typeof message.jobId !== "string" || typeof message.agentId !== "string") return;
       // Fence cross-instance pushes on the socket's tenant: a spoofed notice
       // for another tenant's job/agent pair is ignored before claiming.
-      // Legacy senders omit tenantId and remain allowed (claim fencing is
-      // the second layer); the poll loop is the durable backstop either way.
+      // Both DB triggers and callers must send the tenantId. Legacy notices
+      // without it are rejected; HTTP polling remains the durable backstop.
       const socketTenant = agentSockets.get(message.agentId)?.values().next().value?.tenantId;
       if (!jobNoticeTenantAllowed(message.tenantId, socketTenant)) {
         logWarn("[ws] ignored job notification with mismatched tenant", { agentId: message.agentId });

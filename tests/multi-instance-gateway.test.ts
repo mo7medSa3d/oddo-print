@@ -71,7 +71,7 @@ run("multi-instance Gateway runtime delivery", () => {
     const jobId = `multi_${Date.now()}`; await insertQueuedJob(fixture, jobId);
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline && !messages.some((m) => m.type === "print_job" && (m.job as any)?.id === jobId)) {
-      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: fixture.agentId })]);
+      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: fixture.agentId, tenantId: fixture.tenantId })]);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const match = messages.filter((m) => m.type === "print_job" && (m.job as any)?.id === jobId);
@@ -87,8 +87,8 @@ run("multi-instance Gateway runtime delivery", () => {
     const messagesA: any[] = []; const messagesB: any[] = [];
     wsA.on("message", (data) => messagesA.push(JSON.parse(String(data)))); wsB.on("message", (data) => messagesB.push(JSON.parse(String(data))));
     const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && messagesA.length + messagesB.length === 0) {
-      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: fixture.agentId })]);
+    while (Date.now() < deadline && ![...messagesA, ...messagesB].some((m) => m.type === "print_job" && m.job?.id === jobId)) {
+      await pool().query("SELECT pg_notify('print_gateway_agent_jobs', $1)", [JSON.stringify({ jobId, agentId: fixture.agentId, tenantId: fixture.tenantId })]);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     const delivered = [...messagesA, ...messagesB].filter((m) => m.type === "print_job" && m.job?.id === jobId);
