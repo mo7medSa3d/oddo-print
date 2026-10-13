@@ -651,7 +651,8 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
                 || gateway_printer_action_path(path, "test-connection")
                 || gateway_printer_action_path(path, "test-print")
         }
-        // PATCH/DELETE and arbitrary control-plane mutations remain denied.
+        "DELETE" => path == "/api/agent/test-captures/status",
+        // Other PATCH/DELETE and arbitrary control-plane mutations remain denied.
         // The explicitly allowlisted test-print is authenticated and fenced
         // to this Agent's own printer by the Gateway API.
         _ => false,
@@ -1310,9 +1311,155 @@ pub async fn capture_test_document(
     }).await
 }
 
+
+const CAPTURE_CLEANUP_GRACE_SECS: u64 = 120;
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCaptureCleanupResult {
+    manager_files: usize,
+    manager_bytes: u64,
+    manager_recent_kept: usize,
+    agent_files: usize,
+    agent_bytes: u64,
+    agent_recent_kept: usize,
+    agent_cleanup_unavailable: bool,
+}
+
+/// Only files produced by the PDFium Test Center may be deleted.
+/// Arbitrary uploads, protected settings, secrets and Windows printer
+/// spool files cannot match this intentionally narrow filename contract.
+fn is_capture_artifact_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("capture-") else { return false; };
+    let stem = rest.strip_suffix(".pdf").or_else(|| rest.strip_suffix(".png"));
+    let Some(stem) = stem else { return false; };
+    stem.len() == 24 && stem.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn prune_manager_capture_evidence() -> Result<(usize, u64, usize), String> {
+    let root = paths::ensure_manager_data_root()
+        .map_err(|e| format!("private Manager storage: {e}"))?;
+    let dir = root.join("test-captures");
+    let meta = match std::fs::symlink_metadata(&dir) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0, 0)),
+        Err(e) => return Err(format!("inspect Manager test storage: {e}")),
+    };
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        return Err("Manager capture directory must not be a link".into());
+    }
+    // Reject junctions/reparse-point redirects, including Windows junctions
+    // not surfaced as ordinary symlinks by symlink_metadata.
+    let expected = root.canonicalize()
+        .map_err(|e| format!("resolve private Manager storage: {e}"))?
+        .join("test-captures");
+    let actual = dir.canonicalize()
+        .map_err(|e| format!("resolve Manager capture directory: {e}"))?;
+    if actual != expected {
+        return Err("Manager capture directory redirects outside its private root".into());
+    }
+    paths::ensure_manager_directory_security(&dir)
+        .map_err(|e| format!("secure private capture directory: {e}"))?;
+
+    let mut removed = 0usize;
+    let mut bytes = 0u64;
+    let mut recent = 0usize;
+    let now = std::time::SystemTime::now();
+    let entries = std::fs::read_dir(&dir)
+        .map_err(|e| format!("read Manager test storage: {e}"))?;
+    for item in entries {
+        let item = item.map_err(|e| format!("read Manager test entry: {e}"))?;
+        let name = item.file_name();
+        let Some(name) = name.to_str() else { continue; };
+        if !is_capture_artifact_name(name) { continue; }
+        let info = std::fs::symlink_metadata(item.path())
+            .map_err(|e| format!("inspect Manager test artifact: {e}"))?;
+        if !info.file_type().is_file() || info.file_type().is_symlink() {
+            continue;
+        }
+        let age = info.modified()
+            .ok()
+            .and_then(|created| now.duration_since(created).ok());
+        if age.map_or(true, |value| value < std::time::Duration::from_secs(CAPTURE_CLEANUP_GRACE_SECS)) {
+            recent += 1;
+            continue;
+        }
+        std::fs::remove_file(item.path())
+            .map_err(|e| format!("remove private test artifact: {e}"))?;
+        removed += 1;
+        bytes = bytes.saturating_add(info.len());
+    }
+    Ok((removed, bytes, recent))
+}
+
+/// Local evidence is removed separately from Gateway history: a network
+/// outage must never prevent an Administrator from recovering disk space.
+#[tauri::command]
+pub async fn clear_test_capture_files(app: tauri::AppHandle) -> Result<TestCaptureCleanupResult, String> {
+    if !is_running_as_admin() {
+        return Err("Administrator privileges are required to clear private capture evidence".into());
+    }
+    run_blocking(move || {
+        let (manager_files, manager_bytes, manager_recent_kept) = prune_manager_capture_evidence()?;
+        let mut response = TestCaptureCleanupResult {
+            manager_files, manager_bytes, manager_recent_kept,
+            ..Default::default()
+        };
+        let cli = match agent::cli_path(&app) {
+            Ok(cli) => cli,
+            Err(_) => {
+                response.agent_cleanup_unavailable = true;
+                return Ok(response);
+            }
+        };
+        let mut cmd = std::process::Command::new(cli);
+        cmd.arg("capture-cleanup")
+            .arg("-config").arg(paths::agent_config_path())
+            .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let result = agent::run_bounded_command(
+            cmd, std::time::Duration::from_secs(20), 4096, 4096,
+        );
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CliCleanupReport {
+            files_deleted: usize,
+            bytes_freed: u64,
+            recent_kept: usize,
+        }
+        if let Ok(out) = result {
+            if out.status.success() {
+                if let Ok(body) = serde_json::from_slice::<CliCleanupReport>(&out.stdout) {
+                    response.agent_files = body.files_deleted;
+                    response.agent_bytes = body.bytes_freed;
+                    response.agent_recent_kept = body.recent_kept;
+                    return Ok(response);
+                }
+            }
+        }
+        response.agent_cleanup_unavailable = true;
+        Ok(response)
+    }).await
+}
+
 #[cfg(test)]
 mod capture_request_tests {
-    use super::{CaptureTestRequest, validate_capture_request};
+    use super::{is_capture_artifact_name, CaptureTestRequest, validate_capture_request};
+
+    #[test]
+    fn cleanup_does_not_accept_arbitrary_files_or_paths() {
+        assert!(is_capture_artifact_name(&format!("capture-{}.pdf", "a".repeat(24))));
+        assert!(is_capture_artifact_name(&format!("capture-{}.png", "0".repeat(24))));
+        for name in ["config.yaml", "capture-abc.pdf", "../capture-.pdf",
+            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.pdf.exe", "capture-AAAAAAAAAAAAAAAAAAAAAAAA.pdf",
+            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.bin"] {
+            assert!(!is_capture_artifact_name(name), "unexpected safe path: {name}");
+        }
+    }
     #[test]
     fn capture_rejects_virtual_queues_and_bad_dimensions() {
         for (format, mm) in [("virtual", 80), ("pdf", 58), ("jpeg", 60)] {
@@ -1957,6 +2104,9 @@ mod agent_console_path_tests {
         ));
         assert!(!allowed_agent_gateway_path("/api/agent/test-captures", "GET"));
         assert!(!allowed_agent_gateway_path("/api/agent/test-captures/status", "POST"));
+        assert!(allowed_agent_gateway_path("/api/agent/test-captures/status", "DELETE"));
+        assert!(!allowed_agent_gateway_path("/api/agent/test-captures", "DELETE"));
+        assert!(!allowed_agent_gateway_path("/api/agent/test-captures/status?all=1", "DELETE"));
         assert!(!allowed_agent_gateway_path(
             &format!("/api/agent/test-captures/preview?id=cap_{}&extra=1", "a".repeat(32)), "GET"
         ));

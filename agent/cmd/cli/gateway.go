@@ -224,6 +224,9 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 			gatewayCapturePreviewPathRe.MatchString(path)
 	case "POST":
 		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path) || gatewayTestPrintPathRe.MatchString(path)
+	case "DELETE":
+		// Explicit scoped deletion of terminal simulation evidence only.
+		return path == "/api/agent/test-captures/status"
 	// Agent diagnostic print is scoped to its own printer at Gateway; it is
 	// not authorized to mutate desired state or cross-Agent printer records.
 	default:

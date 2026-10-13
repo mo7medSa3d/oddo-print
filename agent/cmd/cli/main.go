@@ -35,6 +35,13 @@ func main() {
 			}
 			return
 		}
+		if args[0] == "capture-cleanup" {
+			if err := handleCaptureCleanup(args[1:], *configPath); err != nil {
+				fmt.Fprintln(os.Stderr, "capture cleanup:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if args[0] == "capture-test" {
 			if err := handleCaptureTest(args[1:]); err != nil {
 				fmt.Fprintln(os.Stderr, "local test capture failed:", err)
@@ -108,6 +115,9 @@ func printUsage() {
 	fmt.Println("  yaseir-agent-cli.exe capture-config -mode status [-config <path>]")
 	fmt.Println("  yaseir-agent-cli.exe capture-config -mode <enable|disable> [-config <path>]")
 	fmt.Println("  Restart the Agent service after changing this setting.")
+	fmt.Println("")
+	fmt.Println("  yaseir-agent-cli.exe capture-cleanup [-config <path>]")
+	fmt.Println("  Removes only old, protected capture-*.pdf/png evidence (not active tests).")
 	fmt.Println("")
 	fmt.Println("Offline Test Center:")
 	fmt.Println("  yaseir-agent-cli.exe capture-test -input <file> -output-dir <folder> -format <jpeg|pdf> -paper-mm <0|58|80>")
