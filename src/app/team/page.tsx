@@ -650,7 +650,7 @@ export default function TeamPage() {
                     disabled={busy}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="colleague@company.com"
+                    placeholder={t("auth.emailPlaceholder")}
                     autoComplete="email"
                   />
                 </Field>

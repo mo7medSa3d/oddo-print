@@ -405,6 +405,9 @@ export async function POST(req: Request) {
         }
       }
 
+      // shortcut: per-printer UPDATE/INSERT loop (pages capped at 500) holds the
+      // per-tenant advisory lock for the whole snapshot page; upgrade to a bulk
+      // upsert when fleets approach the cap and heartbeat latency grows.
       for (const p of sanitizedPrinters) {
         const existing = inventoryById.get(p.id);
         if (!existing) continue;

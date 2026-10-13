@@ -120,7 +120,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
           <EmptyState icon={s.jobTab === "failed" ? <XCircle className="h-8 w-8 text-bad" /> : s.jobTab === "unknown" ? <AlertTriangle className="h-8 w-8 text-warn" /> : s.jobTab === "delivered" ? <CheckCircle2 className="h-8 w-8 text-ok" /> : <Inbox className="h-8 w-8" />} title={s.jobPrinterFilter ? t("desktop.jobs.emptyForPrinter", { name: s.printerFilterName }) : s.jobTab === "all" ? t("desktop.jobs.emptyAll") : t("desktop.jobs.emptyForTab", { tab: JOB_TAB_LABELS[s.jobTab] })} description={s.jobPrinterFilter ? t("desktop.jobs.emptyFilteredBody") : s.jobTab === "failed" ? t("desktop.jobs.emptyFailedBody") : s.jobTab === "queued" ? t("desktop.jobs.emptyQueuedBody") : t("desktop.jobs.emptyDefaultBody")} action={s.jobPrinterFilter ? <Button variant="secondary" onClick={() => s.setJobPrinterFilter(null)} icon={<X className="h-4 w-4" />}>{t("desktop.jobs.clearFilter")}</Button> : undefined} />
         ) : (
           <>
-          <ul className="divide-y divide-edge-subtle lg:hidden" aria-label={t("desktop.jobs.tab.all")}>
+          <ul className="divide-y divide-edge-subtle lg:hidden" aria-label={JOB_TAB_LABELS[s.jobTab]}>
             {s.jobsFiltered.map((j) => (
               <li key={jobId(j)} className="min-w-0 space-y-3 p-4">
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">

@@ -261,7 +261,7 @@ describe("production fixes — presence sweep and Gateway test-page HTTP path", 
     expect(route).toContain("eq(agents.tenantId, tenantId)");
     expect(route).toContain('documentType: "test_page"');
     expect(route).toContain("idempotencyKey");
-    expect(route).toContain("status: 201");
+    expect(route).toContain("result.isReused ? 200 : 201");
     expect(route).toContain("Test print was not queued");
     expect(route).not.toContain("test print will be queued until the agent reconnects");
   });

@@ -1452,6 +1452,7 @@ func (a *Agent) handleWSMessages(ctx context.Context, sessionCtx context.Context
 				a.launchTracked(func() {
 					session := a.loadDiscoverySession(ctx, discoveryID)
 					if session == nil {
+						log.Printf("[discovery] session %s lookup failed; releasing scan slot", discoveryID)
 						<-a.discoverySem
 						return
 					}

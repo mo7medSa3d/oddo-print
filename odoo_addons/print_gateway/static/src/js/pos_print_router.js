@@ -438,6 +438,7 @@ patch(PosStore.prototype, {
             }
             return recordPrintAttempt;
         } catch (error) {
+            // shortcut: an unreachable Gateway (including offline POS) returns no receipt instead of native fallback, revisit when an offline print queue exists
             // A rendering/metadata failure before dispatch cannot have sent
             // paper; a new reservation may be released. Once RPC was tried,
             // preserve the identity even on exception or malformed response.
@@ -805,7 +806,7 @@ patch(PosStore.prototype, {
                                 }
                                 unsuccessfulPrints.push(
                                     printer?.config?.name ||
-                                        _t("Odoo Preparation Printer %s: %s", String(route.pos_printer_id), result?.message?.body || _t("print failed"))
+                                        _t("Odoo Preparation Printer %s: %s").replace("%s", String(route.pos_printer_id)).replace("%s", result?.message?.body || _t("print failed"))
                                 );
                                 if (result?.message?.body && printer?.config?.name) {
                                     unsuccessfulPrints[unsuccessfulPrints.length - 1] =

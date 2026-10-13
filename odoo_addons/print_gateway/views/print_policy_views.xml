@@ -62,7 +62,7 @@
                                    required="action_type == 'raw_template'"/>
                             
                             <field name="binding_id"
-                                   domain="[('company_id', '=', company_id), ('branch_id', '=', branch_id)]"
+                                   domain="['&amp;', ('company_id', '=', company_id), '|', ('branch_id', '=', branch_id), ('branch_id', '=', False)]"
                                    options="{'no_create': True}"
                                    help="Optional explicit Print Rule for this exact Company and Branch scope."/>
                         </group>

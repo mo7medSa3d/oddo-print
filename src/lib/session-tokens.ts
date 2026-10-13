@@ -525,10 +525,12 @@ export function isTrustedDesktopRequest(req: Request): boolean {
 }
 
 export function getAccessTokenFromRequest(req: Request, kind: SessionKind): string | null {
-  const cookieToken = readCookie(req, configFor(kind).accessCookieName);
-  if (cookieToken) return cookieToken;
+  // An explicit Authorization header states intent; prefer it over the ambient
+  // cookie so a stale cookie cannot shadow a valid Bearer token.
   const authorization = req.headers.get("authorization");
-  return authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() || null : null;
+  const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() || null : null;
+  if (bearer) return bearer;
+  return readCookie(req, configFor(kind).accessCookieName);
 }
 
 export function getRefreshTokenFromRequest(req: Request, kind: SessionKind): string | null {

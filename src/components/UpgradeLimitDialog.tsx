@@ -101,7 +101,7 @@ export default function UpgradeLimitDialog({
                 ? t("limit.note.concurrency")
                 : t("limit.note.capacity", { limit: limitText, unit: t(copy.unit) })}
           {periodText ? ` ${t("limit.note.periodEnds", { date: periodText })}` : ""}
-          {retryMinutes ? ` ${tc("limit.note.retryMinutes", retryMinutes, { count: retryMinutes })}` : ""}
+          {retryMinutes ? ` ${tc("limit.note.retryMinutes", retryMinutes, { count: formatNumber(retryMinutes) })}` : ""}
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

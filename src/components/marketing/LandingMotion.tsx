@@ -17,11 +17,13 @@ export function LandingMotion() {
       if (cancelled) return;
       const gsap = module.gsap;
       gsap.registerPlugin(triggers.ScrollTrigger);
+      // shortcut: one mirrored offset only; full bidirectional choreography waits for a real RTL motion spec.
+      const introX = document.documentElement.dir === "rtl" ? 14 : -14;
       // Context owns the entire timeline + every ScrollTrigger for unmount.
       const context = gsap.context(() => {
         gsap.timeline({ defaults: { duration: 0.75, ease: "power3.out" } })
           .from("[data-yw-intro]", { opacity: 0, y: 22, stagger: 0.105, clearProps: "all" })
-          .from("[data-yw-flow-item]", { opacity: 0, x: -14, stagger: 0.085, duration: 0.45, clearProps: "all" }, "-=0.45");
+          .from("[data-yw-flow-item]", { opacity: 0, x: introX, stagger: 0.085, duration: 0.45, clearProps: "all" }, "-=0.45");
         gsap.utils.toArray<HTMLElement>("[data-yw-reveal]", root).forEach((element) => {
           gsap.from(element, {
             opacity: 0,

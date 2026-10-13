@@ -111,6 +111,7 @@ function ConsoleNav({
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
+                    aria-label={collapsed ? navLabel(item, t) : undefined}
                     title={collapsed ? navLabel(item, t) : undefined}
                     onClick={onNavigate}
                     data-active={active}

@@ -33,10 +33,12 @@ func (a *Agent) pollDiscovery(ctx context.Context) {
 	reqURL := "/api/agent/discovery"
 	resp, err := a.doAuthorizedRequest(ctx, "GET", reqURL, nil)
 	if err != nil {
+		log.Printf("[discovery] session poll failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		log.Printf("[discovery] session poll rejected (HTTP %d)", resp.StatusCode)
 		return
 	}
 	sessions, err := decodeBoundedGatewayList(resp.Body, maxDiscoverySessionsBytes, 5)

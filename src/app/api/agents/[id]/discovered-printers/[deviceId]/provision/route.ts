@@ -6,6 +6,7 @@ import { validateWorkspaceManager } from "../../../../../../../lib/manager-auth"
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../../../lib/nanoid";
+import { canonicalize } from "../../../../../../../lib/canonicalize";
 import { discoveryIppUriMatchesEndpoint, validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
 import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
@@ -188,7 +189,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const existingPrinters = await tx.query.printers.findMany({ where: and(eq(printers.agentId, agentId), eq(printers.tenantId, claims.tenantId)) });
     const existing = existingPrinters.find(p => p.connectionType === transport.connectionType && p.protocol === transport.protocol && (
       (transport.connectionType === "spooler" && (p.config as { spooler_name?: string; address?: string } | null)?.spooler_name === (printerConfig as { spooler_name?: string }).spooler_name)
-      || ((p.id === device.identityKey || p.id === device.id) && JSON.stringify(p.config) === JSON.stringify(printerConfig))
+      || ((p.id === device.identityKey || p.id === device.id) && JSON.stringify(canonicalize(p.config)) === JSON.stringify(canonicalize(printerConfig)))
     ));
     if (existing) {
       await tx.update(discoveredDevices).set({ candidateStatus: "provisioned", provisionedPrinterId: existing.id, updatedAt: sql`now()` })

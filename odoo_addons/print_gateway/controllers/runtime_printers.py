@@ -43,6 +43,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not branch:
                 branch = company
             elif branch.id != company.id and branch.parent_id.id != company.id:
+                # A branch-scoped caller naming two different branches is rejected fail-closed; the assignment check below stays the authorization boundary.
                 raise ValidationError(env._("Odoo Branch must belong directly to the selected Odoo Company."))
             company = company.parent_id
 
