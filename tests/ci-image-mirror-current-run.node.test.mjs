@@ -12,6 +12,7 @@ const dockerfile = load('Dockerfile');
 const workflow = load('.github/workflows/docker.yml');
 const ci = load('.github/workflows/ci.yml');
 const resilience = load('.github/workflows/security-supply-chain.yml');
+const postgresHelper = load('scripts/ci-postgres.sh');
 const mirrorPrefix = 'public.ecr.aws/docker/library/';
 
 function officialMirrorOf(image) {
@@ -36,8 +37,21 @@ test('CI uses only exact-digest official ECR mirrors of reviewed production imag
   assert.ok(ciCompose.includes(`image: ${officialMirrorOf(prodCaddy)}`));
   assert.equal(ciCompose.split(`NODE_BASE_IMAGE: ${officialMirrorOf(prodNode)}`).length - 1, 2);
   assert.equal((dockerfile.match(/^FROM \$\{NODE_BASE_IMAGE\} AS /gm) ?? []).length, 4);
-  assert.equal((ci.match(new RegExp(officialMirrorOf(prodPostgres), 'g')) ?? []).length, 2);
-  assert.ok(resilience.includes(officialMirrorOf(prodPostgres)));
+  assert.ok(postgresHelper.includes(officialMirrorOf(prodPostgres)));
+  assert.ok(postgresHelper.includes('docker.io/library/' + prodPostgres));
+  assert.ok(!ci.includes('    services:\\n      postgres:'));
+  assert.ok(!resilience.includes('    services:\\n      postgres:'));
+  assert.doesNotMatch(ci, /^    env:\n          POSTGRES_USER:/m);
+  assert.doesNotMatch(resilience, /^    env:\n          POSTGRES_USER:/m);
+  assert.equal(ci.split('run: bash scripts/ci-postgres.sh start').length - 1, 2);
+  assert.equal(ci.split('run: bash scripts/ci-postgres.sh stop').length - 1, 2);
+  assert.equal(resilience.split('run: bash scripts/ci-postgres.sh start').length - 1, 1);
+  assert.equal(resilience.split('run: bash scripts/ci-postgres.sh stop').length - 1, 1);
+  assert.ok(ci.includes('CI_PG_USER: odoo'));
+  assert.ok(ci.includes('CI_PG_USER: postgres'));
+  assert.ok(resilience.includes('CI_PG_USER: postgres'));
+  assert.ok(postgresHelper.includes("127.0.0.1:5432:5432"));
+  assert.match(postgresHelper, /if ! grep -Eqi '[^']*toomanyrequests[^']*rate exceeded[^']*429[^']*'/);
 });
 
 test('Compose CLI selects the CI overlay without changing default production references', () => {
