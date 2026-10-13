@@ -29,12 +29,12 @@ func main() {
 			return
 		}
 		if args[0] == "capture-config" {
-            if err := handleCaptureConfig(args[1:], *configPath); err != nil {
-                fmt.Fprintln(os.Stderr, "capture setting:", err)
-                os.Exit(1)
-            }
-            return
-        }
+			if err := handleCaptureConfig(args[1:], *configPath); err != nil {
+				fmt.Fprintln(os.Stderr, "capture setting:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if args[0] == "capture-test" {
 			if err := handleCaptureTest(args[1:]); err != nil {
 				fmt.Fprintln(os.Stderr, "local test capture failed:", err)
@@ -105,10 +105,10 @@ func printUsage() {
 	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
 	fmt.Println("")
 	fmt.Println("Incoming Odoo E2E capture opt-in (Administrator only to modify):")
-    fmt.Println("  yaseir-agent-cli.exe capture-config -mode status [-config <path>]")
-    fmt.Println("  yaseir-agent-cli.exe capture-config -mode <enable|disable> [-config <path>]")
-    fmt.Println("  Restart the Agent service after changing this setting.")
-    fmt.Println("")
+	fmt.Println("  yaseir-agent-cli.exe capture-config -mode status [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe capture-config -mode <enable|disable> [-config <path>]")
+	fmt.Println("  Restart the Agent service after changing this setting.")
+	fmt.Println("")
 	fmt.Println("Offline Test Center:")
 	fmt.Println("  yaseir-agent-cli.exe capture-test -input <file> -output-dir <folder> -format <jpeg|pdf> -paper-mm <0|58|80>")
 	fmt.Println("  Local PDFium validation only; never sends bytes to any printer or Gateway.")
