@@ -142,15 +142,22 @@ export default function CaptureTestsClient({
   }, [agentFilter]);
 
   useEffect(() => {
-    expanded.current = false;
-    void load(false);
+    const generationRef = generation;
+    const requestRef = request;
+    const expandedRef = expanded;
+    expandedRef.current = false;
+    // Schedule the initial network read after effect setup. The async load
+    // updates state only from its request callback, not synchronously inside
+    // the effect (and can be canceled before it starts).
+    const initial = window.setTimeout(() => void load(false), 0);
     const interval = window.setInterval(() => {
-      if (!document.hidden && !expanded.current) void load(false);
+      if (!document.hidden && !expandedRef.current) void load(false);
     }, 15_000);
     return () => {
+      window.clearTimeout(initial);
       window.clearInterval(interval);
-      generation.current++;
-      request.current?.abort();
+      generationRef.current++;
+      requestRef.current?.abort();
     };
   }, [load]);
 
