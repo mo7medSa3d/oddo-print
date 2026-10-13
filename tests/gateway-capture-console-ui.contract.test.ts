@@ -9,8 +9,10 @@ describe("Gateway Odoo E2E test activity UI and data boundaries", () => {
   it("adds a discoverable integration navigation route with explicit receipt stages", () => {
     const shell = source("src/components/AppShell.tsx");
     const page = source("src/app/capture-tests/page.tsx");
+    const dashboard = source("src/app/dashboard/page.tsx");
     const client = source("src/app/capture-tests/capture-tests-client.tsx");
     expect(shell).toContain('href: "/capture-tests"');
+    expect(dashboard).toContain('href="/capture-tests"');
     expect(page).toContain('hasManagerPermission(claims, "jobs.read")');
     expect(client).toContain("captureMonitor.gatewayReceived");
     expect(client).toContain("captureMonitor.agentReceived");
