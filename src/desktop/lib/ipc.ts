@@ -449,6 +449,48 @@ export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
 }
 
+/** Read-only status of recent Odoo E2E tests assigned to this paired Agent. */
+export type E2ECaptureStatus = "queued" | "claimed" | "rendered_locally" | "failed" | "expired";
+export interface E2ECaptureRun {
+  runId: string;
+  status: E2ECaptureStatus;
+  createdAt: string;
+  claimedAt: string | null;
+  finishedAt: string | null;
+  paperMm: number;
+  pages: number | null;
+  pdfBytes: number | null;
+  errorCode: string | null;
+}
+export async function fetchE2ECaptureInbox(gatewayUrl: string): Promise<E2ECaptureRun[]> {
+  const { status, body } = await gatewayConsoleRequest(
+    gatewayUrl, "/api/agent/test-captures/status", "GET",
+  );
+  if (status !== 200) {
+    throw gatewayHttpError(status, body, "E2E test inbox unavailable (" + status + ")");
+  }
+  const data: unknown = JSON.parse(body);
+  if (!data || typeof data !== "object" || !("items" in data)
+      || !Array.isArray(data.items)) throw new Error("Invalid E2E inbox response");
+  return data.items as E2ECaptureRun[];
+}
+
+export async function fetchE2ECapturePreview(gatewayUrl: string, id: string): Promise<string> {
+  if (!/^cap_[a-f0-9]{32}$/.test(id)) throw new Error("Invalid E2E capture ID");
+  const { status, body } = await gatewayConsoleRequest(
+    gatewayUrl, "/api/agent/test-captures/preview?id=" + id, "GET",
+  );
+  if (status !== 200) {
+    throw gatewayHttpError(status, body, "E2E preview unavailable (" + status + ")");
+  }
+  const value: unknown = JSON.parse(body);
+  const data = value && typeof value === "object" && "previewDataUri" in value
+    ? value.previewDataUri : null;
+  if (typeof data !== "string" || !/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(data)
+      || data.length > 360000) throw new Error("Invalid E2E preview");
+  return data;
+}
+
 /** Offline PDFium Test Center. No Gateway, discovery, or Windows spooler. */
 export interface LocalCaptureResult {
   outcome: "rendered_locally";

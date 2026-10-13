@@ -22,6 +22,7 @@ const gatewayRequestMaxBody = 8 * 1024 * 1024
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")
 var gatewayTestPrintPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-print$")
 var gatewayTestKeyRe = regexp.MustCompile("^[A-Za-z0-9._:-]+$")
+var gatewayCapturePreviewPathRe = regexp.MustCompile("^/api/agent/test-captures/preview[?]id=cap_[a-f0-9]{32}$")
 
 // Deliberately wider than the desktop console proxy (which allows exact
 // GET /api/agents only): the operator CLI needs single-agent fetch for
@@ -218,7 +219,9 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 	case "GET":
 		return path == "/api/printers" ||
 			isAllowedJobsPath(path) ||
-			gatewayAgentPathRe.MatchString(path)
+			gatewayAgentPathRe.MatchString(path) ||
+			path == "/api/agent/test-captures/status" ||
+			gatewayCapturePreviewPathRe.MatchString(path)
 	case "POST":
 		return path == "/api/printers" || gatewayPrinterActionPathRe.MatchString(path) || gatewayTestPrintPathRe.MatchString(path)
 	// Agent diagnostic print is scoped to its own printer at Gateway; it is
