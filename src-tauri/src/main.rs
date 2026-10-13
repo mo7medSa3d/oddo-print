@@ -230,6 +230,7 @@ fn main() {
             commands::get_e2e_capture_config,
             commands::set_e2e_capture_config,
             commands::capture_test_document,
+            commands::clear_test_capture_files,
             commands::test_printer,
             cleanup::cleanup_local_jobs,
             commands::register_printer,

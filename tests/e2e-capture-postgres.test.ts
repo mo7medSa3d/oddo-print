@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { hasTestDatabase, applyMigrations, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { POST as start, GET as read } from "../src/app/api/odoo/test-captures/route";
 import { GET as claim, PATCH as finish } from "../src/app/api/agent/test-captures/route";
-import { GET as inbox } from "../src/app/api/agent/test-captures/status/route";
+import { GET as inbox, DELETE as purge } from "../src/app/api/agent/test-captures/status/route";
 import { GET as preview } from "../src/app/api/agent/test-captures/preview/route";
 
 const root = "http://localhost:3000";
@@ -114,6 +114,53 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     });
     const count = await pool().query("SELECT count(*)::integer AS n FROM print_jobs WHERE tenant_id=$1", [owner.tenantId]);
     expect(Number(count.rows[0].n)).toBe(0);
+  }, 30_000);
+
+  it("purges only this Agent's completed/expired captures, never active work or print jobs", async () => {
+    const completed = await start(odoo(owner, "POST", request(owner)));
+    expect(completed.status).toBe(202);
+    const doneId = (await completed.json()).runId as string;
+    const claimed = await claim(agent(owner, "GET"));
+    expect(claimed.status).toBe(200);
+    const token = (await claimed.json()).claimToken as string;
+    expect((await finish(agent(owner, "PATCH", {
+      runId: doneId, claimToken: token, status: "rendered_locally",
+      pages: 1, pdfSha256: "a".repeat(64), pdfBytes: 256,
+      previewJpeg: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"),
+    }))).status).toBe(200);
+
+    const waiting = await start(odoo(owner, "POST", request(owner)));
+    expect(waiting.status).toBe(202);
+    const waitingId = (await waiting.json()).runId as string;
+    const unauthenticated = await purge(new Request(root + "/api/agent/test-captures/status", { method: "DELETE" }));
+    expect(unauthenticated.status).toBe(401);
+    const otherAgent = await purge(new Request(root + "/api/agent/test-captures/status", {
+      method: "DELETE", headers: { Authorization: outsider.agentAuth },
+    }));
+    expect(otherAgent.status).toBe(200);
+    expect((await otherAgent.json()).deleted).toBe(0);
+    expect((await read(odoo(owner, "GET", undefined, doneId))).status).toBe(200);
+
+    const cleared = await purge(new Request(root + "/api/agent/test-captures/status", {
+      method: "DELETE", headers: { Authorization: owner.agentAuth },
+    }));
+    expect(cleared.status).toBe(200);
+    const report = await cleared.json();
+    expect(report).toMatchObject({ activePreserved: true, physicalJobsAffected: false });
+    expect(report.deleted).toBeGreaterThanOrEqual(1);
+    expect((await read(odoo(owner, "GET", undefined, doneId))).status).toBe(404);
+    expect((await preview(new Request(root + "/api/agent/test-captures/preview?id=" + doneId,
+      { headers: { Authorization: owner.agentAuth } }))).status).toBe(404);
+    expect((await read(odoo(owner, "GET", undefined, waitingId))).status).toBe(200);
+
+    const zero = await purge(new Request(root + "/api/agent/test-captures/status", {
+      method: "DELETE", headers: { Authorization: owner.agentAuth },
+    }));
+    expect((await zero.json()).deleted).toBe(0);
+    expect((await pool().query("SELECT status FROM e2e_capture_runs WHERE id=$1", [waitingId])).rows[0].status).toBe("queued");
+    const printed = await pool().query("SELECT count(*)::integer AS n FROM print_jobs WHERE tenant_id=$1", [owner.tenantId]);
+    expect(Number(printed.rows[0].n)).toBe(0);
+    await pool().query("DELETE FROM e2e_capture_runs WHERE id=$1", [waitingId]);
   }, 30_000);
 
   it("fails closed for another tenant and after installation-key revocation", async () => {
