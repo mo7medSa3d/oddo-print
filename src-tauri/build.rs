@@ -17,6 +17,8 @@ fn main() {
         "get_app_version",
         "get_printers",
         "discover_printers",
+        "get_e2e_capture_config",
+        "set_e2e_capture_config",
         "capture_test_document",
         "test_printer",
         "cleanup_local_jobs",
