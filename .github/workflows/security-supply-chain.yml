@@ -182,10 +182,7 @@ jobs:
   postgres-failure-injection:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        image: public.ecr.aws/docker/library/postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-        env:
+    env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: app_db
@@ -202,6 +199,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start pinned PostgreSQL with rate-limit-only registry fallback
+        shell: bash
+        env:
+          CI_PG_USER: postgres
+          CI_PG_PASSWORD: postgres
+          CI_PG_DATABASE: app_db
+        run: bash scripts/ci-postgres.sh start
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -214,3 +218,6 @@ jobs:
         run: npm run db:migrate
       - name: PostgreSQL LISTEN reconnect failure injection
         run: npx tsx scripts/pg-notify-failure-injection.ts
+      - name: Stop temporary CI PostgreSQL
+        if: always()
+        run: bash scripts/ci-postgres.sh stop
