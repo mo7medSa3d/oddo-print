@@ -20,11 +20,11 @@ export function LandingMotion() {
       // Context owns the entire timeline + every ScrollTrigger for unmount.
       const context = gsap.context(() => {
         gsap.timeline({ defaults: { duration: 0.75, ease: "power3.out" } })
-          .from("[data-yw-intro]", { autoAlpha: 0, y: 22, stagger: 0.105, clearProps: "all" })
-          .from("[data-yw-flow-item]", { autoAlpha: 0, x: -14, stagger: 0.085, duration: 0.45, clearProps: "all" }, "-=0.45");
+          .from("[data-yw-intro]", { opacity: 0, y: 22, stagger: 0.105, clearProps: "all" })
+          .from("[data-yw-flow-item]", { opacity: 0, x: -14, stagger: 0.085, duration: 0.45, clearProps: "all" }, "-=0.45");
         gsap.utils.toArray<HTMLElement>("[data-yw-reveal]", root).forEach((element) => {
           gsap.from(element, {
-            autoAlpha: 0,
+            opacity: 0,
             y: 24,
             duration: 0.65,
             ease: "power2.out",
