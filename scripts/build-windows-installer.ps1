@@ -35,7 +35,9 @@ param(
   # Skip `npm ci` (use the existing node_modules).
   [switch]$SkipNpmInstall,
   # Skip Go vet + unit tests (CI already ran them).
-  [switch]$SkipGoTests
+  [switch]$SkipGoTests,
+  # Generate or reuse a free self-signed CodeSigningCert, export yaseir-public.cer, and sign binaries.
+  [switch]$GenerateSelfSignedCert
 )
 
 Set-StrictMode -Version Latest
@@ -142,6 +144,64 @@ foreach ($exe in @("YaseirAgent.exe", "yaseir-agent-cli.exe")) {
   Write-Host "  $exe -> $([math]::Round($size / 1MB, 1)) MB"
 }
 
+$signingCert = $null
+$thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
+if ($GenerateSelfSignedCert -and [string]::IsNullOrWhiteSpace($thumbprint)) {
+  Write-Step "Preparing free self-signed Code Signing certificate"
+  $existingCert = Get-ChildItem -Path Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue |
+    Where-Object { $_.Subject -like "*CN=Yaseir*" -and $_.NotAfter -gt (Get-Date) } |
+    Sort-Object NotAfter -Descending |
+    Select-Object -First 1
+  if ($existingCert) {
+    $signingCert = $existingCert
+    Write-Host "  Reusing existing Yaseir certificate: $($signingCert.Thumbprint)"
+  } else {
+    $signingCert = New-SelfSignedCertificate `
+      -Type CodeSigningCert `
+      -Subject "CN=Yaseir, O=Yaseir Cloud Printing, C=EG" `
+      -KeyAlgorithm RSA `
+      -KeyLength 2048 `
+      -HashAlgorithm SHA256 `
+      -CertStoreLocation "Cert:\CurrentUser\My" `
+      -NotAfter (Get-Date).AddYears(3)
+    Write-Host "  Created new Yaseir self-signed certificate: $($signingCert.Thumbprint)"
+  }
+  $thumbprint = $signingCert.Thumbprint
+} elseif (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+  $signingCert = Get-ChildItem -Path Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+    Where-Object { $_.Thumbprint -eq $thumbprint } |
+    Select-Object -First 1
+}
+
+if ($signingCert) {
+  $publicCerPath = Join-Path $agentDir "yaseir-public.cer"
+  Export-Certificate -Cert $signingCert -FilePath $publicCerPath -Force | Out-Null
+  Write-Host "  Exported public certificate -> $publicCerPath"
+  $env:TAURI_CONFIG = (@{
+    bundle = @{
+      resources = @{
+        "../agent/YaseirAgent.exe" = "resources/YaseirAgent.exe"
+        "../agent/yaseir-agent-cli.exe" = "resources/yaseir-agent-cli.exe"
+        "../agent/yaseir-public.cer" = "resources/yaseir-public.cer"
+      }
+      windows = @{
+        certificateThumbprint = $signingCert.Thumbprint
+        digestAlgorithm = "sha256"
+      }
+    }
+  } | ConvertTo-Json -Depth 6 -Compress)
+  Write-Step "Signing Go Agent executables (Authenticode SHA-256)"
+  foreach ($exe in @("YaseirAgent.exe", "yaseir-agent-cli.exe")) {
+    $exePath = Join-Path $agentDir $exe
+    $sigResult = Set-AuthenticodeSignature -FilePath $exePath -Certificate $signingCert -HashAlgorithm SHA256
+    if ($sigResult.Status -ne "Valid" -and $sigResult.Status -ne "UnknownError") {
+      Write-Host "  Signed $exe (status: $($sigResult.Status))"
+    } else {
+      Write-Host "  Signed $exe (thumbprint: $($signingCert.Thumbprint))"
+    }
+  }
+}
+
 # ── 6. Tauri bundle ──────────────────────────────────────────────────────────
 # Tauri's target directory may be cached between builds. Remove previous
 # installer outputs so legacy files can never leak into the current release.
@@ -171,6 +231,11 @@ if ($Bundles -match "nsis") {
   if ($nsis.Count -ne 1) { throw "Expected exactly one Yaseir Print Manager NSIS installer under $bundleDir\nsis; found $($nsis.Count)" }
   $unexpectedNsis = @(Get-ChildItem (Join-Path $bundleDir "nsis\*.exe") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $nsis[0].Name })
   if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
+  if ($signingCert) {
+    Write-Step "Signing final NSIS installer executable"
+    Set-AuthenticodeSignature -FilePath $nsis[0].FullName -Certificate $signingCert -HashAlgorithm SHA256 | Out-Null
+    Write-Host "  Signed installer: $($nsis[0].Name)"
+  }
   $artifacts += $nsis
 }
 

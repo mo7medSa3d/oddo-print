@@ -134,6 +134,16 @@ ${StrStr}
   Abort "Agent executable is missing. Reinstall the complete signed package."
 
   agent_resource_found:
+  IfFileExists "$INSTDIR\resources\yaseir-public.cer" 0 yaseir_cert_install_done
+    DetailPrint "Installing bundled Yaseir publisher certificate..."
+    nsExec::ExecToStack '"$SYSDIR\certutil.exe" -addstore -f "Root" "$INSTDIR\resources\yaseir-public.cer"'
+    Pop $R0
+    Pop $R1
+    nsExec::ExecToStack '"$SYSDIR\certutil.exe" -addstore -f "TrustedPublisher" "$INSTDIR\resources\yaseir-public.cer"'
+    Pop $R0
+    Pop $R1
+  yaseir_cert_install_done:
+
   ; Do not pin a fresh canonical config path here.  The Agent's
   ; DefaultConfigPath() deliberately prefers an existing canonical config,
   ; then legacy YasserAgent/OdooPrintAgent configs, preserving pairing and

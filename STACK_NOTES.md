@@ -77,7 +77,7 @@
 | 8 | dispatch → Agent → spooler | fixed | full Win32 spooler static review completed; shared single-flight gate recovers after rejected admission; attempt/claim keys unchanged |
 | 9 | status/result back → Odoo outbox/UI | wired | closed vocab queued/claimed/printing/success/failed/expired; Odoo forward-chain maps + unknown-outcome markers; GW-F4 reuse-status aligned |
 | 10 | billing entitlement enforcement | fixed | live-resource/revision fencing retained; UTC date binding corrects event-time fences; Odoo quota signaling unchanged |
-| 11 | failure paths | fixed | structured auth outages, enumeration-safe reset persistence, stale/cancelled UI ownership; ambiguous physical outcomes still require explicit reconciliation |
+| 11 | failure paths | fixed | structured auth outages, enumeration-safe reset persistence, locale-reactive verify-email/resend states, bounded job filter IDs, stale/cancelled UI ownership; ambiguous physical outcomes still require explicit reconciliation |
 | 12 | upgrade/rollback + deployment | fixed | SCM removal fails closed; selected-backup checksum; runtime secrets excluded from image context; Odoo ownership upgrade refuses ambiguity |
 | 13 | desired-state sync | wired | flat `desiredState[]` rows + base64url cursor + 64-row pages match both sides |
 | 14 | Odoo capture → Agent render → console preview/cleanup | fixed | expiry uses PostgreSQL on both status producers; private token/preview scope preserved; automatic local cleanup selects only generated artifacts |

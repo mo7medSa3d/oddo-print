@@ -212,14 +212,13 @@ def test_manifest_declares_crypto_dependency_and_migration_version():
     assert (ADDON / "migrations" / "19.0.2.10.0" / "post-migrate.py").exists()
 
 
-def test_credential_key_file_provider_and_deployment_template_are_safe():
+def test_credential_key_file_provider_and_deployment_template_are_safe(monkeypatch):
     crypto = load_crypto()
     with __import__("tempfile").TemporaryDirectory() as d:
         key_path = Path(d) / "credential-key"
         key_path.write_text(key_b64(11), encoding="utf-8")
-        import os
-        os.environ.pop("ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64", None)
-        os.environ["ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE"] = str(key_path)
+        monkeypatch.delenv("ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64", raising=False)
+        monkeypatch.setenv("ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE", str(key_path))
         encrypted = crypto.encrypt_gateway_api_key("mounted-secret")
         assert crypto.decrypt_gateway_api_key(encrypted) == "mounted-secret"
 
