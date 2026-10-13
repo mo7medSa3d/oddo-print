@@ -1287,11 +1287,11 @@ export default function DashboardClient({
         : tc("printer.unavailable", kpis.totalPrinters - kpis.onlinePrinters);
 
   return (
-    <div className="space-y-5">
+    <div className="yw-gateway-dashboard space-y-6">
       {/* ── Fleet summary ─────────────────────────────────────────── */}
       <section
         aria-label={t("dashboard.fleetSummary")}
-        className="rounded-lg border border-edge bg-surface shadow-card"
+        className="yw-fleet-board rounded-2xl border border-edge bg-surface shadow-card"
       >
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-edge-subtle px-4 py-2.5">
           <h2 className="text-sm font-[600] text-ink">{t("dashboard.fleetSummary")}</h2>
@@ -1328,7 +1328,7 @@ export default function DashboardClient({
             edge after the third cell — stray lines hugging the card frame,
             which read as a broken border. 1px grid gaps are column-count
             agnostic, so no breakpoint can produce a stray edge. */}
-        <div className="overflow-hidden rounded-b-lg"><div className="grid min-w-0 grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
+        <div className="yw-fleet-kpis overflow-hidden rounded-b-2xl"><div className="grid min-w-0 grid-cols-2 gap-px bg-edge-subtle sm:grid-cols-4">
           <KpiCell
             label={t("dashboard.agentsOnline")}
             value={`${kpis.onlineAgents}/${kpis.totalAgents}`}

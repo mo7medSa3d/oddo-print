@@ -2,7 +2,8 @@
 
 import { fetchWithTimeout } from "../lib/fetch-timeout";
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -22,7 +23,7 @@ import {
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
 import { MobileAppBar } from "./MobileAppBar";
-import { Avatar, Menu, useDialog, type MenuItemSpec } from "./ui";
+import { Avatar, Menu, type MenuItemSpec } from "./ui";
 import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { ensureCustomerSession } from "../lib/session-config";
@@ -216,8 +217,13 @@ function ConsoleShell({
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const mobilePanelRef = useRef<HTMLDivElement>(null);
-  useDialog(mobileOpen, () => setMobileOpen(false), mobilePanelRef);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setMobileOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>({});
   const [renderedPath, setRenderedPath] = useState(pathname);
@@ -409,24 +415,21 @@ function ConsoleShell({
         <main className="page-transition min-w-0 max-w-full">{children}</main>
       </div>
 
-      {/* Mobile navigation sheet */}
-      {mobileOpen && (
-        <div data-dialog-root className="fixed inset-0 z-[80] lg:hidden" role="presentation">
-          <div
-            className="pg-fade-in absolute inset-0"
-            style={{ backgroundColor: "var(--overlay)" }}
-            onClick={() => setMobileOpen(false)}
-            aria-hidden
-          />
-          <div
-            ref={mobilePanelRef}
+      {/* Radix manages Escape, focus trapping and return-to-trigger. */}
+      <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="pg-fade-in fixed inset-0 z-[80] bg-black/40 lg:hidden" />
+          <Dialog.Content
             id="gateway-mobile-nav"
-            tabIndex={-1}
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("nav.consoleNavigation")}
-            className="tg-mobile-sheet pg-slide-in-left absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col rounded-e-2xl border-e border-edge-strong bg-surface shadow-2xl"
+            data-dialog-root
+            aria-describedby={undefined}
+            onCloseAutoFocus={(event) => {
+              const trigger = document.querySelector<HTMLButtonElement>('[aria-controls="gateway-mobile-nav"]');
+              if (trigger) { event.preventDefault(); trigger.focus(); }
+            }}
+            className="tg-mobile-sheet pg-slide-in-left fixed inset-y-0 start-0 z-[81] flex w-[300px] max-w-[85vw] flex-col rounded-e-2xl border-e border-edge-strong bg-surface shadow-2xl outline-none lg:hidden"
           >
+            <Dialog.Title className="sr-only">{t("nav.consoleNavigation")}</Dialog.Title>
             <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
               <ConsoleBrand brandSubtitle={t("brand.tagline")} />
               <button
@@ -462,9 +465,9 @@ function ConsoleShell({
                 {loggingOut ? t("nav.signingOut") : t("nav.signOut")}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} items={commands} />
     </div>
