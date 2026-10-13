@@ -23,6 +23,7 @@ const TERMINAL_JOB_STATUSES = ["success", "failed", "expired"] as const;
 const MAX_CLEANUP_ROWS = 5000;
 const MAX_LIST_OFFSET = 10_000;
 const MAX_SEARCH_LENGTH = 64;
+const MAX_FILTER_ID_LENGTH = 2048;
 
 export async function GET(req: Request) {
   const auth = await validateConsoleAuth(req);
@@ -36,8 +37,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const statusParam = url.searchParams.get("status")?.trim().toLowerCase();
   const searchParam = (url.searchParams.get("search") ?? url.searchParams.get("q"))?.trim();
-  const printerId = url.searchParams.get("printerId");
-  const agentId = url.searchParams.get("agentId");
+  const printerId = url.searchParams.get("printerId")?.trim() || null;
+  const agentId = url.searchParams.get("agentId")?.trim() || null;
   const limit = clampListLimit(url.searchParams.get("limit"), 50, 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
   if (offset > MAX_LIST_OFFSET) {
@@ -45,6 +46,9 @@ export async function GET(req: Request) {
   }
   if (searchParam && (searchParam.length < 2 || searchParam.length > MAX_SEARCH_LENGTH)) {
     return NextResponse.json({ error: `search must be between 2 and ${MAX_SEARCH_LENGTH} characters` }, { status: 400 });
+  }
+  if ((printerId && printerId.length > MAX_FILTER_ID_LENGTH) || (agentId && agentId.length > MAX_FILTER_ID_LENGTH)) {
+    return NextResponse.json({ error: `printerId and agentId must be <= ${MAX_FILTER_ID_LENGTH} characters` }, { status: 400 });
   }
 
   if (statusParam && !isJobFilterStatus(statusParam)) {

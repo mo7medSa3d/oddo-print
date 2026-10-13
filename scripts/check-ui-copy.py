@@ -240,7 +240,7 @@ ALLOWED_TEMPLATE_WORDS = re.compile(r"^(?:\$\{[^}]*\}|[\s.,:·—/×+()\-])+$")
 # A leftover word beside an interpolation is copy ("Sampled {time}", "{used} of
 # {limit}"). Units, punctuation and technical suffixes are not.
 UNIT_OR_TOKEN = {
-    "ms", "kb", "mb", "gb", "tb", "px", "min", "sec", "hr", "id", "ids", "ip", "url", "api",
+    "ms", "kb", "mb", "gb", "tb", "px", "mm", "dpi", "min", "sec", "hr", "id", "ids", "ip", "url", "api",
     "pdf", "usb", "zpl", "tspl", "esc", "pos", "ok", "x", "vs", "and", "or",
 }
 # Words left between interpolations are prose only when the remainder is
@@ -378,6 +378,8 @@ def check_hardcoded_copy() -> None:
             if not looks_like_english(snippet):
                 continue
             if re.search(r"[=;]$|=>|\b(return|const|import|export|expect|assert)\b", snippet):
+                continue
+            if re.match(r"^[A-Z][A-Za-z0-9_]*(?:\s*,\s*[A-Z][A-Za-z0-9_]*)+,?$", snippet):
                 continue
             report("COPY", f"{rel}:{line_no}", f"JSX text bypasses t(): {snippet[:64]!r}")
 

@@ -11,7 +11,7 @@ Table: ID | Severity | Component | file:line | Problem | Status
 | GW-F5 | Low | Gateway | src/lib/session-tokens.ts:527-532 | `getAccessTokenFromRequest` prefers cookie over Bearer; stale cookie shadows valid Bearer on dual-credential calls | FIXED |
 | GW-F6 | Low | Gateway | src/lib/payload.ts:23-36,33-75 | base64 payload decoded twice (refine + superRefine) on up to 5MiB per admission | FIXED |
 | GW-F7 | Info | Gateway | src/app/api/billing/webhook/route.ts:46-48 | route `hasBodyOverLimit` sees only Content-Length; chunked bodies rely on custom-server 411 guard | OPEN (defense-in-depth holds) |
-| GW-F8 | Info | Gateway | src/app/api/jobs/route.ts:39-41 | agent printerId/agentId query filters untrimmed/unbounded; safe (eq, tenant+agent fenced) | OPEN (no leak) |
+| GW-F8 | Info | Gateway | src/app/api/jobs/route.ts:39-41 | agent printerId/agentId query filters untrimmed/unbounded; safe (eq, tenant+agent fenced) | FIXED (R3-GW2: trimmed + bounded <= 2048 chars) |
 | GW-F9 | Info | Gateway | src/app/api/odoo/keys/route.ts:22-33 | GET uncapped; deliberate (low-cardinality credential list) | OPEN (by design) |
 | GO-F1 | Low | Go agent | internal/agent/heartbeat_pagination.go:117 | `gatewayOwnedIDsForPrinterPage` returned nil → JSON null for gatewayOwnedPrinterIds fence; Gateway expects array | FIXED |
 | GO-F2 | Low | Go agent | internal/agent/discovery_manager.go:35-43 | `pollDiscovery` silently dropped transport errors and non-200s | FIXED |
@@ -30,8 +30,8 @@ Table: ID | Severity | Component | file:line | Problem | Status
 | UI-F4 | Low | UI | src/components/marketing/LandingMotion.tsx:24 | GSAP flow-item enter offset hard-coded LTR, wrong edge in RTL | FIXED |
 | UI-F5 | Trivial | UI | src/app/platform/tenants/page.tsx:188 | dismiss Button carried empty `{""}` child | FIXED |
 | UI-F6 | Low | UI | src/desktop/pages/Jobs.tsx:123 | mobile job-list `aria-label` reuses `tab.all` regardless of filter | FIXED (uses localized `JOB_TAB_LABELS[s.jobTab]`, no new key) |
-| UI-F7 | Low | UI | src/app/verify-email/page.tsx:48 | `useState` initial message freezes first-locale copy on mid-verify language switch | OPEN (router.refresh path covers; effect resync deferred) |
-| UI-F8 | Info | UI | src/app/system-health/system-health-client.tsx:97 | local `relativeTime` duplicates shared `formatRelativeTime` | OPEN (unification = refactor) |
+| UI-F7 | Low | UI | src/app/verify-email/page.tsx:48 | `useState` initial message freezes first-locale copy on mid-verify language switch | FIXED (R3-UI1: render-derived copy + locale-independent effect) |
+| UI-F8 | Info | UI | src/app/system-health/system-health-client.tsx:97 | local `relativeTime` duplicates shared `formatRelativeTime` | OPEN (by design; pinned by tests/desktop-health-ui.contract.test.ts:21-29 for second-level granularity) |
 | OD-F1 | Medium | Odoo | static/src/js/gateway_limit_dialog.js:145,157,160,165 | Earlier claim that native `_t` rendered literal placeholders was incorrect | SUPERSEDED by R2-OD1; native substitutions restored |
 | OD-F2 | Medium | Odoo | static/src/js/report_interceptor.js:216 | Earlier manual replacement change bypassed native interpolation | SUPERSEDED by R2-OD1; native substitutions restored |
 | OD-F3 | Medium | Odoo | static/src/js/pos_sale_details_router.js:200 | Earlier manual replacement change bypassed native interpolation | SUPERSEDED by R2-OD1; native substitutions restored |
@@ -265,3 +265,28 @@ Recommendations (not applied):
 - Upgrade risk: Odoo rows without provable company ownership intentionally stop19.0.2.14.0 upgrade; restore verified source/ownership before activating workers. Offline migration tests passed; native addon upgrade/rollback remains a release gate.
 - Multi-instance opt-in was also attempted explicitly: production Gateway refused startup because .next/BUILD_ID could not be generated with missing frontend modules. UNVERIFIED/ENV, with startup failure retained in .audit/continuation/multi-instance.log; no fabricated build or skipped assertion.
 - Cleanup complete: temporary PostgreSQL container stopped and automatically removed with tmpfs database; cached image retained. Dependency manifests/lockfiles unchanged; final diff whitespace clean.
+
+## Round 3 — Final Enhancement & Integration Pass (2026-10-13)
+
+| ID | Severity | Component | file:line | Problem | Status |
+|----|----------|-----------|------------|---------|--------|
+| R3-UI1 | Low | Gateway UI / i18n | src/app/verify-email/page.tsx:48-115 | `msg` and `resendMsg` stored pre-translated strings in `useState`, freezing initial locale copy on language toggle and including `t` in verification `useEffect` deps | FIXED; structured outcome state derives translated strings at render time without re-running verification POST |
+| R3-UI2 | Low | Gateway / Desktop RTL CSS | src/app/globals.css:594-597,1066-1073 | `.yz-slide-in-left`/`.yz-slide-in-right` lacked the `[dir="rtl"]` keyframe mirroring applied to legacy `.pg-slide-in-*`, and `.yz-menu-in` hardcoded `transform-origin: top right` in RTL | FIXED; mirrored `.yz-slide-in-*` keyframes and `[dir="rtl"] .yz-menu-in` transform-origin |
+| R3-UI3 | Low | UI copy/token checker | scripts/check-ui-copy.py:242,380 | `JSX_TEXT` falsely flagged multi-line PascalCase icon import lists (`capture-tests-client.tsx:6-8`, `CaptureHistory.tsx:4-5`) and `UNIT_OR_TOKEN` omitted `mm`/`dpi` (`TestCenter.tsx:354`) | FIXED; `python3 scripts/check-ui-copy.py` now passes 0 findings across all TSX files and 2,574 en/ar keys |
+| R3-GW1 | Low | Gateway scripts | scripts/bootstrap-platform-owner.ts:97,162 | Platform bootstrap stamped `emailVerifiedAt`/`updatedAt` from host `new Date()` instead of PostgreSQL `clock_timestamp()` and exited before `pool.end()` | FIXED; uses `sql\`clock_timestamp()\`` inside advisory-locked txn and closes pool in `.finally()` |
+| R3-GW2 | Low | Gateway API | src/app/api/jobs/route.ts:39-52 | `printerId` and `agentId` query parameters were untrimmed and unbounded (`GW-F8`) | FIXED; trimmed and bounded to `MAX_FILTER_ID_LENGTH = 2048` with 400 rejection |
+| R3-PY1 | Low | Security test isolation | tests/test_final_security_hardening.py:215-225 | `test_credential_key_file_provider_and_deployment_template_are_safe` mutated `os.environ["ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE"]` directly without `monkeypatch`, leaking a deleted temp path into subsequent tests when run out of source order | FIXED; uses `monkeypatch.delenv`/`monkeypatch.setenv` |
+
+### R3 files fully reviewed (completes 100% of production source files)
+- Go agent remaining files: `agent/internal/printer/image.go`, `agent/internal/agent/desired_state_pagination.go`, `agent/internal/agent/device_class.go`, `agent/internal/queue/cleanup.go`, `agent/internal/queue/queue.go`
+- Gateway API & libs remaining files: `src/app/api/agents/route.ts`, `src/app/api/billing/plans/route.ts`, `src/app/api/odoo/health/route.ts`, `src/app/api/odoo/keys/[id]/rotate/route.ts`, `src/app/api/printers/[id]/certify/route.ts`, `src/app/api/printers/capabilities/route.ts`, `src/app/capture-tests/page.tsx`, `src/lib/lifecycle.ts`, `src/lib/nanoid.ts`, `src/lib/session-config.ts`, `src/lib/stale-threshold.ts`, `src/lib/trust-proxy-config.ts`, `src/shared/diagnostic-test.ts`
+- Stylesheet & scripts remaining files: `src/app/globals.css` (lines 1–1752 full coverage), `scripts/bootstrap-platform-owner.ts`, `scripts/provision-plans.ts`, `scripts/check-ui-copy.py`, `scripts/pg-concurrent-claim.sh`, `scripts/pg-notify-failure-injection.ts`
+
+### R3 Phase 4 Verification Summary (current VM environment)
+- PASS: `python3 scripts/check-db-docs.py` — 26 `schema.ts` tables, 84 migrations, and `docs/DATABASE.md` in sync.
+- PASS: `python3 scripts/check-odoo-translations.py` — 785 extracted terms and 785 `i18n/ar.po` catalog entries in sync.
+- PASS: `python3 scripts/check-ui-copy.py` — 2,574 `en` and 2,574 `ar` catalog keys, 0 hardcoded UI copy hits, all design tokens defined, all WCAG contrast pairs passing.
+- PASS: `py_compile` on all 50 Odoo addon Python files and `xml.etree.ElementTree` parse on all 11 addon XML files.
+- PASS: 485 / 486 Python tests across all 55 `tests/test_*.py` files via Python 3.11 stdlib runner (only `test_tauri_std_audit.py::test_actual_rust_logging_and_process_identity` is UNVERIFIED/ENV on this VM because `rustc` is not installed).
+- PASS: 40 standalone Node `.mjs` test suites (`node --experimental-vm-modules --test`); the remaining 31 `.mjs` files require Node 22.6+/24 `node:module.stripTypeScriptTypes` or installed `node_modules/typescript` (this VM has Node v18.20.4 and no `node_modules`).
+- UNVERIFIED/ENV on this VM (retained alongside R2 verification evidence): `tsc`/`eslint`/`vitest`/`next build` (`node_modules` not installed; offline no-install rule), `go build`/`go test` (`go` binary not installed on this VM; passed 10/10 packages with `-race` in R2), `cargo check` (`cargo`/`rustc` not installed on this VM), live PostgreSQL integration (`psql`/Docker not installed on this VM; passed 431 tests in R2), real Windows SCM/spooler/physical printers, live Odoo 19 runtime, live Stripe webhooks, and deployed Caddy WebSocket proxy.

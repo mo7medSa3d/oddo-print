@@ -1063,12 +1063,18 @@
 
   /* The mobile navigation sheet enters from the inline-start edge, which is the
      right in Arabic; reuse the mirrored keyframes instead of translating. */
-  [dir="rtl"] .pg-slide-in-left {
+  [dir="rtl"] .pg-slide-in-left,
+  [dir="rtl"] .yz-slide-in-left {
     animation-name: yz-slide-in-right;
   }
 
-  [dir="rtl"] .pg-slide-in-right {
+  [dir="rtl"] .pg-slide-in-right,
+  [dir="rtl"] .yz-slide-in-right {
     animation-name: yz-slide-in-left;
+  }
+
+  [dir="rtl"] .yz-menu-in {
+    transform-origin: top left;
   }
 }
 

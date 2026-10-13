@@ -1,6 +1,6 @@
 # FIX_LOG.md
 
-RESUME HERE: DONE — continuation fixes and runnable verification complete; final evidence in AUDIT_FINDINGS.md and 5 wired / 9 fixed / 4 UNVERIFIED integration gates in STACK_NOTES.md. Release acceptance requires already-pinned frontend/Rust dependencies plus real Windows/printers/Odoo/Stripe/Caddy; no installs performed.
+RESUME HERE: DONE (Round 3 complete) — 100% production file coverage achieved, 6 additional findings fixed (R3-UI1..UI3, R3-GW1..GW2, R3-PY1), and all runnable Phase 4 checks green; final status in AUDIT_FINDINGS.md and INTEGRATION_MAP in STACK_NOTES.md (5 wired / 9 fixed / 4 UNVERIFIED acceptance gates).
 
 - GW-F1 FIXED: `recordAuthSuccess` in src/lib/auth-rate-limit.ts now also clears the IP bucket on valid IPs (was account-bucket only; shared-NAT lockout drift).
 - GW-F2 FIXED: provision route dedupe compares `canonicalize()`d JSON instead of key-order-sensitive `JSON.stringify`.
@@ -70,3 +70,11 @@ Entries (append-only): what, why, URL if research-based. ASSUMPTION: prefix for 
 - RISK: pre-existing non-UTC production raw-SQL timestamps may require evidence-based historical repair; this pass corrects future shared Date binding, does not guess offsets for existing mixed-origin data. Native Odoo upgrade intentionally refuses unprovable company ownership.
 - Explicit multi-instance acceptance attempt blocked on missing production build (.next/BUILD_ID), confirming prerequisite rather than a hidden opt-in skip; startup refused fail-closed. HTTP production acceptance shares this prerequisite.
 - CLEANUP: stopped/removal-confirmed codex-print-audit-20261013; scratch DB was tmpfs and removed, cached image retained. Dependencies/manifests/lockfiles unchanged; artifacts remain reviewable in workspace. No publishing/deployment performed.
+- ASSUMPTION: Round 3 continues from R2 evidence without repeating reviewed files unless open findings or unreviewed modules warrant inspection; no packages or toolchains installed.
+- R3-UI1 / UI-F7 FIXED: `src/app/verify-email/page.tsx` now stores structured verification/resend outcomes instead of pre-translated strings in `useState` and removes `t` from the verification `useEffect` dependency array, so switching language mid-flow updates copy immediately without re-posting the token.
+- R3-UI2 FIXED: `src/app/globals.css` now mirrors `.yz-slide-in-left`/`.yz-slide-in-right` keyframes and sets `[dir="rtl"] .yz-menu-in { transform-origin: top left; }` for RTL consistency. Full 1,752-line stylesheet review completed.
+- R3-UI3 FIXED: `scripts/check-ui-copy.py` now recognizes `mm`/`dpi` units and ignores multi-line PascalCase icon import lists so `python3 scripts/check-ui-copy.py` exits 0 across all TSX files and 2,574 `en`/`ar` keys.
+- R3-GW1 FIXED: `scripts/bootstrap-platform-owner.ts` now stamps `emailVerifiedAt` and `updatedAt` with PostgreSQL `clock_timestamp()` inside the advisory-locked transaction and closes `pool.end()` in `.finally()`.
+- R3-GW2 / GW-F8 FIXED: `src/app/api/jobs/route.ts` now trims `printerId`/`agentId` query parameters and rejects values over 2,048 characters with HTTP 400.
+- R3-PY1 FIXED: `tests/test_final_security_hardening.py` `test_credential_key_file_provider_and_deployment_template_are_safe` now uses `monkeypatch` so `ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE` never leaks a deleted temp path into subsequent tests.
+- R3 Phase 4 VERIFIED: `check-db-docs.py` PASS (26 tables, 84 migrations); `check-odoo-translations.py` PASS (785/785 terms); `check-ui-copy.py` PASS (2,574 en/ar keys, 0 findings); 50 addon `.py` `py_compile` + 11 `.xml` parse PASS; 485/486 Python tests across 55 files PASS; 40 Node `.mjs` suites PASS. Toolchains absent on this VM (`go`, `cargo`/`rustc`, `psql`/`docker`, Node 24 `stripTypeScriptTypes`, `node_modules`) recorded as UNVERIFIED/ENV alongside R2 verification results.

@@ -1,4 +1,4 @@
-import { db } from "../src/db";
+import { db, pool } from "../src/db";
 import { users, auditEvents } from "../src/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword, normalizeEmail } from "../src/lib/password";
@@ -94,7 +94,6 @@ async function main() {
   }
 
   const passwordHash = await hashPassword(password);
-  const now = new Date();
 
   const success = await db.transaction(async (tx) => {
     // Transaction-level PostgreSQL advisory lock on fixed key.
@@ -123,8 +122,8 @@ async function main() {
         .set({
           isPlatformOwner: true,
           passwordHash,
-          emailVerifiedAt: now,
-          updatedAt: now,
+          emailVerifiedAt: sql`clock_timestamp()`,
+          updatedAt: sql`clock_timestamp()`,
         })
         .where(eq(users.id, uId));
       console.log(`Successfully promoted existing user (${normalized}) to Platform Owner.`);
@@ -135,7 +134,7 @@ async function main() {
         email: normalized,
         passwordHash,
         isPlatformOwner: true,
-        emailVerifiedAt: now,
+        emailVerifiedAt: sql`clock_timestamp()`,
       });
       console.log(`Successfully created new Platform Owner account (${normalized}).`);
     }
@@ -158,11 +157,11 @@ async function main() {
   if (success) {
     console.log("Platform Owner bootstrap completed and audit log committed successfully.");
   }
-
-  process.exit(0);
 }
 
-main().catch((err) => {
-  console.error("Platform Owner bootstrap failed:", err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error("Platform Owner bootstrap failed:", err);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());
