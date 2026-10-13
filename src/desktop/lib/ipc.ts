@@ -449,6 +449,14 @@ export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
 }
 
+/** Read-only opt-in state; only an elevated Manager can change service settings. */
+export function getE2ECaptureConfig(): Promise<boolean> {
+  return invoke<boolean>("get_e2e_capture_config");
+}
+export function setE2ECaptureConfig(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>("set_e2e_capture_config", { enabled });
+}
+
 /** Read-only status of recent Odoo E2E tests assigned to this paired Agent. */
 export type E2ECaptureStatus = "queued" | "claimed" | "rendered_locally" | "failed" | "expired";
 export interface E2ECaptureRun {

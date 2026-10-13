@@ -270,6 +270,48 @@ pub async fn restart_agent(app: tauri::AppHandle) -> Result<String, String> {
         .map(|_| "agent restarted".into())
 }
 
+// Read/write the one E2E opt-in setting through the bundled Go CLI, which
+// enforces the same protected service config ACL/DPAPI boundary as the Agent.
+// Neither the YAML nor its sealed secret ever enter the WebView.
+#[derive(Deserialize)]
+struct CaptureModeReply {
+    enabled: bool,
+}
+
+fn run_capture_mode(app: &tauri::AppHandle, mode: &str) -> Result<bool, String> {
+    let cli = agent::cli_path(app)?;
+    let config = paths::agent_config_path();
+    let root = paths::agent_data_root();
+    let mut cmd = Command::new(cli);
+    cmd.arg("capture-config")
+        .arg("-mode").arg(mode)
+        .arg("-config").arg(&config)
+        .env("YASEIR_AGENT_DATA_DIR", &root);
+    let output = agent::run_bounded_command(
+        cmd, std::time::Duration::from_secs(15), 1024, 8192,
+    )?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Agent capture setting: {}", error.trim().chars().take(480).collect::<String>()));
+    }
+    let reply: CaptureModeReply = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("invalid Agent capture setting response: {e}"))?;
+    Ok(reply.enabled)
+}
+
+#[tauri::command]
+pub async fn get_e2e_capture_config(app: tauri::AppHandle) -> Result<bool, String> {
+    run_blocking(move || run_capture_mode(&app, "status")).await
+}
+
+#[tauri::command]
+pub async fn set_e2e_capture_config(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    if !is_running_as_admin() {
+        return Err("Administrator privileges are required to change the Agent service configuration".into());
+    }
+    run_blocking(move || run_capture_mode(&app, if enabled { "enable" } else { "disable" })).await
+}
+
 #[tauri::command]
 pub async fn control_service(action: String, app: tauri::AppHandle) -> Result<String, String> {
     run_blocking(move || agent::control_service(&action, &app)).await

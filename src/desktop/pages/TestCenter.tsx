@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Copy, FileImage, FileText, FlaskConical, Play, ShieldCheck, Upload } from "lucide-react";
 import { Button, Card } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
-import { captureTestDocument, fetchE2ECaptureInbox, fetchE2ECapturePreview, getGatewayUrl, isTauri, type E2ECaptureRun, type LocalCaptureResult } from "../lib/ipc";
+import { captureTestDocument, fetchE2ECaptureInbox, fetchE2ECapturePreview, getE2ECaptureConfig, getGatewayUrl, isRunningAsAdmin, isTauri, relaunchAsAdmin, setE2ECaptureConfig, type E2ECaptureRun, type LocalCaptureResult } from "../lib/ipc";
 
 type Sample = "pos" | "kitchen" | "bar" | "invoice";
 const sampleMessageKeys = {
@@ -139,6 +139,40 @@ export function TestCenterPage() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remotePreview, setRemotePreview] = useState<{ id: string; uri: string } | null>(null);
   const [remotePreviewError, setRemotePreviewError] = useState("");
+  const [e2eEnabled, setE2EEnabled] = useState<boolean | null>(null);
+  const [e2eAdmin, setE2EAdmin] = useState<boolean | null>(null);
+  const [e2eConfigError, setE2EConfigError] = useState("");
+  const [e2eSaving, setE2ESaving] = useState(false);
+  const [e2eNeedsRestart, setE2ENeedsRestart] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let active = true;
+    void isRunningAsAdmin().then((yes) => {
+      if (active) setE2EAdmin(yes);
+    }).catch(() => { if (active) setE2EAdmin(false); });
+    void getE2ECaptureConfig().then((enabled) => {
+      if (active) { setE2EEnabled(enabled); setE2EConfigError(""); }
+    }).catch((e) => {
+      if (active) setE2EConfigError(e instanceof Error ? e.message : String(e));
+    });
+    return () => { active = false; };
+  }, []);
+
+  const changeE2EConfig = async () => {
+    if (!isTauri || e2eSaving || e2eEnabled === null || e2eAdmin !== true) return;
+    setE2ESaving(true);
+    setE2EConfigError("");
+    try {
+      const enabled = await setE2ECaptureConfig(!e2eEnabled);
+      setE2EEnabled(enabled);
+      setE2ENeedsRestart(true);
+    } catch (e) {
+      setE2EConfigError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setE2ESaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!isTauri) return;
@@ -306,6 +340,35 @@ export function TestCenterPage() {
           </div>
           <span className="text-xs text-ink-3">{remoteLoading ? t("desktop.testCenter.remoteChecking") : t("desktop.testCenter.remoteAutoRefresh")}</span>
         </div>
+        {isTauri && <div className="mb-4 rounded-lg border border-edge bg-surface-2/45 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">{t("desktop.testCenter.captureSettingTitle")}</p>
+              <p className="mt-1 text-xs text-ink-3">{t("desktop.testCenter.captureSettingDescription")}</p>
+              <p className="mt-1 text-xs font-medium text-ink-2">
+                {e2eEnabled === null ? t("desktop.testCenter.captureSettingUnknown")
+                  : e2eEnabled ? t("desktop.testCenter.captureSettingOn") : t("desktop.testCenter.captureSettingOff")}
+              </p>
+            </div>
+            {e2eAdmin === false ? (
+              <Button size="sm" variant="secondary" onClick={() => void relaunchAsAdmin().catch((e) => setE2EConfigError(String(e)))}>
+                {t("desktop.testCenter.captureSettingElevate")}
+              </Button>
+            ) : (
+              <Button size="sm" variant="secondary" loading={e2eSaving} disabled={e2eAdmin !== true || e2eEnabled === null || e2eSaving}
+                onClick={() => void changeE2EConfig()}>
+                {e2eEnabled ? t("desktop.testCenter.captureSettingDisable") : t("desktop.testCenter.captureSettingEnable")}
+              </Button>
+            )}
+          </div>
+          {e2eAdmin === false && <p className="mt-2 text-xs text-warn">{t("desktop.testCenter.captureSettingAdmin")}</p>}
+          {e2eNeedsRestart && <p role="status" className="mt-2 text-xs font-medium text-warn">
+            {t("desktop.testCenter.captureSettingRestart")}
+          </p>}
+          {e2eConfigError && <p role="alert" className="mt-2 break-words text-xs text-bad">
+            {t("desktop.testCenter.captureSettingError")}: {e2eAdmin === false ? t("desktop.testCenter.captureSettingAdmin") : e2eConfigError}
+          </p>}
+        </div>}
         {remoteError ? (
           <p role="status" className="rounded-md border border-edge bg-surface-2 p-3 text-sm text-ink-2">
             {remoteError.includes("CAPTURE_NOT_ENABLED") ? t("desktop.testCenter.remoteDisabled")
