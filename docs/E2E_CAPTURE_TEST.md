@@ -139,6 +139,44 @@ feature flag. A plain/not-recognized 404 means the connected Gateway image
 may be older than the inbox feature: deploy the current Gateway build and
 restart it, then retry. Do not disable HTTPS or weaken NTFS permissions.
 
+## Gateway Console: Odoo Test Activity
+
+From the authenticated customer Gateway, open **Odoo tests** (`/capture-tests`)
+in the Integrations section. This is the tenant's E2E simulation history,
+**not** the real print-job queue and not the Windows Agent-only Test Center.
+
+The timeline renders each E2E test as three separately grounded steps:
+
+1. **Gateway received:** Odoo's POST was durably inserted with `queued` status.
+   This by itself does not prove the Windows Agent saw the test.
+2. **Agent received:** `claimed_at` was written by the Agent polling/claim
+   API. The status becomes `claimed` until the final result arrives.
+3. **Document verified:** the Agent returned `rendered_locally` with page
+   count, size and optional bounded first-page JPEG preview. A `failed`
+   or `expired` status reports the error code or timeout instead.
+
+The console shows per-tenant totals, per-Agent filtering, 50-item keyset
+pagination, a Refresh button and a 15-second visible-tab refresh. Source
+payloads, signed claim tokens, Agent secrets and private Windows paths are
+**not** present in the list response. Only roles allowed to read job payloads
+can open the protected JPEG preview; it is a **first-page screenshot**, not
+the original multi-page PDF or evidence of paper leaving a printer.
+
+Workspace operators with `jobs.cancel` permission may choose **Delete
+test** on a terminal test, or **Clear finished tests** with confirmation.
+Both are independently tenant-fenced and revalidate the Workspace principal
+inside the mutation transaction, with an audit record, a maximum of 200
+deleted rows per request, and no impact on active E2E tests, `print_jobs`,
+Odoo printer bindings, or Agent configuration. User-visible error messages
+distinguish active tests from permission and connectivity failures.
+
+The console remains readable and cleanup stays available even when the
+Gateway's `YASEIR_E2E_CAPTURE_ENABLED` flag has been disabled; the page
+shows an explicit warning for that case. Gateway cleanup removes stored
+Gateway test records and JPEG previews **only**; clearing private PDF/PNG
+artifacts on the Windows computer remains an independent operation in the
+Agent's Test Center.
+
 ## Boundaries and operational protection
 
 - Odoo routes: `POST/GET /api/odoo/test-captures` use the installation API key,
