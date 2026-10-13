@@ -38,6 +38,36 @@ bash deploy/domain-test/setup-domain-test.sh
 
 The script stops the old HTTP-only stack without deleting its PostgreSQL volume, reuses its secrets when available, starts Caddy + Gateway over HTTPS, validates the local HTTPS certificate and path, and provisions the existing test plan catalog.
 
+## E2E Capture test (staging only)
+
+The domain staging deploy script writes `YASEIR_E2E_CAPTURE_ENABLED=1` to
+`deploy/domain-test/.env.domain-test` **if the setting is absent**. The staging
+Compose file passes it to the Gateway service; production's separate Compose
+configuration still defaults to `0`. An explicit existing `0` in staging is
+preserved, so the feature can be disabled without modifying source code.
+
+Redeploy with the usual script after updating the staging branch. It checks
+`GET /api/odoo/test-captures` **without an API key**: HTTP `401` means the
+feature-gated endpoint is present, while `404` indicates the capture route is
+missing or disabled. The smoke script checks the same endpoint by default; set
+`SMOKE_EXPECT_E2E_CAPTURE=0` only if intentionally opting out.
+
+For an assigned **Windows Agent**, independently opt into simulation in its
+protected YAML configuration and restart the Agent service:
+
+```yaml
+server:
+  url: https://print.yaseir.cloud
+  e2e_capture_tests: true
+```
+
+This does not install a virtual printer, print paper, use a Windows spooler
+queue, or change production print-job status. With an offline Agent, an accepted
+capture stays queued until it reconnects or the test expires. The Agent setting
+cannot be changed by deploying the Gateway; configure it on the Windows host.
+Odoo 19 must have the updated `print_gateway` addon installed/upgraded for the
+wizard and its readonly Agent picker fix to appear.
+
 ## Verify
 
 ```bash

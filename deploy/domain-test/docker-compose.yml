@@ -57,6 +57,8 @@ services:
       PORT: 3000
       # Test data/email capture only; HTTPS and authentication follow main.
       YASEIR_HTTP_TEST_MODE: "1"
+      # Separate simulation queue; opt-in via the staging env, never production printing.
+      YASEIR_E2E_CAPTURE_ENABLED: ${YASEIR_E2E_CAPTURE_ENABLED:-0}
       APP_BASE_URL: ${APP_BASE_URL}
       COOKIE_SECURE: "1"
       TRUST_PROXY: "1"

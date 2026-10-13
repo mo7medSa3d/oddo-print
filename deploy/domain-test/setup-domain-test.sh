@@ -104,6 +104,8 @@ upsert_env APP_BASE_URL "https://$DOMAIN"
 upsert_env COOKIE_SECURE 1
 upsert_env TRUST_PROXY 1
 upsert_env YASEIR_HTTP_TEST_MODE 1
+# Enable safe, isolated capture tests on staging, but preserve an explicit 0 opt-out.
+ensure_env YASEIR_E2E_CAPTURE_ENABLED 1
 upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
 ensure_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
 chmod 600 "$ENV_FILE"
@@ -141,6 +143,19 @@ if ! curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/
   echo "ERROR: HTTPS /api/health is not ready."
   docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" logs --no-color --tail=200 caddy gateway || true
   exit 1
+fi
+
+# An unauthenticated capture GET must return 401 when the route is deployed
+# and the flag is enabled. 404 indicates a missing/disabled capture API.
+# No integration API key or document payload is sent by this probe.
+if [[ "$(get_env_value YASEIR_E2E_CAPTURE_ENABLED "$ENV_FILE" || true)" == "1" ]]; then
+  echo "Checking staging E2E Capture API admission..."
+  capture_status="$(curl -sS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$DOMAIN/api/odoo/test-captures" || true)"
+  if [[ "$capture_status" != "401" ]]; then
+    echo "ERROR: E2E Capture API expected HTTP 401 without credentials, got ${capture_status:-unreachable}." >&2
+    echo "Check the staging Gateway image and YASEIR_E2E_CAPTURE_ENABLED=1; do not disable HTTPS." >&2
+    exit 1
+  fi
 fi
 
 docker compose --env-file "$ENV_FILE" -f "$DEPLOY_DIR/docker-compose.yml" run --rm gateway npm run db:provision-plans

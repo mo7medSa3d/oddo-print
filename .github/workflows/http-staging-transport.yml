@@ -47,4 +47,6 @@ jobs:
           npm exec vitest run --config vitest.unit.config.mts tests/domain-staging-deployment.contract.test.ts tests/http-test-deployment-contract.test.ts tests/http-test-email-capture.test.ts tests/stripe-plan-binding.test.ts tests/request-guard.test.ts tests/request-guard-http.test.ts tests/desktop-auth-contract.test.ts
           cp deploy/domain-test/.env.domain-test.example /tmp/yaseir-domain-test.env
           docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config -q
+          # Assert the rendered Gateway service receives the flag, not just the .env fixture.
+          docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config --format json | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(JSON.parse(s).services.gateway.environment.YASEIR_E2E_CAPTURE_ENABLED!=="1")throw Error("Domain staging must enable E2E Capture");});'
 
