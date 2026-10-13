@@ -21,10 +21,10 @@ export class RuntimeAgentField extends Component {
     static template = xml`
         <div class="o_field_widget o_field_runtime_agent">
             <t t-if="props.readonly">
-                <t t-set="selectedAgent" t-value="this.selectedAgent"/>
+                <t t-set="displayAgent" t-value="this.selectedAgent"/>
                 <span>
-                    <t t-esc="selectedAgent?.name || props.record.data[props.name] || ''"/>
-                    <t t-if="selectedAgent"> — <t t-esc="statusLabel(selectedAgent)"/><t t-if="selectedAgent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t></t>
+                    <t t-esc="displayAgent?.name || props.record.data[props.name] || ''"/>
+                    <t t-if="displayAgent"> — <t t-esc="statusLabel(displayAgent)"/><t t-if="displayAgent.freshness === 'stale'"> · <t t-esc="labels.stale"/></t></t>
                 </span>
             </t>
             <t t-else="">
