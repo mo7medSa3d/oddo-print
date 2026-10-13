@@ -67,4 +67,27 @@ describe("Odoo runtime agent picker contract", () => {
     expect(odooIcon.equals(desktopIcon)).toBe(true);
   });
 
+
+  it("renders the readonly Agent without assigning to its getter-only component property", () => {
+    // Owl t-set writes to the template context. If a local binding shares
+    // a name with the component's getter-only selectedAgent accessor,
+    // readonly views crash during the Owl render lifecycle.
+    const source = readFileSync(
+      join(process.cwd(), "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js"),
+      "utf8",
+    );
+    const readonlyBranch = source.split('<t t-if="props.readonly">')[1]?.split('<t t-else="">')[0];
+    expect(readonlyBranch).toBeTruthy();
+    expect(source).toContain("get selectedAgent() {");
+    expect(readonlyBranch).toContain('<t t-set="displayAgent" t-value="this.selectedAgent"/>');
+    expect(readonlyBranch).toContain('t-esc="displayAgent?.name');
+    expect(readonlyBranch).toContain('t-if="displayAgent"');
+    expect(readonlyBranch).toContain('t-esc="statusLabel(displayAgent)"');
+    const getterNames = [...source.matchAll(/\bget\s+([A-Za-z_$][\w$]*)\s*\(\s*\)\s*\{/g)].map((match) => match[1]);
+    const localBindings = [...source.matchAll(/\bt-set="([A-Za-z_$][\w$]*)"/g)].map((match) => match[1]);
+    for (const binding of localBindings) {
+      expect(getterNames).not.toContain(binding);
+    }
+  });
+
 });
