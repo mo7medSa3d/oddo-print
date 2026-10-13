@@ -99,6 +99,46 @@ Odoo-19 manifest on Odoo 20. The Gateway/Agent API can process valid documents
 originating from any version, but Odoo 20 requires its separate supported addon
 migration before the UI workflow can be certified.
 
+## Test Center inbox, previews and manual privacy cleanup
+
+Windows Manager **Test Center → Incoming Odoo E2E tests** shows recent
+Agent-scoped requests as status cards (queued, claimed/received,
+rendered locally, failed, expired). A modal document viewer displays the
+bounded **first-page JPEG preview** with fit/zoom and the recorded page count.
+There is **no direct `file://` access** to the protected Windows PDFs and no
+claim that other pages or physical paper output were displayed.
+
+An elevated Windows Administrator can select **Clear old tests** and confirm
+the irreversible operation. Cleanup has two *independent* scopes:
+
+1. **Local:** Delete only private `capture-<24 lowercase hex>.pdf/.png`
+   evidence older than two minutes from both
+   `%PROGRAMDATA%\\YaseirManager\\test-captures` (legacy root supported)
+   and `%PROGRAMDATA%\\YaseirAgent\\e2e-captures` (legacy root supported).
+   Reject symlink/junction folder redirection and insecure DACLs; do not remove
+   `config.yaml`, pairing secrets, input/other files, printer data, or any
+   recently modified capture that might still be in use.
+2. **Gateway:** Authenticated `DELETE /api/agent/test-captures/status`
+   clears only the paired Agent's own terminal E2E records and requests
+   already past their expiry. Queued and claimed non-expired tests remain,
+   and **`print_jobs` is never modified**. The endpoint is still usable
+   with capture admission turned off, so operators can purge existing test
+   payloads after disabling the feature.
+
+These are **best-effort independent cleanups**: if Gateway is offline or
+out of date, local files can still be cleared; the UI reports partial
+completion rather than incorrectly declaring full success. The normal
+48-hour automatic retention still applies when new tests arrive.
+
+### Explaining an inbox HTTP 404
+
+`{"code":"CAPTURE_NOT_ENABLED"}` means
+`YASEIR_E2E_CAPTURE_ENABLED=1` is missing on the **deployed Gateway**;
+enabling `server.e2e_capture_tests` locally does not change that Gateway
+feature flag. A plain/not-recognized 404 means the connected Gateway image
+may be older than the inbox feature: deploy the current Gateway build and
+restart it, then retry. Do not disable HTTPS or weaken NTFS permissions.
+
 ## Boundaries and operational protection
 
 - Odoo routes: `POST/GET /api/odoo/test-captures` use the installation API key,

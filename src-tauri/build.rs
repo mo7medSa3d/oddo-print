@@ -20,6 +20,7 @@ fn main() {
         "get_e2e_capture_config",
         "set_e2e_capture_config",
         "capture_test_document",
+        "clear_test_capture_files",
         "test_printer",
         "cleanup_local_jobs",
         "register_printer",

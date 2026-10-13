@@ -499,6 +499,39 @@ export async function fetchE2ECapturePreview(gatewayUrl: string, id: string): Pr
   return data;
 }
 
+/** Admin-only deletion of old PDF/PNG evidence under the two private Windows test folders. */
+export interface LocalTestCleanupResult {
+  managerFiles: number;
+  managerBytes: number;
+  managerRecentKept: number;
+  agentFiles: number;
+  agentBytes: number;
+  agentRecentKept: number;
+  agentCleanupUnavailable: boolean;
+}
+export function clearLocalTestCaptures(): Promise<LocalTestCleanupResult> {
+  return invoke<LocalTestCleanupResult>("clear_test_capture_files");
+}
+
+/** Remove only this paired Agent's terminal/expired simulation rows.
+ * Live queued/claimed tests, printer jobs and all other Agents are unaffected.
+ */
+export async function clearGatewayTestHistory(gatewayUrl: string): Promise<number> {
+  const { status, body } = await gatewayConsoleRequest(
+    gatewayUrl, "/api/agent/test-captures/status", "DELETE",
+  );
+  if (status !== 200) {
+    throw gatewayHttpError(status, body, "Could not remove completed Odoo tests (" + status + ")");
+  }
+  const value: unknown = JSON.parse(body);
+  if (!value || typeof value !== "object" || !("deleted" in value)
+      || typeof value.deleted !== "number" || !Number.isSafeInteger(value.deleted)
+      || value.deleted < 0) {
+    throw new Error("Invalid Gateway test cleanup response");
+  }
+  return value.deleted;
+}
+
 /** Offline PDFium Test Center. No Gateway, discovery, or Windows spooler. */
 export interface LocalCaptureResult {
   outcome: "rendered_locally";

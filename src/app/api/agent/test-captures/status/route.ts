@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../../../../db";
 import { e2eCaptureRuns } from "../../../../../db/schema";
 import { validateAgent } from "../../../../../lib/agent-auth";
@@ -57,6 +57,45 @@ export async function GET(req: Request) {
     }, { headers: NO_STORE });
   } catch (error) {
     logError("e2e.capture.status_error", { error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ code: "INTERNAL_ERROR" }, { status: 500, headers: NO_STORE });
+  }
+}
+
+
+/**
+ * Explicit privacy purge for the authenticated, paired Agent only.
+ *
+ * Completed/failed/expired simulations and truly timed-out queued claims are
+ * eligible. Live queued/claimed work is NEVER deleted: doing so would lose
+ * the Agent's in-progress capture result. Printing jobs are a separate table.
+ * This remains available even when capture admission is switched off, so a
+ * disabled test feature does not trap private test documents indefinitely.
+ */
+export async function DELETE(req: Request) {
+  const agent = await validateAgent(req.headers.get("authorization"));
+  if (!agent) {
+    return NextResponse.json({ code: "UNAUTHORIZED" }, { status: 401, headers: NO_STORE });
+  }
+  try {
+    const removed = await db.execute(sql`
+      WITH removed AS (
+        DELETE FROM e2e_capture_runs
+        WHERE tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
+          AND (
+            status IN ('rendered_locally', 'failed', 'expired')
+            OR (status IN ('queued', 'claimed') AND expires_at <= now())
+          )
+        RETURNING id
+      )
+      SELECT COUNT(*)::integer AS deleted FROM removed
+    `);
+    return NextResponse.json({
+      deleted: Number((removed.rows[0] as { deleted?: number } | undefined)?.deleted ?? 0),
+      activePreserved: true,
+      physicalJobsAffected: false,
+    }, { headers: NO_STORE });
+  } catch (error) {
+    logError("e2e.capture.cleanup_error", { error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ code: "INTERNAL_ERROR" }, { status: 500, headers: NO_STORE });
   }
 }

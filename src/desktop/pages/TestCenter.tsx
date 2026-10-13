@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Copy, FileImage, FileText, FlaskConical, Play, ShieldCheck, Upload } from "lucide-react";
+import { CheckCircle2, Copy, FileImage, FileText, FlaskConical, Play, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { Button, Card } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
-import { captureTestDocument, fetchE2ECaptureInbox, fetchE2ECapturePreview, getE2ECaptureConfig, getGatewayUrl, isRunningAsAdmin, isTauri, relaunchAsAdmin, setE2ECaptureConfig, type E2ECaptureRun, type LocalCaptureResult } from "../lib/ipc";
+import { captureTestDocument, clearGatewayTestHistory, clearLocalTestCaptures, fetchE2ECaptureInbox, fetchE2ECapturePreview, getE2ECaptureConfig, getGatewayUrl, isRunningAsAdmin, isTauri, relaunchAsAdmin, setE2ECaptureConfig, type E2ECaptureRun, type GatewayApiError, type LocalCaptureResult, type LocalTestCleanupResult } from "../lib/ipc";
+import { CaptureHistory, CapturePreviewDialog, ClearCapturesDialog } from "../components/CaptureHistory";
 
 type Sample = "pos" | "kitchen" | "bar" | "invoice";
 const sampleMessageKeys = {
@@ -137,8 +138,20 @@ export function TestCenterPage() {
   const [remoteRuns, setRemoteRuns] = useState<E2ECaptureRun[]>([]);
   const [remoteError, setRemoteError] = useState("");
   const [remoteLoading, setRemoteLoading] = useState(false);
-  const [remotePreview, setRemotePreview] = useState<{ id: string; uri: string } | null>(null);
+  const [previewRun, setPreviewRun] = useState<E2ECaptureRun | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [remotePreviewError, setRemotePreviewError] = useState("");
+  const previewGeneration = useRef(0);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [cleanupReport, setCleanupReport] = useState<{
+    local: LocalTestCleanupResult | null;
+    remoteDeleted: number | null;
+    localFailed: boolean;
+    gatewayFailed: boolean;
+  } | null>(null);
   const [e2eEnabled, setE2EEnabled] = useState<boolean | null>(null);
   const [e2eAdmin, setE2EAdmin] = useState<boolean | null>(null);
   const [e2eConfigError, setE2EConfigError] = useState("");
@@ -188,7 +201,15 @@ export function TestCenterPage() {
         const rows = await fetchE2ECaptureInbox(origin);
         if (active) { setRemoteRuns(rows); setRemoteError(""); }
       } catch (e) {
-        if (active) { setRemoteRuns([]); setRemoteError(e instanceof Error ? e.message : "UNKNOWN"); }
+        if (active) {
+          const failure = e as GatewayApiError;
+          const reason = failure?.code === "CAPTURE_NOT_ENABLED" ? "CAPTURE_NOT_ENABLED"
+            : failure?.status === 404 ? "CAPTURE_ENDPOINT_UNAVAILABLE"
+            : failure?.status === 401 ? "CAPTURE_UNAUTHORIZED"
+            : e instanceof Error ? e.message : "UNKNOWN";
+          setRemoteRuns([]);
+          setRemoteError(reason);
+        }
       } finally {
         running = false;
         if (active) setRemoteLoading(false);
@@ -197,18 +218,68 @@ export function TestCenterPage() {
     void refresh();
     const timer = setInterval(() => void refresh(), 10000);
     return () => { active = false; clearInterval(timer); };
-  }, []);
+  }, [historyRevision]);
 
-  const showRemotePreview = async (id: string) => {
-    setRemotePreview(null);
+  const closeRemotePreview = () => {
+    previewGeneration.current++;
+    setPreviewRun(null);
+    setPreviewImage(null);
     setRemotePreviewError("");
+    setPreviewLoading(false);
+  };
+
+  const showRemotePreview = async (run: E2ECaptureRun) => {
+    const generation = ++previewGeneration.current;
+    setPreviewRun(run);
+    setPreviewImage(null);
+    setRemotePreviewError("");
+    setPreviewLoading(true);
     try {
       const origin = await getGatewayUrl();
       if (!origin) throw new Error("GATEWAY_NOT_CONFIGURED");
-      const uri = await fetchE2ECapturePreview(origin, id);
-      setRemotePreview({ id, uri });
+      const uri = await fetchE2ECapturePreview(origin, run.runId);
+      if (generation === previewGeneration.current) setPreviewImage(uri);
     } catch (e) {
-      setRemotePreviewError(e instanceof Error ? e.message : "UNKNOWN");
+      if (generation === previewGeneration.current) {
+        const failure = e as GatewayApiError;
+        setRemotePreviewError(failure?.status === 404
+          ? t("desktop.testCenter.previewUnavailable")
+          : t("desktop.testCenter.remoteUnavailable"));
+      }
+    } finally {
+      if (generation === previewGeneration.current) setPreviewLoading(false);
+    }
+  };
+
+  const clearCaptureHistory = async () => {
+    if (!isTauri || clearBusy || busy || e2eAdmin !== true) return;
+    setClearBusy(true);
+    setCleanupReport(null);
+    let local: LocalTestCleanupResult | null = null;
+    let remoteDeleted: number | null = null;
+    let localFailed = false;
+    let gatewayFailed = false;
+    try {
+      // Local disk cleanup must work even if the Gateway is offline/outdated.
+      try {
+        local = await clearLocalTestCaptures();
+      } catch {
+        localFailed = true;
+      }
+      try {
+        const origin = await getGatewayUrl();
+        if (!origin) throw new Error("GATEWAY_NOT_CONFIGURED");
+        remoteDeleted = await clearGatewayTestHistory(origin);
+      } catch {
+        gatewayFailed = true;
+      }
+      closeRemotePreview();
+      if (local && local.managerFiles > 0) setResult(null);
+      setCleanupReport({ local, remoteDeleted, localFailed, gatewayFailed });
+      setHistoryRevision((version) => version + 1);
+      setClearOpen(false);
+    } finally {
+      setClearBusy(false);
     }
   };
 
@@ -333,12 +404,19 @@ export function TestCenterPage() {
       </Card>
 
       <Card className="p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-base font-semibold text-ink">{t("desktop.testCenter.remoteTitle")}</h3>
-            <p className="mt-1 text-sm text-ink-3">{t("desktop.testCenter.remoteDescription")}</p>
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold tracking-tight text-ink">{t("desktop.testCenter.remoteTitle")}</h3>
+            <p className="max-w-xl text-sm leading-6 text-ink-3">{t("desktop.testCenter.remoteDescription")}</p>
           </div>
-          <span className="text-xs text-ink-3">{remoteLoading ? t("desktop.testCenter.remoteChecking") : t("desktop.testCenter.remoteAutoRefresh")}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-3">{remoteLoading ? t("desktop.testCenter.remoteChecking") : t("desktop.testCenter.remoteAutoRefresh")}</span>
+            <Button size="sm" variant="secondary" icon={<Trash2 className="h-4 w-4" aria-hidden />}
+              disabled={!isTauri || e2eAdmin !== true || busy || clearBusy}
+              onClick={() => { setCleanupReport(null); setClearOpen(true); }}>
+              {t("desktop.testCenter.clearAction")}
+            </Button>
+          </div>
         </div>
         {isTauri && <div className="mb-4 rounded-lg border border-edge bg-surface-2/45 p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -369,46 +447,54 @@ export function TestCenterPage() {
             {t("desktop.testCenter.captureSettingError")}: {e2eAdmin === false ? t("desktop.testCenter.captureSettingAdmin") : e2eConfigError}
           </p>}
         </div>}
+        {cleanupReport && (
+          <div role="status" className="mb-4 rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm leading-6 text-ink-2">
+            <p className="font-semibold text-ink">{t("desktop.testCenter.clearComplete")}</p>
+            <p>{t("desktop.testCenter.clearReport", {
+              files: (cleanupReport.local?.managerFiles ?? 0) + (cleanupReport.local?.agentFiles ?? 0),
+              size: (((cleanupReport.local?.managerBytes ?? 0) + (cleanupReport.local?.agentBytes ?? 0)) / (1024 * 1024)).toFixed(2),
+              runs: cleanupReport.remoteDeleted ?? 0,
+            })}</p>
+            {(cleanupReport.localFailed || cleanupReport.local?.agentCleanupUnavailable || cleanupReport.gatewayFailed) &&
+              <p className="mt-1 text-warn">{t("desktop.testCenter.clearPartial")}</p>}
+            {!!((cleanupReport.local?.managerRecentKept ?? 0) + (cleanupReport.local?.agentRecentKept ?? 0)) &&
+              <p className="mt-1 text-ink-3">{t("desktop.testCenter.clearRecentKept")}</p>}
+          </div>
+        )}
         {remoteError ? (
-          <p role="status" className="rounded-md border border-edge bg-surface-2 p-3 text-sm text-ink-2">
-            {remoteError.includes("CAPTURE_NOT_ENABLED") ? t("desktop.testCenter.remoteDisabled")
+          <p role="status" className="rounded-xl border border-edge bg-surface-2 p-4 text-sm leading-6 text-ink-2">
+            {remoteError === "CAPTURE_NOT_ENABLED" ? t("desktop.testCenter.remoteDisabled")
+              : remoteError === "CAPTURE_ENDPOINT_UNAVAILABLE" ? t("desktop.testCenter.remoteOutdated")
+              : remoteError === "CAPTURE_UNAUTHORIZED" ? t("desktop.testCenter.remoteUnauthorized")
               : remoteError === "GATEWAY_NOT_CONFIGURED" ? t("desktop.testCenter.remoteNoGateway")
               : t("desktop.testCenter.remoteUnavailable") + ": " + remoteError}
           </p>
         ) : remoteRuns.length === 0 ? (
-          <p className="rounded-md bg-surface-2 p-3 text-sm text-ink-3">{t("desktop.testCenter.remoteEmpty")}</p>
+          <p className="rounded-xl border border-dashed border-edge bg-surface-2 p-6 text-center text-sm text-ink-3">
+            {t("desktop.testCenter.remoteEmpty")}
+          </p>
         ) : (
-          <div className="space-y-2">
-            {remoteRuns.map((run) => (
-              <div key={run.runId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-edge p-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium text-ink">{t("desktop.testCenter.remoteTask")} <span className="font-mono text-xs" dir="ltr">{run.runId.slice(-8)}</span></p>
-                  <p className="mt-1 text-xs text-ink-3">{new Date(run.createdAt).toLocaleString()} · {run.paperMm ? run.paperMm + " mm" : "PDF"}</p>
-                  {run.status === "rendered_locally" && <p className="mt-1 text-xs text-ink-3">{run.pages ?? 0} {t("desktop.testCenter.remotePages")}</p>}
-                  {run.errorCode && <p className="mt-1 text-xs text-bad" dir="ltr">{run.errorCode}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-2">
-                    {t(("desktop.testCenter.remoteStatus." + run.status) as "desktop.testCenter.remoteStatus.queued")}
-                  </span>
-                  {run.status === "rendered_locally" && (
-                    <Button size="sm" variant="secondary" onClick={() => void showRemotePreview(run.runId)}>
-                      {t("desktop.testCenter.remotePreview")}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-ink-3">
+              <span className="rounded-full border border-edge bg-surface-2 px-3 py-1.5">
+                {t("desktop.testCenter.inboxRecentCount", { count: remoteRuns.length })}
+              </span>
+              <span className="rounded-full border border-ok-edge bg-ok-bg px-3 py-1.5 text-ok">
+                {t("desktop.testCenter.inboxDoneCount", { count: remoteRuns.filter((item) => item.status === "rendered_locally").length })}
+              </span>
+              <span className="rounded-full border border-edge bg-surface-2 px-3 py-1.5">
+                {t("desktop.testCenter.inboxPendingCount", { count: remoteRuns.filter((item) => item.status === "queued" || item.status === "claimed").length })}
+              </span>
+            </div>
+            <CaptureHistory rows={remoteRuns} onPreview={(run) => void showRemotePreview(run)} />
           </div>
         )}
-        {remotePreviewError && <p role="alert" className="mt-3 text-sm text-bad">{remotePreviewError}</p>}
-        {remotePreview && <div className="mt-4 rounded-lg border border-edge bg-surface-2 p-4">
-          <p className="mb-3 text-xs text-ink-3">{t("desktop.testCenter.remoteNotPrinted")}</p>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={remotePreview.uri} alt={t("desktop.testCenter.remotePreview")} className="mx-auto max-h-[520px] max-w-full object-contain" />
-          <Button size="sm" variant="ghost" onClick={() => setRemotePreview(null)}>{t("desktop.testCenter.remoteClose")}</Button>
-        </div>}
       </Card>
+
+      <CapturePreviewDialog run={previewRun} image={previewImage} loading={previewLoading}
+        error={remotePreviewError} onClose={closeRemotePreview} />
+      <ClearCapturesDialog open={clearOpen} onOpenChange={setClearOpen}
+        onConfirm={() => void clearCaptureHistory()} busy={clearBusy} />
 
       {result && (
         <Card className="overflow-hidden">
