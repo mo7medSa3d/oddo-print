@@ -97,7 +97,7 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     const thumb = await preview(new Request(root + "/api/agent/test-captures/preview?id=" + accepted.runId,
       { headers: { Authorization: owner.agentAuth } }));
     expect(thumb.status).toBe(200);
-    expect((await thumb.json()).previewDataUri).toMatch(/^data:image\\/jpeg;base64,/);
+    expect((await thumb.json()).previewDataUri).toMatch(/^data:image\/jpeg;base64,/);
     const completedInbox = await inbox(agent(owner, "GET"));
     expect((await completedInbox.json()).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ runId: accepted.runId, status: "rendered_locally", pages: 1 }),
