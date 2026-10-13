@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import uuid
+from unittest import TestCase
 
 from psycopg2 import IntegrityError
 
@@ -21,7 +22,9 @@ class TestPrintGatewayIntentRecovery(TransactionCase):
             "raw_protocol": "zpl",
             "raw_template": "^XA^FD{id}^FS^XZ",
         })
-        with self.assertRaises((IntegrityError, ValidationError)), self.env.cr.savepoint():
+        # Odoo 19 overrides assertRaises and only accepts one exception class.
+        # Use the standard unittest implementation to allow either ORM or SQL rejection.
+        with TestCase.assertRaises(self, (IntegrityError, ValidationError)), self.env.cr.savepoint():
             self.env["print_gateway.intent"].create({
                 "company_id": False,
                 "intent_key": "missing-company-%s" % uuid.uuid4().hex,
