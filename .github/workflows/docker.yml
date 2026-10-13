@@ -74,7 +74,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker compose up -d postgres
+          # Registry throttling is external to the application. Retry only
+          # a 429 using the SAME pinned Official Image digest on Docker Hub.
+          # Never switch versions, use unpinned tags or retry other failures.
+          postgres_log="$(mktemp)"
+          if docker compose up -d postgres > "$postgres_log" 2>&1; then
+            cat "$postgres_log"
+          else
+            cat "$postgres_log" >&2
+            if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$postgres_log"; then
+              exit 1
+            fi
+            echo "ECR Public PostgreSQL registry rate-limited; retrying identical pinned digest from Docker Hub" >&2
+            postgres_fallback="$RUNNER_TEMP/yaseir-ci-postgres-dockerhub.yml"
+            cat > "$postgres_fallback" <<'YAML'
+          services:
+            postgres:
+              image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+          YAML
+            fallback_compose="${COMPOSE_FILE}:${postgres_fallback}"
+            COMPOSE_FILE="$fallback_compose" docker compose config --quiet
+            COMPOSE_FILE="$fallback_compose" docker compose up -d postgres
+            export COMPOSE_FILE="$fallback_compose"
+            printf 'COMPOSE_FILE=%s\n' "$fallback_compose" >> "$GITHUB_ENV"
+          fi
           docker compose up migrate
           docker compose up -d gateway
           # The CI-only ECR Public mirror can return 429/toomanyrequests
