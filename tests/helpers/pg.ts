@@ -93,6 +93,7 @@ export async function truncateAll(): Promise<void> {
         // Delete child tables before their referenced parent rows. This keeps
         // the cheaper DELETE-based cleanup semantically equivalent to the
         // previous TRUNCATE ... CASCADE isolation without requiring CASCADE.
+        "e2e_capture_runs",
         "job_events",
         "print_job_receipts",
         "discovered_devices",

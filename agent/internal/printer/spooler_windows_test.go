@@ -898,11 +898,33 @@ func TestPDFPrintCancellationBoundsBlockedGDIAndPreservesEarlyJobID(t *testing.T
 	}
 
 	p := NewSpooler("Blocked GDI Queue", "")
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- p.PrintDocument(ctx, Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-blocked-gdi"})
+	}()
 
+	// Cancellation must happen AFTER the fake StartDocW callback publishes
+	// identity. A 25ms context deadline on a busy CI runner could otherwise
+	// expire during preflight before any GDI session had begun, correctly
+	// leaving no spooler identity (but spuriously failing this assertion).
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		cancel()
+		close(release)
+		t.Fatal("fake GDI worker never reached StartDocW")
+	}
 	start := time.Now()
-	err := p.PrintDocument(ctx, Document{Kind: KindPDF, Data: validPDF(), JobID: "pdf-blocked-gdi"})
+	cancel()
+	var err error
+	select {
+	case err = <-resultCh:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("blocked GDI held caller beyond bounded cancellation")
+	}
 	elapsed := time.Since(start)
 	if err == nil || !OutcomeUnknown(err) {
 		close(release)
@@ -916,13 +938,6 @@ func TestPDFPrintCancellationBoundsBlockedGDIAndPreservesEarlyJobID(t *testing.T
 		close(release)
 		t.Fatalf("StartDocW job identity was lost across bounded cancellation: got %q want 812", got)
 	}
-	select {
-	case <-started:
-	default:
-		close(release)
-		t.Fatal("fake GDI worker did not start")
-	}
-
 	// The caller returned, but the worker still owns the printer session. A
 	// second physical session must not be allowed to overlap the uncertain one.
 	if p.sessionMu.TryLock() {

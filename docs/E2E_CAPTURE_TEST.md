@@ -1,0 +1,106 @@
+# End-to-End Capture Test (Odoo 19 → Gateway → Windows Agent → PDFium)
+
+## What this proves
+
+This is a real **transport and renderer** integration test:
+
+1. An Odoo administrator opens **Yaseir Print → Gateway Configuration → E2E Capture Test**.
+2. The administrator selects an **already assigned** Windows Agent (company/branch fenced).
+3. Odoo renders a diagnostic PDF, a selected customer-invoice PDF, or accepts an
+   Odoo-exported POS/kitchen/bar JPEG. Odoo submits the bounded payload to Gateway
+   using the existing installation API key.
+4. Gateway authenticates the key and tenant, rechecks live authorization in a
+   transaction, reserves an idempotent record in its **separate e2e_capture_runs**
+   durable queue, and returns a test run ID.
+5. The configured Windows Agent polls its own scoped test queue. A fenced claim
+   gives it the document. The Agent uses the existing `CaptureTestDocument` and
+   bundled PDFium engine to parse/render the PDF, writing private PDF/PNG evidence.
+6. Agent reports PDF SHA-256, bytes, pages and a bounded preview to Gateway with
+   the original claim token. Odoo **Refresh Result** reads its own run, displays a
+   preview and says **Rendered locally — not printed**.
+
+Neither the printer registry nor `print_jobs`, Odoo print outbox, billing print
+usage, hardware printer selection, Windows spooler, or physical-print status is
+touched. The Agent *never* fabricates a physical completion. The existing
+virtual/software printer filters remain unchanged.
+
+## Explicit opt-in, safe defaults
+
+Both sides default **OFF**. Enable only on a controlled test deployment:
+
+- Gateway environment: `YASEIR_E2E_CAPTURE_ENABLED=1` (passed through the
+  `gateway` service in `docker-compose.yml`). Restart the Gateway.
+- Agent configuration YAML, under the existing `server:` section:
+
+  ```yaml
+  server:
+    url: https://print.example.com
+    e2e_capture_tests: true
+  ```
+
+  Restart the Windows Agent service after saving the protected configuration.
+- Do **not** set `YASEIR_AGENT_ALLOW_INSECURE_HTTP`; normal TLS and credential
+  validation are unchanged.
+
+Do not share installation API keys in screenshots, logs, or example payloads.
+If using the dedicated domain-test deployment, forward the same feature flag
+through its Gateway environment (default to 0). Do not relax HTTPS, Caddy, tenant
+security, or production printer admission to enable capture testing.
+
+## Using Odoo
+
+On an Odoo **19** installation with the current addon, a system administrator
+opens **Gateway Configuration → E2E Capture Test**. Choose the correct company,
+optionally a branch, then a previously assigned Windows Agent. Select:
+
+- **Odoo PDF test page:** Odoo generates a diagnostic PDF (no real invoice data).
+- **Customer invoice:** choose a readable invoice belonging to that scope. Odoo
+  renders its own QWeb PDF and sends that exact output.
+- **POS / Kitchen / Bar JPEG:** upload the exported JPEG from Odoo POS; choose
+  58mm or 80mm. The Agent uses the same receipt-width mapping as production.
+
+Select **Start E2E Test**. Refresh the same dialog to see Queue → Claimed →
+Rendered locally or Failed/Expired. If the Agent is offline, the queued run
+remains pending until it can safely be claimed or expires (12 minutes).
+No page is physically printed.
+
+Odoo 20 is **not yet supported by this addon**. Do not install or force the
+Odoo-19 manifest on Odoo 20. The Gateway/Agent API can process valid documents
+originating from any version, but Odoo 20 requires its separate supported addon
+migration before the UI workflow can be certified.
+
+## Boundaries and operational protection
+
+- Odoo routes: `POST/GET /api/odoo/test-captures` use the installation API key,
+  scope data to its tenant and integration key, and require active billing.
+- Agent route: `GET/PATCH /api/agent/test-captures` accepts only the paired
+  Agent credential; it returns only work for that Agent and its tenant.
+- Production printers never appear in test queue rows. No synthetic virtual
+  printer record is created, and Test Center remains separate from Printers.
+- PDF/JPEG only; raw, ESC/POS, ZPL/TSPL, peripheral commands and arbitrary
+  destinations are rejected. Limit 4 MiB input, 10 PDF pages, 12 minute TTL,
+  at most four outstanding runs per Agent and three reclaim attempts.
+- Multiple Gateway instances share PostgreSQL claims. SQL locks and an
+  unguessable claim token fence stale Agent responses; unfinished test claims
+  can be reclaimed safely because no physical side effect is possible.
+- On a confirmed result, the database clears the original document payload,
+  retaining only sanitized status, checksum and bounded thumbnail. Old run
+  records are removed after 48 hours on subsequent admissions.
+- On Windows, PDF and PNG outputs are in the protected Agent configuration
+  directory under `e2e-captures`, capped at 20 pairs, with cleanup after 48
+  hours during subsequent captures. No arbitrary filesystem path is accepted.
+- A successful preview proves **end-to-end document transport and PDFium
+  rendering**, not Windows spooler delivery or the actual printer's paper exit.
+- Physical printer acceptance is a separate test, never inferred from capture.
+
+## Verification gates
+
+- Check the database migration, typecheck, Node contract tests, PostgreSQL
+  integration tests, Odoo 19 addon tests, and Go tests including native Windows
+  PDFium, all in GitHub Actions for the changed commit.
+- Exercise a real Odoo diagnostic PDF and one real exported POS JPEG against a
+  paired Agent in staging. Confirm the Gateway never adds a virtual printer,
+  `print_jobs`/billing counters do not change, test evidence is scoped, and
+  the reported status is `rendered_locally`, not `success` or `printed`.
+- Revoke the integration key, retire the Agent, expire the run and re-send stale
+  claim results to verify fail-closed behavior before production rollout.

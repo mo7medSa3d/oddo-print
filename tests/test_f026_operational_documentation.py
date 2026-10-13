@@ -14,10 +14,11 @@ def test_migration_inventory_matches_current_journal():
     # journal and the SQL files, including new forward-only migrations.
     tags=[entry['tag'] for entry in journal]
     assert tags==[path.stem for path in sql]
-    assert len(journal)==len(sql)==83
-    assert journal[-1]['tag']=='0082_audit_repairs_and_maintenance_indexes'
+    assert len(journal)==len(sql)==84
+    assert journal[-1]['tag']=='0083_e2e_capture_runs'
     assert '| 0082 | 1 |' in read('MIGRATION.md')
-    assert '**Total**: 83 forward-only SQL migrations (0000–0082)' in read('MIGRATION.md')
+    assert '| 0083 | 1 |' in read('MIGRATION.md')
+    assert '**Total**: 84 forward-only SQL migrations (0000–0083)' in read('MIGRATION.md')
 
 def test_adr_targets_are_not_presented_as_measured_guarantees():
     content=read('ADR.md')

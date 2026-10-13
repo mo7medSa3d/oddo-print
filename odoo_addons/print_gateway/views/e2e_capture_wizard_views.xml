@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_e2e_capture_wizard_form" model="ir.ui.view">
+        <field name="name">print_gateway.e2e_capture_wizard.form</field>
+        <field name="model">print_gateway.e2e_capture_wizard</field>
+        <field name="arch" type="xml">
+            <form string="End-to-End Capture Test" class="o_pg_view">
+                <sheet>
+                    <div class="alert alert-info" role="status">
+                        This runs a diagnostic from Odoo through Gateway to the assigned Windows Agent.
+                        It creates a local PDF capture, never registers a virtual printer or prints paper.
+                    </div>
+                    <group>
+                        <field name="config_id" invisible="1"/>
+                        <field name="company_id" readonly="1"/>
+                        <field name="branch_id" options="{'no_create': True}" readonly="run_id != False"/>
+                        <field name="runtime_agent_id" widget="gateway_runtime_agent"
+                               readonly="run_id != False" placeholder="Select assigned Windows Agent"/>
+                        <field name="document_kind" readonly="run_id != False"/>
+                        <field name="invoice_id" invisible="document_kind != 'invoice'"
+                               required="document_kind == 'invoice'" readonly="run_id != False"/>
+                        <field name="receipt_jpeg"
+                               invisible="document_kind != 'receipt'" required="document_kind == 'receipt'"
+                               readonly="run_id != False"/>
+                        <field name="paper_mm" invisible="document_kind != 'receipt'"
+                               readonly="run_id != False"/>
+                    </group>
+                    <group string="Simulation result" invisible="not run_id">
+                        <field name="run_id" readonly="1"/>
+                        <field name="capture_status" widget="badge"
+                               decoration-success="capture_status == 'rendered_locally'"
+                               decoration-danger="capture_status in ('failed', 'expired')"/>
+                        <field name="page_count" readonly="1"/>
+                        <field name="pdf_bytes" readonly="1"/>
+                        <field name="pdf_sha256" readonly="1"/>
+                        <field name="error_code" readonly="1" invisible="not error_code"/>
+                        <field name="preview_image" widget="image" readonly="1"
+                               invisible="not preview_image"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_start_test" type="object" string="Start E2E Test"
+                            class="btn-primary" invisible="run_id != False"/>
+                    <button name="action_refresh_test" type="object" string="Refresh Result"
+                            class="btn-primary" invisible="not run_id"/>
+                    <button string="Close" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

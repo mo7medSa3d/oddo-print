@@ -26,6 +26,7 @@ class TestPrintGatewayArchitectureContract(TransactionCase):
             "binding.py",
             "crypto.py",
             "gateway_config.py",
+            "e2e_capture_wizard.py",
             "runtime_assignment.py",
             "ir_actions_report.py",
             "pos_order.py",

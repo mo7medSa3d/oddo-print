@@ -32,6 +32,7 @@ export const integrationVitestTestFiles = [
   "tests/discovery-approval.test.ts",
   "tests/discovery-identity.integration.test.ts",
   "tests/e2e-job-flow.test.ts",
+  "tests/e2e-capture-postgres.test.ts",
   "tests/health.test.ts",
   "tests/server-http-acceptance.test.ts",
   "tests/heartbeat-enabled.test.ts",
