@@ -34,6 +34,7 @@ def migrate(cr, version):
                     "UPDATE print_gateway_gateway_config SET gateway_api_key = %s WHERE id = %s",
                     (value, config.id),
                 )
+                config.invalidate_recordset(["gateway_api_key"])
     except (CredentialKeyUnavailable, CredentialDecryptError, ValueError) as exc:
         raise RuntimeError(
             "Yaseir Print Manager credential migration requires a valid deployment-managed encryption key; plaintext fallback is forbidden."

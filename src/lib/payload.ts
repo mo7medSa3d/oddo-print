@@ -20,18 +20,20 @@ export const printJobPayloadSchema = z.object({
     // admission loudly instead of printing without the requested device
     // action. The wire contract lists exactly these three keys.
   }).strict().optional(),
-  data: z.string().min(1).refine((value) => {
-    if (value.length > (MAX_PAYLOAD_BYTES / 3) * 4 + 8) return false;
-    try {
-      const decoded = Buffer.from(value, "base64");
-      if (decoded.length === 0 || decoded.length > MAX_PAYLOAD_BYTES) return false;
-      return decoded.toString("base64") === value;
-    } catch {
-      return false;
-    }
-  }, { message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` }),
+  data: z.string().min(1).max((MAX_PAYLOAD_BYTES / 3) * 4 + 8, { message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` }),
 }).superRefine((payload, ctx) => {
-  const decoded = Buffer.from(payload.data, "base64");
+  // Single base64 decode for the whole admission: the round-trip check below
+  // rejects non-canonical input, then every signature check reuses `decoded`.
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(payload.data, "base64");
+  } catch {
+    decoded = Buffer.alloc(0);
+  }
+  if (decoded.length === 0 || decoded.length > MAX_PAYLOAD_BYTES || decoded.toString("base64") !== payload.data) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["data"], message: `payload.data must be valid base64 and decode to 1..${MAX_PAYLOAD_BYTES} bytes` });
+    return;
+  }
   const pdfSignature = Buffer.from(payloadContract.signatures.pdfPrefix);
   const jpegSignature = decoded.length >= 3 && decoded.subarray(0, 3).equals(Buffer.from(payloadContract.signatures.jpegHexPrefix, "hex"));
   const looksLikePdf = decoded.length >= pdfSignature.length && decoded.subarray(0, pdfSignature.length).equals(pdfSignature);

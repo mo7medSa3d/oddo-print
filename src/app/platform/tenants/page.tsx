@@ -185,9 +185,7 @@ export default function PlatformTenantsPage() {
           <Callout tone="ok" className="flex-1" title={t("platform.tenants.lifecycleUpdated")}>
             {notice}
           </Callout>
-          <Button variant="ghost" size="sm" onClick={() => setNotice(null)} aria-label={t("platform.tenants.dismiss")} icon={<X className="h-4 w-4" />}>
-            {""}
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setNotice(null)} aria-label={t("platform.tenants.dismiss")} icon={<X className="h-4 w-4" />} />
         </div>
       )}
 

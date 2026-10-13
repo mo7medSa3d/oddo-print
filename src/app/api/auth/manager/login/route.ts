@@ -53,7 +53,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 });
   }
 
-  const tenantId = await resolveManagerTenantId(req);
+  let tenantId: Awaited<ReturnType<typeof resolveManagerTenantId>>;
+  try {
+    tenantId = await resolveManagerTenantId(req);
+  } catch (error) {
+    logError("auth.login.tenant_lookup_failed", { requestId, error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 }), pre);
+  }
   if (!tenantId) {
     return setRateLimitHeaders(NextResponse.json({ error: "Manager tenant is not configured for this hostname" }, { status: 503 }), pre);
   }

@@ -137,6 +137,29 @@ suite("shared refresh-token session rotation", () => {
     expect(row.user_agent).toBe("session-test");
   });
 
+  it("round-trips UTC-naive fixture dates independently of the host timezone", async () => {
+    const previousTimezone = process.env.TZ;
+    try {
+      process.env.TZ = "Pacific/Honolulu";
+      const date = new Date("2026-10-13T16:08:35.364Z");
+      expect(date.getTimezoneOffset()).toBe(600);
+      const row = (await pool().query(
+        `SELECT $1::timestamp AS naive_time,
+                EXTRACT(EPOCH FROM ($1::timestamp AT TIME ZONE 'UTC')) * 1000 AS stored_ms,
+                $1::timestamptz AS zoned_time, 'infinity'::timestamp AS forever`,
+        [date],
+      )).rows[0];
+      expect(row.naive_time).toBeInstanceOf(Date);
+      expect(row.naive_time.getTime()).toBe(date.getTime());
+      expect(Number(row.stored_ms)).toBe(date.getTime());
+      expect(row.zoned_time.getTime()).toBe(date.getTime());
+      expect(row.forever).toBe(Infinity);
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
   it("rejects refresh after the tenant role changes and revokes the family", async () => {
     const first = await issueSessionPair({
       kind: "manager",

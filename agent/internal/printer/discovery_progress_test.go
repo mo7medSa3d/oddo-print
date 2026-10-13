@@ -82,3 +82,23 @@ func TestTruncatedDiscoveryResultNeverAuthorizesAbsence(t *testing.T) {
 		t.Fatal("truncation marker must survive to the consumer")
 	}
 }
+
+func TestMergeDeviceInfoPreservesPublishedCapabilities(t *testing.T) {
+	for _, connection := range []string{"network", "usb"} {
+		t.Run(connection, func(t *testing.T) {
+			existing := DeviceInfo{ConnectionType: "spooler", Capabilities: map[string]interface{}{"verification": "candidate"}}
+			incoming := DeviceInfo{ConnectionType: connection, USBVID: "1234", Capabilities: map[string]interface{}{"serial": "new-evidence"}}
+			merged := mergeDeviceInfo(existing, incoming)
+			if _, added := existing.Capabilities["serial"]; added {
+				t.Fatal("later discovery mutated an already published snapshot")
+			}
+			if merged.Capabilities["serial"] != "new-evidence" || merged.Capabilities["verification"] != "candidate" {
+				t.Fatalf("merge lost source evidence: %v", merged.Capabilities)
+			}
+			merged.Capabilities["verification"] = "verified"
+			if existing.Capabilities["verification"] != "candidate" {
+				t.Fatal("merged capabilities still alias the prior snapshot")
+			}
+		})
+	}
+}

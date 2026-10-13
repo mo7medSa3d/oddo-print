@@ -1,9 +1,13 @@
 import { readFileSync, readdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
-import { Pool } from "pg";
+import { defaults, Pool, types, type PoolConfig } from "pg";
 import { AUDIT_REPAIRS } from "../../scripts/db-migrate";
 import { getWorkerSchema, schemaSearchPath } from "../../src/lib/worker-schema";
+import { parseDbTimeMs } from "../../src/lib/database-timestamp";
+
+// Match the Gateway's UTC-naive storage convention for raw fixture Dates.
+defaults.parseInputDatesAsUTC = true;
 
 export const TEST_DATABASE_URL = process.env.DATABASE_URL ?? "";
 export const hasTestDatabase = TEST_DATABASE_URL.length > 0;
@@ -21,8 +25,20 @@ function quoteIdent(value: string): string { return `"${value.replace(/"/g, '""'
 export function pool(): Pool {
   if (!adminPool) {
     const schema = getOrCreateWorkerSchema();
-    const config: any = { connectionString: TEST_DATABASE_URL, max: 8 };
-    if (schema) config.options = `-c search_path=${schemaSearchPath(schema)}`;
+    const config: PoolConfig = {
+      connectionString: TEST_DATABASE_URL, max: 8, options: "-c timezone=UTC",
+      types: {
+        getTypeParser(oid, format) {
+          const parser = types.getTypeParser(oid, format);
+          if (oid !== types.builtins.TIMESTAMP || format === "binary") return parser;
+          return (value: string) => {
+            const ms = parseDbTimeMs(value);
+            return ms === null ? parser(value) : new Date(ms);
+          };
+        },
+      },
+    };
+    if (schema) config.options += ` -c search_path=${schemaSearchPath(schema)}`;
     adminPool = new Pool(config);
   }
   return adminPool;

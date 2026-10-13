@@ -341,7 +341,11 @@ func purgeLegacyAgentServices() error {
 		}
 
 		status, queryErr := existing.Query()
-		if queryErr == nil && status.State != svc.Stopped {
+		if queryErr != nil {
+			_ = existing.Close()
+			return fmt.Errorf("query legacy service %s before removal: %w", name, queryErr)
+		}
+		if status.State != svc.Stopped {
 			if _, stopErr := existing.Control(svc.Stop); stopErr != nil &&
 				!errors.Is(stopErr, windows.ERROR_SERVICE_NOT_ACTIVE) {
 				existing.Close()
@@ -350,7 +354,11 @@ func purgeLegacyAgentServices() error {
 			deadline := time.Now().Add(30 * time.Second)
 			for {
 				status, queryErr = existing.Query()
-				if queryErr != nil || status.State == svc.Stopped {
+				if queryErr != nil {
+					_ = existing.Close()
+					return fmt.Errorf("verify legacy service %s stopped: %w", name, queryErr)
+				}
+				if status.State == svc.Stopped {
 					break
 				}
 				if time.Now().After(deadline) {

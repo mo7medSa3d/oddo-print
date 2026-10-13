@@ -111,11 +111,6 @@ type SpoolerPrinter struct {
 	PDFPrintResult PDFPrintResultFunc
 	ProbeFunc      func(spoolerName string) string
 	Timeout        time.Duration
-	// preflightActive single-flights the readiness probe per printer: at
-	// most one helper goroutine may ever be stuck inside Win32 for this
-	// printer. Only pointer receivers ever exist (see NewSpooler and all
-	// call sites), so atomic access is race-safe.
-	preflightActive atomic.Bool
 	// sessionMu serializes full print sessions per printer. A session that
 	// wedges inside synchronous WritePrinter holds this mutex (not a shared
 	// pool slot), so repeated Prints against the SAME wedged printer fail
@@ -183,18 +178,12 @@ var ErrSpoolerQueueInaccessible = errors.New("spooler queue inaccessible from cu
 // timed-out Print against a wedged spooler would leak one more blocked
 // helper (each Print gets its own, because the stuck one never returns to
 // clear the way) — unbounded accumulation over hours of steady job flow.
-// The flag clears when the stuck helper's check finally returns, so
+// The shared queue slot clears when the stuck helper's check returns, so
 // recovery after a transient stall is automatic, with no restart and no
 // operator action. A refused call is a plain pre-dispatch failure: no
 // document bytes were ever submitted.
 func (p *SpoolerPrinter) boundedPreflight(ctx context.Context, timeout time.Duration, check func() error) error {
-	if !p.preflightActive.CompareAndSwap(false, true) {
-		return fmt.Errorf("%w: %w: readiness probe for %q already in progress (previous probe stuck in spooler RPC)", ErrPrinterNotReady, ErrSpoolerUnresponsive, p.SpoolerName)
-	}
-	return runPreflightBounded(p.SpoolerName, timeout, ctx, func() error {
-		defer p.preflightActive.Store(false)
-		return check()
-	})
+	return runPreflightBounded(p.SpoolerName, timeout, ctx, check)
 }
 
 // A Win32 driver RPC has no cancellable timeout. An abandoned preflight

@@ -114,7 +114,8 @@ func splitHeartbeatAuxPages[T any](items []T) [][]T {
 
 func gatewayOwnedIDsForPrinterPage(printers []map[string]interface{}, ownedIDs []string) []string {
 	if len(printers) == 0 || len(ownedIDs) == 0 {
-		return nil
+		// Encode as [] rather than null: the Gateway validates this fence as an array.
+		return []string{}
 	}
 	owned := make(map[string]struct{}, len(ownedIDs))
 	for _, id := range ownedIDs {

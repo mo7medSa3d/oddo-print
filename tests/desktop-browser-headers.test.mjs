@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { test } from "node:test";
+import vm from "node:vm";
+
+test("direct-browser bridge preserves caller authorization and safe response pagination separately", async () => {
+  const source = readFileSync("src/desktop/lib/ipc.ts", "utf8");
+  const start = source.indexOf("async function gatewayConsoleRequest(");
+  const end = source.indexOf("async function fetchGatewayFleet(", start);
+  const headerStart = source.indexOf("const FLEET_RESPONSE_HEADERS =");
+  const headerEnd = source.indexOf(";", headerStart) + 1;
+  assert.ok(start >= 0 && end > start && headerStart >= 0);
+  let forwarded;
+  const request = vm.runInNewContext(stripTypeScriptTypes(source.slice(headerStart, headerEnd) + "\n" + source.slice(start, end)) + "\ngatewayConsoleRequest", {
+    isTauri: false, normalizeGatewayUrl: url => url,
+    fetchWithTimeout: async (_url, init) => {
+      forwarded = init;
+      return new Response("[]", { headers: {
+        "x-has-more": "true", "x-next-before-id-encoded": "cDE", "set-cookie": "never-copy-this",
+      } });
+    },
+  });
+  const response = await request("https://gateway.example", "/api/printers", "GET", { Authorization: "Bearer test-manager-credential" });
+  assert.equal(forwarded.headers.Authorization, "Bearer test-manager-credential");
+  assert.equal(forwarded.credentials, "omit");
+  assert.equal(response.headers["x-has-more"], "true");
+  assert.equal(response.headers["x-next-before-id-encoded"], "cDE");
+  assert.equal(response.headers["set-cookie"], undefined);
+});

@@ -109,7 +109,8 @@ export async function GET(req: Request) {
           count(*) FILTER (WHERE claimed_at IS NOT NULL)::integer AS received_by_agent,
           count(*) FILTER (WHERE status = 'rendered_locally')::integer AS completed,
           count(*) FILTER (WHERE status = 'queued' AND expires_at > now())::integer AS waiting,
-          count(*) FILTER (WHERE status = 'failed')::integer AS failed
+          count(*) FILTER (WHERE status = 'failed')::integer AS failed,
+          EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms
         FROM e2e_capture_runs
         WHERE tenant_id = ${claims.tenantId}
           ${filterAgent ? sql`AND agent_id = ${filterAgent}` : sql``}
@@ -120,9 +121,10 @@ export async function GET(req: Request) {
     ]);
     const hasMore = runs.length > limit;
     const page = runs.slice(0, limit);
-    const now = Date.now();
     const last = page[page.length - 1];
     const counts = (countResult.rows[0] ?? {}) as Record<string, string | number>;
+    const now = Number(counts.now_ms);
+    if (!Number.isFinite(now)) throw new Error("Database clock is unavailable");
     return NextResponse.json({
       gatewayCaptureEnabled: captureEnabled(),
       agents: availableAgents,
@@ -184,11 +186,10 @@ export async function DELETE(req: Request) {
         const [candidate] = await tx.select({
           id: e2eCaptureRuns.id,
           status: e2eCaptureRuns.status,
-          expiresAt: e2eCaptureRuns.expiresAt,
+          active: sql<boolean>`(${e2eCaptureRuns.status} IN ('queued','claimed') AND ${e2eCaptureRuns.expiresAt} > clock_timestamp())`,
         }).from(e2eCaptureRuns).where(rowFilter).limit(1).for("update");
         if (!candidate) throw new CaptureConsoleError("NOT_FOUND", 404);
-        if ((candidate.status === "queued" || candidate.status === "claimed")
-          && candidate.expiresAt.getTime() > Date.now()) {
+        if (candidate.active) {
           throw new CaptureConsoleError("CAPTURE_ACTIVE", 409);
         }
       }

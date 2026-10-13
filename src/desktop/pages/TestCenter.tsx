@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Copy, FileImage, FileText, FlaskConical, Play, ShieldCheck, Trash2, Upload } from "lucide-react";
-import { Button, Card } from "../../components/ui";
+import { CheckCircle2, FileImage, FileText, FlaskConical, Play, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { Button, Card, CopyButton } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
 import { captureTestDocument, clearGatewayTestHistory, clearLocalTestCaptures, fetchE2ECaptureInbox, fetchE2ECapturePreview, getE2ECaptureConfig, getGatewayUrl, isRunningAsAdmin, isTauri, relaunchAsAdmin, setE2ECaptureConfig, type E2ECaptureRun, type GatewayApiError, type LocalCaptureResult, type LocalTestCleanupResult } from "../lib/ipc";
 import { CaptureHistory, CapturePreviewDialog, ClearCapturesDialog } from "../components/CaptureHistory";
@@ -524,8 +524,7 @@ export function TestCenterPage() {
                   <div className="text-xs font-semibold text-ink-2">{item.label}</div>
                   <div className="flex min-w-0 items-start gap-2 rounded-lg border border-edge p-3">
                     <span dir="ltr" className="min-w-0 flex-1 break-all font-mono text-xs text-ink-3">{item.value}</span>
-                    <Button size="sm" variant="ghost" onClick={() => void navigator.clipboard.writeText(item.value)}
-                      icon={<Copy className="h-4 w-4" />}>{t("desktop.testCenter.copy")}</Button>
+                    <CopyButton value={item.value} label={t("desktop.testCenter.copy")} />
                   </div>
                 </div>
               ))}

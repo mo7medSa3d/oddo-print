@@ -7,7 +7,7 @@ import { showGatewayBillingLimitDialog, gatewayServerMessage } from "./gateway_l
 import { printRecoveryKey, claimPrintOperation, finishPrintOperation } from "./operation_recovery";
 
 /**
- * OWL 3 silent report interceptor.
+ * Odoo 19 silent report interceptor.
  * Catches ir.actions.report execution in the web client and silently dispatches
  * through the Print Gateway if a binding exists for the current branch/company context.
  *

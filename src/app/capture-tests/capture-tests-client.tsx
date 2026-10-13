@@ -111,8 +111,8 @@ export default function CaptureTestsClient({
     const controller = new AbortController();
     request.current = controller;
     const current = ++generation.current;
-    if (older) setPaging(true);
-    else setLoading(true);
+    setPaging(older);
+    setLoading(!older);
     try {
       const response = await fetchWithTimeout(paramsFor(agentFilter, older ? pageCursor : null), {
         credentials: "include", cache: "no-store", signal: controller.signal,
@@ -135,8 +135,8 @@ export default function CaptureTestsClient({
       }
     } finally {
       if (current === generation.current) {
-        if (older) setPaging(false);
-        else setLoading(false);
+        setPaging(false);
+        setLoading(false);
       }
     }
   }, [agentFilter]);

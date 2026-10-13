@@ -91,7 +91,10 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}
 interface GatewayResponse {
   status: number;
   body: string;
+  headers?: Record<string, string>;
 }
+
+const FLEET_RESPONSE_HEADERS = ["x-has-more", "x-next-before-created-at", "x-next-before-id-encoded", "x-next-before-id", "x-next-cursor"] as const;
 
 function gatewayErrorMessage(body: string, fallback: string): string {
   const raw = body.trim();
@@ -164,7 +167,11 @@ async function gatewayConsoleRequest(
       body,
       credentials: "omit",
     });
-    return { status: response.status, body: await response.text() };
+    const responseHeaders = Object.fromEntries(FLEET_RESPONSE_HEADERS.flatMap((key) => {
+      const value = response.headers.get(key);
+      return value === null ? [] : [[key, value]];
+    }));
+    return { status: response.status, body: await response.text(), headers: responseHeaders };
   }
   const responseEnvelope = await invoke<string>("gateway_agent_request", {
     args: { path, method, body: body ?? null, expected_origin: base, idempotency_key: idempotencyKey ?? null },
@@ -173,7 +180,41 @@ async function gatewayConsoleRequest(
   if (typeof response.status !== "number" || typeof response.body !== "string") {
     throw new Error("Invalid Gateway response envelope");
   }
-  return { status: response.status, body: response.body };
+  const responseHeaders = Object.fromEntries(FLEET_RESPONSE_HEADERS.flatMap((key) => {
+    const value = response.headers?.[key];
+    return typeof value === "string" && value.length <= 4096 ? [[key, value]] : [];
+  }));
+  return { status: response.status, body: response.body, headers: responseHeaders };
+}
+
+async function fetchGatewayFleet(gatewayUrl: string, path: "/api/printers" | "/api/agents"): Promise<Array<Record<string, unknown>>> {
+  const rows: Array<Record<string, unknown>> = [];
+  const seenCursors = new Set<string>();
+  let params = new URLSearchParams({ limit: "100" });
+  while (true) {
+    const { status, body, headers } = await gatewayConsoleRequest(gatewayUrl, `${path}?${params}`, "GET");
+    if (status < 200 || status >= 300) {
+      throw gatewayHttpError(status, body, `fleet fetch failed (${status})`);
+    }
+    const page: unknown = JSON.parse(body);
+    if (!Array.isArray(page) || page.some((row) => !row || typeof row !== "object" || typeof row.id !== "string" || !row.id)) {
+      throw new Error("Invalid Gateway fleet response");
+    }
+    rows.push(...page);
+    if (headers?.["x-has-more"] !== "true") return rows;
+    const createdAt = headers["x-next-before-created-at"];
+    const encodedId = headers["x-next-before-id-encoded"];
+    const rawId = headers["x-next-before-id"];
+    if (!createdAt || !Number.isFinite(Date.parse(createdAt)) || (!encodedId && !rawId)
+        || (encodedId && !/^[A-Za-z0-9_-]{1,2732}$/.test(encodedId))) {
+      throw new Error("Invalid Gateway fleet cursor");
+    }
+    params = new URLSearchParams({ limit: "100", beforeCreatedAt: createdAt });
+    params.set(encodedId ? "beforeIdEncoded" : "beforeId", encodedId || rawId!);
+    const cursor = params.toString();
+    if (seenCursors.has(cursor)) throw new Error("Gateway fleet cursor did not advance");
+    seenCursors.add(cursor);
+  }
 }
 
 export function getAgentStatus(): Promise<AgentStatus> {
@@ -304,20 +345,12 @@ export async function fetchGatewayAgents(
   const base = normalizeGatewayUrl(gatewayUrl);
   // The packaged desktop authenticates with the paired Agent through its
   // native CLI. There is no Manager token or password in the WebView.
-  const { status, body } = await gatewayConsoleRequest(base, "/api/agents", "GET", {});
-  if (status < 200 || status >= 300) {
-    throw gatewayHttpError(status, body, "agents fetch failed (" + status + ")");
-  }
-  return JSON.parse(body) as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>;
+  return await fetchGatewayFleet(base, "/api/agents") as Array<{ id: string; name: string; status?: string; lifecycle?: string; lastSeenAt?: string | null; staleThresholdSeconds?: number | null }>;
 }
 
 export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterInfo[]> {
   const base = normalizeGatewayUrl(gatewayUrl);
-  const { status, body } = await gatewayConsoleRequest(base, "/api/printers", "GET", {});
-  if (status < 200 || status >= 300) {
-    throw gatewayHttpError(status, body, "printers fetch failed (" + status + ")");
-  }
-  const rows = JSON.parse(body) as Array<Record<string, unknown>>;
+  const rows = await fetchGatewayFleet(base, "/api/printers");
   return rows.map((row) => {
     const config = row.config && typeof row.config === "object"
       ? row.config as Record<string, unknown>

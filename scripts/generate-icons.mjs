@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import sharp from "sharp";
-import { readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -46,6 +46,7 @@ async function generatePNGs() {
   const publicIcon = join(root, "src/app/icon.png");
   await sharp(svgBuf).resize(512, 512).png().toFile(publicIcon);
   console.log(`✓ src/app/icon.png (512)`);
+  await mkdir(join(root, "public"), { recursive: true });
   await sharp(svgBuf).resize(32, 32).png().toFile(join(root, "public/favicon.png"));
   console.log(`✓ public/favicon.png (32)`);
 }

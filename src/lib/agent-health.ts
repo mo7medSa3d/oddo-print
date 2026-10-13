@@ -63,7 +63,7 @@ export function computeAgentHealthStatus(lastSeenAt?: Date | null, createdAt?: D
     if (createdAt) {
       const createdMs = parseDbTimeMs(createdAt);
       const ageCreated = createdMs === null ? Number.POSITIVE_INFINITY : now.getTime() - createdMs;
-      if (ageCreated <= STARTING_THRESHOLD_MS) return "STARTING";
+      if (ageCreated >= 0 && ageCreated <= STARTING_THRESHOLD_MS) return "STARTING";
     }
     return "OFFLINE";
   }

@@ -21,6 +21,13 @@ test("Go service control fails closed on foreign current and legacy registration
   }
 });
 
+test("legacy service purge requires readable stopped state before deleting a registration", () => {
+  const purge = goInstall.slice(goInstall.indexOf("func purgeLegacyAgentServices()"));
+  assert.match(purge, /if queryErr != nil \{\s*_ = existing\.Close\(\)\s*return fmt\.Errorf\("query legacy service %s before removal: %w", name, queryErr\)/);
+  assert.match(purge, /if queryErr != nil \{\s*_ = existing\.Close\(\)\s*return fmt\.Errorf\("verify legacy service %s stopped: %w", name, queryErr\)/);
+  assert.ok(purge.indexOf("verify legacy service %s stopped") < purge.indexOf("existing.Delete()"));
+});
+
 test("Tauri delegates SCM mutations to the ownership-validating bundled Agent", () => {
   assert.doesNotMatch(tauri, /fn run_net\(/);
   assert.doesNotMatch(tauri, /system32_exe\("net\.exe"\)/);

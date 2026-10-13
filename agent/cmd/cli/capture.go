@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/yaseir-agent/agent/internal/config"
@@ -91,8 +90,7 @@ func pruneLocalCaptures(dir string) {
 	files := make([]item, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, "capture-") ||
-			(!strings.HasSuffix(name, ".pdf") && !strings.HasSuffix(name, ".png")) {
+		if entry.IsDir() || !isCaptureOutputName(name) {
 			continue
 		}
 		info, err := entry.Info()

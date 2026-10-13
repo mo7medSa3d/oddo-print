@@ -374,8 +374,11 @@ export async function cleanupAuthRateLimits(): Promise<number> {
   return result.rows.length;
 }
 
-export async function recordAuthSuccess(_ip: string, username: string): Promise<void> {
+export async function recordAuthSuccess(ip: string, username: string): Promise<void> {
   const keys = [accountKey(username)];
+  // A successful login proves the source is not guessing: clear the IP bucket
+  // too, or a shared NAT accumulates failures across users until it locks out.
+  if (isIP(ip) !== 0) keys.push(ipKey(ip));
   await db.execute(sql`
     DELETE FROM auth_rate_limits
     WHERE key IN (${sql.join(keys.map((key) => sql`${key}`), sql`, `)})

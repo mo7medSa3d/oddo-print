@@ -1,11 +1,38 @@
 # -*- coding: utf-8 -*-
 import uuid
+from unittest import TestCase
+
+from psycopg2 import IntegrityError
 
 from odoo import api
+from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase
 
 
 class TestPrintGatewayIntentRecovery(TransactionCase):
+    def test_companyless_intents_are_rejected_before_recovery_can_process_them(self):
+        self.assertTrue(self.env["print_gateway.intent"]._fields["company_id"].required)
+        stock_model = self.env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+        policy = self.env["print_gateway.policy"].create({
+            "name": "Required company %s" % uuid.uuid4().hex,
+            "company_id": self.env.company.id,
+            "model_id": stock_model.id,
+            "event_type": "picking_validated",
+            "action_type": "raw_template",
+            "raw_protocol": "zpl",
+            "raw_template": "^XA^FD{id}^FS^XZ",
+        })
+        # Odoo 19 overrides assertRaises and only accepts one exception class.
+        # Use the standard unittest implementation to allow either ORM or SQL rejection.
+        with TestCase.assertRaises(self, (IntegrityError, ValidationError)), self.env.cr.savepoint():
+            self.env["print_gateway.intent"].create({
+                "company_id": False,
+                "intent_key": "missing-company-%s" % uuid.uuid4().hex,
+                "policy_id": policy.id,
+                "res_model": "stock.picking", "res_id": 0,
+                "event_type": "picking_validated",
+            })
+
     def test_permanently_failed_intents_cannot_starve_retryable_intents(self):
         """Exhausted failures must not consume the cron's bounded recovery batch."""
         cr = self.env.registry.cursor()

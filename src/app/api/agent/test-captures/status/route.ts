@@ -29,7 +29,7 @@ export async function GET(req: Request) {
       createdAt: e2eCaptureRuns.createdAt,
       claimedAt: e2eCaptureRuns.claimedAt,
       finishedAt: e2eCaptureRuns.finishedAt,
-      expiresAt: e2eCaptureRuns.expiresAt,
+      expired: sql<boolean>`(${e2eCaptureRuns.status} IN ('queued', 'claimed') AND ${e2eCaptureRuns.expiresAt} <= now())`,
       paperMm: e2eCaptureRuns.paperMm,
       pages: e2eCaptureRuns.pages,
       pdfBytes: e2eCaptureRuns.pdfBytes,
@@ -41,13 +41,10 @@ export async function GET(req: Request) {
 
     // A read does not mutate/claim an Agent job. Show an accurate expiry
     // even when Odoo has not refreshed the run to persist its terminal state.
-    const now = Date.now();
     return NextResponse.json({
       simulationOnly: true,
       physicalPrinted: false,
-      items: rows.map(({ expiresAt, ...row }) => {
-        const expired = (row.status === "queued" || row.status === "claimed")
-          && expiresAt.getTime() <= now;
+      items: rows.map(({ expired, ...row }) => {
         return {
           ...row,
           status: expired ? "expired" : row.status,

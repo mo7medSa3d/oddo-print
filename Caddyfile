@@ -11,6 +11,8 @@
 	# client-supplied value, letting an attacker rotate the Gateway's
 	# per-IP rate-limit buckets with spoofed leftmost entries.
 	reverse_proxy gateway:3000 {
+		# Absolute container path: compose mounts the secret at
+		# /run/secrets/trust_proxy_secret, independent of Caddy's cwd.
 		header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
 		header_up X-Forwarded-For {http.request.remote.host}
 		header_up -X-Real-Ip

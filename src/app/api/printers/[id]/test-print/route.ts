@@ -120,7 +120,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ok: true, jobId: result.id, printerId: printer.id, status: result.status,
       isReused: result.isReused,
       ...(physicalOutcome ? { physicalOutcome } : {}),
-    }, { status: 201 });
+    }, { status: result.isReused ? 200 : 201 });
   } catch (e) {
     if (e instanceof TenantPrintQuotaExceededError) {
       const headers = new Headers({ "Cache-Control": "no-store" });

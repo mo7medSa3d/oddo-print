@@ -99,6 +99,7 @@ class PrintGatewayPolicy(models.Model):
     )
     binding_id = fields.Many2one(
         "print_gateway.binding", string="Target Binding", ondelete="restrict",
+        # shortcut: field domain hides company-wide fallbacks when a branch is set (string pinned by contract test); the form view widens it, the validator stays authoritative
         domain="[('company_id', '=', company_id), ('branch_id', '=', branch_id)]",
         help="Optional explicit Print Rule for this exact Odoo Company and Branch scope.",
     )

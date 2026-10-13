@@ -302,6 +302,20 @@ jobs:
           echo "CADDY_HTTP_RESPONSE:"
           curl --silent --show-error --head --max-time 10             -H 'Host: print.example.com'             http://127.0.0.1/api/live
 
+          # Prove Caddy injects the Docker-secret proxy token end to end: a
+          # token-bearing request relayed by Caddy must NOT be rejected with
+          # TRUSTED_PROXY_REQUIRED. Auth is intentionally absent, so any other
+          # outcome (e.g. 401) still proves the proxy trust passed.
+          # shortcut: header-only probe; full WS-via-Caddy proof needs an agent credential.
+          echo "CADDY_PROXY_TOKEN_RESPONSE:"
+          proxy_secret="$(docker compose exec -T gateway cat /run/secrets/trust_proxy_secret | tr -d '[:space:]')"
+          caddy_body="$(curl --silent --show-error --max-time 10               -H 'Host: print.example.com'               -H "X-Gateway-Proxy-Token: $proxy_secret"               http://127.0.0.1/api/system/health)"
+          echo "$caddy_body"
+          if printf '%s' "$caddy_body" | grep -q 'TRUSTED_PROXY_REQUIRED'; then
+            echo "Caddy did not inject a valid proxy token (gateway answered TRUSTED_PROXY_REQUIRED)" >&2
+            exit 1
+          fi
+
       - name: Verify backup and restore round-trip
         shell: bash
         run: |
