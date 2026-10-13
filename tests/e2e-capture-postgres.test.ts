@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { hasTestDatabase, applyMigrations, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { POST as start, GET as read } from "../src/app/api/odoo/test-captures/route";
 import { GET as claim, PATCH as finish } from "../src/app/api/agent/test-captures/route";
+import { GET as inbox } from "../src/app/api/agent/test-captures/status/route";
+import { GET as preview } from "../src/app/api/agent/test-captures/preview/route";
 
 const root = "http://localhost:3000";
 const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
@@ -56,6 +58,15 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     expect(conflict.status).toBe(409);
     expect((await claim(agent(outsider, "GET"))).status).toBe(204);
     expect((await read(odoo(outsider, "GET", undefined, accepted.runId))).status).toBe(404);
+    const ownerInbox = await inbox(agent(owner, "GET"));
+    expect(ownerInbox.status).toBe(200);
+    expect((await ownerInbox.json()).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runId: accepted.runId, status: "queued" }),
+    ]));
+    const strangerInbox = await inbox(agent(outsider, "GET"));
+    expect((await strangerInbox.json()).items.some((x: { runId: string }) => x.runId === accepted.runId)).toBe(false);
+    expect((await preview(new Request(root + "/api/agent/test-captures/preview?id=" + accepted.runId,
+      { headers: { Authorization: outsider.agentAuth } }))).status).toBe(404);
     const fetched = await claim(agent(owner, "GET"));
     expect(fetched.status).toBe(200);
     const envelope = await fetched.json();
@@ -63,6 +74,10 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
       runId: accepted.runId, simulationOnly: true, physicalPrinterId: null,
     });
     expect(envelope.payload.data).toBe(body.payload.data);
+    const claimedInbox = await inbox(agent(owner, "GET"));
+    expect((await claimedInbox.json()).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runId: accepted.runId, status: "claimed" }),
+    ]));
     expect((await claim(agent(owner, "GET"))).status).toBe(204);
     expect((await finish(agent(owner, "PATCH", {
       runId: accepted.runId, claimToken: "0".repeat(64), status: "rendered_locally",
@@ -79,6 +94,14 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
       runId: accepted.runId, claimToken: envelope.claimToken,
       status: "failed", errorCode: "PDFIUM_FAILED",
     }))).status).toBe(409);
+    const thumb = await preview(new Request(root + "/api/agent/test-captures/preview?id=" + accepted.runId,
+      { headers: { Authorization: owner.agentAuth } }));
+    expect(thumb.status).toBe(200);
+    expect((await thumb.json()).previewDataUri).toMatch(/^data:image\\/jpeg;base64,/);
+    const completedInbox = await inbox(agent(owner, "GET"));
+    expect((await completedInbox.json()).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runId: accepted.runId, status: "rendered_locally", pages: 1 }),
+    ]));
     const visible = await read(odoo(owner, "GET", undefined, accepted.runId));
     expect(visible.status).toBe(200);
     expect(await visible.json()).toMatchObject({

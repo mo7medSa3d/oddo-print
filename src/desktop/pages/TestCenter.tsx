@@ -1,8 +1,8 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Copy, FileImage, FileText, FlaskConical, Play, ShieldCheck, Upload } from "lucide-react";
 import { Button, Card } from "../../components/ui";
 import { useI18n } from "../../i18n/react";
-import { captureTestDocument, isTauri, type LocalCaptureResult } from "../lib/ipc";
+import { captureTestDocument, fetchE2ECaptureInbox, fetchE2ECapturePreview, getGatewayUrl, isTauri, type E2ECaptureRun, type LocalCaptureResult } from "../lib/ipc";
 
 type Sample = "pos" | "kitchen" | "bar" | "invoice";
 const sampleMessageKeys = {
@@ -134,6 +134,49 @@ export function TestCenterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LocalCaptureResult | null>(null);
+  const [remoteRuns, setRemoteRuns] = useState<E2ECaptureRun[]>([]);
+  const [remoteError, setRemoteError] = useState("");
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remotePreview, setRemotePreview] = useState<{ id: string; uri: string } | null>(null);
+  const [remotePreviewError, setRemotePreviewError] = useState("");
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let active = true;
+    let running = false;
+    const refresh = async () => {
+      if (running || !active) return;
+      running = true;
+      setRemoteLoading(true);
+      try {
+        const origin = await getGatewayUrl();
+        if (!origin) throw new Error("GATEWAY_NOT_CONFIGURED");
+        const rows = await fetchE2ECaptureInbox(origin);
+        if (active) { setRemoteRuns(rows); setRemoteError(""); }
+      } catch (e) {
+        if (active) { setRemoteRuns([]); setRemoteError(e instanceof Error ? e.message : "UNKNOWN"); }
+      } finally {
+        running = false;
+        if (active) setRemoteLoading(false);
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 10000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
+  const showRemotePreview = async (id: string) => {
+    setRemotePreview(null);
+    setRemotePreviewError("");
+    try {
+      const origin = await getGatewayUrl();
+      if (!origin) throw new Error("GATEWAY_NOT_CONFIGURED");
+      const uri = await fetchE2ECapturePreview(origin, id);
+      setRemotePreview({ id, uri });
+    } catch (e) {
+      setRemotePreviewError(e instanceof Error ? e.message : "UNKNOWN");
+    }
+  };
 
   const chooseSample = (next: Sample) => {
     setSample(next);
@@ -253,6 +296,55 @@ export function TestCenterPage() {
           {!isTauri && <p className="text-xs text-ink-3">{t("desktop.testCenter.windowsOnly")}</p>}
           {error && <div role="alert" className="rounded-lg border border-bad-edge bg-bad-bg px-4 py-3 text-sm text-bad">{t("desktop.testCenter.failed")}: {error}</div>}
         </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-semibold text-ink">{t("desktop.testCenter.remoteTitle")}</h3>
+            <p className="mt-1 text-sm text-ink-3">{t("desktop.testCenter.remoteDescription")}</p>
+          </div>
+          <span className="text-xs text-ink-3">{remoteLoading ? t("desktop.testCenter.remoteChecking") : t("desktop.testCenter.remoteAutoRefresh")}</span>
+        </div>
+        {remoteError ? (
+          <p role="status" className="rounded-md border border-edge bg-surface-2 p-3 text-sm text-ink-2">
+            {remoteError.includes("CAPTURE_NOT_ENABLED") ? t("desktop.testCenter.remoteDisabled")
+              : remoteError === "GATEWAY_NOT_CONFIGURED" ? t("desktop.testCenter.remoteNoGateway")
+              : t("desktop.testCenter.remoteUnavailable") + ": " + remoteError}
+          </p>
+        ) : remoteRuns.length === 0 ? (
+          <p className="rounded-md bg-surface-2 p-3 text-sm text-ink-3">{t("desktop.testCenter.remoteEmpty")}</p>
+        ) : (
+          <div className="space-y-2">
+            {remoteRuns.map((run) => (
+              <div key={run.runId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-edge p-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium text-ink">{t("desktop.testCenter.remoteTask")} <span className="font-mono text-xs" dir="ltr">{run.runId.slice(-8)}</span></p>
+                  <p className="mt-1 text-xs text-ink-3">{new Date(run.createdAt).toLocaleString()} · {run.paperMm ? run.paperMm + " mm" : "PDF"}</p>
+                  {run.status === "rendered_locally" && <p className="mt-1 text-xs text-ink-3">{run.pages ?? 0} {t("desktop.testCenter.remotePages")}</p>}
+                  {run.errorCode && <p className="mt-1 text-xs text-bad" dir="ltr">{run.errorCode}</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-semibold text-ink-2">
+                    {t(("desktop.testCenter.remoteStatus." + run.status) as "desktop.testCenter.remoteStatus.queued")}
+                  </span>
+                  {run.status === "rendered_locally" && (
+                    <Button size="sm" variant="secondary" onClick={() => void showRemotePreview(run.runId)}>
+                      {t("desktop.testCenter.remotePreview")}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {remotePreviewError && <p role="alert" className="mt-3 text-sm text-bad">{remotePreviewError}</p>}
+        {remotePreview && <div className="mt-4 rounded-lg border border-edge bg-surface-2 p-4">
+          <p className="mb-3 text-xs text-ink-3">{t("desktop.testCenter.remoteNotPrinted")}</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={remotePreview.uri} alt={t("desktop.testCenter.remotePreview")} className="mx-auto max-h-[520px] max-w-full object-contain" />
+          <Button size="sm" variant="ghost" onClick={() => setRemotePreview(null)}>{t("desktop.testCenter.remoteClose")}</Button>
+        </div>}
       </Card>
 
       {result && (

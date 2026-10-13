@@ -589,6 +589,12 @@ fn valid_jobs_query(path: &str) -> bool {
     true
 }
 
+fn valid_capture_preview_path(path: &str) -> bool {
+    const PREFIX: &str = "/api/agent/test-captures/preview?id=cap_";
+    let Some(id) = path.strip_prefix(PREFIX) else { return false; };
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
     let method = method.to_ascii_uppercase();
     match method.as_str() {
@@ -596,7 +602,8 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
         // console proxy exposes only the agent list, while the operator CLI
         // needs single-agent fetch for diagnostics. Both are read-only.
-        "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents",
+        "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents"
+            || path == "/api/agent/test-captures/status" || valid_capture_preview_path(path),
         "POST" => {
             path == "/api/printers"
                 || gateway_printer_action_path(path, "test-connection")
@@ -671,10 +678,13 @@ pub async fn gateway_agent_request(
             use std::os::windows::process::CommandExt;
             request_cmd.creation_flags(0x0800_0000);
         }
+        // The optional single JPEG preview is bounded to 256 KiB before base64;
+        // allow the resulting JSON envelope without raising other API budgets.
+        let max_stdout = if valid_capture_preview_path(&path) { 512 * 1024 } else { 256 * 1024 };
         let out = agent::run_bounded_command(
             request_cmd,
             std::time::Duration::from_secs(20),
-            256 * 1024,
+            max_stdout,
             64 * 1024,
         )?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -1899,6 +1909,18 @@ mod agent_console_path_tests {
             "GET"
         ));
         assert!(!allowed_agent_gateway_path("/api/printers/p1", "PATCH"));
+        assert!(allowed_agent_gateway_path("/api/agent/test-captures/status", "GET"));
+        assert!(allowed_agent_gateway_path(
+            &format!("/api/agent/test-captures/preview?id=cap_{}", "a".repeat(32)), "GET"
+        ));
+        assert!(!allowed_agent_gateway_path("/api/agent/test-captures", "GET"));
+        assert!(!allowed_agent_gateway_path("/api/agent/test-captures/status", "POST"));
+        assert!(!allowed_agent_gateway_path(
+            &format!("/api/agent/test-captures/preview?id=cap_{}&extra=1", "a".repeat(32)), "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            &format!("/api/agent/test-captures/preview?id=cap_{}", "A".repeat(32)), "GET"
+        ));
     }
 }
 #[cfg(test)]
