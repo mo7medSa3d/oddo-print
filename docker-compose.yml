@@ -60,6 +60,8 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 3000
       YASEIR_DEPLOYMENT_ID: ${YASEIR_DEPLOYMENT_ID:-}
+      # Opt-in only; test queue never creates a physical printer or print job.
+      YASEIR_E2E_CAPTURE_ENABLED: ${YASEIR_E2E_CAPTURE_ENABLED:-0}
       APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL must be set to the public Gateway URL}
       # Optional providers stay disabled when unset; their absence must not
       # prevent the core Gateway from starting.

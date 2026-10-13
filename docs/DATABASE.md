@@ -14,42 +14,53 @@ from the schema again.
 
 | Metric | Value |
 | --- | --- |
-| Tables in `schema.ts` | 25 |
-| Migration files | 81 (`0000` … `0080`) plus versioned forward repairs |
-| Tables created by migration history and forward repairs | 32 |
+| Tables in `schema.ts` | 26 |
+| Migration files | 84 (`0000` … `0083`) plus versioned forward repairs |
+| Tables created by migration history and forward repairs | 33 |
 | Legacy tables later dropped | 7 |
-| Indexes created by migrations | 117 |
+| Historical index definitions through `0080` | 117 (later migrations add more; see SQL) |
 | Foreign keys added after table creation | 67 |
 
 ## Table matrix
 
 | Table | schema.ts line | created in | historical indexes | historical late foreign keys |
 | --- | --- | --- | --- | --- |
-| `agents` | 109 | `0000_simple_tigra.sql` | 6 | 5 |
-| `api_keys` | 198 | `0000_simple_tigra.sql` | 1 | 3 |
-| `audit_events` | 489 | `0034_saas_control_plane.sql` | 3 | 0 |
-| `auth_rate_limits` | 288 | `0005_auth_rate_limits.sql` | 4 | 0 |
-| `billing_events` | 276 | `0037_customer_identity_billing.sql` | 2 | 0 |
-| `discovered_devices` | 319 | `0010_discovery.sql` | 12 | 10 |
-| `discovery_sessions` | 299 | `0010_discovery.sql` | 6 | 4 |
-| `email_verification_tokens` | 233 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `gateway_metrics` | 480 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
-| `job_events` | 439 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
-| `manager_sessions` | 218 | `0000_simple_tigra.sql` | 3 | 1 |
-| `password_reset_tokens` | 245 | `0037_customer_identity_billing.sql` | 2 | 1 |
-| `plans` | 509 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `agents` | 110 | `0000_simple_tigra.sql` | 6 | 5 |
+| `api_keys` | 210 | `0000_simple_tigra.sql` | 1 | 3 |
+| `audit_events` | 504 | `0034_saas_control_plane.sql` | 3 | 0 |
+| `auth_rate_limits` | 301 | `0005_auth_rate_limits.sql` | 4 | 0 |
+| `billing_events` | 289 | `0037_customer_identity_billing.sql` | 2 | 0 |
+| `discovered_devices` | 332 | `0010_discovery.sql` | 12 | 10 |
+| `discovery_sessions` | 312 | `0010_discovery.sql` | 6 | 4 |
+| `e2e_capture_runs` | 625 | `0083_e2e_capture_runs.sql` | 2 | 0 |
+| `email_verification_tokens` | 245 | `0037_customer_identity_billing.sql` | 2 | 1 |
+| `gateway_metrics` | 495 | `0015_metrics_and_agent_notifications.sql` | 0 | 0 |
+| `job_events` | 454 | `0055_job_events_and_spooler_job_id.sql` | 4 | 2 |
+| `manager_sessions` | 230 | `0000_simple_tigra.sql` | 3 | 1 |
+| `password_reset_tokens` | 257 | `0037_customer_identity_billing.sql` | 2 | 1 |
+| `plans` | 524 | `0034_saas_control_plane.sql` | 3 | 0 |
 | `platform_sessions` | 43 | `0043_add_platform_owner.sql` | 2 | 0 |
-| `print_job_receipts` | 586 | `scripts/db-migrate.ts` A86 | 1 | 0 |
-| `print_jobs` | 370 | `0000_simple_tigra.sql` | 23 | 15 |
-| `print_usage_periods` | 570 | `0061_print_usage_quota.sql` | 1 | 0 |
-| `printers` | 149 | `0000_simple_tigra.sql` | 9 | 6 |
+| `print_job_receipts` | 601 | `scripts/db-migrate.ts` A86 | 1 | 0 |
+| `print_jobs` | 384 | `0000_simple_tigra.sql` | 23 | 15 |
+| `print_usage_periods` | 585 | `0061_print_usage_quota.sql` | 1 | 0 |
+| `printers` | 150 | `0000_simple_tigra.sql` | 9 | 6 |
 | `refresh_tokens` | 54 | `0073_refresh_tokens.sql` | 4 | 1 |
 | `tenant_domains` | 18 | `0030_tenant_domains_and_manager_sessions.sql` | 3 | 0 |
-| `tenant_invitations` | 257 | `0037_customer_identity_billing.sql` | 3 | 2 |
-| `tenant_subscriptions` | 531 | `0034_saas_control_plane.sql` | 7 | 0 |
-| `tenant_users` | 90 | `0028_add_multi_tenancy.sql` | 3 | 2 |
+| `tenant_invitations` | 269 | `0037_customer_identity_billing.sql` | 3 | 2 |
+| `tenant_subscriptions` | 546 | `0034_saas_control_plane.sql` | 7 | 0 |
+| `tenant_users` | 91 | `0028_add_multi_tenancy.sql` | 3 | 2 |
 | `tenants` | 4 | `0028_add_multi_tenancy.sql` | 1 | 0 |
 | `users` | 31 | `0028_add_multi_tenancy.sql` | 1 | 0 |
+
+The `e2e_capture_runs` table is a tenant/Agent- and API-key-scoped,
+**simulation-only** outbox installed by `0083_e2e_capture_runs.sql`.
+It has a composite `(tenant_id, agent_id)` foreign key, unique
+`(tenant_id, api_key_id, idempotency_key)`, two indexes for Agent claims
+and retention, a 12-minute default TTL, a three-attempt limit, bounded
+page/byte constraints, and a terminal-state check requiring the original
+payload to be cleared. It deliberately has **no** printer id, `print_jobs`
+foreign key, physical status or billing linkage. A successful local render
+is never proof of paper output. The feature is opt-in at Gateway and Agent.
 
 Every table declared in `schema.ts` is created by a migration, and every
 table created by a migration is either declared in `schema.ts` or dropped

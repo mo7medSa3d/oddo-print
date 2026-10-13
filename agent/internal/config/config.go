@@ -21,6 +21,8 @@ const secretStoreKey = "agent_secret"
 type Config struct {
 	Server struct {
 		URL string `yaml:"url"`
+		// Explicit opt-in: simulated document capture, never a printer.
+		E2ECaptureTests bool `yaml:"e2e_capture_tests,omitempty"`
 	} `yaml:"server"`
 	Agent struct {
 		ID                string `yaml:"id"`

@@ -2159,6 +2159,18 @@ class PrintGatewayConfig(models.Model):
             "tag": "reload",
         }
 
+    def action_open_e2e_capture_wizard(self):
+        self.ensure_one()
+        self._check_admin()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("End-to-End Capture Test"),
+            "res_model": "print_gateway.e2e_capture_wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {"default_config_id": self.id},
+        }
+
     def action_open_pairing_wizard(self):
         self.ensure_one()
         self._check_admin()
