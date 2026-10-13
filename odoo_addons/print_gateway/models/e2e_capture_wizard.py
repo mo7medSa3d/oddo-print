@@ -98,7 +98,7 @@ class PrintGatewayE2ECaptureWizard(models.TransientModel):
             if content_type != "pdf":
                 raise ValidationError(_("Odoo did not return a PDF invoice."))
         else:
-            pdf = self.env["print_gateway.router"]._generate_test_pdf(
+            pdf = self.env["print_gateway.print_router"]._generate_test_pdf(
                 company_name=company.name,
                 branch_name=self.branch_id.name if self.branch_id else _("Main company"),
                 printer_name=_("E2E simulation only — no printer"),
