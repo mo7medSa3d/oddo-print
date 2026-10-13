@@ -1486,3 +1486,266 @@
     }
   }
 }
+
+
+/* ============================================================
+   Yaseir experience layer — token-driven, contrast-safe, RTL aware.
+   Shared by the public landing, Gateway and Windows desktop UI.
+   Source: original Park UI-inspired component recipes, not vendor CSS.
+   ============================================================ */
+@layer components {
+  .yw-marketing { --yw-accent-wash: color-mix(in srgb, var(--brand) 10%, transparent); }
+  .yw-public-header {
+    background: color-mix(in srgb, var(--surface) 91%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(145%);
+    backdrop-filter: blur(16px) saturate(145%);
+  }
+  .yw-hero {
+    background:
+      radial-gradient(ellipse 62% 75% at 104% 25%, color-mix(in srgb, var(--brand) 13%, transparent), transparent 76%),
+      radial-gradient(ellipse 46% 66% at 3% 85%, color-mix(in srgb, var(--brand) 5%, transparent), transparent 75%),
+      var(--bg);
+  }
+  .yw-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.31;
+    background-image: linear-gradient(color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at 85% 25%, black, transparent 72%);
+  }
+  .yw-hero-inner { position: relative; }
+  .yw-hero-title {
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+  .yw-hero-eyebrow {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 13px;
+    border: 1px solid var(--border-accent);
+    border-radius: 999px;
+    background: var(--brand-subtle);
+    color: var(--brand-subtle-text);
+  }
+  .yw-hero-eyebrow::before {
+    content: "";
+    height: 7px;
+    width: 7px;
+    border-radius: 100%;
+    background: var(--brand);
+    box-shadow: 0 0 0 4px var(--brand-ring);
+    flex-shrink: 0;
+  }
+  .yw-hero-stage {
+    min-width: 0;
+    box-shadow: var(--shadow-xl), 0 32px 90px color-mix(in srgb, var(--brand) 8%, transparent);
+    background: var(--surface);
+    isolation: isolate;
+  }
+  .yw-hero-stage::before {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    z-index: -1;
+    inset: -60% -40% 20%;
+    background: radial-gradient(ellipse, color-mix(in srgb, var(--brand) 11%, transparent), transparent 70%);
+  }
+  .yw-hero-stage-header { min-height: 76px; }
+  .yw-hero-pipeline { position: relative; }
+  .yw-hero-pipeline::before {
+    content: "";
+    position: absolute;
+    top: 21px;
+    bottom: 21px;
+    inset-inline-start: 34px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--border-accent), var(--brand), var(--border-accent));
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .yw-hero-step {
+    position: relative;
+    min-height: 71px;
+    box-shadow: var(--shadow-xs);
+    transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+  .yw-hero-step:hover, .yw-hero-step:focus-within {
+    background: var(--surface-hover);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-sm);
+  }
+  .yw-hero-step-number {
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--border-accent);
+  }
+  .yw-marketing #product,
+  .yw-marketing #reliability {
+    background: var(--surface);
+  }
+  .yw-flow-row {
+    transition: background-color 170ms ease;
+  }
+  .yw-flow-row:hover { background: var(--surface-hover); }
+  .yw-spotlight-card {
+    --yw-pointer-x: 50%;
+    --yw-pointer-y: 15%;
+    transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+  }
+  .yw-spotlight-card::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(380px circle at var(--yw-pointer-x) var(--yw-pointer-y), color-mix(in srgb, var(--brand) 11%, transparent), transparent 76%);
+    transition: opacity 220ms ease;
+  }
+  .yw-spotlight-card > * { position: relative; }
+  .yw-spotlight-card:hover,
+  .yw-spotlight-card:focus-within {
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-3px);
+  }
+  .yw-spotlight-card:hover::before, .yw-spotlight-card:focus-within::before { opacity: 1; }
+  .yw-final-cta {
+    background:
+      radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--brand) 13%, transparent), transparent 55%),
+      var(--surface-2);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-md);
+  }
+  .yw-mobile-nav-link {
+    display: flex;
+    min-height: 50px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--r-lg);
+    color: var(--text);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .yw-mobile-nav-link:hover, .yw-mobile-nav-link:focus-visible {
+    outline: none;
+    color: var(--brand-subtle-text);
+    background: var(--brand-subtle);
+    box-shadow: inset 0 0 0 1px var(--border-accent);
+  }
+  .yw-mobile-nav-cta {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: var(--r-lg);
+    background: var(--brand);
+    color: white;
+    font-weight: 650;
+    text-decoration: none;
+  }
+  .yw-mobile-nav-cta:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+  .yw-nav-panel { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .yw-nav-overlay[data-state="open"] { animation: yw-overlay-in 180ms ease both; }
+  .yw-nav-panel[data-state="open"] { animation: yw-panel-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes yw-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes yw-panel-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+  [dir="rtl"] .yw-nav-panel[data-state="open"] { animation-name: yw-panel-in-rtl; }
+  @keyframes yw-panel-in-rtl { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
+
+  /* Operational surfaces remain calm and do not intercept native scrolling. */
+  .tg-console-rail, .tg-desktop-rail {
+    box-shadow: 0 12px 48px color-mix(in srgb, var(--text) 9%, transparent), var(--shadow-sm);
+    border-color: var(--border);
+  }
+  .tg-console-rail .tg-sidebar-label, .tg-desktop-rail .tg-sidebar-label {
+    padding-block: 4px 8px;
+  }
+  .tg-nav-item { font-weight: 570; }
+  .tg-nav-item[data-active="true"] { font-weight: 690; }
+  .tg-console-rail .sidebar-item,
+  .tg-desktop-rail .sidebar-item { isolation: isolate; }
+  .tg-desktop-topbar { box-shadow: var(--shadow-sm); }
+  .yw-agent-overview .tg-card-root {
+    border-radius: var(--r-xl);
+  }
+  .yw-agent-overview .tg-card-root:focus-within { border-color: var(--border-accent); }
+}
+
+@media (max-width: 639.98px) {
+  .yw-hero-title { font-size: clamp(2.4rem, 11.5vw, 3.4rem); }
+  .yw-hero-checks { grid-template-columns: 1fr; }
+  .yw-hero-stage { border-radius: 20px; }
+  .yw-hero-step { padding-inline: 12px; }
+  .yw-marketing :is(#product,#how-it-works,#reliability,#security) { scroll-margin-top: 78px; }
+  .yw-nav-panel { width: min(360px, 92vw); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yw-marketing *, .yw-marketing *::before, .yw-marketing *::after,
+  .yw-nav-overlay, .yw-nav-panel, .yw-spotlight-card {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .yw-spotlight-card:hover, .yw-spotlight-card:focus-within { transform: none; }
+}
+
+
+/* Operational dashboards — high-density with deliberate information hierarchy. */
+@layer components {
+  .yw-gateway-dashboard .yw-fleet-board {
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    border-color: var(--border);
+  }
+  .yw-gateway-dashboard .yw-fleet-board::before {
+    content: "";
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--brand), color-mix(in srgb, var(--brand) 45%, transparent));
+    pointer-events: none;
+  }
+  .yw-fleet-kpis > .grid > div {
+    min-height: 120px;
+    gap: 9px;
+    padding: 19px 18px;
+    background: var(--surface);
+    transition: background-color 180ms ease;
+  }
+  .yw-fleet-kpis > .grid > div:hover { background: var(--surface-hover); }
+  .yw-fleet-kpis > .grid > div > :nth-child(2) {
+    font-size: clamp(1.65rem, 2.1vw, 2rem);
+    font-weight: 720;
+    letter-spacing: -0.045em;
+  }
+  .yw-gateway-dashboard > .tg-card-root,
+  .yw-agent-overview .tg-card-root {
+    border-radius: var(--r-xl);
+  }
+  .yw-agent-stats {
+    padding: 2px;
+    border-radius: var(--r-xl);
+    background: linear-gradient(125deg, var(--border-accent), var(--border), var(--border-accent));
+  }
+  .yw-agent-status > * { border-radius: var(--r-xl); }
+  .yw-agent-overview .data-table :is(th, td) { padding-block: 14px; }
+  .yw-gateway-dashboard .data-table :is(th, td) { padding-block: 13px; }
+  .yw-gateway-dashboard .card,
+  .yw-agent-overview .card { min-width: 0; }
+  @media (max-width: 639.98px) {
+    .yw-fleet-kpis > .grid > div { min-height: 108px; padding: 15px 13px; }
+    .yw-fleet-kpis > .grid > div > :nth-child(2) { font-size: 1.5rem; }
+  }
+}
