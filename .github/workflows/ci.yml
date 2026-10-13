@@ -111,21 +111,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
-      # Temporary lockfile metadata capture on this unmerged UI branch.
-      # Restored to its original contents before release.
-      - name: Capture UI dependency lock delta
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --package-lock-only --ignore-scripts --no-audit --fund=false
-          node - <<'NODE'
-          const { readFileSync } = require("node:fs");
-          const { execFileSync } = require("node:child_process");
-          const old = JSON.parse(execFileSync("git", ["show", "HEAD:package-lock.json"], {encoding:"utf8"}));
-          const next = JSON.parse(readFileSync("package-lock.json", "utf8"));
-          const nodes = Object.entries(next.packages).filter(([key,value]) => JSON.stringify(old.packages[key]) !== JSON.stringify(value));
-          console.log("UI_LOCK_DELTA=" + JSON.stringify({ root: next.packages[""], nodes }));
-          NODE
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
       - name: Typecheck

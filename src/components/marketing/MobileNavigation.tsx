@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ArrowUpRight, Menu, X } from "lucide-react";
@@ -16,6 +16,12 @@ export function MobileNavigation({
   actionLabel: string;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 640px)");
+    const closeOnDesktop = () => { if (desktop.matches) setOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>

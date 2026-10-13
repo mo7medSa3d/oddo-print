@@ -12,7 +12,10 @@ describe("Gateway and Platform sidebar navigation", () => {
     expect(shell).toContain('<MobileAppBar');
     expect(shell).toContain('area="gateway"');
     expect(shell).toContain('id="gateway-mobile-nav"');
-    expect(shell).toContain("useDialog(mobileOpen");
+    expect(shell).toContain("Dialog.Root");
+    expect(shell).toContain("Dialog.Content");
+    expect(shell).toContain("onCloseAutoFocus");
+    expect(shell).not.toContain("useDialog(mobileOpen");
     expect(shell).toContain("ShellSearchButton");
     expect(shell).toContain("ThemeToggle");
     expect(shell).toContain('placement="above"');
@@ -46,12 +49,13 @@ describe("Gateway and Platform sidebar navigation", () => {
     const bar = read("src/components/MobileAppBar.tsx");
     for (const source of [gateway, platform]) {
       expect(source).toContain("<MobileAppBar");
-      expect(source).toContain("useDialog(mobileOpen");
       expect(source).toContain("setMobileOpen(false)");
       expect(source).toContain('max-w-[85vw]');
       expect(source).not.toContain("tg-mobile-nav-trigger");
       expect(source).not.toContain("pt-14 lg:pt-0");
     }
+    expect(gateway).toContain("Dialog.Overlay");
+    expect(gateway).toContain("Dialog.Title");
     expect(gateway).toContain('navigationId="gateway-mobile-nav"');
     expect(platform).toContain('navigationId="platform-mobile-nav"');
     expect(bar).toContain('aria-controls={navigationId}');

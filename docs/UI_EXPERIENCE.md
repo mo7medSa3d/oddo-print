@@ -7,7 +7,7 @@ job state and existing deployment routes remain unchanged.
 
 ## Headless, styling and motion
 - **Radix UI Dialog** is the shared accessible foundation for the refreshed
-  marketing and Gateway mobile navigation: focus trap, Escape, overlay dismiss,
+  marketing, Gateway, and Windows Agent mobile navigation: focus trap, Escape, overlay dismiss,
   ARIA title and return-to-trigger. The longer-lived legacy common overlays
   are not migrated in this batch to avoid regressing printing dialogs.
 - **Park UI patterns:** use `--surface`, `--border`, `--brand`, `--text`,

@@ -21,7 +21,8 @@ describe("public marketing and operational UI experience contracts", () => {
   it("uses the same Radix headless library for marketing and Gateway mobile navigation", () => {
     const publicMenu = load("src/components/marketing/MobileNavigation.tsx");
     const shell = load("src/components/AppShell.tsx");
-    for (const source of [publicMenu, shell]) {
+    const agent = load("src/desktop/components/Sidebar.tsx");
+    for (const source of [publicMenu, shell, agent]) {
       expect(source).toContain('from "@radix-ui/react-dialog"');
       expect(source).toContain("Dialog.Root");
       expect(source).toContain("Dialog.Content");
@@ -30,6 +31,8 @@ describe("public marketing and operational UI experience contracts", () => {
     }
     expect(publicMenu).toContain("Dialog.Close");
     expect(shell).toContain("onCloseAutoFocus");
+    expect(agent).toContain("onCloseAutoFocus");
+    expect(agent).toContain("Dialog.Overlay");
   });
 
   it("keeps the operational scroll native, with no mobile motion dependency", () => {

@@ -217,6 +217,13 @@ function ConsoleShell({
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setMobileOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo>({});
   const [renderedPath, setRenderedPath] = useState(pathname);

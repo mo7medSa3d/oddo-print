@@ -1116,15 +1116,6 @@ export default function App() {
         version={version}
         lastStatusCheck={lastStatusCheck}
       />
-      {sidebarOpen && (
-        <div
-          className="pg-fade-in fixed inset-0 z-30 lg:hidden"
-          style={{ backgroundColor: "var(--overlay)" }}
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden
-        />
-      )}
-
       <div
         className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[92px]" : "lg:ps-[276px]"}`}
       >
