@@ -27,6 +27,11 @@ describe("agent-health", () => {
     expect(computeAgentHealthStatus(null, createdAt, now)).toBe("STARTING");
   });
 
+  it("does not infer startup from a future creation timestamp", () => {
+    const now = new Date("2026-10-13T10:00:00Z");
+    expect(computeAgentHealthStatus(null, new Date(now.getTime() + 60_000), now)).toBe("OFFLINE");
+  });
+
   it("OFFLINE when never seen and no recent createdAt", () => {
     const now = new Date();
     const createdAt = new Date(now.getTime() - 10 * 60_000);

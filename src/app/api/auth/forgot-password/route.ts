@@ -24,21 +24,33 @@ export async function POST(req: Request) {
     return NextResponse.json(generic, { status: 503 });
   }
   if (!rate.allowed) { const res = NextResponse.json(generic, { status: 202 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
-  const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id:true,email:true } });
+  let user: { id: string; email: string } | undefined;
+  try {
+    user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id:true,email:true } });
+  } catch (error) {
+    logError("auth.forgot_password.lookup_failed", { error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json(generic, { status: 202 }), rate);
+  }
   if (!user) return setRateLimitHeaders(NextResponse.json(generic, { status: 202 }), rate);
+  const userId = user.id;
   const raw=generateOpaqueToken();
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`);
-    await tx.update(passwordResetTokens)
-      .set({ consumedAt: sql`now()` })
-      .where(and(eq(passwordResetTokens.userId, user.id), isNull(passwordResetTokens.consumedAt)));
-    await tx.insert(passwordResetTokens).values({
-      id: `prt_${nanoid(18)}`,
-      userId: user.id,
-      tokenHash: await hashToken(raw),
-      expiresAt: sql`clock_timestamp() + interval '20 minutes'`,
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
+      await tx.update(passwordResetTokens)
+        .set({ consumedAt: sql`now()` })
+        .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.consumedAt)));
+      await tx.insert(passwordResetTokens).values({
+        id: `prt_${nanoid(18)}`,
+        userId,
+        tokenHash: await hashToken(raw),
+        expiresAt: sql`clock_timestamp() + interval '20 minutes'`,
+      });
     });
-  });
+  } catch (error) {
+    logError("auth.forgot_password.persistence_failed", { error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json(generic, { status: 202 }), rate);
+  }
   try {
     const url = `${appBaseUrl(req)}/reset-password?token=${encodeURIComponent(raw)}`;
     await sendTransactionalEmail({

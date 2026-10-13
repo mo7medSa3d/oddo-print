@@ -16,6 +16,14 @@ agent/bin
 agent/.cache
 agent/agent.db
 agent/agent.db-*
+agent/queue.db
+agent/queue.db-*
+agent/config.yaml
+agent/config.yaml.*
+agent/e2e-captures
+config.yaml
+queue.db
+queue.db-*
 agent/sudo
 agent/*.exe
 .pytest_cache

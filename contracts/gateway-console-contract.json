@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "producer": "agent/cmd/cli/gateway.go",
+  "bridge": "src-tauri/src/commands.rs",
+  "consumer": "src/desktop/lib/ipc.ts",
+  "response": {
+    "status": "HTTP status integer",
+    "body": "unmodified response body string",
+    "headers": "optional object of lowercase allowlisted pagination header values"
+  },
+  "paginationHeaders": [
+    "x-has-more",
+    "x-next-before-created-at",
+    "x-next-before-id-encoded",
+    "x-next-before-id",
+    "x-next-cursor"
+  ],
+  "fleetReadPaths": ["/api/printers", "/api/agents"],
+  "fleetQueryKeys": ["limit", "offset", "beforeCreatedAt", "beforeId", "beforeIdEncoded"],
+  "fleetQueryValueMaxBytes": 4096,
+  "fleetQueryRules": "GET only; one nonempty value per key; reject unknown keys, malformed escapes, encoded routes, fragments and traversal",
+  "cursorRules": "When x-has-more=true, advance with x-next-before-created-at plus x-next-before-id-encoded (beforeIdEncoded query), falling back to x-next-before-id; advance even when a page body is empty after virtual-printer filtering",
+  "credentials": "paired Agent credentials stay inside the CLI; no Authorization, Set-Cookie or secret response headers cross the desktop bridge"
+}

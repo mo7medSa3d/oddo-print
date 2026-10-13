@@ -92,7 +92,8 @@ export async function GET(req: Request) {
       ? printer.appliedDesiredRevision >= printer.desiredRevision && printer.observedDesiredRevision >= printer.desiredRevision
       : true,
   }));
-  const last = pageRows[pageRows.length - 1]?.printer;
+  // Advance over hidden virtual queues too, including an entirely hidden page.
+  const last = rows[Math.min(rows.length, limit) - 1]?.printer;
   return NextResponse.json(responseRows, {
     headers: {
       "Cache-Control": "no-store",

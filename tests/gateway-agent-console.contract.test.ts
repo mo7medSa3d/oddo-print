@@ -11,9 +11,12 @@ describe("desktop Agent Gateway response contract", () => {
     const ipc = read("src/desktop/lib/ipc.ts");
     const cli = read("agent/cmd/cli/gateway.go");
 
-    expect(cli).toContain("Status uint16");
-    expect(cli).toContain("Body   string");
-    expect(rust).toContain("let response: GatewayResponse = serde_json::from_str");
+    expect(cli).toMatch(/Status\s+uint16\s+`json:"status"`/);
+    expect(cli).toMatch(/Body\s+string\s+`json:"body"`/);
+    expect(cli).toMatch(/Headers\s+map\[string\]string\s+`json:"headers,omitempty"`/);
+    expect(rust).toContain("let mut response: GatewayResponse = serde_json::from_str");
+    expect(rust).toContain("response.headers.retain");
+    expect(ipc).toContain('"x-next-before-id-encoded"');
     expect(ipc).toContain("response.status");
     expect(ipc).not.toContain("return { status: 200, body: responseBody }");
   });

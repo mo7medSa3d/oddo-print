@@ -210,7 +210,7 @@ ExecStart=/opt/yaseir/scripts/postgres-backup.sh
 ```ini
 # /etc/systemd/system/yaseir-backup.timer
 [Timer]
-OnCalendar=daily
+OnCalendar=*-*-* 02:00:00 UTC
 Persistent=true
 [Install]
 WantedBy=timers.target

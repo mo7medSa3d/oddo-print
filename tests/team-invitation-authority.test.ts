@@ -64,4 +64,13 @@ describe("invitation actor authority and lifecycle lock ordering", () => {
     expect(state.inserts).toBe(0);
     expect(state.emails).toBe(0);
   });
+  it.each(["invalid", "recipient\n@example.invalid", `${"a".repeat(310)}@example.invalid`])("rejects an invalid email before creating an invitation (%s)", async email => {
+    const response = await POST(new Request("http://gateway.test/api/team/invitations", {
+      method: "POST", body: JSON.stringify({ email, role: "viewer" }),
+    }));
+    expect(response.status).toBe(400);
+    expect(state.statements).toEqual([]);
+    expect(state.inserts).toBe(0);
+    expect(state.emails).toBe(0);
+  });
 });

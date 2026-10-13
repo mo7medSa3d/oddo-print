@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yaseir-agent/agent/internal/printer"
 )
@@ -38,5 +39,28 @@ func TestCaptureCLIRequiresExplicitArguments(t *testing.T) {
 		if err := handleCaptureTest(args); err == nil {
 			t.Fatalf("accepted incomplete arguments: %v", args)
 		}
+	}
+}
+
+func TestCapturePruningPreservesUnownedDocuments(t *testing.T) {
+	dir := t.TempDir()
+	owned := "capture-" + strings.Repeat("a", 24) + ".pdf"
+	unowned := "capture-important-invoice.pdf"
+	old := time.Now().Add(-72 * time.Hour)
+	for _, name := range []string{owned, unowned} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("private document"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneLocalCaptures(dir)
+	if _, err := os.Stat(filepath.Join(dir, owned)); !os.IsNotExist(err) {
+		t.Fatalf("expired capture artifact was not pruned: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, unowned)); err != nil {
+		t.Fatalf("unowned document was deleted during capture pruning: %v", err)
 	}
 }

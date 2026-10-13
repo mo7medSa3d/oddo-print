@@ -1506,7 +1506,7 @@ export default function DashboardClient({
               title={t("empty.agents.title")}
               description={t("agent.registerEmptyDescription")}
               action={
-                <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} icon={<Plus className="h-3.5 w-3.5" />}>
+                <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy || databaseError !== null} icon={<Plus className="h-3.5 w-3.5" />}>
                   {t("agent.register")}
                 </Button>
               }
@@ -1693,7 +1693,7 @@ export default function DashboardClient({
               {filteredPrinters.map((printer) => {
                 const parentAgent = agentById.get(printer.agentId);
                 const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
-                const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
+                const freshness = printerObservationFreshness(printer.lastSeenAt, nowMs);
                 const displayStatus = effStatus;
                 const active = printer.lifecycle === "active";
                 return (
@@ -1795,7 +1795,7 @@ export default function DashboardClient({
                   {filteredPrinters.map((printer) => {
                     const parentAgent = agentById.get(printer.agentId);
                     const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
-                    const freshness = printer.freshness ?? printerObservationFreshness(printer.lastSeenAt, nowMs);
+                    const freshness = printerObservationFreshness(printer.lastSeenAt, nowMs);
                     const displayStatus = effStatus;
                     const active = printer.lifecycle === "active";
                     return (

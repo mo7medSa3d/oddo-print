@@ -22,8 +22,7 @@ class PrintGatewayIntent(models.Model):
 
     company_id = fields.Many2one(
         "res.company", string="Company", default=lambda self: self.env.company,
-        index=True, ondelete="restrict",
-        # shortcut: nullable company_id hides rows from the record rule while the sudo cron still processes them, require it once legacy/test rows are backfilled
+        required=True, index=True, ondelete="restrict",
     )
     intent_key = fields.Char(string="Idempotency Intent Key", required=True, index=True, readonly=True)
     policy_id = fields.Many2one("print_gateway.policy", string="Policy", required=True, ondelete="restrict")
@@ -401,4 +400,3 @@ class PrintGatewayIntent(models.Model):
                     recovered_count += 1
             remaining_time = cron._commit_progress(1)
         return recovered_count
-

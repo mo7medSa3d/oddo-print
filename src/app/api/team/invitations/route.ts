@@ -5,7 +5,7 @@ import { tenantInvitations } from "../../../../db/schema";
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
-import { generateOpaqueToken, hashToken, normalizeEmail } from "../../../../lib/password";
+import { generateOpaqueToken, hashToken, normalizeEmail, validEmail } from "../../../../lib/password";
 import { sendTransactionalEmail, appBaseUrl } from "../../../../lib/email";
 import { getServerLocale, makeT } from "../../../../i18n/server";
 import { nanoid } from "../../../../lib/nanoid";
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
   try { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const role = typeof body.role === "string" ? body.role : "viewer";
-  if (!email || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
+  if (!validEmail(email) || !ROLES.includes(role as (typeof ROLES)[number])) return NextResponse.json({ error: "Invalid invitation" }, { status: 400 });
   const raw = generateOpaqueToken();
   const id = `inv_${nanoid(18)}`;
   const expiresAt = sql`clock_timestamp() + interval '7 days'`;

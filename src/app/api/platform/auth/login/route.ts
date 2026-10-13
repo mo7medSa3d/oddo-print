@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { authenticatePlatformOwner, createPlatformSession, platformCookieHeader, platformRefreshCookieHeader } from "../../../../../lib/platform-auth";
 import { clientIpFrom, reserveAuthAttempt, recordAuthSuccess, setRateLimitHeaders } from "../../../../../lib/auth-rate-limit";
-import { logError } from "../../../../../lib/log";
+import { logError, logWarn } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
 
 export async function POST(req: Request) {
@@ -42,7 +42,13 @@ export async function POST(req: Request) {
     return setRateLimitHeaders(res, decision);
   }
 
-  const user = await authenticatePlatformOwner(email, password);
+  let user: Awaited<ReturnType<typeof authenticatePlatformOwner>>;
+  try {
+    user = await authenticatePlatformOwner(email, password);
+  } catch (error) {
+    logError("auth.platform_login.user_lookup_failed", { error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json({ error: "Authentication temporarily unavailable" }, { status: 503 }), decision);
+  }
   if (!user) {
     return setRateLimitHeaders(
       NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 }),
@@ -50,7 +56,11 @@ export async function POST(req: Request) {
     );
   }
 
-  await recordAuthSuccess(clientIp, email);
+  try {
+    await recordAuthSuccess(clientIp, email);
+  } catch (error) {
+    logWarn("auth.platform_login.rate_limit_clear_failed", { error: error instanceof Error ? error.message : "unknown" });
+  }
 
   let session;
   try {
@@ -60,7 +70,8 @@ export async function POST(req: Request) {
     }, user.credentialVersion);
   } catch (error) {
     if (error instanceof AuthenticationChangedError) return setRateLimitHeaders(NextResponse.json({ error: "Invalid Platform Owner credentials or unverified account" }, { status: 401 }), decision);
-    throw error;
+    logError("auth.platform_login.session_failed", { error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 503 }), decision);
   }
 
   void writeAuditEvent({

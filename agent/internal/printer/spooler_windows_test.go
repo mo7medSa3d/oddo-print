@@ -119,9 +119,9 @@ func TestBoundedPreflightSingleFlightRefusesOverlap(t *testing.T) {
 		t.Fatalf("pre-dispatch refusal must not be classified unknown: %v", err)
 	}
 
-	// Once the wedged RPC finally returns, the flag clears and the next
+	// Once the wedged RPC finally returns, the queue slot clears and the next
 	// call proceeds normally: recovery is automatic, no restart required.
-	// (The helper holds the flag until ITS check returns, not until the
+	// (The helper holds the slot until ITS check returns, not until the
 	// bounded caller gives up - otherwise every timeout would leak one more
 	// stuck helper behind the wedged RPC.)
 	close(block)
@@ -746,15 +746,19 @@ func TestSpoolerStatusUnreadableQueueIsNotOnline(t *testing.T) {
 		t.Fatalf("overlapping probe must be refused as unknown, got %q", st2)
 	}
 
-	// Let the abandoned helper finish, then restore. preflightActive clears
-	// only after the probe function returns, so polling it joins the helper
-	// without touching any hook.
+	// The shared queue slot clears only after the probe returns.
 	close(release)
+	preflightPending := func() bool {
+		spoolerPreflightOwnership.Lock()
+		defer spoolerPreflightOwnership.Unlock()
+		_, pending := spoolerPreflightOwnership.active[strings.ToLower(strings.TrimSpace(p.SpoolerName))]
+		return pending
+	}
 	deadline := time.Now().Add(5 * time.Second)
-	for p.preflightActive.Load() && time.Now().Before(deadline) {
+	for preflightPending() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if p.preflightActive.Load() {
+	if preflightPending() {
 		t.Fatal("wedged probe never released its single-flight slot after the RPC returned")
 	}
 	restore()

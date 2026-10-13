@@ -19,6 +19,19 @@ import (
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
 
+func gatewayPaginationHeaders(headers http.Header) map[string]string {
+	var pagination map[string]string
+	for _, key := range []string{"x-has-more", "x-next-before-created-at", "x-next-before-id-encoded", "x-next-before-id", "x-next-cursor"} {
+		if value := headers.Get(key); value != "" {
+			if pagination == nil {
+				pagination = make(map[string]string)
+			}
+			pagination[key] = value
+		}
+	}
+	return pagination
+}
+
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")
 var gatewayTestPrintPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-print$")
 var gatewayTestKeyRe = regexp.MustCompile("^[A-Za-z0-9._:-]+$")
@@ -162,11 +175,13 @@ func handleGatewayRequest(args []string, configPath string) {
 	// The Tauri desktop bridge uses this envelope to preserve 4xx/5xx semantics;
 	// only transport/configuration failures use a non-zero process exit.
 	response := struct {
-		Status uint16 `json:"status"`
-		Body   string `json:"body"`
+		Status  uint16            `json:"status"`
+		Body    string            `json:"body"`
+		Headers map[string]string `json:"headers,omitempty"`
 	}{
-		Status: uint16(resp.StatusCode),
-		Body:   string(data),
+		Status:  uint16(resp.StatusCode),
+		Body:    string(data),
+		Headers: gatewayPaginationHeaders(resp.Header),
 	}
 	encoded, err := json.Marshal(response)
 	if err != nil {
@@ -217,7 +232,7 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 	}
 	switch strings.ToUpper(strings.TrimSpace(method)) {
 	case "GET":
-		return path == "/api/printers" ||
+		return isAllowedFleetPath(path) ||
 			isAllowedJobsPath(path) ||
 			gatewayAgentPathRe.MatchString(path) ||
 			path == "/api/agent/test-captures/status" ||
@@ -232,4 +247,34 @@ func isAllowedGatewayConsolePath(path, method string) bool {
 	default:
 		return false
 	}
+}
+
+func isAllowedFleetPath(path string) bool {
+	parsed, err := url.Parse(path)
+	if err != nil || (parsed.Path != "/api/printers" && parsed.Path != "/api/agents") || parsed.RawPath != "" || parsed.Fragment != "" || parsed.IsAbs() || parsed.Host != "" {
+		return false
+	}
+	if parsed.RawQuery == "" {
+		return true
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) == 0 {
+		return false
+	}
+	for _, pair := range strings.Split(parsed.RawQuery, "&") {
+		if pair == "" || !strings.Contains(pair, "=") {
+			return false
+		}
+	}
+	for key, values := range query {
+		if len(values) != 1 || values[0] == "" || len(values[0]) > 4096 {
+			return false
+		}
+		switch key {
+		case "limit", "offset", "beforeCreatedAt", "beforeId", "beforeIdEncoded":
+		default:
+			return false
+		}
+	}
+	return true
 }

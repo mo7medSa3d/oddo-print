@@ -1,8 +1,11 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool, type PoolConfig } from "pg";
+import { Pool, defaults, type PoolConfig } from "pg";
 import { getWorkerSchema, schemaSearchPath } from "../lib/worker-schema";
 import { runtimeSecret } from "../lib/runtime-secret";
 import { logError } from "../lib/log";
+
+// Raw SQL Date parameters must match the schema's UTC-naive timestamp storage.
+defaults.parseInputDatesAsUTC = true;
 
 const databaseUrl = runtimeSecret("DATABASE_URL");
 const pgPassword = runtimeSecret("PGPASSWORD");

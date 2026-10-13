@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -1033,6 +1034,8 @@ func sameNetworkEndpoint(a, b DeviceInfo) bool {
 
 func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	merged := existing
+	// Earlier progress snapshots may still be consumed after the scan times out.
+	merged.Capabilities = maps.Clone(existing.Capabilities)
 	if incoming.Name != "" && incoming.Name != existing.Name {
 		if existing.SpoolerName == "" && incoming.SpoolerName != "" {
 			merged.Name = incoming.Name

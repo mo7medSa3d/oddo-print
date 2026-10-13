@@ -1,6 +1,6 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.13.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.14.0 | Odoo: 19 Community Edition
 
 ## Overview
 
@@ -160,3 +160,15 @@ rename, or split exists, so no `migrations/19.0.2.1x.0` folder is needed.
 A future release that renames a field, splits a column, or rewrites stored
 routing keys MUST ship a corresponding migration folder (as 19.0.2.10.0 did
 for `destination_ref`/`document_type`).
+
+### Intent company ownership upgrade (19.0.2.14.0)
+
+Upgrade the addon (`-u print_gateway`) before enabling its workers. Intent
+`company_id` is now required so company record rules and recovery workers see
+the same owned rows. The pre-migration preserves existing ownership and fills
+legacy missing companies from the linked outbox job, then the actual source
+record for invoice, picking, sale, purchase, and POS flows. A company-wide
+policy may match a branch and cannot establish which company owned an event.
+Rows without a provable company block the upgrade with sample IDs; restore
+their source record or set the verified company before retrying. Back up and
+exercise upgrade/rollback on an Odoo 19 database in staging.

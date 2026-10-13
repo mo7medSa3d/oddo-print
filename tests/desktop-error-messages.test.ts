@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  errMsg,
   friendlyAgentError,
   friendlyGatewayError,
   friendlyPrinterError,
 } from "../src/desktop/lib/printers";
 
 describe("desktop friendly error mapping", () => {
+  it("keeps unserializable errors in the requested locale", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(errMsg(circular, "ar")).not.toBe(errMsg(circular, "en"));
+    expect(errMsg(circular, "ar")).toMatch(/[\u0600-\u06ff]/);
+  });
   it("hides local agent config paths and permission details", () => {
     const message = friendlyAgentError(
       "load agent config failed: open C:\\ProgramData\\YaseirAgent\\config.yaml: Access is denied."

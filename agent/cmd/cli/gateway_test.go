@@ -1,7 +1,9 @@
 package main
 
 import (
+	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -14,6 +16,21 @@ func TestAllowedGatewayConsolePath(t *testing.T) {
 		want   bool
 	}{
 		{"list printers", "/api/printers", "GET", true},
+		{"list printers after cursor", "/api/printers?limit=1000&beforeCreatedAt=2026-10-13T12%3A00%3A00Z&beforeId=printer-2", "GET", true},
+		{"list agents after cursor", "/api/agents?beforeCreatedAt=2026-10-13T12%3A00%3A00Z&beforeId=agent-2", "GET", true},
+		{"list Unicode printer cursor", "/api/printers?beforeCreatedAt=2026-10-13T12%3A00%3A00Z&beforeIdEncoded=cHJpbnRlci3Yow", "GET", true},
+		{"list long encoded cursor", "/api/printers?beforeIdEncoded=" + strings.Repeat("x", 2732), "GET", true},
+		{"list agents offset", "/api/agents?limit=10&offset=10", "GET", true},
+		{"fleet duplicate query", "/api/printers?limit=10&limit=1000", "GET", false},
+		{"fleet unknown query", "/api/printers?secret=x", "GET", false},
+		{"fleet malformed query", "/api/printers?limit", "GET", false},
+		{"fleet invalid escape", "/api/printers?beforeId=%zz", "GET", false},
+		{"fleet empty query value", "/api/printers?beforeId=", "GET", false},
+		{"fleet trailing query separator", "/api/printers?limit=10&", "GET", false},
+		{"fleet oversized cursor", "/api/printers?beforeId=" + strings.Repeat("x", 4097), "GET", false},
+		{"fleet fragment", "/api/printers?limit=10#other", "GET", false},
+		{"fleet encoded route", "/api/%70rinters?limit=10", "GET", false},
+		{"fleet write query", "/api/printers?limit=10", "POST", false},
 		{"list jobs", "/api/jobs", "GET", true},
 		{"list jobs with limit", "/api/jobs?limit=50", "GET", true},
 		{"list jobs with search", "/api/jobs?limit=50&search=invoice", "GET", true},
@@ -105,5 +122,25 @@ func TestNormalizeOriginForCompare(t *testing.T) {
 		if got := normalizeOriginForCompare(tc.a) == normalizeOriginForCompare(tc.b); got != tc.equal {
 			t.Fatalf("origin compare %q vs %q = %v, want %v", tc.a, tc.b, got, tc.equal)
 		}
+	}
+}
+
+func TestGatewayPaginationHeadersPreserveOnlyFleetMetadata(t *testing.T) {
+	headers := make(http.Header)
+	want := map[string]string{
+		"x-has-more": "true", "x-next-before-created-at": "2026-10-13T12:00:00Z",
+		"x-next-before-id-encoded": "printer-%D8%A3", "x-next-before-id": "printer-2", "x-next-cursor": "cursor",
+	}
+	for key, value := range want {
+		headers.Set(key, value)
+	}
+	headers.Set("Set-Cookie", "private-session")
+	headers.Set("Authorization", "private-token")
+	headers.Set("X-Runtime-Secret", "private-runtime-token")
+	if got := gatewayPaginationHeaders(headers); !reflect.DeepEqual(got, want) {
+		t.Fatalf("console pagination headers missing or private headers exposed: %v", got)
+	}
+	if got := gatewayPaginationHeaders(http.Header{}); got != nil {
+		t.Fatalf("legacy response must omit absent pagination headers: %v", got)
 	}
 }

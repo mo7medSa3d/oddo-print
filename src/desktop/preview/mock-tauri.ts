@@ -202,6 +202,10 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;
+    case "set_tray_locale":
+      return undefined as unknown as T;
+    case "probe_gateway_health":
+      return { status: 200, body: JSON.stringify({ ok: true, service: "yaseir-print-gateway" }) } as unknown as T;
     case "get_gateway_config":
       // Switch to "" to preview the "Gateway needs configuration" banner.
       return { url: mockGatewayUrl } as unknown as T;

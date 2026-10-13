@@ -17,6 +17,7 @@ async function loadHooks(file = "pos_print_router.js") {
     renderToElement: (name, props) => ({ name, props, classList: { add() {} } }),
     htmlToCanvas: async () => canvas(), toCanvas: async () => canvas(), waitImages: async () => {},
     formatDateTime: () => "2026-10-04",
+    registry: { category: () => ({ add: (_name, handler) => { hooks = handler; } }) },
   };
   const context = vm.createContext({
     console, crypto: webcrypto, Set, Uint8Array, setTimeout, clearTimeout,
@@ -50,7 +51,7 @@ async function loadHooks(file = "pos_print_router.js") {
   const loadedModule = new vm.SourceTextModule(source, { context });
   await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : name === "./receipt_raster" ? raster : name === "./operation_recovery" ? recovery : common);
   await loadedModule.evaluate();
-  return { hooks, exports: loadedModule.namespace, mocks };
+  return { hooks, exports: loadedModule.namespace, limits: limits.namespace, mocks };
 }
 function canvas() {
   return { width: 100, height: 100, getContext: () => ({ fillRect() {} }), toDataURL: () => "data:image/jpeg;base64,VALIDJPEG" };
@@ -175,3 +176,59 @@ test("sales report failed status does not toast success", async () => {
   ]);
   assert.equal(notifications[0][1].type, "danger");
 });
+
+test("billing dialog passes every placeholder through native Odoo interpolation", async () => {
+  const { limits } = await loadHooks();
+  const dialogs = [];
+  assert.equal(limits.showGatewayBillingLimitDialog({ services: {
+    dialog: { add: (_component, props) => dialogs.push(props) }, action: {},
+  } }, {
+    entitlement: "max_prints_per_period", message: "Allowance reached",
+    used: 15, limit: 20, retryAfterSeconds: 61, periodEnd: "2026-10-13T12:00:00Z",
+  }), true);
+  assert.match(dialogs[0].body, /Used: 15/);
+  assert.match(dialogs[0].body, /Plan limit: 20/);
+  assert.match(dialogs[0].body, /Try again in about 2 minute\(s\)\./);
+  assert.match(dialogs[0].body, /Billing period ends: /);
+  assert.doesNotMatch(dialogs[0].body, /%s|undefined/);
+});
+
+test("kitchen fallback interpolates both values without replacing error content", async () => {
+  const { hooks } = await loadHooks();
+  const message = "Printer $& $$ $` $' reports %s";
+  const f = fixture({}, 1);
+  f.pos.unwatched.printers[0].config.name = "";
+  f.pos.printOrderChanges = async () => ({ successful: false, canRetry: true, message: { body: message } });
+  assert.equal(await hooks.printChanges.call(f.pos, f.order, [{ new: [] }]), false);
+  assert.equal(f.dialogs[0][1].message, `Odoo Preparation Printer 1: ${message}`);
+});
+
+for (const file of ["report_interceptor.js", "pos_sale_details_router.js"]) {
+  test(`${file} preserves literal replacement sequences in an unconfirmed error`, async () => {
+    const { hooks } = await loadHooks(file);
+    const message = "Printer $& $$ $` $' reports %s";
+    const notifications = [];
+    const notification = { add: (...args) => notifications.push(args) };
+    if (file === "report_interceptor.js") {
+      const handled = await hooks({ type: "ir.actions.report", report_type: "qweb-pdf",
+        report_name: "sale.report_saleorder", id: 7, res_ids: [21] }, {}, {
+        services: { notification, action: {}, orm: { call: async () => { throw new Error(message); } } },
+      });
+      assert.equal(handled, true);
+    } else {
+      const button = {
+        pos: { session: { id: 5 }, env: { utils: { formatCurrency: () => "" } },
+          data: { call: async (_model, method) => {
+            if (method === "is_gateway_printing_enabled") return true;
+            if (method === "action_print_gateway_sale_details") throw new Error(message);
+            return {};
+          } } },
+        env: { services: { notification } },
+      };
+      assert.equal(await hooks.onClick.call(button), false);
+    }
+    assert.equal(notifications.length, 1);
+    assert.ok(notifications[0][0].includes(message), notifications[0][0]);
+    assert.equal(notifications[0][1].type, "warning");
+  });
+}

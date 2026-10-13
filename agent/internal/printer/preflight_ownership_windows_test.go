@@ -99,3 +99,42 @@ func TestWindowsPreflightGlobalWorkerBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestBoundedPreflightRejectedBeforeWorkerCanRecover(t *testing.T) {
+	for _, reason := range []string{"cancelled", "reserved"} {
+		t.Run(reason, func(t *testing.T) {
+			p := NewSpooler("preflight-recovery-"+reason, "")
+			ctx := context.Background()
+			var release func()
+			if reason == "cancelled" {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			} else {
+				var err error
+				release, err = reserveSpoolerPreflight(p.SpoolerName)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if release != nil {
+						release()
+					}
+				}()
+			}
+			if err := p.boundedPreflight(ctx, time.Second, func() error {
+				t.Error("rejected preflight must not start a worker")
+				return nil
+			}); err == nil {
+				t.Fatal("preflight must reject before starting the worker")
+			}
+			if release != nil {
+				release()
+				release = nil
+			}
+			if err := p.boundedPreflight(context.Background(), time.Second, func() error { return nil }); err != nil {
+				t.Fatalf("pre-dispatch rejection permanently disabled the printer: %v", err)
+			}
+		})
+	}
+}

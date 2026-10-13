@@ -198,4 +198,23 @@ suite("agent health (database-backed)", () => {
     }
   });
 
+  it("keeps fleet and detail printer freshness equal in non-UTC host timezones", async () => {
+    const f = await seedFixture();
+    await pool().query("UPDATE printers SET status = 'busy', last_seen_at = now() - interval '1 second' WHERE id = $1", [f.printerId]);
+    const previousTZ = process.env.TZ;
+    try {
+      for (const timezone of ["Africa/Cairo", "America/New_York", "Asia/Tokyo"]) {
+        process.env.TZ = timezone;
+        const fleet = await getAllAgentsHealth(f.tenantId);
+        const detail = await getAgentHealth(f.tenantId, f.agentId);
+        expect(detail?.onlinePrinterCount).toBe(1);
+        expect(fleet).toHaveLength(1);
+        expect(fleet[0].onlinePrinterCount).toBe(detail?.onlinePrinterCount);
+      }
+    } finally {
+      if (previousTZ === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTZ;
+    }
+  });
+
 });

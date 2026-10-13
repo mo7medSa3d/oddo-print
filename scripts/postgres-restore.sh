@@ -64,7 +64,13 @@ checksum="$archive.sha256"
 }
 (
   cd "$(dirname "$archive")"
-  sha256sum -c "$(basename "$checksum")"
+  # Bind the sidecar to the selected archive, never another listed filename.
+  actual_checksum=$(sha256sum "$(basename "$archive")")
+  expected_checksum=$(cat "$(basename "$checksum")")
+  [ "$actual_checksum" = "$expected_checksum" ] || {
+    echo "ERROR: selected backup archive checksum does not match its sidecar" >&2
+    exit 2
+  }
 )
 
 # Force a full archive parse before touching the target database.

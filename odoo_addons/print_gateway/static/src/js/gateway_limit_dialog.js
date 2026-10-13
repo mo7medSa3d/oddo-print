@@ -142,7 +142,7 @@ function formatPeriodEnd(value) {
 function formatRetryAfter(seconds) {
     if (!Number.isFinite(seconds) || seconds <= 0) return null;
     const minutes = Math.ceil(seconds / 60);
-    return _t("Try again in about %s minute(s).").replace("%s", minutes);
+    return _t("Try again in about %s minute(s).", minutes);
 }
 
 export function showGatewayBillingLimitDialog(env, errorOrDetails) {
@@ -154,15 +154,15 @@ export function showGatewayBillingLimitDialog(env, errorOrDetails) {
     const copy = COPY[details.entitlement];
     const facts = [];
     if (details.used !== null) {
-        facts.push(_t("Used: %s").replace("%s", details.used.toLocaleString()));
+        facts.push(_t("Used: %s", details.used.toLocaleString()));
     }
     if (details.limit !== null) {
-        facts.push(_t("Plan limit: %s").replace("%s", details.limit.toLocaleString()));
+        facts.push(_t("Plan limit: %s", details.limit.toLocaleString()));
     }
 
     if (details.entitlement === "max_prints_per_period") {
         const periodEnd = formatPeriodEnd(details.periodEnd);
-        if (periodEnd) facts.push(_t("Billing period ends: %s").replace("%s", periodEnd));
+        if (periodEnd) facts.push(_t("Billing period ends: %s", periodEnd));
     }
 
     const retryText = formatRetryAfter(details.retryAfterSeconds);

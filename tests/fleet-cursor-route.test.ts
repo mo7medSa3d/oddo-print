@@ -74,6 +74,38 @@ describe.each([["printers", getPrinters], ["agents", getAgents]] as const)("%s f
     expect((await get(new Request(`http://gateway.test/api/${kind}?beforeIdEncoded=!`))).status).toBe(403);
     expect(mocks.chain.select).not.toHaveBeenCalled();
   });
+
+  if (kind === "printers") {
+    it("advances past an entirely virtual page to a physical printer", async () => {
+      const hidden = { ...baseRow("virtual_1"), printerType: "virtual" };
+      const physical = baseRow("physical_1");
+      mocks.chain.offset.mockResolvedValueOnce([
+        { printer: hidden, agent: null }, { printer: physical, agent: null },
+      ]).mockResolvedValueOnce([{ printer: physical, agent: null }]);
+      const first = await get(new Request("http://gateway.test/api/printers?limit=1"));
+      expect(await first.json()).toEqual([]);
+      expect(first.headers.get("X-Has-More")).toBe("true");
+      const params = new URLSearchParams({ limit: "1",
+        beforeCreatedAt: first.headers.get("X-Next-Before-Created-At")!,
+        beforeIdEncoded: first.headers.get("X-Next-Before-Id-Encoded")!,
+      });
+      const next = await get(new Request(`http://gateway.test/api/printers?${params}`));
+      expect(new PgDialect().sqlToQuery(mocks.chain.where.mock.calls[1][0]).params).toContain(hidden.id);
+      expect((await next.json()).map((row: { id: string }) => row.id)).toEqual([physical.id]);
+      expect(next.headers.get("X-Has-More")).toBe("false");
+    });
+
+    it("uses the last scanned row when the page ends with a hidden queue", async () => {
+      mocks.chain.offset.mockResolvedValue([
+        { printer: baseRow("physical_1"), agent: null },
+        { printer: { ...baseRow("virtual_1"), printerType: "virtual" }, agent: null },
+        { printer: baseRow("sentinel"), agent: null },
+      ]);
+      const response = await get(new Request("http://gateway.test/api/printers?limit=2"));
+      expect((await response.json()).map((row: { id: string }) => row.id)).toEqual(["physical_1"]);
+      expect(response.headers.get("X-Next-Before-Id")).toBe("virtual_1");
+    });
+  }
 });
 
 it("exposes traversal metadata only to an already allowed desktop origin", () => {

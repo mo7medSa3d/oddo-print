@@ -201,7 +201,7 @@ export function errMsg(e: unknown, locale: Locale = DEFAULT_LOCALE): string {
     try {
       return JSON.stringify(e);
     } catch {
-      return tr(DEFAULT_LOCALE, "desktop.unknownError");
+      return tr(locale, "desktop.unknownError");
     }
   }
   return String(e);

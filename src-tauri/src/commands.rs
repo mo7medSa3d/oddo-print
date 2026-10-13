@@ -446,6 +446,8 @@ fn run_pairing(app: tauri::AppHandle, code: &str, gateway_url: &str) -> Result<S
 pub struct GatewayResponse {
     pub status: u16,
     pub body: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 static GATEWAY_CONFIG_LOCK: Mutex<()> = Mutex::new(());
@@ -545,7 +547,7 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         started.elapsed().as_millis(),
     );
     if confirmed { logging::info(&summary); } else { logging::warn(&summary); }
-    Ok(GatewayResponse { status, body })
+    Ok(GatewayResponse { status, body, headers: Default::default() })
 }
 
 fn gateway_request_id(value: Option<&str>) -> String {
@@ -631,6 +633,37 @@ fn valid_jobs_query(path: &str) -> bool {
     true
 }
 
+fn valid_fleet_query(path: &str) -> bool {
+    let (base, query) = path.split_once('?').unwrap_or((path, ""));
+    if !matches!(base, "/api/printers" | "/api/agents") {
+        return false;
+    }
+    if !path.contains('?') {
+        return true;
+    }
+    if query.is_empty() || query.contains('#') {
+        return false;
+    }
+    let mut keys = std::collections::BTreeSet::new();
+    for pair in query.split('&') {
+        let Some((key, value)) = pair.split_once('=') else { return false; };
+        if !matches!(key, "limit" | "offset" | "beforeCreatedAt" | "beforeId" | "beforeIdEncoded")
+            || value.is_empty() || value.len() > 4096 || !keys.insert(key)
+        {
+            return false;
+        }
+        let bytes = value.as_bytes();
+        for (index, byte) in bytes.iter().enumerate() {
+            if *byte == b'%' && (index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit() || !bytes[index + 2].is_ascii_hexdigit())
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 fn valid_capture_preview_path(path: &str) -> bool {
     const PREFIX: &str = "/api/agent/test-captures/preview?id=cap_";
     let Some(id) = path.strip_prefix(PREFIX) else { return false; };
@@ -644,7 +677,7 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
         // console proxy exposes only the agent list, while the operator CLI
         // needs single-agent fetch for diagnostics. Both are read-only.
-        "GET" => path == "/api/printers" || valid_jobs_query(path) || path == "/api/agents"
+        "GET" => valid_fleet_query(path) || valid_jobs_query(path)
             || path == "/api/agent/test-captures/status" || valid_capture_preview_path(path),
         "POST" => {
             path == "/api/printers"
@@ -736,11 +769,13 @@ pub async fn gateway_agent_request(
             let msg = if stderr.is_empty() { stdout } else { stderr };
             return Err(msg);
         }
-        // gateway-request returns a JSON {status, body} envelope for every
+        // gateway-request returns a JSON {status, body, headers?} envelope for every
         // HTTP response, including application errors. Keep the actual status
         // visible to the desktop instead of manufacturing HTTP 200.
-        let response: GatewayResponse = serde_json::from_str(&stdout)
+        let mut response: GatewayResponse = serde_json::from_str(&stdout)
             .map_err(|e| format!("invalid agent Gateway response envelope: {e}"))?;
+        response.headers.retain(|key, _| matches!(key.as_str(),
+            "x-has-more" | "x-next-before-created-at" | "x-next-before-id-encoded" | "x-next-before-id" | "x-next-cursor"));
         serde_json::to_string(&response)
             .map_err(|e| format!("serialize agent Gateway response: {e}"))
     })
@@ -2011,7 +2046,27 @@ mod autostart_choice_tests {
 
 #[cfg(test)]
 mod agent_console_path_tests {
-    use super::{allowed_agent_gateway_path, gateway_printer_action_path, valid_jobs_query};
+    use super::{allowed_agent_gateway_path, gateway_printer_action_path, valid_fleet_query, valid_jobs_query};
+
+    #[test]
+    fn fleet_pagination_is_read_only_and_bounded() {
+        assert!(allowed_agent_gateway_path("/api/printers?limit=100&beforeCreatedAt=2026-10-13T00%3A00%3A00Z&beforeIdEncoded=cDE", "GET"));
+        assert!(allowed_agent_gateway_path("/api/agents?beforeId=a1&beforeCreatedAt=2026-10-13", "GET"));
+        assert!(!allowed_agent_gateway_path("/api/printers?limit=100", "POST"));
+        for path in ["/api/printers?", "/api/printers?limit=", "/api/agents?limit=1&limit=2", "/api/printers?redirect=x", "/api/agents?beforeId=%GG", "/api/agents?beforeId=a#fragment", "/api/printers/p1?limit=10"] {
+            assert!(!valid_fleet_query(path), "accepted {path}");
+        }
+        assert!(!valid_fleet_query(&format!("/api/printers?beforeIdEncoded={}", "a".repeat(4097))));
+    }
+
+    #[test]
+    fn gateway_envelopes_remain_backward_compatible() {
+        let legacy: super::GatewayResponse = serde_json::from_str(r#"{"status":200,"body":"[]"}"#).unwrap();
+        assert!(legacy.headers.is_empty());
+        let paged: super::GatewayResponse = serde_json::from_str(r#"{"status":200,"body":"[]","headers":{"x-has-more":"true","x-next-before-id-encoded":"cDE"}}"#).unwrap();
+        assert_eq!(paged.headers.get("x-has-more").unwrap(), "true");
+        assert!(serde_json::to_string(&paged).unwrap().contains("x-next-before-id-encoded"));
+    }
 
     #[test]
     fn printer_action_paths_are_strictly_scoped() {

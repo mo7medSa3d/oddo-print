@@ -197,7 +197,7 @@ patch(SaleDetailsButton.prototype, {
             // cannot freeze the Sale Details button with a double dialog.
             if (submissionAttempted) {
                 this.env.services.notification.add(
-                    _t("Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s").replace("%s", gatewayServerMessage(error) || ""),
+                    _t("Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s", gatewayServerMessage(error) || ""),
                     { type: "warning", sticky: true }
                 );
             } else {

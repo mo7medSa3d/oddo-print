@@ -17,16 +17,21 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 		Method string
 		Path   string
 		Auth   string
+		Query  string
 	}
 	seen := make(chan seenRequest, 4)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen <- seenRequest{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization")}
+		seen <- seenRequest{Method: r.Method, Path: r.URL.Path, Auth: r.Header.Get("Authorization"), Query: r.URL.RawQuery}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/agent/register":
 			_, _ = w.Write([]byte("{\"agentId\":\"agt_cli_test\",\"secret\":\"sec_cli_test\"}"))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/printers":
+			w.Header().Set("X-Has-More", "true")
+			w.Header().Set("X-Next-Before-Created-At", "2026-10-13T12:00:00Z")
+			w.Header().Set("X-Next-Before-Id-Encoded", "cHJpbnRlci3Yow")
+			w.Header().Set("Set-Cookie", "private-session")
 			_, _ = w.Write([]byte("{\"printers\":[]}"))
 		default:
 			http.NotFound(w, r)
@@ -67,16 +72,21 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 		t.Fatalf("pairing output did not prove success: %s", pairOut)
 	}
 
-	requestOut := run("gateway-request", "-method", "GET", "-path", "/api/printers", "-config", configPath)
+	requestOut := run("gateway-request", "-method", "GET", "-path", "/api/printers?limit=1000&beforeCreatedAt=2026-10-13T12%3A00%3A00Z&beforeIdEncoded=cHJpbnRlci3Yow", "-config", configPath)
 	var envelope struct {
-		Status uint16 `json:"status"`
-		Body   string `json:"body"`
+		Status  uint16            `json:"status"`
+		Body    string            `json:"body"`
+		Headers map[string]string `json:"headers"`
 	}
 	if err := json.Unmarshal([]byte(requestOut), &envelope); err != nil {
 		t.Fatalf("decode gateway-request envelope: %v\n%s", err, requestOut)
 	}
 	if envelope.Status != http.StatusOK || envelope.Body != "{\"printers\":[]}" {
 		t.Fatalf("unexpected gateway-request response: %+v", envelope)
+	}
+	if len(envelope.Headers) != 3 || envelope.Headers["x-has-more"] != "true" ||
+		envelope.Headers["x-next-before-created-at"] != "2026-10-13T12:00:00Z" || envelope.Headers["x-next-before-id-encoded"] != "cHJpbnRlci3Yow" {
+		t.Fatalf("pagination metadata missing or private headers leaked: %+v", envelope.Headers)
 	}
 
 	cleanupOut := run("jobs", "cleanup", "--json", "--config", configPath)
@@ -103,6 +113,9 @@ func TestCLICommandsAgainstStubGateway(t *testing.T) {
 			}
 			if i == 1 && !strings.HasPrefix(req.Auth, "Bearer agt_cli_test:sec_cli_test") {
 				t.Fatalf("gateway-request did not send the paired Agent bearer: %q", req.Auth)
+			}
+			if i == 1 && !strings.Contains(req.Query, "beforeIdEncoded=cHJpbnRlci3Yow") {
+				t.Fatalf("gateway-request dropped the inventory cursor: %q", req.Query)
 			}
 		default:
 			t.Fatalf("expected stub Gateway to receive register + gateway-request, only saw %d request(s)", i)
