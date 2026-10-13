@@ -33,6 +33,7 @@ function loadSidebar() {
   const imported = (name) => {
     if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
     if (name === "react") return { ...react, default: react };
+    if (name === "@radix-ui/react-dialog") return { Root: "radix-root", Portal: "radix-portal", Overlay: "radix-overlay", Content: "radix-content", Title: "radix-title" };
     if (name === "lucide-react") return new Proxy({}, { get: (_, k) => String(k) });
     if (name === "../../components/ui") return { StatusDot: "status-dot" };
     if (name === "../../components/brand") return { BrandMarkIcon: "brand-mark" };
@@ -56,7 +57,7 @@ function renderSidebar(narrow) {
   globalThis.window = { matchMedia: () => ({ matches: narrow }) };
   try {
     const Sidebar = loadSidebar();
-    return Sidebar({
+    const tree = Sidebar({
       page: "printers",
       navigate: () => undefined,
       items: [{ id: "printers", label: "Printers", icon: "printer-icon" }],
@@ -70,6 +71,15 @@ function renderSidebar(narrow) {
       version: "1.0.0",
       lastStatusCheck: null,
     });
+    const asides = collect(tree, (node) => node.type === "aside");
+    assert.equal(asides.length, 1, "mobile and desktop both retain their semantic sidebar");
+    const dialogCount = collect(tree, (node) => node.type === "radix-root").length;
+    assert.equal(dialogCount, narrow ? 1 : 0, "only the narrow viewport needs a modal Radix wrapper");
+    if (narrow) {
+      assert.equal(collect(tree, (node) => node.type === "radix-overlay").length, 1);
+      assert.equal(collect(tree, (node) => node.type === "radix-content").length, 1);
+    }
+    return asides[0];
   } finally {
     globalThis.window = oldWindow;
   }

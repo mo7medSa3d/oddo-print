@@ -10,7 +10,10 @@ describe("overlay and job evidence contracts", () => {
     expect(ui).toContain("menu-surface z-[120]");
     expect(ui).toContain('className="fixed inset-0 z-[100] flex items-stretch');
     expect(ui).toContain('data-dialog-root className="fixed inset-0 z-[100] flex justify-end"');
-    expect(shell).toContain('data-dialog-root className="fixed inset-0 z-[80] lg:hidden"');
+    expect(shell).toContain('className="pg-fade-in fixed inset-0 z-[80] bg-black/40 lg:hidden"');
+    expect(shell).toContain("Dialog.Portal");
+    expect(shell).toContain("Dialog.Content");
+    expect(shell).toContain("onCloseAutoFocus");
   });
 
   it("keeps modal content visible and scrollable on phone viewports", () => {

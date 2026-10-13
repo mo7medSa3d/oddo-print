@@ -1,4 +1,5 @@
 import React from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { X, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { StatusDot } from "../../components/ui";
 import { BrandMarkIcon } from "../../components/brand";
@@ -57,64 +58,9 @@ export function Sidebar({
   const { t, formatTime } = useI18n();
   const isNarrow = React.useSyncExternalStore(subscribeNarrowNavigation, isNarrowNavigation, () => false);
   const compact = collapsed && !isNarrow;
-  const asideRef = React.useRef<HTMLElement | null>(null);
-  // Mobile drawer keyboard behavior: while open on small screens the drawer
-  // acts as a dialog - Escape closes, Tab cycles inside (C048). Desktop
-  // widths keep the persistent sidebar.
-  React.useEffect(() => {
-    if (!sidebarOpen) return;
-    if (!isNarrow) return;
-    const aside = asideRef.current;
-    if (!aside) return;
-    aside.setAttribute("role", "dialog");
-    aside.setAttribute("aria-modal", "true");
-    const previous = document.activeElement as HTMLElement | null;
-    aside.querySelector<HTMLElement>("button:not([disabled]), a[href]")?.focus();
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSidebarOpen(false);
-        return;
-      }
-      if (event.key !== "Tab" || !asideRef.current) return;
-      const root = asideRef.current;
-      const items = [...root.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]")].filter(
-        (el) => el.offsetParent !== null
-      );
-      if (items.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const firstItem = items[0];
-      const lastItem = items[items.length - 1];
-      if (!root.contains(document.activeElement)) {
-        event.preventDefault();
-        firstItem.focus();
-      } else if (event.shiftKey && document.activeElement === firstItem) {
-        event.preventDefault();
-        lastItem.focus();
-      } else if (!event.shiftKey && document.activeElement === lastItem) {
-        event.preventDefault();
-        firstItem.focus();
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      aside.removeAttribute("role");
-      aside.removeAttribute("aria-modal");
-      previous?.focus?.();
-    };
-  }, [sidebarOpen, isNarrow, setSidebarOpen]);
-  React.useEffect(() => {
-    if (!sidebarOpen || !isNarrow) return;
-    // Prevent keyboard/touch scrolling of the content behind the drawer.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previousOverflow; };
-  }, [sidebarOpen, isNarrow]);
-  return (
-    <aside ref={asideRef} id="desktop-mobile-nav" tabIndex={-1} className={`tg-desktop-rail fixed inset-y-0 start-0 z-40 flex w-[min(320px,90vw)] flex-col border-e border-edge bg-surface shadow-sm transition-[width,transform] duration-200 ease-out lg:inset-y-3 lg:start-3 ${compact ? "lg:w-[80px]" : "lg:w-[264px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
+  const renderAside = () => (
+    <aside id={isNarrow ? "desktop-mobile-nav" : undefined} tabIndex={-1} className={`tg-desktop-rail fixed inset-y-0 start-0 z-40 flex w-[min(320px,90vw)] flex-col border-e border-edge bg-surface shadow-sm transition-[width,transform] duration-200 ease-out lg:inset-y-3 lg:start-3 ${compact ? "lg:w-[80px]" : "lg:w-[264px]"} ${sidebarOpen ? "translate-x-0" : "max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full"} lg:translate-x-0`}>
+      {isNarrow && <Dialog.Title className="sr-only">{t("nav.consoleNavigation")}</Dialog.Title>}
       <div className={`flex h-14 shrink-0 items-center gap-3 border-b border-edge/80 ${compact ? "justify-center px-0" : "px-5"}`}>
         <BrandMarkIcon size="md" className="shrink-0" />
         {!compact && (
@@ -178,5 +124,24 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+  );
+
+  // A portal-based Radix Dialog handles focus trapping, Escape, modality,
+  // scroll locking and return focus on narrow Windows WebView layouts.
+  // The persistent large-screen rail stays a plain semantic aside.
+  if (!isNarrow) return renderAside();
+  return (
+    <Dialog.Root open={sidebarOpen} onOpenChange={setSidebarOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="pg-fade-in fixed inset-0 z-30 bg-black/40 lg:hidden" />
+        <Dialog.Content asChild aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            const trigger = document.querySelector<HTMLButtonElement>('[aria-controls="desktop-mobile-nav"]');
+            if (trigger) { event.preventDefault(); trigger.focus(); }
+          }}>
+          {renderAside()}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
