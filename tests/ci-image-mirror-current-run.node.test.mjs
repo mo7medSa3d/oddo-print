@@ -41,6 +41,8 @@ test('CI uses only exact-digest official ECR mirrors of reviewed production imag
   assert.ok(postgresHelper.includes('docker.io/library/' + prodPostgres));
   assert.ok(!ci.includes('    services:\\n      postgres:'));
   assert.ok(!resilience.includes('    services:\\n      postgres:'));
+  assert.doesNotMatch(ci, /^    env:\n          POSTGRES_USER:/m);
+  assert.doesNotMatch(resilience, /^    env:\n          POSTGRES_USER:/m);
   assert.equal(ci.split('run: bash scripts/ci-postgres.sh start').length - 1, 2);
   assert.equal(ci.split('run: bash scripts/ci-postgres.sh stop').length - 1, 2);
   assert.equal(resilience.split('run: bash scripts/ci-postgres.sh start').length - 1, 1);
