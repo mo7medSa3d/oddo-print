@@ -56,6 +56,27 @@ Agent readiness. Configure `server.e2e_capture_tests: true` on the assigned
 Windows Agent separately. Do not relax HTTPS, Caddy, tenant security,
 or production printer admission to enable capture testing.
 
+## Windows Manager: safe opt-in without editing YAML
+
+The Manager **Test Center → Incoming Odoo E2E tests** now displays the local
+`config.yaml` opt-in state. An elevated Windows Administrator may choose
+**Enable receiving tests** / **Disable receiving tests**. The bundled Agent
+CLI edits only `server.e2e_capture_tests` in the existing protected YAML,
+preserving other entries and comments as well as the separately sealed Agent
+secret. No Agent credential or YAML is sent to the desktop WebView.
+
+This control does not automatically restart the Agent, to avoid interrupting
+a physical print in flight. After saving the setting, explicitly restart the
+Agent service using **Settings → Restart** when no real print jobs are running.
+The Gateway feature flag must also be enabled separately. Test Center refreshes
+the scoped incoming-test statuses every 10 seconds. The preview is a bounded
+JPEG, not the protected local PDF file; printer-free capture never proves that
+paper was delivered. Non-admin users see an **Open as Administrator** action
+instead of unsafe permissions changes.
+
+Existing deployments keep their prior on/off setting; an upgrade never resets
+credentials or silently enables test capture.
+
 ## Using Odoo
 
 On an Odoo **19** installation with the current addon, a system administrator
