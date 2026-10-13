@@ -230,6 +230,18 @@ jobs:
             $cachedPass = (Get-Content -LiteralPath $cachedPassFile -Raw).Trim()
             $secPass = ConvertTo-SecureString -String $cachedPass -Force -AsPlainText
             $cert = Import-PfxCertificate -FilePath $cachedPfx -CertStoreLocation Cert:\CurrentUser\My -Password $secPass -Exportable
+            if (-not [string]::IsNullOrWhiteSpace($env:GH_PAT_SECRETS)) {
+              $pfxBytes = [IO.File]::ReadAllBytes($cachedPfx)
+              $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
+              Write-Host "::add-mask::$($env:GH_PAT_SECRETS)"
+              Write-Host "::add-mask::$cachedPass"
+              Write-Host "::add-mask::$pfxBase64"
+              $env:GH_TOKEN = $env:GH_PAT_SECRETS
+              $pfxBase64 | & gh secret set WINDOWS_PFX_BASE64 --repo $env:GH_REPO
+              $cachedPass | & gh secret set WINDOWS_PFX_PASSWORD --repo $env:GH_REPO
+              $cert.Thumbprint | & gh secret set WINDOWS_CERTIFICATE_THUMBPRINT --repo $env:GH_REPO
+              Write-Host "Synced cached certificate secrets to GitHub Actions Secrets."
+            }
           } else {
             Write-Host "Generating one-time persistent self-signed Code Signing certificate..."
             $cert = New-SelfSignedCertificate `
