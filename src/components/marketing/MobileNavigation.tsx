@@ -17,7 +17,7 @@ export function MobileNavigation({
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    const desktop = window.matchMedia("(min-width: 640px)");
+    const desktop = window.matchMedia("(min-width: 768px)");
     const closeOnDesktop = () => { if (desktop.matches) setOpen(false); };
     desktop.addEventListener("change", closeOnDesktop);
     return () => desktop.removeEventListener("change", closeOnDesktop);
@@ -26,14 +26,14 @@ export function MobileNavigation({
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
         <button type="button" aria-label={menuLabel}
-          className="yw-mobile-nav-trigger inline-flex h-11 w-11 items-center justify-center rounded-xl border border-edge bg-surface text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:hidden">
+          className="yw-mobile-nav-trigger inline-flex h-11 w-11 items-center justify-center rounded-xl border border-edge bg-surface text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand md:hidden">
           <Menu className="h-5 w-5" aria-hidden />
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="yw-nav-overlay fixed inset-0 z-[90] bg-black/45 backdrop-blur-[3px]" />
         <Dialog.Content aria-describedby={undefined}
-          className="yw-nav-panel fixed inset-y-0 end-0 z-[91] flex w-[min(360px,88vw)] flex-col border-s border-edge bg-surface p-5 shadow-2xl outline-none sm:hidden">
+          className="yw-nav-panel fixed inset-y-0 end-0 z-[91] flex w-[min(360px,88vw)] flex-col border-s border-edge bg-surface p-5 shadow-2xl outline-none md:hidden">
           <div className="flex items-center justify-between gap-3 border-b border-edge pb-5">
             <Dialog.Title className="text-base font-semibold text-ink">{title}</Dialog.Title>
             <Dialog.Close asChild>

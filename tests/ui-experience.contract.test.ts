@@ -30,6 +30,10 @@ describe("public marketing and operational UI experience contracts", () => {
       expect(source).not.toContain("useDialog(");
     }
     expect(publicMenu).toContain("Dialog.Close");
+    // The desktop marketing nav starts at md, so the mobile trigger must
+    // remain available throughout the entire 640–767px tablet gap.
+    expect(publicMenu).toContain("md:hidden");
+    expect(publicMenu).toContain("(min-width: 768px)");
     expect(shell).toContain("onCloseAutoFocus");
     expect(agent).toContain("onCloseAutoFocus");
     expect(agent).toContain("Dialog.Overlay");
