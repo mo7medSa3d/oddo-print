@@ -25,6 +25,8 @@
     "allow-get-app-version",
     "allow-get-printers",
     "allow-discover-printers",
+    "allow-get-e2e-capture-config",
+    "allow-set-e2e-capture-config",
     "allow-capture-test-document",
     "allow-test-printer",
     "allow-cleanup-local-jobs",
