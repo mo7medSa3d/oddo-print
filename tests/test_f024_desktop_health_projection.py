@@ -27,13 +27,17 @@ def test_no_raw_online_comparison_in_consumer_pages():
         assert 'p.status === "online"' not in content, name
         assert 'p.status === "offline"' not in content, name
     source = read('main.tsx')
-    assert 'printerDisplayStatus(p, nowMs) === statusFilter' in source
+    assert 'printerPresentation(p, undefined, nowMs).state === statusFilter' in source
     assert 'printerDisplayStatus(selectedPrinter, nowMs)' in source
+    assert 'const selectedPrinter = resolvedSelectedPrinter;' in source
 
 
 def test_status_badges_and_exports_honor_snapshot_expiry():
     for name in ('pages/Overview.tsx','pages/Printers.tsx','pages/Settings.tsx'):
         source = read(name)
-        assert 'printerDisplayStatus(p, ' in source, name
+        assert 'printerPresentation(p, undefined, ' in source, name
     assert 'printerDisplayStatus(p, s.nowMs)' in read('pages/Settings.tsx')
     assert 'printerHealthCounts(s.printers.filter(isProductionPrinter), nowMs)' in read('pages/Printers.tsx')
+    helper = (ROOT / 'src/shared/printer-presentation.ts').read_text(encoding='utf-8')
+    assert 'printerObservationFreshness(printer.lastSeenAt, nowMs)' in helper
+    assert 'agentLiveView(owner, nowMs)' in helper

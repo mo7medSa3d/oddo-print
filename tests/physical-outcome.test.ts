@@ -4,7 +4,7 @@ import {
   isLateSuccessAllowed,
   PHYSICAL_OUTCOMES,
 } from "../src/lib/job-status";
-import { jobLabel, jobGuidance } from "../src/shared/job-vocabulary";
+import { jobLabel, jobGuidance, jobTone } from "../src/shared/job-vocabulary";
 import { translate } from "../src/i18n/translate";
 
 describe("physical print outcome semantics", () => {
@@ -14,11 +14,16 @@ describe("physical print outcome semantics", () => {
 
   it("does not treat transport success as proof of physical paper output", () => {
     expect(derivePhysicalOutcome("success", null)).toBe("unknown");
-    expect(jobLabel("success", "unknown")).toBe("Delivered to printer");
-    // The copy is localized now, so assert against the resolved guidance. The
-  // invariant is unchanged: a Gateway "success" means the Agent handed the
-  // document to the printer transport, NOT that paper physically emerged.
-  expect(jobGuidance("success", "unknown")).toBe(translate("en", "job.guidance.success"));
+    expect(jobLabel("success", "unknown", "en")).toBe("Submission completed · paper unverified");
+    expect(jobLabel("success", "unknown", "ar")).toBe("اكتمل الإرسال · الورق غير مؤكد");
+    expect(jobTone("success", "unknown")).toBe("info");
+    expect(jobTone("success")).toBe("info");
+    expect(jobTone("success", "printed")).toBe("ok");
+    expect(jobGuidance("success", "unknown", "en")).toBe(translate("en", "job.guidance.success"));
+    expect(jobGuidance("success", "unknown", "en")).toContain("paper output is not verified");
+    expect(jobGuidance("success", "unknown", "ar")).toContain("خروج الورق غير مؤكد");
+    expect(translate("en", "job.timeline.successUnverified")).toContain("not independently verified");
+    expect(translate("ar", "job.timeline.successUnverified")).toContain("خروج الورق غير مؤكد");
   });
 
   it("does not confuse an ordinary failed job with an unknown physical result", () => {

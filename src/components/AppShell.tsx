@@ -126,7 +126,7 @@ function ConsoleNav({
                         <Icon className="h-[17px] w-[17px]" />
                       </NavIconFrame>
                     )}
-                    {!collapsed && <span className="truncate">{navLabel(item, t)}</span>}
+                    {!collapsed && <span className="min-w-0 flex-1 break-words leading-snug">{navLabel(item, t)}</span>}
                   </Link>
                 </li>
               );
@@ -195,8 +195,8 @@ function WorkspaceMenu({
           <Avatar name={displayName} tone="brand" />
           {!compact && (
             <span className="flex min-w-0 flex-1 flex-col items-start leading-tight">
-              <span className="w-full truncate text-sm font-[600] text-ink">{displayName}</span>
-              <span className="w-full truncate text-xs text-ink-3">
+              <span className="w-full break-words text-sm font-[600] leading-snug text-ink">{displayName}</span>
+              <span className="mt-0.5 w-full break-words text-xs leading-snug text-ink-3">
                 {workspace.plan ?? workspace.role ?? t("nav.signedIn")}
               </span>
             </span>
@@ -332,7 +332,7 @@ function ConsoleShell({
   return (
     <div
       className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app text-ink"
-      style={{ "--nav-w": collapsed ? "80px" : "264px" } as CSSProperties}
+      style={{ "--nav-w": collapsed ? "var(--sidebar-collapsed)" : "var(--sidebar-width)" } as CSSProperties}
     >
       {/* Desktop rail */}
       <aside
@@ -343,7 +343,7 @@ function ConsoleShell({
           transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined,
         }}
       >
-        <div className={`flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle ${collapsed ? "justify-center px-2" : "px-4"}`}>
+        <div className={`flex min-h-18 shrink-0 items-center gap-2 border-b border-edge-subtle py-3 ${collapsed ? "justify-center px-2" : "px-4"}`}>
           <Link
             href="/dashboard"
             aria-label={t("nav.home")}
@@ -357,7 +357,7 @@ function ConsoleShell({
               onClick={toggleCollapsed}
               aria-label={t("nav.collapseNavigation")}
               title={t("nav.collapseNavigation")}
-              className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+              className="ms-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             >
               <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
             </button>
@@ -380,7 +380,7 @@ function ConsoleShell({
                 onClick={toggleCollapsed}
                 aria-label={t("nav.expandNavigation")}
                 title={t("nav.expandNavigation")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-ink-4 transition-colors duration-150 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <PanelLeftOpen className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </button>
@@ -433,13 +433,13 @@ function ConsoleShell({
             className="tg-mobile-sheet pg-slide-in-left fixed inset-y-0 start-0 z-[81] flex w-[300px] max-w-[85vw] flex-col rounded-e-2xl border-e border-edge-strong bg-surface shadow-2xl outline-none lg:hidden"
           >
             <Dialog.Title className="sr-only">{t("nav.consoleNavigation")}</Dialog.Title>
-            <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
+            <div className="flex min-h-18 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3 py-3">
               <ConsoleBrand brandSubtitle={t("brand.tagline")} />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 aria-label={t("nav.closeNavigation")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -448,9 +448,9 @@ function ConsoleShell({
               <ConsoleNav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </div>
             <div className="shrink-0 space-y-2 border-t border-edge-subtle p-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <ShellSearchButton label={t("common.search")} hint={t("nav.searchHint")} onClick={() => { setMobileOpen(false); setPaletteOpen(true); }} />
-                <div className="flex items-center gap-1">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
                   <LanguageSwitcher align="start" placement="above" />
                   <ThemeToggle />
                 </div>
@@ -462,7 +462,7 @@ function ConsoleShell({
                   setMobileOpen(false);
                   onLogout();
                 }}
-                className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+                className="flex min-h-11 w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm font-[550] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
               >
                 <LogOut className="h-4 w-4 text-ink-3" aria-hidden />
                 {loggingOut ? t("nav.signingOut") : t("nav.signOut")}

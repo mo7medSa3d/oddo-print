@@ -247,12 +247,19 @@ func (a *Agent) recordDesiredError(id string, err error) error {
 }
 
 func (a *Agent) isPrinterExecutionAllowed(id string) bool {
+	if a.legacyPrinterDisabled(id) {
+		return false
+	}
 	// A tombstoned Gateway-owned printer is always fenced, even after its
 	// desired-state cache entry has been removed. This is the fail-closed
 	// boundary used when durable tombstone persistence temporarily fails.
 	a.printersMu.RLock()
 	_, tombstoned := a.gatewayTombstones[id]
+	pc, configured := a.printerConfigs[id]
 	a.printersMu.RUnlock()
+	if configured && a.localPrinterBindingDisabled(pc) {
+		return false
+	}
 	if tombstoned {
 		return false
 	}
@@ -511,6 +518,9 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 		a.removeGatewayRuntime(row.Desired.ID)
 		return nil
 	}
+	if a.legacyPrinterDisabled(row.Desired.ID) {
+		return fmt.Errorf("printer %s is disabled by local operator configuration", row.Desired.ID)
+	}
 
 	if row.Desired.ConnectionType == "network" {
 		if err := validateDesiredNetworkDestination(row.Desired.Config); err != nil {
@@ -518,6 +528,9 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 		}
 	}
 	pc := desiredPrinterConfig(row)
+	if a.localPrinterBindingDisabled(pc) {
+		return fmt.Errorf("printer %s execution binding is disabled by local operator configuration", pc.ID)
+	}
 	lock := a.getPrinterLock(pc.ID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -548,8 +561,30 @@ func (a *Agent) applyDesiredPrinter(row desiredPrinterRecord) error {
 	}
 	a.printers[pc.ID] = backend
 	a.printerConfigs[pc.ID] = pc
+	a.setProbeLastStatus(pc.ID, "unknown")
 	a.printersMu.Unlock()
 	return nil
+}
+
+// Observed byte permissions belong to an execution binding, not its label
+// or paper geometry. A new device must provide its own capability evidence.
+func samePrinterTransportBinding(left, right config.PrinterConfig) bool {
+	return left.NormalizedType() == right.NormalizedType() &&
+		left.NormalizedProtocolOrUnknown() == right.NormalizedProtocolOrUnknown() &&
+		left.Endpoint == right.Endpoint && left.SpoolerName == right.SpoolerName &&
+		strings.EqualFold(left.USBVID, right.USBVID) && strings.EqualFold(left.USBPID, right.USBPID) &&
+		left.USBSerial == right.USBSerial
+}
+
+func desiredRecordForUpdate(current desiredPrinterRecord, desired desiredPrinterWire) desiredPrinterRecord {
+	row := current
+	row.Desired = desired
+	row.ApplyError = ""
+	if !samePrinterTransportBinding(desiredPrinterConfig(current), desiredPrinterConfig(row)) {
+		row.ObservedSupportedProtocols = nil
+		row.ObservedSupportedProtocolsKnown = false
+	}
+	return row
 }
 
 func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) bool {
@@ -582,9 +617,7 @@ func (a *Agent) reconcileGatewayDesiredState(rows []desiredPrinterWire) bool {
 			continue
 		}
 
-		row := current
-		row.Desired = desired
-		row.ApplyError = ""
+		row := desiredRecordForUpdate(current, desired)
 		a.desiredStates[id] = row
 		a.desiredStateMu.Unlock()
 

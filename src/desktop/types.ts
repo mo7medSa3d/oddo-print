@@ -2,7 +2,7 @@ import type { AgentStatus, PrinterInfo, RuntimePaths } from "./lib/ipc";
 
 export type Page = "dashboard" | "printers" | "jobs" | "test-center" | "agents" | "settings";
 export type JobTab = "all" | "in_flight" | "queued" | "unassigned" | "delivered" | "failed" | "unknown" | "expired";
-export type PrinterStatusFilter = "all" | "online" | "offline" | "busy" | "error" | "unknown" | "stale";
+export type PrinterStatusFilter = "all" | "ready" | "printing" | "attention" | "unavailable" | "saved";
 
 export type AgentStatusView = Partial<AgentStatus> & { error?: string };
 export type ToastMessage = { text: string; type: "success" | "error" | "info" } | null;
@@ -58,6 +58,16 @@ export interface DesktopState {
   /* printers */
   printers: PrinterInfo[];
   discoveredPrinters: PrinterInfo[];
+  localPrinters: PrinterInfo[];
+  localPrintersLoading: boolean;
+  localPrintersError: string | null;
+  localInventoryReady: boolean;
+  canManagePrinterSharing: boolean;
+  sharingPendingPrinterIds: ReadonlySet<string>;
+  sharingErrors: Record<string, string>;
+  refreshLocalPrinters: () => Promise<boolean>;
+  handlePrinterSharing: (id: string, shared: boolean) => Promise<void>;
+  gatewayTestPrinterIds: ReadonlySet<string>;
   printersLoading: boolean;
   printersError: string | null;
   printersFilter: string;

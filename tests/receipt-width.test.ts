@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { receiptRasterWidthDots } from "../src/lib/receipt-width";
+import { receiptPaperWidthMM, receiptRasterWidthDots } from "../src/lib/receipt-width";
 
 describe("receipt raster print width comes from the actual device rather than browser DPI", () => {
+  it("only generates physical receipt media from a selected or unambiguous reported roll", () => {
+    expect(receiptPaperWidthMM({ paper_width_mm: "80", paper_widths: [58, 80] })).toBe(80);
+    expect(receiptPaperWidthMM({ paper_widths: [58] })).toBe(58);
+    for (const caps of [null, {}, { max_paper_width: 576 }, { paper_widths: [58, 80] },
+      { paper_width_mm: true }, { paper_width_mm: 77 }, { paper_widths: [null] },
+      { paper_width_mm: 210, paper_widths: [58] }, { paper_width_mm: "bad", paper_widths: [80] }]) {
+      expect(receiptPaperWidthMM(caps)).toBeNull();
+    }
+  });
   it("prefers true printable dots over nominal millimetres", () => {
     expect(receiptRasterWidthDots({ max_paper_width: 512, paper_width_mm: 80, dpi: 203 })).toBe(512);
     expect(receiptRasterWidthDots({ max_paper_width: 576, paper_width_mm: 80, dpi: 180 })).toBe(576);

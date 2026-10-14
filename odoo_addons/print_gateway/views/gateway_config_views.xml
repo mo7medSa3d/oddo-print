@@ -112,8 +112,14 @@
     </record>
     <template id="diagnostic_report">
         <t t-call="web.html_container">
-            <t t-call="web.external_layout">
-                <div class="page" t-att-dir="'rtl' if env.context.get('lang', '').startswith('ar') else 'ltr'">
+            <style t-if="paper_width_mm">
+                .o_pg_diagnostic_ticket { font-size: 8pt; line-height: 1.15; word-break: break-all; }
+                .o_pg_diagnostic_ticket h1 { font-size: 11pt; line-height: 1.15; margin: 0 0 1mm; }
+                .o_pg_diagnostic_ticket h2 { font-size: 10pt; line-height: 1.15; margin: 0 0 2mm; }
+                .o_pg_diagnostic_ticket p { margin: 0 0 1mm; }
+            </style>
+            <t t-set="diagnostic_body">
+                <div class="page" t-att-class="'page o_pg_diagnostic_ticket' if paper_width_mm else 'page'" t-att-dir="'rtl' if env.context.get('lang', '').startswith('ar') else 'ltr'">
                     <h1>Yaseir Print Gateway</h1>
                     <h2>Printer Test Page</h2>
                     <p><strong>Company:</strong> <span t-esc="company_name"/></p>
@@ -123,6 +129,8 @@
                     <p>This page tests document rendering. Inspect the physical printer to confirm output.</p>
                 </div>
             </t>
+            <t t-if="paper_width_mm" t-out="diagnostic_body"/>
+            <t t-else="" t-call="web.external_layout"><t t-out="diagnostic_body"/></t>
         </t>
     </template>
     <record id="action_diagnostic_report" model="ir.actions.report">

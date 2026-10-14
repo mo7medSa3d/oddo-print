@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -16,17 +16,16 @@ const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
 
 /// Execute a short-lived bundled helper with a hard wall-clock deadline and
-/// per-stream output budget. On timeout/output overflow the child is killed
-/// and reaped before the error is returned, so no helper process or pipe can
-/// survive a failed IPC call.
-/// Reader-thread join bound for [`run_bounded_command`]. After the child is
+/// per-stream output budget. On timeout/output overflow the owned direct child
+/// is killed and reaped before returning; every owned pipe worker has a finite
+/// join bound, including a writer blocked on a child that never reads stdin.
+/// Pipe-worker join bound for [`run_bounded_command`]. After the child is
 /// reaped its pipes normally EOF promptly — unless a forked descendant
 /// inherited them and keeps them open. An unbounded `join()` would then hang
 /// the caller forever, so the join itself carries a deadline. On expiry the
-/// call fails (the reader threads plus one join-waiter thread are detached,
-/// never accumulated by the caller — at most three per hung invocation, and
-/// invocations are finite operator/system actions, not loops); the child
-/// itself was already killed and reaped above.
+/// call fails; a descendant-held pipe can leave its worker and join-waiter
+/// detached. Every owned worker still receives the same finite join bound;
+/// the child itself was already killed and reaped above.
 fn join_reader_thread(
     handle: std::thread::JoinHandle<Result<Vec<u8>, String>>,
     what: &str,
@@ -37,15 +36,52 @@ fn join_reader_thread(
     });
     match rx.recv_timeout(std::time::Duration::from_secs(10)) {
         Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err(format!("{what} reader thread panicked")),
+        Ok(Err(_)) => Err(format!("{what} pipe worker panicked")),
         Err(_) => Err(format!(
-            "{what} reader thread did not finish within 10s (a descendant process may hold the pipe); output discarded"
+            "{what} pipe worker did not finish within 10s (a descendant process may hold the pipe); result discarded"
         )),
     }
 }
 
+fn join_command_io(
+    out_thread: std::thread::JoinHandle<Result<Vec<u8>, String>>,
+    err_thread: std::thread::JoinHandle<Result<Vec<u8>, String>>,
+    input_thread: Option<std::thread::JoinHandle<Result<Vec<u8>, String>>>,
+) -> Result<(Vec<u8>, Vec<u8>, Option<String>), String> {
+    // Join every owned pipe even when one worker failed; otherwise returning
+    // early from a write/read error could leave another worker unobserved.
+    let input = input_thread.map(|handle| join_reader_thread(handle, "stdin"));
+    let stdout = join_reader_thread(out_thread, "stdout");
+    let stderr = join_reader_thread(err_thread, "stderr");
+    let input_error = input.and_then(Result::err);
+    Ok((stdout?, stderr?, input_error))
+}
+
+fn failed_command_io(
+    reason: String,
+    out_thread: std::thread::JoinHandle<Result<Vec<u8>, String>>,
+    err_thread: std::thread::JoinHandle<Result<Vec<u8>, String>>,
+    input_thread: Option<std::thread::JoinHandle<Result<Vec<u8>, String>>>,
+) -> String {
+    match join_command_io(out_thread, err_thread, input_thread) {
+        Ok((_, _, Some(error))) => format!("{reason}; input stopped: {error}"),
+        Ok(_) => reason,
+        Err(error) => format!("{reason}; pipe cleanup: {error}"),
+    }
+}
+
 pub(crate) fn run_bounded_command(
+    cmd: Command,
+    timeout: std::time::Duration,
+    max_stdout: usize,
+    max_stderr: usize,
+) -> Result<std::process::Output, String> {
+    run_bounded_command_with_input(cmd, None, timeout, max_stdout, max_stderr)
+}
+
+pub(crate) fn run_bounded_command_with_input(
     mut cmd: Command,
+    input: Option<Vec<u8>>,
     timeout: std::time::Duration,
     max_stdout: usize,
     max_stderr: usize,
@@ -59,6 +95,9 @@ pub(crate) fn run_bounded_command(
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    if input.is_some() {
+        cmd.stdin(Stdio::piped());
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd
@@ -81,6 +120,24 @@ pub(crate) fn run_bounded_command(
         }
     };
 
+    let input_thread = if let Some(bytes) = input {
+        let Some(mut stdin) = child.stdin.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("command stdin pipe unavailable".to_string());
+        };
+        Some(std::thread::spawn(move || {
+            let result = stdin
+                .write_all(&bytes)
+                .map_err(|error| format!("write command input: {error}"));
+            // EOF lets the CLI validate the complete bounded body before HTTP.
+            drop(stdin);
+            result.map(|_| Vec::new())
+        }))
+    } else {
+        None
+    };
+
     let overflow = Arc::new(AtomicBool::new(false));
     let overflow_out = Arc::clone(&overflow);
     let overflow_err = Arc::clone(&overflow);
@@ -93,7 +150,9 @@ pub(crate) fn run_bounded_command(
             overflow_out.store(true, Ordering::Release);
             buf.truncate(max_stdout);
         }
-        read_result.map(|_| buf).map_err(|error| format!("read command output: {error}"))
+        read_result
+            .map(|_| buf)
+            .map_err(|error| format!("read command output: {error}"))
     });
     let err_thread = std::thread::spawn(move || {
         let mut reader = stderr.take((max_stderr as u64).saturating_add(1));
@@ -103,7 +162,9 @@ pub(crate) fn run_bounded_command(
             overflow_err.store(true, Ordering::Release);
             buf.truncate(max_stderr);
         }
-        read_result.map(|_| buf).map_err(|error| format!("read command output: {error}"))
+        read_result
+            .map(|_| buf)
+            .map_err(|error| format!("read command output: {error}"))
     });
 
     let deadline = std::time::Instant::now() + timeout;
@@ -111,11 +172,14 @@ pub(crate) fn run_bounded_command(
         if overflow.load(Ordering::Acquire) {
             let _ = child.kill();
             let _ = child.wait();
-            join_reader_thread(out_thread, "stdout")?;
-            join_reader_thread(err_thread, "stderr")?;
-            return Err(format!(
-                "command output exceeded the {} byte stream budget",
-                max_stdout.max(max_stderr)
+            return Err(failed_command_io(
+                format!(
+                    "command output exceeded the {} byte stream budget",
+                    max_stdout.max(max_stderr)
+                ),
+                out_thread,
+                err_thread,
+                input_thread,
             ));
         }
         match child.try_wait() {
@@ -124,11 +188,11 @@ pub(crate) fn run_bounded_command(
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    join_reader_thread(out_thread, "stdout")?;
-                    join_reader_thread(err_thread, "stderr")?;
-                    return Err(format!(
-                        "command exceeded timeout of {} seconds",
-                        timeout.as_secs()
+                    return Err(failed_command_io(
+                        format!("command exceeded timeout of {} seconds", timeout.as_secs()),
+                        out_thread,
+                        err_thread,
+                        input_thread,
                     ));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
@@ -136,23 +200,39 @@ pub(crate) fn run_bounded_command(
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                join_reader_thread(out_thread, "stdout")?;
-                join_reader_thread(err_thread, "stderr")?;
-                return Err(format!("wait for command failed: {e}"));
+                return Err(failed_command_io(
+                    format!("wait for command failed: {e}"),
+                    out_thread,
+                    err_thread,
+                    input_thread,
+                ));
             }
         };
     };
 
     if overflow.load(Ordering::Acquire) {
-        join_reader_thread(out_thread, "stdout")?;
-        join_reader_thread(err_thread, "stderr")?;
-        return Err("command output exceeded the configured stream budget".to_string());
+        return Err(failed_command_io(
+            "command output exceeded the configured stream budget".to_string(),
+            out_thread,
+            err_thread,
+            input_thread,
+        ));
     }
 
-    let stdout = join_reader_thread(out_thread, "stdout")?;
-    let stderr = join_reader_thread(err_thread, "stderr")?;
+    let (stdout, mut stderr, input_error) = join_command_io(out_thread, err_thread, input_thread)?;
     if overflow.load(Ordering::Acquire) {
         return Err("command output exceeded the configured stream budget".to_string());
+    }
+    if let Some(error) = input_error {
+        if status.success() {
+            return Err(error);
+        }
+        // A helper may reject its config/origin/flags before reading stdin.
+        // Preserve its primary failed-exit diagnostics; never report a
+        // successful helper when the full request body was not delivered.
+        if stderr.is_empty() {
+            stderr.extend_from_slice(error.as_bytes());
+        }
     }
     Ok(std::process::Output {
         status,
@@ -160,7 +240,6 @@ pub(crate) fn run_bounded_command(
         stderr,
     })
 }
-
 fn resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().resource_dir().ok()
 }
@@ -1209,5 +1288,158 @@ mod image_identity_audit_tests {
         assert!(process_images_match(r"\\?\UNC\server\share\YaseirAgent.exe", r"\\server\share\YaseirAgent.exe"));
         assert!(!process_images_match(r"C:\other\YaseirAgent.exe", r"C:\Yaseir\YaseirAgent.exe"));
         assert!(!process_images_match("طابعة مختلفة", "different"));
+    }
+}
+
+#[cfg(test)]
+mod command_io_tests {
+    use super::*;
+
+    fn fixture_command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        let test_name = format!(
+            "{}::io_child_fixture",
+            module_path!().split_once("::").unwrap().1
+        );
+        command
+            .args(["--exact", &test_name, "--nocapture"])
+            .env("YASEIR_GATEWAY_IO_TEST_MODE", mode);
+        command
+    }
+
+    #[test]
+    fn io_child_fixture() {
+        let Ok(mode) = std::env::var("YASEIR_GATEWAY_IO_TEST_MODE") else {
+            return;
+        };
+        match mode.as_str() {
+            "echo" => {
+                let mut bytes = Vec::new();
+                std::io::stdin().read_to_end(&mut bytes).unwrap();
+                let mut stdout = std::io::stdout();
+                stdout.write_all(b"FG_IO_EOF:").unwrap();
+                stdout.write_all(&bytes).unwrap();
+                stdout.flush().unwrap();
+            }
+            "ignore" => std::thread::sleep(std::time::Duration::from_secs(30)),
+            "overflow" => {
+                let _ = std::io::stdout().write_all(&vec![b'x'; 64 * 1024]);
+            }
+            "close" => {}
+            "reject" => {
+                std::io::stderr()
+                    .write_all(b"paired Agent Gateway origin differs from requested origin")
+                    .unwrap();
+                std::process::exit(2);
+            }
+            "legacy" => {
+                std::io::stdout().write_all(b"FG_LEGACY_OUTPUT").unwrap();
+                std::process::exit(17);
+            }
+            other => panic!("unknown fixture mode: {other}"),
+        }
+        std::process::exit(0);
+    }
+
+    fn assert_echo(input: Vec<u8>) {
+        let output = run_bounded_command_with_input(
+            fixture_command("echo"),
+            Some(input.clone()),
+            std::time::Duration::from_secs(5),
+            input.len() + 4096,
+            4096,
+        )
+        .unwrap();
+        assert!(output.status.success());
+        let marker = b"FG_IO_EOF:";
+        let start = output
+            .stdout
+            .windows(marker.len())
+            .position(|bytes| bytes == marker)
+            .expect("child reached stdin EOF");
+        assert_eq!(&output.stdout[start + marker.len()..], input.as_slice());
+    }
+
+    #[test]
+    fn large_utf8_body_uses_owned_stdin_and_reaches_eof_unchanged() {
+        let input = "عA😀<>&\\".repeat(8192);
+        assert!(input.encode_utf16().count() > 32767);
+        assert_echo(input.into_bytes());
+    }
+
+    #[test]
+    fn selected_empty_stdin_is_closed_and_does_not_hang() {
+        assert_echo(Vec::new());
+    }
+
+    #[test]
+    fn unread_large_input_cannot_block_command_deadline() {
+        let started = std::time::Instant::now();
+        let error = run_bounded_command_with_input(
+            fixture_command("ignore"),
+            Some(vec![b'x'; 1024 * 1024]),
+            std::time::Duration::from_millis(150),
+            4096,
+            4096,
+        )
+        .unwrap_err();
+        assert!(error.contains("timeout"), "{error}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn output_overflow_also_reaps_a_child_with_blocked_input() {
+        let error = run_bounded_command_with_input(
+            fixture_command("overflow"),
+            Some(vec![b'x'; 1024 * 1024]),
+            std::time::Duration::from_secs(5),
+            1024,
+            4096,
+        )
+        .unwrap_err();
+        assert!(error.contains("stream budget"), "{error}");
+    }
+
+    #[test]
+    fn prematurely_closed_stdin_is_a_visible_input_error() {
+        let error = run_bounded_command_with_input(
+            fixture_command("close"),
+            Some(vec![b'x'; 1024 * 1024]),
+            std::time::Duration::from_secs(5),
+            4096,
+            4096,
+        )
+        .unwrap_err();
+        assert!(error.contains("write command input"), "{error}");
+    }
+
+    #[test]
+    fn early_failed_child_retains_meaningful_stderr_despite_broken_input_pipe() {
+        let output = run_bounded_command_with_input(
+            fixture_command("reject"),
+            Some(vec![b'x'; 1024 * 1024]),
+            std::time::Duration::from_secs(5),
+            4096,
+            4096,
+        )
+        .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(
+            output.stderr,
+            b"paired Agent Gateway origin differs from requested origin"
+        );
+    }
+
+    #[test]
+    fn legacy_helper_keeps_exit_status_and_output() {
+        let output = run_bounded_command(
+            fixture_command("legacy"),
+            std::time::Duration::from_secs(5),
+            4096,
+            4096,
+        )
+        .unwrap();
+        assert_eq!(output.status.code(), Some(17));
+        assert!(output.stdout.ends_with(b"FG_LEGACY_OUTPUT"));
     }
 }

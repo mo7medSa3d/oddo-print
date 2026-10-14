@@ -36,10 +36,10 @@
 
     --pg-text: #212529;
     --pg-text-2: #495057;
-    --pg-text-3: #6c757d;
-    --pg-text-4: #8F8F8F;
+    --pg-text-3: #59616a;
+    --pg-text-4: #59616a;
 
-    --pg-ok: #198754;
+    --pg-ok: #146c43;
     --pg-ok-solid: #198754;
     --pg-ok-bg: #edf7f1;
     --pg-ok-border: #b9ddc6;
@@ -51,18 +51,18 @@
     --pg-bad-solid: #c84a59;
     --pg-bad-bg: #fff1f2;
     --pg-bad-border: #efc6cc;
-    --pg-info: #017E84;
+    --pg-info: #016b70;
     --pg-info-solid: #017E84;
     --pg-info-bg: #eff8f8;
     --pg-info-border: #b8d9da;
-    --pg-neutral: #6C757D;
+    --pg-neutral: #59616a;
     --pg-neutral-solid: #6C757D;
     --pg-neutral-bg: #f3f4f5;
     --pg-neutral-border: #ced4da;
 
     --pg-cred-ok-bg: #edf7f1;
     --pg-cred-ok-border: #b9ddc6;
-    --pg-cred-ok-text: #198754;
+    --pg-cred-ok-text: #146c43;
     --pg-cred-missing-bg: #fff1f2;
     --pg-cred-missing-border: #efc6cc;
     --pg-cred-missing-text: #b23a48;
@@ -72,20 +72,20 @@
     --pg-activation-enabled-text: #714B67;
     --pg-activation-disabled-bg: #f3f4f5;
     --pg-activation-disabled-border: #ced4da;
-    --pg-activation-disabled-text: #6C757D;
+    --pg-activation-disabled-text: #59616a;
 
     --pg-conn-active-bg: #edf7f1;
     --pg-conn-active-border: #b9ddc6;
-    --pg-conn-active-text: #198754;
+    --pg-conn-active-text: #146c43;
     --pg-conn-syncing-bg: #eff8f8;
     --pg-conn-syncing-border: #b8d9da;
-    --pg-conn-syncing-text: #017E84;
+    --pg-conn-syncing-text: #016b70;
     --pg-conn-attention-bg: #fff8e7;
     --pg-conn-attention-border: #ecd69d;
     --pg-conn-attention-text: #8a6100;
     --pg-conn-disabled-bg: #f3f4f5;
     --pg-conn-disabled-border: #ced4da;
-    --pg-conn-disabled-text: #6C757D;
+    --pg-conn-disabled-text: #59616a;
 
     --pg-r-sm: 7px;
     --pg-r-md: 9px;
@@ -106,10 +106,14 @@
     --pg-space-5: 20px;
     --pg-space-6: 24px;
 
-    --pg-fs-caption: 11px;
-    --pg-fs-small: 12px;
-    --pg-fs-body: 13px;
-    --pg-tracking-label: 0.06em;
+    /* Odoo 19 keeps a 1rem root. Respect browser text preferences without
+       resizing the host backend or POS receipt assets. */
+    --pg-fs-caption: 0.9375rem;
+    --pg-fs-small: 1rem;
+    --pg-fs-body: 1.125rem;
+    --pg-fs-section: 1.25rem;
+    --pg-fs-title: 1.75rem;
+    --pg-tracking-label: normal;
     --pg-dur: 180ms;
     --pg-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -128,8 +132,8 @@
     --pg-border-accent: #c4a5b8;
     --pg-text: #212529;
     --pg-text-2: #495057;
-    --pg-text-3: #6c757d;
-    --pg-text-4: #8F8F8F;
+    --pg-text-3: #59616a;
+    --pg-text-4: #59616a;
     --pg-brand: #714B67;
     --pg-brand-hover: #653F58;
     --pg-brand-active: #58364C;
@@ -138,7 +142,7 @@
     --pg-brand-subtle-hover: #eee2ea;
     --pg-brand-subtle-text: #714B67;
     --pg-brand-ring: rgba(113,75,103,.16);
-    --pg-info: #017E84;
+    --pg-info: #016b70;
     --pg-info-solid: #017E84;
     --pg-info-bg: #eff8f8;
     --pg-info-border: #b8d9da;

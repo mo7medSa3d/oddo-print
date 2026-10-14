@@ -71,18 +71,19 @@ export function PrintThroughputChart({
   const max = Math.max(1, ...totals);
 
   const labels = data.map((point) => formatTime(point.bucket));
+  const captionMiddleIndex = Math.round((labels.length - 1) / 8) * 4;
 
   return (
     <div className="mt-5">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-ink-3">
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-brand-solid" />{t("platform.chart.allPrintJobs")}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-ok-solid" />{t("platform.chart.successful")}</span>
         <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-bad-solid" />{t("platform.chart.failed")}</span>
       </div>
-      <div className="mt-3 overflow-hidden rounded-md border border-edge bg-surface-2 px-2 py-3">
+      <div className="yw-throughput-plot mt-3 overflow-hidden rounded-md border border-edge bg-surface-2 px-2 py-3">
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="h-[260px] w-full"
+          className="block h-auto w-full"
           role="img"
           aria-label={t("platform.chart.throughputAria")}
         >
@@ -113,16 +114,32 @@ export function PrintThroughputChart({
               </circle>
             );
           })}
+        </svg>
+        {/* HTML labels retain the shared text size when the plot scales down. */}
+        <div className="yw-throughput-axis mt-2 tabular-nums text-ink-3" dir="ltr">
           {labels.map((label, index) => {
             if (index % 4 !== 0 && index !== labels.length - 1) return null;
-            const x = data.length > 1 ? (index / (data.length - 1)) * width : width / 2;
+            const first = index === 0;
+            const last = index === labels.length - 1;
+            const centered = labels.length === 1;
+            const left = centered ? 50 : (index / (labels.length - 1)) * 100;
+            const anchor = centered || (!first && !last) ? "-translate-x-1/2" : last ? "-translate-x-full" : "";
+            const validMiddle = index === captionMiddleIndex
+              && index * 3 >= labels.length - 1 && index * 3 <= (labels.length - 1) * 2;
+            const caption = first || last ? "edge" : validMiddle ? "middle" : "hidden";
+            const alignment = centered || (!first && !last) ? "text-center" : last ? "text-end" : "text-start";
             return (
-              <text key={label} x={x} y={height - 8} textAnchor={index === 0 ? "start" : index === labels.length - 1 ? "end" : "middle"} className="fill-ink-4 text-xs">
+              <span
+                key={`${label}-${index}`}
+                style={{ left: `${left}%` }}
+                data-axis-caption={caption}
+                className={`yw-throughput-tick ${anchor} ${alignment}`}
+              >
                 {label}
-              </text>
+              </span>
             );
           })}
-        </svg>
+        </div>
       </div>
     </div>
   );
@@ -146,7 +163,7 @@ function AvailabilityRing({
   const offset = circumference - (percentage / 100) * circumference;
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex min-w-0 flex-wrap items-center gap-4">
       <div className="relative h-[96px] w-[96px] shrink-0">
         <svg viewBox="0 0 96 96" className="h-full w-full -rotate-90" aria-hidden>
           <circle cx="48" cy="48" r={radius} fill="none" className="stroke-surface-3" strokeWidth="8" />
@@ -166,7 +183,7 @@ function AvailabilityRing({
           {percentage}%
         </div>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 basis-32 [overflow-wrap:anywhere]">
         <div className="text-sm font-semibold text-ink">{label}</div>
         <div className="mt-1 text-xs text-ink-3">
           {total > 0
@@ -229,11 +246,11 @@ export function SubscriptionMixChart({ subscriptions }: { subscriptions: Subscri
           />
         ))}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
+      <div className="mt-4 grid gap-x-5 gap-y-3 sm:grid-cols-2">
         {segments.map((segment) => (
-          <div key={segment.id} className="flex items-center justify-between gap-3 text-xs">
-            <span className="inline-flex items-center gap-2 text-ink-3">
-              <span className={`h-2 w-2 rounded-full ${segment.className}`} />
+          <div key={segment.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+            <span className="inline-flex min-w-0 items-center gap-2 text-ink-3">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${segment.className}`} aria-hidden />
               {segment.label}
             </span>
             <span className="font-semibold tabular-nums text-ink">{formatNumber(segment.value)}</span>
@@ -297,9 +314,9 @@ export function OperationalSignals({
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {signals.map((signal) => (
-        <div key={signal.id} className="inset-panel p-4">
+        <div key={signal.id} className="inset-panel min-w-0 p-4 [overflow-wrap:anywhere]">
           <div className="text-sm font-[600] text-ink-2">{signal.label}</div>
-          <div className="mt-2.5 flex items-baseline gap-2">
+          <div className="mt-2.5 flex flex-wrap items-baseline gap-2">
             <span className="text-2xl font-[660] tabular-nums tracking-[-0.02em] text-ink">
               {formatNumber(signal.value)}
             </span>

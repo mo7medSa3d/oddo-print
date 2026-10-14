@@ -41,7 +41,8 @@ type USBPrinter struct {
 	// wedged latches once a chunk write had to be abandoned mid-syscall.
 	// Only pointer receivers ever exist (see factory.go), so atomic access
 	// is race-safe.
-	wedged atomic.Bool
+	wedged            atomic.Bool
+	transportObserved atomic.Bool
 }
 
 // defaultUSBWriteChunk is the real synchronous Win32 write.
@@ -277,6 +278,7 @@ func (p *USBPrinter) Test(ctx context.Context) error {
 }
 
 func (p *USBPrinter) Status() string {
+	p.transportObserved.Store(false)
 	if p.DevicePath == "" {
 		return "unknown"
 	}
@@ -290,10 +292,13 @@ func (p *USBPrinter) Status() string {
 		return "unknown"
 	}
 	windows.CloseHandle(h)
+	p.transportObserved.Store(true)
 	// A successful interface open proves transport accessibility only; USBPRINT
 	// exposes no generic media/cover/readiness state. Keep physical health unknown.
 	return "unknown"
 }
+
+func (p *USBPrinter) TransportObserved() bool { return p.transportObserved.Load() }
 
 const (
 	digcfPresent             = 0x00000002

@@ -15,7 +15,7 @@ from the schema again.
 | Metric | Value |
 | --- | --- |
 | Tables in `schema.ts` | 26 |
-| Migration files | 84 (`0000` … `0083`) plus versioned forward repairs |
+| Migration files | 85 (`0000` … `0084`) plus versioned forward repairs |
 | Tables created by migration history and forward repairs | 33 |
 | Legacy tables later dropped | 7 |
 | Historical index definitions through `0080` | 117 (later migrations add more; see SQL) |
@@ -51,6 +51,8 @@ from the schema again.
 | `tenant_users` | 91 | `0028_add_multi_tenancy.sql` | 3 | 2 |
 | `tenants` | 4 | `0028_add_multi_tenancy.sql` | 1 | 0 |
 | `users` | 31 | `0028_add_multi_tenancy.sql` | 1 | 0 |
+
+Migration `0084_printer_cloud_sharing.sql` adds `printers.shared_with_gateway` (non-null, legacy default true) and nullable `shared_with_gateway_version` (validated positive int64 decimal text). The authenticated owning Agent controls sharing through versioned inventory; same-version denial is sticky across pages and only a newer explicit positive may restore it under quota. Observation bookkeeping and physical health/lifecycle stay independent. Private canonical records and job history are retained; default cloud inventories/counts and new job admission exclude them.
 
 The `e2e_capture_runs` table is a tenant/Agent- and API-key-scoped,
 **simulation-only** outbox installed by `0083_e2e_capture_runs.sql`.

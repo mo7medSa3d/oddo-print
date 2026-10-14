@@ -10,7 +10,7 @@ import {
   ErrorState,
 } from "../../components/ui";
 import { fetchGatewayAgents, registerGatewayPrinter, normalizeGatewayUrl, type GatewayApiError, type PrinterInfo, type RegisterPrinterRequest } from "../lib/ipc";
-import { agentLiveView, errMsg, friendlyGatewayError, isProductionPrinter } from "../lib/printers";
+import { agentLiveView, errMsg, friendlyGatewayError, isProductionPrinter, printerDisplayName } from "../lib/printers";
 import UpgradeLimitDialog, { type UpgradeLimitResource } from "../../components/UpgradeLimitDialog";
 import { useI18n } from "../../i18n/react";
 
@@ -357,7 +357,7 @@ export function AddPrinterDialog({
               <option value="">{t("desktop.add.selectEllipsis")}</option>
               {physicalSpoolers.map((p) => (
                 <option key={p.id} value={p.spooler_name || p.spoolerName || p.name}>
-                  {p.name}
+                  {printerDisplayName(p, locale)}
                 </option>
               ))}
             </Select>
@@ -439,7 +439,7 @@ export function AddPrinterDialog({
               <option value="">{t("desktop.add.selectEllipsis")}</option>
               {usbPrinters.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} {p.usbVid ? `(${p.usbVid}:${p.usbPid})` : ""}
+                  {printerDisplayName(p, locale)} {p.usbVid ? `(${p.usbVid}:${p.usbPid})` : ""}
                 </option>
               ))}
               {usbPrinters.length === 0 && <option disabled>{t("desktop.add.noUsbDiscovered")}</option>}

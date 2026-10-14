@@ -66,6 +66,41 @@ describe("payload", () => {
     expect(pdf).toContain("(Agent: Agent\\\\Backslash)");
   });
 
+  it("sizes document test pages to a declared receipt roll with wrapped text and valid PDF offsets", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    for (const mm of [58, 80] as const) {
+      const payload = buildTestPrintPayloadForPrinter("Receipt)".repeat(7), "Agent\\Backslash".repeat(4), {
+        connectionType: "spooler", protocol: "spooler", capabilities: { paper_width_mm: mm },
+      }, "stable-operation");
+      expect(validatePrintJobPayload(payload).type).toBe("pdf");
+      const pdf = Buffer.from(payload.data, "base64").toString("utf8");
+      const box = pdf.match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/)!;
+      expect(Number(box[1]) * 25.4 / 72).toBeCloseTo(mm, 2);
+      expect(Number(box[2]) * 25.4 / 72).toBeCloseTo(100, 2);
+      expect(pdf).toContain("Receipt\\)");
+      expect(pdf).toContain("Agent\\\\Backslash");
+      const xrefOffset = Number(pdf.match(/startxref\n(\d+)/)![1]);
+      expect(pdf.slice(xrefOffset)).toMatch(/^xref\n0 6\n/);
+      for (const [index, match] of [...pdf.matchAll(/^(\d{10}) 00000 n /gm)].entries()) {
+        expect(pdf.slice(Number(match[1]))).toMatch(new RegExp(`^${index + 1} 0 obj\\n`));
+      }
+      const content = pdf.match(/<< \/Length (\d+) >>\nstream\n([\s\S]*?)\nendstream/)!;
+      expect(Buffer.byteLength(content[2])).toBe(Number(content[1]));
+    }
+  });
+
+  it("uses configured single-roll metadata and retains office media without guessing from dots", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const printer = { connectionType: "spooler", protocol: "spooler" };
+    const build = (extra: Parameters<typeof buildTestPrintPayloadForPrinter>[2]) => Buffer.from(
+      buildTestPrintPayloadForPrinter("Queue", "Agent", { ...printer, ...extra }, "stable-op").data, "base64",
+    ).toString("utf8");
+    expect(build({ config: { paper_widths: [80] } })).toContain("/MediaBox [0 0 226.772 283.465]");
+    expect(build({ capabilities: { max_paper_width: 512 } })).toContain("/MediaBox [0 0 612 792]");
+    expect(build({ capabilities: { paper_widths: [58, 80] } })).toContain("/MediaBox [0 0 612 792]");
+    expect(build({ capabilities: { paper_width_mm: 58 } })).toBe(build({ capabilities: { paper_width_mm: 58 } }));
+  });
+
   it("test ticket follows the declared ZPL/TSPL protocol", async () => {
     const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
     const zpl = buildTestPrintPayloadForPrinter("Zebra", "Agent", {

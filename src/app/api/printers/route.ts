@@ -59,8 +59,8 @@ export async function GET(req: Request) {
   const now = gatewayNow();
   const agentFreshnessThresholdSeconds = agentStaleThresholdSeconds();
   const ownershipWhere = agentId
-    ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))
-    : eq(printers.tenantId, tenantId);
+    ? and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId), eq(printers.sharedWithGateway, true))
+    : and(eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true));
   const cursorWhere = beforeCreatedAt && beforeId
     ? or(lt(printers.createdAt, beforeCreatedAt), and(eq(printers.createdAt, beforeCreatedAt), lt(printers.id, beforeId)))
     : undefined;
@@ -164,7 +164,7 @@ export async function POST(req: Request) {
           await requireManagerActorInTransaction(tx, auth.claims, "printers.manage");
         }
         await enforceTenantResourceEntitlement(tx, tenantId, "max_printers",
-          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`);
+          sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${tenantId} AND shared_with_gateway = true AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`);
         const inserted = await tx.insert(printers).values({
           id, tenantId: tenantId, agentId: data.agentId, name: data.name,
           printerType: data.printerType, deviceClass: data.deviceClass,

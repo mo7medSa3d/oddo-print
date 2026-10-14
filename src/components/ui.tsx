@@ -106,10 +106,17 @@ const buttonVariants: Record<ButtonVariant, string> = {
 };
 
 const buttonSizes: Record<"xs" | "sm" | "md" | "lg", string> = {
-  xs: "h-8 px-2.5 text-xs gap-1.5 rounded-md",
-  sm: "h-9 px-3 text-xs gap-1.5 rounded-sm",
-  md: "h-10 px-3.5 text-sm gap-1.5 rounded-sm",
-  lg: "h-11 px-5 text-base gap-2 rounded-md",
+  xs: "min-h-9 px-3 py-1.5 text-xs gap-1.5 rounded-md",
+  sm: "min-h-10 px-3.5 py-2 text-sm gap-2 rounded-sm",
+  md: "min-h-11 px-4 py-2.5 text-sm gap-2 rounded-sm",
+  lg: "min-h-12 px-5 py-3 text-base gap-2 rounded-md",
+};
+
+const iconButtonSizes: Record<"xs" | "sm" | "md" | "lg", string> = {
+  xs: "h-9 w-9",
+  sm: "h-10 w-10",
+  md: "h-11 w-11",
+  lg: "h-12 w-12",
 };
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -151,12 +158,12 @@ export function Button({
       : variant === "primary"
         ? "border-edge-accent text-brand-subtle-text hover:bg-brand-subtle"
         : "border-edge-strong text-ink hover:bg-surface-2";
-  const baseClasses = `tg-action-button relative inline-flex select-none items-center justify-center ${className.includes("whitespace-normal") ? "whitespace-normal" : "whitespace-nowrap"} font-[600] tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${outlined ? `border bg-surface ${outlineVariant}` : buttonVariants[variant]} ${buttonSizes[size]} ${iconOnly ? "aspect-square !px-0" : ""} ${className}`;
+  const baseClasses = `tg-action-button relative inline-flex min-w-0 max-w-full select-none items-center justify-center ${className.includes("whitespace-nowrap") ? "whitespace-nowrap" : "whitespace-normal"} text-center font-[600] leading-snug tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform,opacity] duration-200 ease-out disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${outlined ? `border bg-surface ${outlineVariant}` : buttonVariants[variant]} ${buttonSizes[size]} ${iconOnly ? `${iconButtonSizes[size]} shrink-0 !px-0 !py-0` : ""} ${className}`;
 
   const content = (
     <>
       {isPending ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
       ) : (
         // Icon slots are decorative: every control carries its meaning as text
         // (or an explicit aria-label for icon-only buttons).
@@ -233,7 +240,7 @@ export function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-45 ${focusRing} ${className}`}
       {...props}
     >
       {children}
@@ -283,19 +290,19 @@ export function StatusBadge({
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
-  const dims = size === "sm" ? "h-5 px-2 text-2xs gap-1" : size === "lg" ? "h-8 px-3 text-xs gap-2" : "h-6 px-2.5 text-xs gap-1.5";
+  const dims = size === "sm" ? "min-h-6 px-2 py-0.5 text-xs gap-1.5" : size === "lg" ? "min-h-9 px-3 py-1.5 text-sm gap-2" : "min-h-7 px-2.5 py-1 text-xs gap-1.5";
   return (
     <span
-      className={`tg-status-pill inline-flex shrink-0 items-center whitespace-nowrap rounded-full border font-[600] tracking-[0.005em] ${dims} ${toneBg[tone]} ${className}`}
+      className={`tg-status-pill inline-flex min-w-0 max-w-full items-center whitespace-normal rounded-full border font-[600] leading-snug tracking-[0.005em] ${dims} ${toneBg[tone]} ${className}`}
     >
       {icon ? (
-        <span className="flex h-3 w-3 items-center justify-center" aria-hidden>
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden>
           {icon}
         </span>
       ) : (
         <StatusDot tone={tone} pulse={pulse} className={size === "sm" ? "h-1.5 w-1.5" : ""} />
       )}
-      {label}
+      <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
     </span>
   );
 }
@@ -365,22 +372,22 @@ export function CardHeader({
 }) {
   return (
     <div
-      className={`flex flex-col gap-3 border-b border-edge-subtle px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${className}`}
+      className={`flex flex-wrap items-start justify-between gap-4 border-b border-edge-subtle px-5 py-5 ${className}`}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 flex-1 basis-56 items-start gap-3">
         {icon && (
           <span className="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">
             {icon}
           </span>
         )}
         <div className="min-w-0">
-          <h2 className="tg-panel-title break-words text-md font-[650] leading-snug tracking-[-0.012em] text-ink">
+          <h2 className="tg-panel-title min-w-0 break-words text-lg font-[650] leading-snug tracking-[-0.012em] text-ink [overflow-wrap:anywhere]">
             {title}
           </h2>
-          {subtitle && <p className="mt-0.5 text-sm leading-snug text-ink-3">{subtitle}</p>}
+          {subtitle && <p className="mt-1 max-w-[65ch] text-sm leading-relaxed text-ink-3">{subtitle}</p>}
         </div>
       </div>
-      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -414,16 +421,16 @@ export function Section({
   return (
     <section className={`card overflow-hidden ${className}`}>
       {(title || description || actions) && (
-        <header className="flex flex-col gap-3 border-b border-edge-subtle px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-edge-subtle px-5 py-5">
+          <div className="min-w-0 flex-1 basis-56">
             {title && (
-              <h2 className="text-md font-[600] leading-snug tracking-[-0.012em] text-ink">{title}</h2>
+              <h2 className="text-lg font-[600] leading-snug tracking-[-0.012em] text-ink">{title}</h2>
             )}
             {description && (
               <p className="mt-0.5 text-sm leading-relaxed text-ink-3">{description}</p>
             )}
           </div>
-          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={`px-5 py-5 ${bodyClassName}`}>{children}</div>
@@ -832,10 +839,10 @@ export function Field({
   return (
     <FieldContext.Provider value={{ controlId, descriptionId, invalid: Boolean(error) }}>
       <div className={className}>
-        <div className="flex items-baseline justify-between gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <label
             htmlFor={controlId}
-            className="block text-sm font-[550] tracking-[-0.005em] text-ink-2"
+            className="block min-w-0 max-w-full text-sm font-[550] tracking-[-0.005em] text-ink-2 [overflow-wrap:anywhere]"
           >
             {label}
             {required && (
@@ -866,7 +873,7 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full h-11 rounded-sm border border-control bg-surface px-3 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
+  "w-full min-w-0 min-h-12 rounded-sm border border-control bg-surface px-3.5 py-2.5 text-base text-ink placeholder:text-ink-4 shadow-xs transition-[border-color,box-shadow,background-color] duration-150 ease-out hover:border-ink-4/70 focus:border-brand focus:outline-none focus:ring-[3px] focus:ring-brand/18 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-ink-3";
 
 function useFieldProps({
   id,
@@ -1037,9 +1044,9 @@ export function MetaRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-6 py-2.5">
-      <dt className="shrink-0 text-sm text-ink-3">{label}</dt>
-      <dd className="min-w-0 text-end text-sm font-[550] text-ink">{children}</dd>
+    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1 py-3">
+      <dt className="min-w-0 max-w-full text-sm text-ink-3 [overflow-wrap:anywhere]">{label}</dt>
+      <dd className="min-w-0 max-w-full text-end text-sm font-[550] text-ink [overflow-wrap:anywhere]">{children}</dd>
     </div>
   );
 }
@@ -1058,10 +1065,10 @@ export function KeyValueList({
       {rows.map((row, i) => (
         <div
           key={`${row.label}-${i}`}
-          className={`flex items-start justify-between gap-6 ${dense ? "py-2" : "py-2.5"}`}
+          className={`flex flex-wrap items-start justify-between gap-x-6 gap-y-1 ${dense ? "py-2" : "py-3"}`}
         >
-          <dt className="shrink-0 text-sm text-ink-3">{row.label}</dt>
-          <dd className="min-w-0 text-end text-sm font-[550] text-ink">{row.value}</dd>
+          <dt className="min-w-0 max-w-full text-sm text-ink-3 [overflow-wrap:anywhere]">{row.label}</dt>
+          <dd className="min-w-0 max-w-full text-end text-sm font-[550] text-ink [overflow-wrap:anywhere]">{row.value}</dd>
         </div>
       ))}
     </dl>
@@ -1155,7 +1162,7 @@ export function CopyButton({
           setTimeout(() => setCopyFailed(false), 2500);
         }
       }}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-edge bg-surface px-2 text-xs font-[550] text-ink-2 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
+      className={`inline-flex min-h-9 min-w-0 max-w-full items-center gap-1.5 rounded-sm border border-edge bg-surface px-2.5 py-1.5 text-xs font-[550] text-ink-2 transition-colors duration-150 hover:border-edge-strong hover:bg-surface-2 hover:text-ink ${focusRing} ${className}`}
     >
       {copied ? (
         <>
@@ -1469,8 +1476,8 @@ export function Menu({
                     }}
                   >
                     {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
+                    <span className="min-w-0 flex-1 whitespace-normal text-start [overflow-wrap:anywhere]">{item.label}</span>
+                    {item.meta && <span className="max-w-[45%] text-end text-xs text-ink-4 [overflow-wrap:anywhere]">{item.meta}</span>}
                   </Link>
                 ) : (
                   <button
@@ -1487,8 +1494,8 @@ export function Menu({
                     }}
                   >
                     {item.icon && <span className="shrink-0 text-ink-3">{item.icon}</span>}
-                    <span className="min-w-0 flex-1 truncate text-start">{item.label}</span>
-                    {item.meta && <span className="shrink-0 text-xs text-ink-4">{item.meta}</span>}
+                    <span className="min-w-0 flex-1 whitespace-normal text-start [overflow-wrap:anywhere]">{item.label}</span>
+                    {item.meta && <span className="max-w-[45%] text-end text-xs text-ink-4 [overflow-wrap:anywhere]">{item.meta}</span>}
                   </button>
                 )}
               </React.Fragment>
@@ -1602,7 +1609,7 @@ export function Tabs<T extends string>({
               onChange(t);
               if (listRef.current) requestAnimationFrame(revealSelectedTab);
             }}
-            className={`tg-tab-trigger relative flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-[600] capitalize ${focusRing} ${
+            className={`tg-tab-trigger relative flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3.5 py-2 text-sm font-[600] capitalize ${focusRing} ${
               selected
                 ? "bg-surface text-brand-subtle-text shadow-sm"
                 : "text-ink-3 hover:bg-surface-hover hover:text-ink"
@@ -1641,7 +1648,7 @@ export function SegmentedControl<T extends string>({
   className?: string;
 }) {
   const pad = size === "sm" ? "p-0.5" : "p-0.5";
-  const item = size === "sm" ? "h-8 px-2 text-xs" : "h-9 px-2.5 text-sm";
+  const item = size === "sm" ? "min-h-9 px-2.5 py-1.5 text-xs" : "min-h-11 px-3 py-2 text-sm";
   return (
     <div
       role="group"
@@ -1848,7 +1855,7 @@ export function Modal({
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="break-words text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
+            <h2 className="break-words text-xl font-[600] tracking-[-0.012em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 text-sm leading-relaxed text-ink-3">
                 {description}
@@ -1965,7 +1972,7 @@ export function Drawer({
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <h2 className="break-words text-md font-[600] tracking-[-0.012em] text-ink">{title}</h2>
+            <h2 className="break-words text-xl font-[600] tracking-[-0.012em] text-ink">{title}</h2>
             {description && (
               <p id={descId} className="mt-1 text-sm text-ink-3">
                 {description}
@@ -1980,7 +1987,7 @@ export function Drawer({
           {children}
         </div>
         {footer && (
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-edge-subtle bg-surface-2 px-5 py-4 sm:px-6">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-edge-subtle bg-surface-2 px-5 py-4 sm:px-6">
             {footer}
           </div>
         )}
@@ -2055,8 +2062,8 @@ export function PageHeader({
     >
       <div className={variant === "band" ? `mx-auto w-full min-w-0 max-w-full ${max} px-3 pt-5 pb-0 sm:px-6 sm:pt-6 lg:px-8 lg:pt-7` : ""}>
         {breadcrumbs && <div className="mb-2 text-sm text-ink-3">{breadcrumbs}</div>}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-1 basis-72 items-start gap-3">
             {icon && (
               <span className="tg-page-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-edge bg-surface text-ink-3 shadow-xs">
                 {icon}
@@ -2065,7 +2072,7 @@ export function PageHeader({
             <div className="min-w-0">
               {eyebrow && <div className="tg-page-eyebrow text-eyebrow mb-1.5">{eyebrow}</div>}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className="tg-page-title text-2xl font-[640] leading-tight tracking-[-0.024em] text-ink sm:text-3xl">
+                <h1 className="tg-page-title min-w-0 break-words text-2xl font-[640] leading-tight tracking-[-0.024em] text-ink sm:text-3xl">
                   {title}
                 </h1>
                 {meta}
@@ -2076,7 +2083,7 @@ export function PageHeader({
             </div>
           </div>
           {actions && (
-            <div className="tg-page-actions flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">{actions}</div>
+            <div className="tg-page-actions flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
           )}
         </div>
       </div>
@@ -2096,12 +2103,12 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${className}`}>
-      <div className="min-w-0">
+    <div className={`flex flex-wrap items-start justify-between gap-3 ${className}`}>
+      <div className="min-w-0 flex-1 basis-56">
         <h2 className="text-xl font-[600] tracking-[-0.014em] text-ink">{title}</h2>
         {description && <p className="mt-0.5 text-sm text-ink-3">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -2133,7 +2140,7 @@ export function Toast({
     <div
       role={toast.type === "error" ? "alert" : "status"}
       aria-live={toast.type === "error" ? "assertive" : "polite"}
-      className={`pg-toast-in fixed bottom-5 end-5 z-[60] flex max-w-[420px] items-start gap-2.5 rounded-md border px-4 py-3 text-sm shadow-lg ${toneBg[tone]}`}
+      className={`pg-toast-in fixed bottom-4 end-4 z-[60] flex max-w-[min(420px,calc(100vw-2rem))] items-start gap-2.5 rounded-md border px-4 py-3 text-sm shadow-lg ${toneBg[tone]}`}
     >
       {toast.type === "success" ? (
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

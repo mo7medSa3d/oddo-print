@@ -286,10 +286,7 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 		a.reconcileRegistryPrinters(merged)
 	}
 
-	devices := make([]map[string]interface{}, 0, len(result.Printers))
-	for _, di := range result.Printers {
-		devices = append(devices, discoveryDevicePayload(a.cfg.Agent.ID, di))
-	}
+	devices, reportErrors := a.cloudDiscoveryPayload(result)
 
 	status := "completed"
 	switch {
@@ -301,16 +298,16 @@ func (a *Agent) executeDiscoverySession(ctx context.Context, discoveryID string,
 	case result.Truncated:
 		// Nothing was learned before the bound expired.
 		status = "failed"
-	case len(result.Errors) > 0 && len(devices) > 0:
+	case len(reportErrors) > 0 && len(devices) > 0:
 		status = "partial"
-	case len(result.Errors) > 0:
+	case len(reportErrors) > 0:
 		status = "failed"
 	}
 	if result.Truncated {
 		log.Printf("[discovery] session %s ended bounded: reporting %d devices from completed sources only", discoveryID, len(devices))
 	}
 
-	a.reportDiscoveryResult(ctx, discoveryID, status, devices, result.Errors)
+	a.reportDiscoveryResult(ctx, discoveryID, status, devices, reportErrors)
 	if result.Truncated {
 		// The bound expired but the underlying scan is still blocked in a
 		// synchronous Win32 call. Hold the one-scan-at-a-time semaphore until

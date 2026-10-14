@@ -9,6 +9,7 @@ export interface PrinterAvailability extends PrinterLike {
   lifecycle: string | null;
   status: string | null;
   inventoryPresent?: boolean | null;
+  sharedWithGateway?: boolean | null;
 }
 
 export function isPrinterStatusExecutable(printer: Pick<PrinterAvailability, "status" | "connectionType" | "protocol">): boolean {
@@ -64,6 +65,7 @@ export function isPrinterAvailableForJob(
   now = gatewayNow(),
 ): boolean {
   if (printer.lifecycle !== "active") return false;
+  if (printer.sharedWithGateway === false) return false;
   if (printer.inventoryPresent === false) return false;
   if (isVirtualPrinterRecord(printer)) return false;
   if (agent !== undefined && !isAgentAvailableForPrinter(agent, now)) return false;

@@ -56,4 +56,24 @@ suite("Odoo runtime discovery billing boundary", () => {
       code: "SUBSCRIPTION_REQUIRED",
     });
   });
+
+  it("publishes bounded selected roll media separately from printable dots", async () => {
+    await pool().query(
+      "UPDATE printers SET capabilities = $1::jsonb WHERE tenant_id = $2 AND id = $3",
+      [JSON.stringify({ paper_width_mm: 58, max_paper_width: 384, supported_protocols: ["pdf", "image"] }), fixture.tenantId, fixture.printerId],
+    );
+    const request = () => new Request("https://gateway.test/api/odoo/printers", { headers: { "x-api-key": fixture.odooKey } });
+    const response = await printersGET(request());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.printers.find((printer: { id: string }) => printer.id === fixture.printerId)).toMatchObject({
+      capabilities: { paper_width_mm: 58 }, printableWidthDots: 384,
+    });
+    await pool().query(
+      "UPDATE printers SET capabilities = $1::jsonb, config = '{}'::jsonb WHERE tenant_id = $2 AND id = $3",
+      [JSON.stringify({ max_paper_width: 512, paper_widths: [58, 80] }), fixture.tenantId, fixture.printerId],
+    );
+    const ambiguous = await (await printersGET(request())).json();
+    expect(ambiguous.printers.find((printer: { id: string }) => printer.id === fixture.printerId).capabilities).not.toHaveProperty("paper_width_mm");
+  });
 });

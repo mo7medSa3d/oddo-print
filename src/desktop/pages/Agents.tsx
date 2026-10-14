@@ -4,12 +4,12 @@ import { Button, Card, CardHeader, CopyButton, EmptyState, ErrorState, Mono, Sta
 import { DetailList, StatItem, StatStrip } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { agentStatusNoteKey, friendlyAgentError, isProductionPrinter, printerHealthCounts } from "../lib/printers";
+import { agentStatusNoteKey, friendlyAgentError, isMainInventoryPrinter, printerHealthCounts } from "../lib/printers";
 
 export function AgentsPage({ s }: { s: DesktopState }) {
   const { t, locale, formatDateTime } = useI18n();
   const anyStatus = s.agentStatus as Record<string, unknown> | null;
-  const physical = s.printers.filter(isProductionPrinter);
+  const physical = s.printers.filter(isMainInventoryPrinter);
   const { online, offline, unknown } = printerHealthCounts(physical, s.nowMs);
   const attention = offline + unknown;
 
@@ -17,7 +17,7 @@ export function AgentsPage({ s }: { s: DesktopState }) {
     <div className="space-y-5">
       <StatStrip columns={3}>
         <StatItem label={t("desktop.agents.statLocalAgent")} value={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} sub={String(anyStatus?.hostname || t("desktop.agents.thisPc"))} tone={s.isOnline ? "ok" : "bad"} icon={<Cpu className="h-4 w-4" />} />
-        <StatItem label={t("desktop.agents.statPrinters")} value={`${online} / ${physical.length}`} sub={attention > 0 ? t("desktop.agents.needAttentionCount", { count: attention }) : t("desktop.status.online")} tone={physical.length > 0 && attention === 0 ? "ok" : physical.length === 0 ? "neutral" : "warn"} icon={<HardDrive className="h-4 w-4" />} />
+        <StatItem label={t("desktop.agents.statPrinters")} value={`${online} / ${physical.length}`} sub={unknown > 0 ? t("printer.presentation.unavailableCount", { count: unknown }) : offline > 0 ? t("printer.presentation.attentionCount", { count: offline }) : t("printer.presentation.availableCount", { count: online })} tone={physical.length > 0 && attention === 0 ? "ok" : physical.length === 0 ? "neutral" : "warn"} icon={<HardDrive className="h-4 w-4" />} />
         <StatItem label={t("desktop.agents.statFleet")} value={s.gatewayUrl && s.fleetOnline !== null ? `${s.fleetOnline} / ${s.fleetTotal}` : "—"} sub={s.gatewayUrl ? t("desktop.agents.agentsOnline") : t("desktop.agents.notConfigured")} tone={s.gatewayUrl && s.fleetOnline !== null && s.fleetOnline > 0 ? "ok" : "neutral"} icon={<Server className="h-4 w-4" />} />
       </StatStrip>
 

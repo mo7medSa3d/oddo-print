@@ -107,7 +107,7 @@ export async function POST(req: Request) {
       continue;
     }
     const d = parsed.data;
-    if (isVirtualPrinterRecord({ name: d.spoolerName ?? d.deviceName,
+    if (isVirtualPrinterRecord({ name: d.deviceName, spoolerName: d.spoolerName,
       connectionType: d.transport, protocol: d.protocol, deviceClass: d.deviceClass,
       capabilities: d.capabilities ?? d.rawMetadata, config: d.rawMetadata })) {
       skippedDevices.push({ id: d.id ?? rawId, reason: "virtual_or_software_printer" });

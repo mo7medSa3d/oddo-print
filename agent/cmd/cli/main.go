@@ -23,6 +23,13 @@ func main() {
 	// If subcommand style "printers ..." is used, handle before pairing check
 	args := flag.Args()
 	if len(args) > 0 {
+		if args[0] == "printers-share" {
+			if err := handlePrinterSharing(args[1:], *configPath); err != nil {
+				fmt.Fprintln(os.Stderr, "printer sharing:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		// Check for printers subcommand
 		if args[0] == "printers" {
 			handlePrintersSubcommand(args[1:], *configPath)
@@ -125,6 +132,7 @@ func printUsage() {
 	fmt.Println("")
 	fmt.Println("Printer management:")
 	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers-share --id <local-id> --shared <true|false> [-config <path>]")
 	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
 	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]  # transport/queue diagnostic; not proof of physical print")
 	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
@@ -220,6 +228,10 @@ func handlePrintersList(configPath string, jsonOutput bool) {
 	if err != nil {
 		log.Fatalf("List failed: %v", err)
 	}
+	infos, err = printer.AnnotatePrinterSharing(loaded.path, loaded.cfg, registryPath, infos)
+	if err != nil {
+		log.Fatalf("Read local printer sharing failed: %v", err)
+	}
 	if jsonOutput {
 		out, err := json.Marshal(infos)
 		if err != nil {
@@ -261,6 +273,10 @@ func handlePrintersDiscover(configPath string, jsonOutput bool) {
 	loaded := loadConfigForCLI(configPath)
 	registryPath := config.RegistryPath(loaded.path)
 	printers := discoverHelper(loaded.cfg, registryPath, jsonOutput)
+	printers, err := printer.AnnotatePrinterSharing(loaded.path, loaded.cfg, registryPath, printers)
+	if err != nil {
+		log.Fatalf("Read local printer sharing failed: %v", err)
+	}
 	if jsonOutput {
 		type ownedPrinter struct {
 			printer.DeviceInfo

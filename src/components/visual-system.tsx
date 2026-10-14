@@ -44,7 +44,7 @@ export function ShellSearchButton({
       onClick={onClick}
       aria-label={label}
       title={hint}
-      className={`tg-search-trigger inline-flex min-w-0 items-center gap-2 rounded-xl border border-edge bg-surface text-ink-3 transition-[background-color,border-color,box-shadow] duration-200 hover:border-edge-accent hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 ${compact ? "h-10 w-10 justify-center" : "h-10 px-3"}`}
+      className={`tg-search-trigger inline-flex min-w-0 items-center gap-2 rounded-xl border border-edge bg-surface text-ink-3 transition-[background-color,border-color,box-shadow] duration-200 hover:border-edge-accent hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 ${compact ? "h-11 w-11 justify-center" : "min-h-11 px-3 py-2"}`}
     >
       <Search className="h-4 w-4 shrink-0" aria-hidden />
       {!compact && (

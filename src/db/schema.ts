@@ -162,6 +162,12 @@ export const printers = pgTable("printers", {
   status: text("status").notNull().default("unknown"),
   lifecycle: text("lifecycle").notNull().default("active"),
   managementSource: text("management_source").notNull().default("agent"),
+  // Local owner permission is independent of remote lifecycle and device health.
+  // Keep negative rows so old jobs/heartbeats cannot resurrect cloud access.
+  sharedWithGateway: boolean("shared_with_gateway").notNull().default(true),
+  // Denial wins across pages of one snapshot; only a newer owner snapshot
+  // may re-share. Text retains the Agent's int64 precision in JSON/Drizzle.
+  sharedWithGatewayVersion: text("shared_with_gateway_version"),
   desiredRevision: bigint("desired_revision", { mode: "number" }).notNull().default(0),
   appliedDesiredRevision: bigint("applied_desired_revision", { mode: "number" }).notNull().default(0),
   observedDesiredRevision: bigint("observed_desired_revision", { mode: "number" }).notNull().default(0),
@@ -184,6 +190,7 @@ export const printers = pgTable("printers", {
   printerTypeIdx: index("printers_printer_type_idx").on(table.printerType),
   statusIdx: index("printers_status_idx").on(table.status),
   managementSourceCheck: check("printers_management_source_check", sql`${table.managementSource} in ('agent','manager')`),
+  sharingVersionCheck: check("printers_sharing_version_check", sql`${table.sharedWithGatewayVersion} IS NULL OR (${table.sharedWithGatewayVersion} ~ '^[1-9][0-9]{0,18}$' AND ${table.sharedWithGatewayVersion}::numeric <= 9223372036854775807)`),
   desiredRevisionCheck: check("printers_desired_revision_check", sql`${table.desiredRevision} >= 0 AND ${table.appliedDesiredRevision} >= 0 AND ${table.observedDesiredRevision} >= 0 AND ${table.appliedDesiredRevision} <= ${table.desiredRevision} AND ${table.observedDesiredRevision} <= ${table.appliedDesiredRevision}`),
   observedDeviceClassCheck: check("printers_observed_device_class_check", sql`${table.observedDeviceClass} IS NULL OR ${table.observedDeviceClass} in ('thermal','laser','inkjet','label','other','unknown')`),
   desiredAgentIdx: index("printers_agent_lifecycle_desired_idx").on(table.tenantId, table.agentId, table.lifecycle, table.managementSource),

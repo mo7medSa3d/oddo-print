@@ -12,6 +12,7 @@ import { aliasPrinterIdForAgent } from "../../../../lib/printer-identity";
 import { inventoryVersionAllowsPage, parseInventorySnapshotVersion } from "../../../../lib/inventory-snapshot";
 import { getDesiredPrinterPage } from "../../../../lib/desired-state-page";
 import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
+import { PRINTER_NOT_SHARED_PAUSE } from "../../../../lib/job-status";
 
 const MAX_HEARTBEAT_BODY_BYTES = 512 * 1024;
 const MAX_KEEP_ALIVE_JOB_IDS = 64;
@@ -41,6 +42,9 @@ type DesiredStateAck = { printerId?: unknown; appliedDesiredRevision?: unknown; 
 type ReportedPrinter = {
   id?: unknown;
   name?: unknown;
+  displayName?: unknown;
+  spoolerName?: unknown;
+  endpoint?: unknown;
   type?: unknown;
   printerType?: unknown;
   deviceClass?: unknown;
@@ -48,6 +52,7 @@ type ReportedPrinter = {
   protocol?: unknown;
   status?: unknown;
   enabled?: unknown;
+  sharedWithGateway?: unknown;
   config?: unknown;
   capabilities?: unknown;
 };
@@ -82,6 +87,7 @@ function sanitizePrinter(p: ReportedPrinter): {
     connectionType: string;
     protocol: string;
     status: string;
+    sharedWithGateway?: true;
     config: Record<string, unknown>;
     capabilities: Record<string, unknown> | null;
   };
@@ -89,6 +95,7 @@ function sanitizePrinter(p: ReportedPrinter): {
   if (!p || typeof p !== "object" || Array.isArray(p)) return { ok: false, reason: "invalid_printer" };
   if (typeof p.id !== "string" || !p.id.trim() || p.id.length > 120) return { ok: false, reason: "invalid_id" };
   if (typeof p.name !== "string" || !p.name.trim() || p.name.length > 100) return { ok: false, reason: "invalid_name" };
+  if (p.sharedWithGateway !== undefined && p.sharedWithGateway !== true) return { ok: false, reason: "invalid_shared_with_gateway" };
   const connectionType = normalizeConnectionType(p.connectionType, p.type);
   if (!connectionType) return { ok: false, reason: "invalid_or_unsupported_connection_type" };
   let printerType = typeof p.printerType === "string" ? p.printerType.trim().toLowerCase() : "";
@@ -131,6 +138,9 @@ function sanitizePrinter(p: ReportedPrinter): {
     }
   }
   if (isVirtualPrinterRecord({ name: p.name, printerType, deviceClass,
+    displayName: typeof p.displayName === "string" ? p.displayName : undefined,
+    spoolerName: typeof p.spoolerName === "string" ? p.spoolerName : undefined,
+    endpoint: typeof p.endpoint === "string" ? p.endpoint : undefined,
     connectionType: canonicalConnectionType, protocol, capabilities, config })) {
     return { ok: false, reason: "virtual_or_software_printer" };
   }
@@ -141,7 +151,7 @@ function sanitizePrinter(p: ReportedPrinter): {
   if (configErr) return { ok: false, reason: `invalid_connection_config: ${configErr}` };
   const transportProtocolErr = validatePrinterTransportProtocol(canonicalConnectionType, protocol);
   if (transportProtocolErr) return { ok: false, reason: `invalid_transport_protocol: ${transportProtocolErr}` };
-  return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType: canonicalConnectionType, protocol, status, config, capabilities } };
+  return { ok: true, printer: { id: p.id.trim(), name: p.name.trim(), printerType, deviceClass, connectionType: canonicalConnectionType, protocol, status, config, capabilities, ...(p.sharedWithGateway === true ? { sharedWithGateway: true as const } : {}) } };
 }
 
 export async function POST(req: Request) {
@@ -150,7 +160,7 @@ export async function POST(req: Request) {
   if (agent.lifecycle !== "active") return NextResponse.json({ error: `Agent is ${agent.lifecycle}` }, { status: 409 });
   if (hasBodyOverLimit(req, MAX_HEARTBEAT_BODY_BYTES)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
 
-  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventorySnapshotVersion?: unknown; inventoryComplete?: unknown; desiredStatePaging?: unknown; printers?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
+  let body: { status?: unknown; heartbeatPage?: unknown; heartbeatPageCount?: unknown; inventorySnapshotId?: unknown; inventorySnapshotVersion?: unknown; inventoryComplete?: unknown; desiredStatePaging?: unknown; printers?: unknown; privatePrinterIds?: unknown; gatewayOwnedPrinterIds?: unknown; keepAliveJobIds?: unknown; desiredStateAcks?: unknown };
   try {
     const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
@@ -207,6 +217,24 @@ export async function POST(req: Request) {
     // discarded just because the fleet exceeds one request.
     if (reportedPrinters.length > 500) return NextResponse.json({ error: "too many printers in heartbeat page" }, { status: 400 });
     if (utf8ByteLength(JSON.stringify(reportedPrinters)) > 256_000) return NextResponse.json({ error: "heartbeat printer metadata page exceeds 256KB" }, { status: 400 });
+    const hasSharingControls = body.privatePrinterIds !== undefined || reportedPrinters.some((printer) =>
+      printer && typeof printer === "object" && Object.prototype.hasOwnProperty.call(printer, "sharedWithGateway"));
+    if (hasSharingControls && (!paginatedHeartbeat || !inventorySnapshotId || !inventorySnapshotVersion)) {
+      return NextResponse.json({ error: "Printer sharing controls require a versioned paginated inventory snapshot" }, { status: 400 });
+    }
+
+    const privatePrinterIds = new Set<string>();
+    if (body.privatePrinterIds !== undefined) {
+      if (!Array.isArray(body.privatePrinterIds) || body.privatePrinterIds.length > 500) {
+        return NextResponse.json({ error: "privatePrinterIds must be an array of at most 500 printer IDs" }, { status: 400 });
+      }
+      for (const value of body.privatePrinterIds) {
+        if (typeof value !== "string" || !value.trim() || value.length > 120) {
+          return NextResponse.json({ error: "privatePrinterIds must contain non-empty printer IDs up to 120 characters" }, { status: 400 });
+        }
+        privatePrinterIds.add(value.trim());
+      }
+    }
 
     const gatewayOwnedPrinterIds = new Set<string>();
     if (Array.isArray(body?.gatewayOwnedPrinterIds)) {
@@ -318,10 +346,20 @@ export async function POST(req: Request) {
       }
 
       const skipped: Array<{ id: string; reason: string }> = [];
+      // Negative local-owner policy takes effect under the same authenticated
+      // snapshot/Agent fence as observations. Unknown/foreign IDs are ignored;
+      // private discovery never registers a name or changes remote lifecycle.
+      if (privatePrinterIds.size > 0) {
+        await tx.update(printers).set({ sharedWithGateway: false, sharedWithGatewayVersion: inventorySnapshotVersion, updatedAt: sql`now()` })
+          .where(and(eq(printers.tenantId, agent.tenantId), eq(printers.agentId, agent.id), inArray(printers.id, [...privatePrinterIds]),
+            sql`(${printers.sharedWithGatewayVersion} IS NULL OR ${printers.sharedWithGatewayVersion}::numeric <= ${inventorySnapshotVersion}::numeric)`));
+      }
       type SanitizedPrinter = Extract<ReturnType<typeof sanitizePrinter>, { ok: true }>["printer"];
       const sanitizedPrinters: SanitizedPrinter[] = [];
       for (const raw of reportedPrinters) {
         const rawId = typeof raw?.id === "string" ? raw.id : "(unknown)";
+        // Explicit denial wins a contradictory report; do not adopt its name.
+        if (typeof rawId === "string" && privatePrinterIds.has(rawId.trim())) continue;
         const res = sanitizePrinter(raw);
         if (!res.ok) {
           skipped.push({ id: rawId, reason: res.reason });
@@ -356,12 +394,27 @@ export async function POST(req: Request) {
           p.id = alias;
         }
       }
+      // The Agent may know the canonical alias while the observation still
+      // carries a local ID. Denial wins after alias resolution as well.
+      for (let index = sanitizedPrinters.length - 1; index >= 0; index -= 1) {
+        if (privatePrinterIds.has(sanitizedPrinters[index]!.id)) sanitizedPrinters.splice(index, 1);
+      }
       const inventoryIds = [...new Set(sanitizedPrinters.map(p => p.id))];
       const inventoryRows = inventoryIds.length ? await tx.query.printers.findMany({
         where: and(eq(printers.tenantId, agent.tenantId), inArray(printers.id, inventoryIds)),
       }) : [];
       const inventoryById = new Map(inventoryRows.map(p => [p.id, p]));
       let pageHadErrors = skipped.length > 0;
+      const mayUpdateSharing = (p: SanitizedPrinter, existing: typeof printers.$inferSelect): boolean => {
+        if (p.sharedWithGateway !== true || !inventorySnapshotVersion) return false;
+        if (existing.sharedWithGatewayVersion == null) return true;
+        const incoming = BigInt(inventorySnapshotVersion);
+        const retained = BigInt(existing.sharedWithGatewayVersion);
+        // A duplicate page cannot release a hand-back pause created after an
+        // earlier observation from this same snapshot. New permission needs
+        // new evidence even if the canonical policy is already shared.
+        return incoming > retained;
+      };
 
       const capacityCandidateIds = [...new Set(
         sanitizedPrinters
@@ -369,13 +422,16 @@ export async function POST(req: Request) {
             const existing = inventoryById.get(p.id);
             if (!existing) return gatewayOwnedPrinterIds.has(p.id) ? null : p.id;
             if (existing.agentId !== agent.id) return null;
+            if (existing.lifecycle === "retired") return null;
+            if (existing.sharedWithGateway === false) return mayUpdateSharing(p, existing) ? p.id : null;
             if (existing.managementSource !== "agent") return null;
-            if (existing.lifecycle === "retired" || existing.inventoryPresent !== false) return null;
+            if (existing.inventoryPresent !== false) return null;
             return p.id;
           })
           .filter((id): id is string => id !== null),
       )].sort();
       const overLimitIds = new Set<string>();
+      const positivelySharedIds: string[] = [];
       // Billing/entitlement failure must not abort the heartbeat transport:
       // presence, lease keep-alives and desired-state ACKs (already written
       // above) commit regardless. New/reactivated inventory is fenced while
@@ -397,6 +453,7 @@ export async function POST(req: Request) {
             FROM printers
             WHERE tenant_id = ${agent.tenantId}
               AND lifecycle <> 'retired'
+              AND shared_with_gateway = true
               AND (management_source <> 'agent' OR inventory_present = true)
           `);
           const currentPrinterCount = Number(countResult.rows[0]?.count ?? 0);
@@ -417,13 +474,16 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const reactivationBlocked = existing.managementSource === "agent"
+        const updateSharing = mayUpdateSharing(p, existing);
+        const reshareBlocked = existing.sharedWithGateway === false && updateSharing && overLimitIds.has(p.id);
+        const reactivationBlocked = existing.sharedWithGateway !== false && existing.managementSource === "agent"
           && existing.lifecycle !== "retired"
           && existing.inventoryPresent === false
           && overLimitIds.has(p.id);
-        if (reactivationBlocked) {
+        if (reactivationBlocked || reshareBlocked) {
           skipped.push({ id: p.id, reason: billingBlocked ? "billing_required" : "max_printers_exceeded" });
         }
+        if (updateSharing && !reshareBlocked && !reactivationBlocked) positivelySharedIds.push(p.id);
 
         const observedUpdateSet = {
           status: reactivationBlocked ? "unknown" : p.status,
@@ -432,6 +492,9 @@ export async function POST(req: Request) {
           lastSeenAt: sql`now()`,
           inventoryPresent: reactivationBlocked ? false : true,
           ...(snapshotEnabled ? { inventorySnapshotId } : {}),
+          // Omitted legacy fields preserve a prior local denial. A new explicit
+          // opt-in must pass capacity without changing remote lifecycle/config.
+          ...(updateSharing && !reshareBlocked ? { sharedWithGateway: true, sharedWithGatewayVersion: inventorySnapshotVersion } : {}),
         };
         const updateSet = existing.managementSource === "agent"
           ? {
@@ -456,6 +519,7 @@ export async function POST(req: Request) {
 
       for (const p of sanitizedPrinters) {
         if (inventoryById.has(p.id)) continue;
+        if (privatePrinterIds.has(p.id)) continue;
         if (gatewayOwnedPrinterIds.has(p.id)) {
           skipped.push({ id: p.id, reason: "gateway_owned_deletion_pending" });
           pageHadErrors = true;
@@ -478,6 +542,7 @@ export async function POST(req: Request) {
           status: p.status,
           lifecycle: "active",
           managementSource: "agent",
+          sharedWithGatewayVersion: p.sharedWithGateway === true ? inventorySnapshotVersion : null,
           desiredRevision: 0,
           appliedDesiredRevision: 0,
           observedDesiredRevision: 0,
@@ -511,6 +576,25 @@ export async function POST(req: Request) {
         }
       }
 
+      if (positivelySharedIds.length > 0) {
+        // Only current explicit permission releases a zero-byte local refusal.
+        // Batch the scoped update and use the existing durable notification so
+        // connected WS Agents and polling Agents can resume the original jobs.
+        // Status, counters, TTL and claim history remain unchanged.
+        await tx.execute(sql`
+          WITH resumed AS (
+            UPDATE print_jobs SET error = NULL
+            WHERE tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
+              AND printer_id IN (${sql.join(positivelySharedIds.map((id) => sql`${id}`), sql`, `)})
+              AND status = 'queued' AND error = ${PRINTER_NOT_SHARED_PAUSE}
+            RETURNING id, agent_id, tenant_id, request_id
+          )
+          SELECT pg_notify('print_gateway_agent_jobs', json_build_object(
+            'jobId', id, 'agentId', agent_id, 'tenantId', tenant_id, 'requestId', request_id
+          )::text) FROM resumed
+        `);
+      }
+
       // Only a final page from a complete, ordered and error-free snapshot may
       // declare absence. This MUST run after every insert/conflict decision on
       // the page: late ownership/insert conflicts are snapshot errors too and
@@ -523,6 +607,7 @@ export async function POST(req: Request) {
           WHERE tenant_id = ${agent.tenantId}
             AND agent_id = ${agent.id}
             AND management_source = 'agent'
+            AND shared_with_gateway = true
             AND lifecycle <> 'retired'
             AND inventory_present = true
             AND inventory_snapshot_id IS DISTINCT FROM ${inventorySnapshotId}

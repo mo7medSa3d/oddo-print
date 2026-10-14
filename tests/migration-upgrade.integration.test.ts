@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, cp, mkdir, rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { migrateByHash } from "../scripts/db-migrate";
+import { AUDIT_REPAIRS, migrateByHash } from "../scripts/db-migrate";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { hashPairingCode } from "../src/lib/agent-auth";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -21,6 +22,7 @@ function databaseUrlFor(name: string): string {
 suite("production-like PostgreSQL migration upgrade", () => {
   let admin: Pool;
   let tempDb = "";
+  let collisionDb = "";
   let workDir = "";
   let oldDir = "";
   let currentDir = "";
@@ -30,9 +32,11 @@ suite("production-like PostgreSQL migration upgrade", () => {
     const adminUrl = new URL(source.toString());
     adminUrl.pathname = "/postgres";
     tempDb = `upgrade_${Date.now()}_${randomBytes(3).toString("hex")}`;
+    collisionDb = `${tempDb}_collision`;
     admin = new Pool({ connectionString: adminUrl.toString(), max: 2 });
     admin.on("error", () => {});
     await admin.query(`CREATE DATABASE "${tempDb}"`);
+    await admin.query(`CREATE DATABASE "${collisionDb}"`);
 
     workDir = await mkdtemp(join(tmpdir(), "odoo-print-upgrade-"));
     oldDir = join(workDir, "old");
@@ -53,8 +57,50 @@ suite("production-like PostgreSQL migration upgrade", () => {
   });
 
   afterAll(async () => {
-    try { await admin.query(`DROP DATABASE IF EXISTS "${tempDb}" WITH (FORCE)`); }
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS "${tempDb}" WITH (FORCE)`);
+      await admin.query(`DROP DATABASE IF EXISTS "${collisionDb}" WITH (FORCE)`);
+    }
     finally { await admin.end(); if (workDir) await rm(workDir, { recursive: true, force: true }); }
+  });
+
+  it("fresh public migrations ignore colliding constraints in another namespace and preserve original ledger hashes", async () => {
+    const pool = new Pool({ connectionString: databaseUrlFor(collisionDb), max: 2 });
+    pool.on("error", () => {});
+    try {
+      await pool.query("CREATE SCHEMA migration_collision");
+      await pool.query("CREATE TABLE migration_collision.agents (tenant_id text, id text, CONSTRAINT agents_tenant_id_unique UNIQUE(tenant_id,id))");
+      const client = await pool.connect();
+      try {
+        // The production runner must pin its known public target, even when a
+        // caller inherited a namespace that happens to have the same guards.
+        await client.query("SET search_path TO migration_collision,public");
+        await migrateByHash(client, currentDir);
+        expect((await client.query("SELECT current_schema() AS schema")).rows[0].schema).toBe("migration_collision");
+      } finally { client.release(); }
+      const columns = await pool.query("SELECT column_name,is_nullable,column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='printers' AND column_name IN ('shared_with_gateway','shared_with_gateway_version') ORDER BY column_name");
+      expect(columns.rows).toEqual([
+        { column_name: "shared_with_gateway", is_nullable: "NO", column_default: "true" },
+        { column_name: "shared_with_gateway_version", is_nullable: "YES", column_default: null },
+      ]);
+      const sourceMigrations = readMigrationFiles({ migrationsFolder: currentDir });
+      const expectedHashes = sourceMigrations.map(row => row.hash).concat(AUDIT_REPAIRS.map(sql => createHash("sha256").update(sql).digest("hex")));
+      const before = (await pool.query("SELECT id,hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id")).rows;
+      expect(before.map(row => row.hash)).toEqual(expectedHashes);
+      expect(sourceMigrations).toHaveLength(85);
+      await pool.query("INSERT INTO public.tenants(id,name) VALUES ('sharing_upgrade_tenant','Upgrade proof')");
+      await pool.query("INSERT INTO public.agents(id,tenant_id,name) VALUES ('sharing_upgrade_agent','sharing_upgrade_tenant','Upgrade Agent')");
+      await pool.query("INSERT INTO public.printers(id,tenant_id,agent_id,name,shared_with_gateway,shared_with_gateway_version) VALUES ('sharing_upgrade_printer','sharing_upgrade_tenant','sharing_upgrade_agent','Physical upgrade queue',false,'9223372036854775807')");
+      await expect(pool.query("UPDATE public.printers SET shared_with_gateway_version='9223372036854775808' WHERE id='sharing_upgrade_printer'")).rejects.toThrow(/printers_sharing_version_check/);
+      const replay = await pool.connect();
+      try { await migrateByHash(replay, currentDir); } finally { replay.release(); }
+      expect((await pool.query("SELECT id,hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id")).rows).toEqual(before);
+      expect((await pool.query("SELECT shared_with_gateway,shared_with_gateway_version,lifecycle FROM public.printers WHERE id='sharing_upgrade_printer'")).rows).toEqual([
+        { shared_with_gateway: false, shared_with_gateway_version: "9223372036854775807", lifecycle: "active" },
+      ]);
+      const constraints = await pool.query("SELECT n.nspname FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE c.conname='agents_tenant_id_unique' ORDER BY n.nspname");
+      expect(constraints.rows.map(row => row.nspname)).toEqual(["migration_collision", "public"]);
+    } finally { await pool.end(); }
   });
 
   it("upgrades a populated legacy database to the runtime-only architecture without losing print history", async () => {

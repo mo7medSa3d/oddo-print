@@ -5,7 +5,7 @@ import { agents, printers } from "../../../../db/schema";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
 import { getAgentHeartbeatFreshness, getEffectivePrinterStatus, getPrinterObservationFreshness } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
-import { receiptRasterWidthDots } from "../../../../lib/receipt-width";
+import { receiptPaperWidthMM, receiptRasterWidthDots } from "../../../../lib/receipt-width";
 import { TenantSubscriptionRequiredError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "../../../../lib/printer-capability";
@@ -18,16 +18,18 @@ export const dynamic = "force-dynamic";
  * Keep raw capability JSON untrusted: malformed lists fail closed in the
  * shared validator rather than being interpreted as missing metadata.
  */
-function odooPrinterCapabilities(value: unknown, connectionType: string, protocol: string) {
+function odooPrinterCapabilities(value: unknown, connectionType: string, protocol: string, config?: Record<string, unknown> | null) {
   const reported = value && typeof value === "object" && !Array.isArray(value)
     ? value as { supported_protocols?: string[] }
     : null;
+  const paperWidth = receiptPaperWidthMM(reported) ?? receiptPaperWidthMM(config);
   return {
     supported_protocols: getSupportedDocumentTypes(
       protocol.trim().toLowerCase() as ProtocolType,
       connectionType.trim().toLowerCase() as TransportType,
       reported,
     ),
+    ...(paperWidth ? { paper_width_mm: paperWidth } : {}),
   };
 }
 
@@ -53,7 +55,7 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const agentId = searchParams.get("agent_id")?.trim();
 
-  const conditions = [eq(printers.lifecycle, "active"), eq(printers.inventoryPresent, true), eq(agents.lifecycle, "active"), eq(printers.tenantId, apiKey.tenantId), eq(agents.tenantId, apiKey.tenantId)];
+  const conditions = [eq(printers.lifecycle, "active"), eq(printers.inventoryPresent, true), eq(printers.sharedWithGateway, true), eq(agents.lifecycle, "active"), eq(printers.tenantId, apiKey.tenantId), eq(agents.tenantId, apiKey.tenantId)];
   if (agentId) {
     conditions.push(eq(agents.id, agentId));
   }
@@ -66,6 +68,7 @@ export async function GET(req: Request) {
       name: printers.name,
       status: printers.status,
       lifecycle: printers.lifecycle,
+      sharedWithGateway: printers.sharedWithGateway,
       lastSeenAt: printers.lastSeenAt,
       printerType: printers.printerType,
       deviceClass: printers.deviceClass,
@@ -97,11 +100,12 @@ export async function GET(req: Request) {
         now,
       ),
       lifecycle: row.lifecycle,
+      sharedWithGateway: row.sharedWithGateway,
       printerType: row.printerType,
       deviceClass: row.deviceClass,
       connectionType: row.connectionType,
       protocol: row.protocol,
-      capabilities: odooPrinterCapabilities(row.capabilities, row.connectionType, row.protocol),
+      capabilities: odooPrinterCapabilities(row.capabilities, row.connectionType, row.protocol, row.config),
       printableWidthDots: receiptRasterWidthDots({
         ...(row.config ?? {}),
         ...(row.capabilities ?? {}),

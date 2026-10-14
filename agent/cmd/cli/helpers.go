@@ -15,15 +15,17 @@ import (
 func discoverHelper(cfg *config.Config, registryPath string, jsonOutput bool) []printer.DeviceInfo {
 	result := printer.DiscoverLive(cfg, registryPath)
 	allObserved := result.Printers
-	result.Printers = printer.RuntimeDiscoveryPrinters(allObserved)
+	result.Printers = printer.RuntimeInventoryPrinters(allObserved)
 	if skipped := len(allObserved) - len(result.Printers); skipped > 0 {
-		log.Printf("Discovery warning: %d candidate-only printer endpoint(s) were not added because this Agent has no execution backend for them", skipped)
+		log.Printf("Discovery: %d setup candidate(s) retained for explicit selection; they were not added to the main printer inventory", skipped)
 	}
-	if merged, err := printer.ReconcileDiscoveryRegistry(registryPath, result.Printers, result.CompleteSources); err != nil {
+	if _, err := printer.ReconcileDiscoveryRegistry(registryPath, result.Printers, result.CompleteSources); err != nil {
 		log.Printf("Failed to persist discovery: %v", err)
-	} else {
-		result.Printers = printer.RuntimeDiscoveryPrinters(merged)
 	}
+	// Discovery is the setup surface, so keep observations that are not main
+	// inventory admissions visible in its JSON/table response. List is the
+	// separate installed/registered fleet surface.
+	result.Printers = allObserved
 	for _, message := range result.Errors {
 		log.Printf("Discovery warning: %s", message)
 	}

@@ -1,4 +1,4 @@
-import { buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
+import { buildTestPdfPayload, buildTestPrintPayloadForPrinter } from "../../../../../lib/payload";
 import { NextResponse } from "next/server";
 import type { InferSelectModel } from "drizzle-orm";
 import { db } from "../../../../../db";
@@ -16,6 +16,7 @@ import { MAX_AGENT_IN_FLIGHT_JOBS } from "../../../../../lib/job-delivery";
 import { databaseNowMs, parseDbTimeMs } from "../../../../../lib/database-clock";
 import { agentStaleThresholdSeconds } from "../../../../../lib/agent-availability";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
+import { receiptPaperWidthMM } from "../../../../../lib/receipt-width";
 
 const CERTIFY_MAX_BODY_BYTES = 16 * 1024;
 
@@ -55,57 +56,10 @@ type PrintJobRow = InferSelectModel<typeof printJobs>;
 type AgentRow = InferSelectModel<typeof agents>;
 type PrinterRow = InferSelectModel<typeof printers>;
 
-/**
- * Deterministic minimal PDF ticket for spooler/IPP certification. Unlike
- * buildTestPdfPayload (which stamps the current time), every byte here derives
- * from (printer, tenant, idempotencyKey) so a retry after a lost HTTP response
- * reproduces the identical fingerprint and idempotent reuse holds.
- */
-function buildDeterministicCertificationPdf(printerName: string, tenantId: string, idempotencyKey: string): string {
-  const escape = (value: string) => value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").slice(0, 120);
-  const streamContent = [
-    "BT",
-    "/F1 18 Tf",
-    "50 720 Td",
-    "(YASEIR TEST PAGE) Tj",
-    "/F1 12 Tf",
-    "0 -30 Td",
-    `(Printer: ${escape(printerName)}) Tj`,
-    "0 -20 Td",
-    `(Tenant: ${escape(tenantId)}) Tj`,
-    "0 -20 Td",
-    `(Job: ${escape(idempotencyKey)}) Tj`,
-    "ET",
-  ].join("\n");
-  const streamLength = Buffer.byteLength(streamContent, "utf-8");
-  const header = "%PDF-1.4\n";
-  const obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
-  const obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
-  const obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
-  const obj4 = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
-  const obj5 = `5 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
-  const off1 = Buffer.byteLength(header);
-  const off2 = off1 + Buffer.byteLength(obj1);
-  const off3 = off2 + Buffer.byteLength(obj2);
-  const off4 = off3 + Buffer.byteLength(obj3);
-  const off5 = off4 + Buffer.byteLength(obj4);
-  const startxref = off5 + Buffer.byteLength(obj5);
-  const pad = (n: number) => String(n).padStart(10, "0");
-  return header + obj1 + obj2 + obj3 + obj4 + obj5 + [
-    "xref",
-    "0 6",
-    "0000000000 65535 f ",
-    `${pad(off1)} 00000 n `,
-    `${pad(off2)} 00000 n `,
-    `${pad(off3)} 00000 n `,
-    `${pad(off4)} 00000 n `,
-    `${pad(off5)} 00000 n `,
-    "trailer",
-    "<< /Size 6 /Root 1 0 R >>",
-    "startxref",
-    String(startxref),
-    "%%EOF\n",
-  ].join("\n");
+// Stable operation metadata makes retries byte-identical, including configured roll media.
+function buildDeterministicCertificationPdf(printer: PrinterRow, tenantId: string, idempotencyKey: string): string {
+  const roll = receiptPaperWidthMM(printer.capabilities) ?? receiptPaperWidthMM(printer.config);
+  return buildTestPdfPayload(printer.name, `Tenant ${tenantId}`, idempotencyKey, roll ?? undefined);
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -213,9 +167,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // throw a ZodError inside createPrintJobForPrinter, so every certification
       // request failed at the queue step with a 500 instead of enqueuing a job.
       const payload = isDocumentTransport
-        ? { type: "pdf" as const, encoding: "base64" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer.name, tenantId, idempotencyKey), "utf-8").toString("base64") }
+        ? { type: "pdf" as const, encoding: "base64" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer, tenantId, idempotencyKey), "utf-8").toString("base64") }
         : buildTestPrintPayloadForPrinter(printer.name, `Tenant ${tenantId}`, {
-            protocol: printer.protocol, connectionType: printer.connectionType, capabilities: printer.capabilities,
+            protocol: printer.protocol, connectionType: printer.connectionType, capabilities: printer.capabilities, config: printer.config,
           }, idempotencyKey);
 
       const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);

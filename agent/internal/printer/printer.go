@@ -11,6 +11,12 @@ type Printer interface {
 	Status() string
 }
 
+// TransportObservationReporter separates a successful read-only queue/device
+// probe from physical readiness. Unknown health can still have observed config.
+type TransportObservationReporter interface {
+	TransportObserved() bool
+}
+
 // SpoolerJobIDReporter exposes legacy backend-wide diagnostic history. The
 // value can belong to an earlier or still-running session when a new call is
 // rejected. Never use it to identify a Gateway dispatch; attach fresh
@@ -46,27 +52,28 @@ func SpoolerJobIDOf(p Printer) string {
 // It is used for listing, manual registration, stable-ID persistence, and
 // reporting to the Gateway via heartbeat.
 type DeviceInfo struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	DisplayName    string                 `json:"displayName,omitempty"`
-	PrinterType    string                 `json:"printerType,omitempty"` // thermal/laser/inkjet/other/unknown/virtual
-	ConnectionType string                 `json:"connectionType"`        // tcp/usb/spooler/ipp/virtual
-	Protocol       string                 `json:"protocol"`              // raw/escpos/ipp/spooler/windows_spooler
-	Endpoint       string                 `json:"endpoint,omitempty"`    // ip:port or device path
-	SpoolerName    string                 `json:"spoolerName,omitempty"` // Windows spooler name
-	SpoolerServer  string                 `json:"spoolerServer,omitempty"`
-	SpoolerPort    string                 `json:"spoolerPort,omitempty"`
-	SpoolerDriver  string                 `json:"spoolerDriver,omitempty"`
-	SpoolerShare   string                 `json:"spoolerShare,omitempty"`
-	USBVID         string                 `json:"usbVid,omitempty"`
-	USBPID         string                 `json:"usbPid,omitempty"`
-	USBSerial      string                 `json:"usbSerial,omitempty"`
-	NetworkAddress string                 `json:"networkAddress,omitempty"`
-	Port           int                    `json:"port,omitempty"`
-	Status         string                 `json:"status"` // online/offline/unknown/busy/error
-	Enabled        bool                   `json:"enabled"`
-	IsVirtual      bool                   `json:"isVirtual,omitempty"`
-	Capabilities   map[string]interface{} `json:"capabilities,omitempty"`
+	ID                string                 `json:"id"`
+	Name              string                 `json:"name"`
+	DisplayName       string                 `json:"displayName,omitempty"`
+	PrinterType       string                 `json:"printerType,omitempty"` // thermal/laser/inkjet/other/unknown/virtual
+	ConnectionType    string                 `json:"connectionType"`        // tcp/usb/spooler/ipp/virtual
+	Protocol          string                 `json:"protocol"`              // raw/escpos/ipp/spooler/windows_spooler
+	Endpoint          string                 `json:"endpoint,omitempty"`    // ip:port or device path
+	SpoolerName       string                 `json:"spoolerName,omitempty"` // Windows spooler name
+	SpoolerServer     string                 `json:"spoolerServer,omitempty"`
+	SpoolerPort       string                 `json:"spoolerPort,omitempty"`
+	SpoolerDriver     string                 `json:"spoolerDriver,omitempty"`
+	SpoolerShare      string                 `json:"spoolerShare,omitempty"`
+	USBVID            string                 `json:"usbVid,omitempty"`
+	USBPID            string                 `json:"usbPid,omitempty"`
+	USBSerial         string                 `json:"usbSerial,omitempty"`
+	NetworkAddress    string                 `json:"networkAddress,omitempty"`
+	Port              int                    `json:"port,omitempty"`
+	Status            string                 `json:"status"` // online/offline/unknown/busy/error
+	Enabled           bool                   `json:"enabled"`
+	SharedWithGateway *bool                  `json:"sharedWithGateway,omitempty"`
+	IsVirtual         bool                   `json:"isVirtual,omitempty"`
+	Capabilities      map[string]interface{} `json:"capabilities,omitempty"`
 	// Legacy aliases for backward compatibility with heartbeat
 	Type string `json:"-"`
 }

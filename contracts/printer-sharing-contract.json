@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "authority": "The protected local Agent policy decides Gateway publication and new cloud execution; Windows health, local enabled state, Windows network sharing and cloud lifecycle remain independent.",
+  "localPolicy": {
+    "file": "printer-sharing.json beside the protected Agent configuration",
+    "format": "version1 deniedPrinters maps stable local printer IDs to primary execution-binding SHA256 digests; optional deniedPrinterAliases maps those same denied IDs to1–16 unique lowercase SHA256 digests for verified Windows native share aliases. Old version1 files remain compatible; malformed/null/duplicate/orphan aliases fail closed.",
+    "default": "Absent policy retains legacy shared behavior; unreadable, malformed or unsupported policy fails closed",
+    "identity": "A denial matches its stable ID, stored primary/verified alias bindings and current independently local descriptor groups matching either binding. Windows share aliases require actual SHARED attribute plus native server/share evidence (null local server resolves to current hostname), never cloud/display/hardware guesses. Native queues remain distinct even on the same hardware. With any local opt-out, a cloud-only spooler binding absent from independent Windows discovery/protected local registration is not authorized; an unknown DNS/FQDN spelling cannot self-authorize. Absent/empty policy retains legacy cloud-only setup, and explicitly local remote bindings remain supported as separate choices unless actual native evidence equates them.",
+    "mutation": "Explicit local Administrator action; atomic protected persistence before acknowledgment. Works offline/unpaired and is not overwritten by discovery, remote desired configuration or GUI storage. Sharing removes selected-ID/same-binding denials.",
+    "alreadyAdmitted": "Work already admitted by the Agent may finish; no native abort, blind retry, outbox cleanup or physical-success inference follows an unshare action"
+  },
+  "localDTO": {
+    "sharedWithGateway": "Optional boolean for legacy compatibility; current local producers report an explicit effective boolean. Missing legacy field defaults true, but failed current policy reads must never become successful defaults.",
+    "visibility": "Private physical local queues remain visible in the Agent with actual fresh local health and an independent share control; cloud test-print requires sharing"
+  },
+  "cloudDiscovery": "Remote scan reports withhold denied IDs and identifiable execution bindings, including setup observations lacking a byte language; local scan/registry results remain complete. Unidentifiable candidates retain existing discovery semantics, never gain dispatch permission. A failed policy read sends no device metadata and only a bounded generic source error.",
+  "nativeMutation": {
+    "command": "set_printer_sharing",
+    "arguments": { "printerId": "string", "sharedWithGateway": "boolean" },
+    "cli": "Fixed bundled CLI printers-share --id ID --shared true|false using the fixed protected config path",
+    "acknowledgment": { "printerId": "exact requested ID", "sharedWithGateway": "exact requested boolean" },
+    "rules": "Validate exact local ID up to256 UTF8 bytes/boolean, enforce the existing Administrator boundary, bound child15s/stdout2KiB/stderr8KiB (JSON escaping may expand IDs6x), reject mismatched/non-JSON/non-success acknowledgment; never expose Agent credentials or interpolate a shell command"
+  },
+  "heartbeat": {
+    "privatePrinterIds": "Optional bounded array, at most500 IDs/page; no private names, endpoint or capability objects are published",
+    "sharedObservations": "Shared printer objects explicitly report sharedWithGateway:true; false belongs in privatePrinterIds and is rejected as an observation",
+    "pagination": "Any privatePrinterIds or explicit sharedWithGateway requires the existing valid paginated snapshot ID/version tuple. Private-ID pages join existing printer/ack page counts; all known private runtime aliases are reported",
+    "ownership": "Only existing rows owned by the authenticated tenant and Agent may be made private; unknown private IDs do not create/adopt records",
+    "precedence": "Negative IDs take precedence across the entire same-version snapshot, including duplicate/different pages. Missing legacy shared fields preserve an existing database denial; re-share requires explicit true with a strictly newer version than the retained denial. Older snapshots cannot undo a newer decision."
+  },
+  "gateway": {
+    "field": "sharedWithGateway / shared_with_gateway boolean NOT NULL DEFAULT true; sharedWithGatewayVersion / shared_with_gateway_version nullable text with validated positive int64 decimal snapshot version",
+    "visibility": "Default cloud current and Saved lists, Odoo selectors, current fleet counts and cloud capacity exclude private printers. Existing authorized by-ID/history/audit access remains; no new broad include-private query is introduced.",
+    "admission": "New enqueue returns409 PRINTER_NOT_SHARED after historical idempotency lookup. WS/poll claim and claimed-to-printing require sharing; Agent also reads fresh local policy after printer-lock wait and immediately before every physical side effect.",
+    "queuedJobs": "Previously queued private work is withheld from new delivery and retains existing TTL. A claimed, exact-token, zero-byte printer_not_shared rejection uses the existing queued error marker to pause re-delivery until an accepted explicit positive sharing observation clears that exact Agent/printer marker. It does not mutate canonical sharing or counters beyond the existing bounded rejection transition; a delayed rejection may wait for the next positive heartbeat.",
+    "history": "In-flight/terminal/UNKNOWN results, lease maintenance, outbox acknowledgment and historical idempotency/status remain available",
+    "restore": "Explicit Agent re-share consumes cloud capacity under the existing tenant lock and does not independently activate a disabled/retired lifecycle"
+  },
+  "odoo": "New printer selections exclude private queues; stale explicit bindings fail closed with PRINTER_NOT_SHARED. Existing saved IDs/job history are preserved without silent fallback or rebinding.",
+  "physicalOutcome": "SUCCESS remains completed submission/handoff and does not prove paper. FAILED is proven pre-dispatch failure; ambiguous submitted output remains UNKNOWN. GetJob/COMPLETE/PRINTED/disappearance cannot manufacture physical proof."
+}

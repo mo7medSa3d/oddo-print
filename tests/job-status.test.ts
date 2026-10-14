@@ -128,6 +128,7 @@ describe("job-status", () => {
       "pending_full",
       "printer_pending_full",
       "printer_not_at_desired_state",
+      "printer_not_shared",
       "agent_shutting_down",
       "ledger_unavailable",
     ]);

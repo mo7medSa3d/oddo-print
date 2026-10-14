@@ -837,6 +837,33 @@ func TestDiscoverFromConfigPreservesDeclaredConfiguration(t *testing.T) {
 	if !ok || width != RasterMaxWidthFromPaperWidthMM(80) {
 		t.Fatalf("paper width lost: %v", di.Capabilities["max_paper_width"])
 	}
+	if di.Capabilities["paper_width_mm"] != 80 {
+		t.Fatalf("nominal selected media width lost: %v", di.Capabilities)
+	}
+}
+
+func TestConfigDiscoveryNominalPaperWidthOverridesCapabilityHints(t *testing.T) {
+	for _, width := range []int{80, 210} {
+		cfg := &config.Config{Printers: []config.PrinterConfig{{
+			ID: "nominal-media", Name: "Selected media", Type: "network",
+			Endpoint: "192.168.2.10:9100", Protocol: "raw", PaperWidthMM: width,
+			Capabilities: map[string]interface{}{"paper_width_mm": 58, "max_paper_width": 576},
+		}}}
+		got := discoverFromConfig(cfg)
+		if len(got) != 1 || got[0].Capabilities["paper_width_mm"] != width {
+			t.Fatalf("selected %dmm media replaced by capability hint: %#v", width, got)
+		}
+		if cfg.Printers[0].Capabilities["paper_width_mm"] != 58 {
+			t.Fatal("inventory mutated the configured capability bag")
+		}
+	}
+	cfg := &config.Config{Printers: []config.PrinterConfig{{
+		ID: "dots-only", Type: "network", Endpoint: "192.168.2.10:9100", Protocol: "raw",
+		Capabilities: map[string]interface{}{"max_paper_width": 576},
+	}}}
+	if _, invented := discoverFromConfig(cfg)[0].Capabilities["paper_width_mm"]; invented {
+		t.Fatal("printable dots invented nominal media width")
+	}
 }
 
 func TestPrinterConfigForTestPreservesBackendConfiguration(t *testing.T) {

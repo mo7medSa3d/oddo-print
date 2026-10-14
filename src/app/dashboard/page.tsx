@@ -47,6 +47,7 @@ export default async function DashboardPage() {
   const canMutate = {
     printers: hasManagerPermission(claims, "printers.manage"),
     printersTest: hasManagerPermission(claims, "printers.test"),
+    agentsPair: hasManagerPermission(claims, "agents.pair"),
     agentsLifecycle: hasManagerPermission(claims, "agents.disable") || hasManagerPermission(claims, "agents.retire"),
     jobsCancel: hasManagerPermission(claims, "jobs.cancel"),
     jobsRetry: hasManagerPermission(claims, "jobs.retry"),
@@ -103,6 +104,7 @@ export default async function DashboardPage() {
             initialFleet={dashboardState!.fleet}
             databaseError={null}
             canMutate={canMutate}
+            canReadBillingUsage={hasManagerPermission(claims, "billing.read")}
           />
         )}
       </PageContainer>

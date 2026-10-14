@@ -56,7 +56,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const device = await tx.query.discoveredDevices.findFirst({
         where: and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)),
       });
-      if (!device || isVirtualPrinterRecord({ name: device.spoolerName ?? device.deviceName,
+      if (!device || isVirtualPrinterRecord({ name: device.deviceName, spoolerName: device.spoolerName,
       protocol: device.protocol, connectionType: device.transport,
       capabilities: device.capabilities ?? device.rawMetadata, config: device.rawMetadata })) {
       return { kind: "not_found" as const };

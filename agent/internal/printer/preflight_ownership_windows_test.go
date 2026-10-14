@@ -36,6 +36,11 @@ func TestPreflightTimeoutRetainsNativeWorkerOwnership(t *testing.T) {
 	if !errors.Is(err, ErrSpoolerUnresponsive) || time.Since(start) > 300*time.Millisecond {
 		t.Fatalf("timed-out worker released queue ownership too soon: err=%v", err)
 	}
+	// Discovery must share this normalized ownership, rather than starting a
+	// second blocked native query for the same queue under a different case.
+	if _, err := queueDetail("PRINTER-WEDGED-CASE"); !errors.Is(err, ErrSpoolerUnresponsive) {
+		t.Fatalf("discovery bypassed status worker ownership: %v", err)
+	}
 	close(release)
 	deadline := time.After(2 * time.Second)
 	for {
@@ -82,6 +87,9 @@ func TestWindowsPreflightGlobalWorkerBudget(t *testing.T) {
 		return nil
 	}); !errors.Is(err, ErrSpoolerUnresponsive) {
 		t.Fatalf("global budget did not refuse new helper: %v", err)
+	}
+	if _, err := queueDetail("budget-discovery-overflow-queue"); !errors.Is(err, ErrSpoolerUnresponsive) {
+		t.Fatalf("discovery bypassed global native worker budget: %v", err)
 	}
 	closeOnce.Do(func() { close(release) })
 	deadline := time.After(2 * time.Second)

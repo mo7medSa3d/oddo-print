@@ -211,7 +211,12 @@ def test_ui_dependency_failures_are_visible_instead_of_silently_disappearing():
     # and body through the catalog, never as inline English.
     assert 't("billing.usageUnavailable")' in dashboard
     assert 't("billing.usageUnavailableDashboardBody")' in dashboard
-    assert "setBillingUsageError(true)" in dashboard
+    # A denied or different actor must not inherit another actor's error, but
+    # an allowed actor's failed usage read must still show the translated alert.
+    assert "const billingUsageError = canReadBillingUsage && billingScopeMatches && billingState.error;" in dashboard
+    assert "setBillingState((current) => current.authority === billingAuthority" in dashboard
+    assert "update(undefined, true);" in dashboard
+    assert "{billingUsageError && (" in dashboard
     assert 'setCopyFailed(true)' in ui
     assert 't("ui.copyFailed")' in ui
 

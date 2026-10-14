@@ -15,11 +15,13 @@ from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
 from ..runtime_clock import db_now_utc
+from ..runtime_policy import inventory_has_shared_printer
 
 
 _logger = logging.getLogger(__name__)
 MAX_PRINT_CONTENT_BYTES = 5 * 1024 * 1024
 MAX_PRINT_BASE64_CHARS = 4 * ((MAX_PRINT_CONTENT_BYTES + 2) // 3)
+MAX_INVENTORY_RESPONSE_BYTES = 2 * 1024 * 1024
 # Operator-recoverable Gateway refusals (billing limits, suspended tenant,
 # rotation grace, revoked key) requeue instead of terminalizing. Attempts are
 # capped so a permanently blocked configuration parks with a 24h backoff
@@ -61,7 +63,7 @@ class PrintGatewayJob(models.Model):
     # _GATEWAY_UNKNOWN_MARKERS prefix to 'unknown'.
     status = fields.Selection([
         ("queued", "Queued"), ("submitted", "Submitted"), ("claimed", "Claimed"),
-        ("printing", "Printing"), ("success", "Success"), ("failed", "Failed"),
+        ("printing", "Printing"), ("success", "Submission completed"), ("failed", "Failed"),
         ("unknown", "Unknown Outcome"),
         ("partial", "Attention / Partial Delivery"),
     ], default="queued", required=True, index=True)
@@ -1144,6 +1146,32 @@ class PrintGatewayJob(models.Model):
         if raise_on_failure:
             raise ValidationError(_("Gateway submission outcome is unknown; physical outcome is ambiguous. Automated retries are paused to prevent duplicate prints. Operator reprint required.")) from exc
 
+    def _primary_shared_for_fallback(self, job):
+        """Only current primary permission may authorize an automatic backup.
+
+        A saved binding is insufficient: its primary may have become local-only
+        after the outbox operation was created. Failed/missing discovery keeps
+        the original identity queued through the existing safe backoff.
+        """
+        try:
+            config = job.gateway_config_id.sudo()
+            with requests.get(
+                "%s/api/odoo/printers" % config._gateway_base(for_request=True),
+                headers=config._gateway_headers(), timeout=5, allow_redirects=False, stream=True,
+            ) as response:
+                if response.status_code != 200:
+                    return False
+                content = bytearray()
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if len(content) + len(chunk) > MAX_INVENTORY_RESPONSE_BYTES:
+                        _logger.warning("Primary sharing inventory exceeds response limit for Odoo print job %s; retaining exact target", job.id)
+                        return False
+                    content.extend(chunk)
+                return inventory_has_shared_printer(json.loads(content.decode("utf-8")), job.printer_id)
+        except (requests.RequestException, ValueError, ValidationError) as error:
+            _logger.warning("Primary sharing confirmation unavailable for Odoo print job %s; retaining exact target: %s", job.id, type(error).__name__)
+            return False
+
     def _handle_pre_dispatch_failure(self, job, exc, current_binding, visited_bindings, failover_count, raise_on_failure, claim_token=None):
         """Retry/failover for failures PROVEN to precede any transmission.
 
@@ -1197,6 +1225,7 @@ class PrintGatewayJob(models.Model):
                 and company_compatible
                 and route_compatible
                 and protocol_compatible
+                and self._primary_shared_for_fallback(job)
             ):
                 visited_bindings.add(next_printer)
                 failover_count += 1
@@ -1575,6 +1604,8 @@ class PrintGatewayJob(models.Model):
                             persist_submit_state(values)
                             _logger.warning("Gateway rejected job %s deterministically (%s): %s", job.idempotency_key[:8], response.status_code, reason[:300])
                             if raise_on_failure:
+                                if reject_code == "PRINTER_NOT_SHARED":
+                                    raise ValidationError(_("Printer '%s' is local-only. Share it from the Agent before sending a cloud print job.") % job.printer_id)
                                 if reject_code == "AGENT_UNAVAILABLE":
                                     raise ValidationError(
                                         _("The printing service agent is unavailable. The receipt was not sent.")

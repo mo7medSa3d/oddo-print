@@ -381,8 +381,8 @@ patch(PosStore.prototype, {
 
             // Truthful feedback: "submitted" means QUEUED for the agent, not
             // printed; "unknown" means the outcome cannot be trusted. Only
-            // allowlisted accepted statuses render success; an absent or
-            // unexpected status must never toast success.
+            // allowlisted accepted statuses render informational admission;
+            // an absent or unexpected status must never claim success.
             if (["unknown", "partial"].includes(status)) {
                 this.notification.add(
                     _t("Print status is unknown. Check the printer before trying again."),
@@ -395,8 +395,8 @@ patch(PosStore.prototype, {
                 );
             } else if (["queued", "submitted", "claimed", "printing", "success"].includes(status)) {
                 this.notification.add(
-                    result?.message || _t("Receipt sent. Check Print Activity for the result."),
-                    { type: "success" }
+                    result?.message || _t("Receipt accepted by the printing service. Paper output is not confirmed."),
+                    { type: "info" }
                 );
             } else {
                 this.notification.add(

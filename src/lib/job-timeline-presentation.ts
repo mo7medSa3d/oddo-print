@@ -11,5 +11,8 @@ export function persistedTimelinePresentation(event: { stage: string; status: st
       messageKey: "job.timeline.printingAdmitted" as const,
     };
   }
+  if (event.stage === "success" && event.status === "ok") {
+    return { status: event.status, messageKey: "job.timeline.successUnverified" as const };
+  }
   return { status: event.status, messageKey: null };
 }

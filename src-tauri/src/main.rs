@@ -226,6 +226,7 @@ fn main() {
             commands::get_runtime_paths,
             commands::get_app_version,
             commands::get_printers,
+            commands::set_printer_sharing,
             commands::discover_printers,
             commands::get_e2e_capture_config,
             commands::set_e2e_capture_config,

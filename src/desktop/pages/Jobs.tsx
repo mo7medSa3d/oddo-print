@@ -104,8 +104,8 @@ export function JobsPage({ s }: { s: DesktopState }) {
           labels={JOB_TAB_LABELS}
         /></div>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input value={s.jobSearch} onChange={(e) => s.setJobSearch(e.target.value)} placeholder={t("desktop.jobs.searchPlaceholder")} className="ps-10 h-10 rounded-md" aria-label={t("desktop.jobs.searchAria")} /></div>
-          <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => refreshWithFilters(true)} loading={s.jobsLoading} icon={<RefreshCw className="h-4 w-4" />} className="h-10 rounded-md">{t("desktop.jobs.refresh")}</Button><Button variant="ghost" onClick={() => setCleanupOpen(true)} disabled={cleanupBusy} icon={<Trash2 className="h-4 w-4" />} className="h-10">{t("desktop.jobs.cleanLocal")}</Button></div>
+          <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" aria-hidden /><Input value={s.jobSearch} onChange={(e) => s.setJobSearch(e.target.value)} placeholder={t("desktop.jobs.searchPlaceholder")} className="ps-10 rounded-md" aria-label={t("desktop.jobs.searchAria")} /></div>
+          <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => refreshWithFilters(true)} loading={s.jobsLoading} icon={<RefreshCw className="h-4 w-4" />} className="rounded-md">{t("desktop.jobs.refresh")}</Button><Button variant="ghost" onClick={() => setCleanupOpen(true)} disabled={cleanupBusy} icon={<Trash2 className="h-4 w-4" />}>{t("desktop.jobs.cleanLocal")}</Button></div>
         </div>
         {s.jobPrinterFilter && (
           <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-edge bg-brand-subtle px-3 py-3 sm:px-5">
@@ -125,7 +125,7 @@ export function JobsPage({ s }: { s: DesktopState }) {
               <li key={jobId(j)} className="min-w-0 space-y-3 p-4">
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div>
+                    <div className="break-words text-base font-semibold text-ink">{jobDocType(j, locale)}</div>
                     <div className="mt-0.5 truncate font-mono text-xs text-ink-4" dir="ltr" title={jobId(j)}>{jobId(j)}</div>
                   </div>
                   <StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} />
@@ -141,10 +141,10 @@ export function JobsPage({ s }: { s: DesktopState }) {
             ))}
           </ul>
           <div className="hidden min-w-0 overflow-x-auto lg:block">
-            <table className="w-full text-sm">
+            <table className="data-table w-full text-base">
               <thead><tr className="border-b border-edge bg-surface-2 text-start text-xs font-[550] text-ink-3"><th className="px-5 py-2.5">{t("desktop.jobs.colDocument")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colJobId")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colPrinter")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colStatus")}</th><th className="hidden px-4 py-2.5 lg:table-cell">{t("desktop.jobs.colCreated")}</th><th className="px-4 py-2.5">{t("desktop.jobs.colUpdated")}</th><th className="px-5 py-2.5 text-end">{t("desktop.jobs.colActions")}</th></tr></thead>
               <tbody>{s.jobsFiltered.map((j) => (
-                <tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div>{jobDestination(j) ? <div dir="ltr" className="mt-0.5 text-xs text-ink-3 [unicode-bidi:plaintext]">{jobDestination(j)}</div> : null}</td><td className="hidden px-4 py-3 lg:table-cell"><Mono>{jobId(j)}</Mono></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="hidden px-4 py-3 text-xs text-ink-3 tabular-nums lg:table-cell">{formatDateTime(jobTimestamp(j, "createdAt"))}</td><td className="px-4 py-3 text-xs text-ink-3 tabular-nums">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td><td className="px-5 py-3 text-end"><Button size="sm" variant="secondary" onClick={() => s.setSelectedJob(j)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.jobs.details")}</Button></td></tr>
+                <tr key={jobId(j)} className="border-b border-edge last:border-0 hover:bg-surface-2/50"><td className="px-5 py-3"><div className="break-words text-base font-semibold text-ink">{jobDocType(j, locale)}</div>{jobDestination(j) ? <div dir="ltr" className="mt-0.5 text-xs text-ink-3 [unicode-bidi:plaintext]">{jobDestination(j)}</div> : null}</td><td className="hidden px-4 py-3 lg:table-cell"><Mono>{jobId(j)}</Mono></td><td className="px-4 py-3 text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td className="px-4 py-3"><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="hidden px-4 py-3 text-xs text-ink-3 tabular-nums lg:table-cell">{formatDateTime(jobTimestamp(j, "createdAt"))}</td><td className="px-4 py-3 text-xs text-ink-3 tabular-nums">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td><td className="px-5 py-3 text-end"><Button size="sm" variant="secondary" onClick={() => s.setSelectedJob(j)} icon={<Eye className="h-3.5 w-3.5" />}>{t("desktop.jobs.details")}</Button></td></tr>
               ))}</tbody>
             </table>
           </div>

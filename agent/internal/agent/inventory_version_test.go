@@ -59,11 +59,11 @@ func TestHeartbeatPagesShareVersionAndNextSnapshotAdvances(t *testing.T) {
 	for i := range printers {
 		printers[i] = map[string]interface{}{"id": strconv.Itoa(i)}
 	}
-	pages := buildHeartbeatPayloadPages(printers, nil, nil, nil, true)
+	pages := buildHeartbeatPayloadPages(printers, nil, nil, nil, nil, true)
 	if len(pages) != 2 || pages[0]["inventorySnapshotVersion"] != pages[1]["inventorySnapshotVersion"] {
 		t.Fatalf("snapshot pages do not share one version: %v", pages)
 	}
-	next := buildHeartbeatPayloadPages(nil, nil, nil, nil, true)
+	next := buildHeartbeatPayloadPages(nil, nil, nil, nil, nil, true)
 	firstVersion, _ := strconv.ParseInt(pages[0]["inventorySnapshotVersion"].(string), 10, 64)
 	nextVersion, _ := strconv.ParseInt(next[0]["inventorySnapshotVersion"].(string), 10, 64)
 	if nextVersion <= firstVersion {

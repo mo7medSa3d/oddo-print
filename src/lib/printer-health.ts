@@ -50,6 +50,7 @@ export interface PrinterCapabilityMatrix {
   printerId: string;
   tenantId: string;
   name: string;
+  sharedWithGateway: boolean;
   transport: "network" | "usb" | "spooler" | "ipp" | "ipps" | "unknown";
   protocol: "raw" | "escpos" | "zpl" | "tspl" | "ipp" | "ipps" | "spooler" | "windows_spooler" | "unknown";
   deviceClass: "thermal" | "laser" | "inkjet" | "label" | "other" | "unknown";
@@ -243,6 +244,7 @@ export function buildPrinterCapabilityMatrix(p: typeof printers.$inferSelect, ag
     printerId: p.id,
     tenantId: p.tenantId,
     name: p.name,
+    sharedWithGateway: p.sharedWithGateway !== false,
     transport: p.connectionType as TransportType,
     protocol: p.protocol as ProtocolType,
     deviceClass: p.deviceClass as PrinterCapabilityMatrix["deviceClass"],
@@ -269,7 +271,7 @@ export async function getPrinterCapabilityPage(
   const rows = await queryWithTimeout(
     () => db.select({ printer: printers, agent: agents }).from(printers)
       .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
-      .where(and(eq(printers.tenantId, tenantId), options.afterId ? gt(printers.id, options.afterId) : undefined))
+      .where(and(eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true), options.afterId ? gt(printers.id, options.afterId) : undefined))
       .orderBy(asc(printers.id))
       .limit(limit + 1),
     3000,

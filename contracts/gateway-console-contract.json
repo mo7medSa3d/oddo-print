@@ -3,10 +3,23 @@
   "producer": "agent/cmd/cli/gateway.go",
   "bridge": "src-tauri/src/commands.rs",
   "consumer": "src/desktop/lib/ipc.ts",
+  "requestBody": {
+    "transport": "Legacy CLI -body or optional -body-stdin; Tauri uses stdin so JSON is not limited by Windows command-line length",
+    "maxBytes": 8388608,
+    "rules": "Selected stdin and explicitly supplied -body (including empty) are mutually exclusive; read through EOF with maxBytes+1 sentinel, reject oversize or read errors before HTTP; preserve the exact accepted UTF-8 body and existing authentication/origin/idempotency policy"
+  },
   "response": {
     "status": "HTTP status integer",
     "body": "unmodified response body string",
     "headers": "optional object of lowercase allowlisted pagination header values"
+  },
+  "responseLimits": {
+    "httpBodyMaxBytes": 8388608,
+    "metadataReserveBytes": 65536,
+    "jsonStringExpansionMax": 6,
+    "gatewayEnvelopeMaxBytes": 50724864,
+    "capturePreviewEnvelopeMaxBytes": 524288,
+    "rules": "General envelope budget is 6 * (httpBodyMaxBytes + metadataReserveBytes). Five allowlisted pagination values each at most4096 UTF-8 bytes plus fixed key/status/envelope bytes fit the reserve; reject oversized allowed metadata explicitly, never truncate/drop a continuation cursor. Content-Type/private response headers are not forwarded. Preview remains a single256KiB JPEG in JSON/base64 under its existing512KiB envelope. HTTP/body limits and credentials/origin/idempotency remain unchanged"
   },
   "paginationHeaders": [
     "x-has-more",
@@ -15,7 +28,10 @@
     "x-next-before-id",
     "x-next-cursor"
   ],
+  "paginationHeaderValueMaxBytes": 4096,
+  "paginationHeaderRules": "Preserve nonempty allowlisted values within the byte bound; reject an oversized allowed value before emitting any stdout envelope, never truncate/drop continuation metadata or return a partial map; credentials and other headers remain excluded",
   "fleetReadPaths": ["/api/printers", "/api/agents"],
+  "printerSharing": "Default cloud printer pages exclude sharedWithGateway:false before pagination. Private local queues stay visible through the separate native Agent list; protected local share mutation and heartbeat/admission semantics are defined in printer-sharing-contract.json.",
   "fleetQueryKeys": ["limit", "offset", "beforeCreatedAt", "beforeId", "beforeIdEncoded"],
   "fleetQueryValueMaxBytes": 4096,
   "fleetQueryRules": "GET only; one nonempty value per key; reject unknown keys, malformed escapes, encoded routes, fragments and traversal",

@@ -21,7 +21,7 @@ test("Gateway console constrains mobile width and keeps overlays usable", () => 
   assert.match(shell, /main className="page-transition min-w-0 max-w-full"/);
   assert.match(shell, /max-w-\[85vw\]/);
   assert.match(ui, /card min-w-0 max-w-full/);
-  assert.match(ui, /break-words text-md font-\[600\]/);
+  assert.match(ui, /break-words text-xl font-\[600\]/);
   assert.match(css, /overflow-x: clip/);
   assert.match(css, /\[dir="rtl"\] \.data-table \.font-mono/);
 });

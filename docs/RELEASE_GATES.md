@@ -8,7 +8,7 @@ never report them as passing on the basis of unit/integration results alone.
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH"  # project runtime is 24.21.0 (see .nvmrc); Node 22 fails 9 Argon2 tests
-export TZ=UTC  # the host in EEST skews naive-UTC assertions by +3h; CI runs UTC
+# Keep the host timezone for DB acceptance: the shared PostgreSQL adapter enforces UTC storage/read semantics; a TZ override must not conceal regressions.
 npm ci && npm run typecheck && npm run lint && npm test
 npm run test:unit && npm run test:integration   # integration needs DATABASE_URL below
 npm run build && npm audit
@@ -93,6 +93,23 @@ responsive/RTL/keyboard behavior is covered only by unit-level tests.
 - `static-security.yml`: CodeQL + secret scan.
 - `build-windows.yml`: NSIS installer + Tauri bundle.
 
+Windows release signing identity must come from repository secrets or the
+current runner's ephemeral self-signed certificate. Private PFX/passwords must
+never be stored in Actions caches: fork pull requests can read base-branch
+caches. Delete any existing `yaseir-windows-signing-cert-*` caches and rotate
+any affected signing identity before a trusted release; removing the workflow
+cache cannot revoke previously exposed keys. Private-key cleanup/rotation is
+an external operator gate and was not performed by the local audit.
+PR/merge-queue builds receive no release PFX/password or secret-writing token.
+
+The local release helper aligns Go Windows/CGO1 resources with the selected
+Tauri MSVC target: x86_64→amd64, i686→386, aarch64→arm64. Non-default targets
+require the matching C compiler and native installer acceptance; the current
+CI release target remains x86_64. Unknown targets and requested-but-missing
+certificates fail before builds. A matching self-signed signature can report
+NotTrusted without claiming established publisher trust; signing failures and
+unexpected signer identities fail the release.
+
 ## Flake watch (must clear before release)
 
 One uncaptured `internal/agent` race FAIL occurred once amid 9+ fresh
@@ -121,3 +138,30 @@ polling, no fixed sleeps) during hardening.
   day one. 0085 is independent (additive columns, closed vocabulary
   enforced at write time on new code; old code simply never sends the
   field).
+
+## Native desktop Gateway pipe acceptance
+
+The paired Agent CLI accepts the existing8MiB body either through legacy
+`-body` or selected `-body-stdin`; using both is rejected. The desktop uses
+owned stdin, signals EOF after all bytes, and retains command timeout,
+output budgets, child kill/reap and bounded pipe joins. A failed helper's
+origin/config diagnostics remain visible; an incomplete input write can
+never make a successful helper count as accepted.
+
+General response envelopes allow `6 * (8MiB + 64KiB)` bytes: Go JSON escaping
+can expand one body/header byte sixfold; the five permitted pagination values
+are each at most4096 UTF-8 bytes, with fixed metadata within64KiB. Oversized
+allowed metadata rejects the response; cursors are never truncated or silently
+dropped. Content-Type and private response headers do not cross this bridge.
+Capture preview keeps its existing512KiB envelope/single256KiB JPEG limit;
+private PDFs and physical printing remain excluded from capture.
+
+`tests/test_desktop_gateway_io.py` compiles the actual std-only production
+Rust pipe functions and embedded tests using the cached pinned compiler;
+it supplies no replacement Tauri implementation and exercises no service,
+installer, certificate or physical printer. The locked Cargo/Windows IPC
+acceptance gate still must pass separately.
+
+### Agent-owned printer sharing release gate
+
+Apply migration `0084`, then deploy this Gateway, then the matching Agent/Desktop and addon sources. Retain protected `printer-sharing.json` beside the existing configuration through upgrade/rollback; an older Agent/Gateway cannot confirm the new publication policy. Do not downgrade an Agent/CLI to a version lacking sharing enforcement while private preferences remain in use; keep the matching bundle or deliberately resolve those preferences before the downgrade. Native acceptance must cover offline/unpaired persistence, service restart/rediscovery/renamed queue aliases, per-user versus service-visible queues, and a sharing change while a job waits for admission. Verify private metadata is absent from heartbeat and remote scan reports, cloud/Odoo lists and new job delivery; existing history/UNKNOWN/outbox results must still reconcile. Completed handoff and a Windows job status never substitute for physical paper inspection.

@@ -20,8 +20,9 @@ describe("bounded capability query before projection", () => {
     expect(chain.orderBy).toHaveBeenCalledOnce();
     const predicate = new PgDialect().sqlToQuery(chain.where.mock.calls[0][0]);
     expect(predicate.sql).toContain('"printers"."tenant_id" =');
+    expect(predicate.sql).toContain('"printers"."shared_with_gateway" =');
     expect(predicate.sql).toContain('"printers"."id" >');
-    expect(predicate.params).toEqual(["tenant-a", "earlier"]);
+    expect(predicate.params).toEqual(["tenant-a", true, "earlier"]);
     expect(page.items.map(item => item.printerId)).toEqual(["طبعة-a", "طبعة-b"]);
     expect(page.hasMore).toBe(true);
     expect(Buffer.from(page.nextCursor!, "base64url").toString("utf8")).toBe("طبعة-b");

@@ -56,9 +56,15 @@ const (
 	maxHeartbeatPrintersPerPage = 500
 	maxHeartbeatPrinterBytes    = 220 * 1024
 	maxHeartbeatAuxItemsPerPage = 500
+	maxHeartbeatAuxBytes        = 64 * 1024
+	maxHeartbeatEnvelopeBytes   = 512 * 1024
 )
 
 func splitHeartbeatPrinterPages(printers []map[string]interface{}) [][]map[string]interface{} {
+	return splitHeartbeatPrinterPagesWithBudget(printers, maxHeartbeatPrinterBytes)
+}
+
+func splitHeartbeatPrinterPagesWithBudget(printers []map[string]interface{}, byteBudget int) [][]map[string]interface{} {
 	if len(printers) == 0 {
 		return [][]map[string]interface{}{{}}
 	}
@@ -81,7 +87,7 @@ func splitHeartbeatPrinterPages(printers []map[string]interface{}) [][]map[strin
 			extra++ // comma between array elements
 		}
 		if len(current) >= maxHeartbeatPrintersPerPage ||
-			(len(current) > 0 && currentBytes+extra > maxHeartbeatPrinterBytes) {
+			(len(current) > 0 && currentBytes+extra > byteBudget) {
 			pages = append(pages, current)
 			current = make([]map[string]interface{}, 0, maxHeartbeatPrintersPerPage)
 			currentBytes = 2
@@ -102,14 +108,37 @@ func splitHeartbeatAuxPages[T any](items []T) [][]T {
 		return [][]T{{}}
 	}
 	pages := make([][]T, 0, (len(items)+maxHeartbeatAuxItemsPerPage-1)/maxHeartbeatAuxItemsPerPage)
-	for start := 0; start < len(items); start += maxHeartbeatAuxItemsPerPage {
-		end := start + maxHeartbeatAuxItemsPerPage
-		if end > len(items) {
-			end = len(items)
+	current := make([]T, 0, maxHeartbeatAuxItemsPerPage)
+	currentBytes := 2
+	for _, item := range items {
+		extra := heartbeatJSONBytes(item) + 1
+		if len(current) > 0 && (len(current) >= maxHeartbeatAuxItemsPerPage || currentBytes+extra > maxHeartbeatAuxBytes) {
+			pages = append(pages, current)
+			current, currentBytes = make([]T, 0, maxHeartbeatAuxItemsPerPage), 2
 		}
-		pages = append(pages, items[start:end])
+		current = append(current, item)
+		currentBytes += extra
 	}
+	pages = append(pages, current)
 	return pages
+}
+
+func heartbeatJSONBytes(value interface{}) int {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return maxHeartbeatEnvelopeBytes
+	}
+	return len(encoded)
+}
+
+func largestHeartbeatPageBytes[T any](pages [][]T) int {
+	largest := 0
+	for _, page := range pages {
+		if size := heartbeatJSONBytes(page); size > largest {
+			largest = size
+		}
+	}
+	return largest
 }
 
 func gatewayOwnedIDsForPrinterPage(printers []map[string]interface{}, ownedIDs []string) []string {
@@ -158,14 +187,29 @@ func buildHeartbeatPayloadPages(
 	printers []map[string]interface{},
 	desiredAcks []map[string]interface{},
 	gatewayOwnedIDs []string,
+	privatePrinterIDs []string,
 	keepAlive []map[string]string,
 	inventoryComplete bool,
 ) []map[string]interface{} {
-	printerPages := splitHeartbeatPrinterPages(printers)
 	ackPages := splitHeartbeatAuxPages(desiredAcks)
+	privatePages := splitHeartbeatAuxPages(privatePrinterIDs)
+	// Gateway-owned IDs duplicate at most the printer page's encoded bytes.
+	// Reserve actual auxiliary/keepalive sizes plus framing before dividing
+	// the remaining512KiB envelope between metadata and that ownership fence.
+	printerBudget := (maxHeartbeatEnvelopeBytes - 4096 - heartbeatJSONBytes(keepAlive) - largestHeartbeatPageBytes(ackPages) - largestHeartbeatPageBytes(privatePages)) / 2
+	if printerBudget > maxHeartbeatPrinterBytes {
+		printerBudget = maxHeartbeatPrinterBytes
+	}
+	if printerBudget < 1 {
+		printerBudget = 1
+	}
+	printerPages := splitHeartbeatPrinterPagesWithBudget(printers, printerBudget)
 	totalPages := len(printerPages)
 	if len(ackPages) > totalPages {
 		totalPages = len(ackPages)
+	}
+	if len(privatePages) > totalPages {
+		totalPages = len(privatePages)
 	}
 	if totalPages == 0 {
 		totalPages = 1
@@ -201,9 +245,35 @@ func buildHeartbeatPayloadPages(
 			"inventoryComplete":        inventoryComplete,
 		}
 		if len(keepAlive) > 0 {
+			// In-flight ownership is independent of current sharing policy.
 			page["keepAliveJobIds"] = keepAlive
 		}
+		if i < len(privatePages) && len(privatePages[i]) > 0 {
+			page["privatePrinterIds"] = privatePages[i]
+		}
+		// One individually valid capability/config record can exceed the
+		// reserved metadata slice after Go HTML escaping. Keep that record;
+		// move auxiliary data to a later page rather than lose any field/ID.
+		if heartbeatJSONBytes(page) > maxHeartbeatEnvelopeBytes-128 && i < len(privatePages) && len(privatePages[i]) > 0 {
+			privatePages = append(privatePages, privatePages[i])
+			privatePages[i] = []string{}
+			delete(page, "privatePrinterIds")
+		}
+		if heartbeatJSONBytes(page) > maxHeartbeatEnvelopeBytes-128 && len(pageAcks) > 0 {
+			ackPages = append(ackPages, pageAcks)
+			ackPages[i] = []map[string]interface{}{}
+			page["desiredStateAcks"] = []map[string]interface{}{}
+		}
+		if len(privatePages) > totalPages {
+			totalPages = len(privatePages)
+		}
+		if len(ackPages) > totalPages {
+			totalPages = len(ackPages)
+		}
 		pages = append(pages, page)
+	}
+	for _, page := range pages {
+		page["heartbeatPageCount"] = len(pages)
 	}
 	return pages
 }

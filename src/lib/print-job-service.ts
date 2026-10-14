@@ -347,6 +347,7 @@ async function insertQueuedJobAtomically({
         p.lifecycle AS printer_lifecycle,
         p.status AS printer_status,
         p.inventory_present AS printer_inventory_present,
+        p.shared_with_gateway AS printer_shared_with_gateway,
         p.connection_type AS printer_connection_type,
         p.protocol AS printer_protocol,
         p.agent_id AS printer_agent_id,
@@ -378,6 +379,7 @@ async function insertQueuedJobAtomically({
       printer_lifecycle?: string;
       printer_status?: string;
       printer_inventory_present?: boolean;
+      printer_shared_with_gateway?: boolean;
       printer_connection_type?: string;
       printer_protocol?: string;
       printer_agent_id?: string;
@@ -412,6 +414,9 @@ async function insertQueuedJobAtomically({
     // a real physical printer. Never turn a failed virtual claim into a job.
     if (isVirtualPrinterRecord(printerIdentity)) {
       throw new PrintJobInputError("Virtual and software printers are not supported", "PRINTER_VIRTUAL", 409);
+    }
+    if (owner.printer_shared_with_gateway === false) {
+      throw new PrintJobInputError("Printer is local-only; share it from the Agent before sending a cloud print job", "PRINTER_NOT_SHARED", 409);
     }
     if (owner.printer_lifecycle !== "active") {
       throw new PrintJobInputError(`Printer is ${owner.printer_lifecycle ?? "unavailable"}`, "PRINTER_UNAVAILABLE", 409);

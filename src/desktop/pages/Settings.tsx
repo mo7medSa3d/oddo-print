@@ -4,7 +4,7 @@ import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, Status
 import { SettingsSection } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { friendlyAgentError, friendlyPrinterError, labelPrinter, printerDisplayStatus } from "../lib/printers";
+import { friendlyAgentError, friendlyPrinterError, printerDisplayName, printerPresentation, printerDisplayStatus } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {
@@ -31,16 +31,16 @@ export function SettingsPage({ s }: { s: DesktopState }) {
           <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2/45 p-4">
             <StatusDot tone={gatewayDraftPending ? "neutral" : s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} pulse={!gatewayDraftPending && s.gatewayConnected} />
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-ink">{gatewayDraftPending ? t("desktop.settings.draftNotVerified") : s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")}</div>
-              <div dir="auto" className="mt-0.5 truncate text-xs text-ink-3 [unicode-bidi:isolate]">{s.gatewayDraftUrl || t("desktop.settings.enterGatewayUrl")}</div>
+              <div className="break-words text-base font-semibold text-ink">{gatewayDraftPending ? t("desktop.settings.draftNotVerified") : s.gatewayConnected ? t("desktop.settings.connected") : s.gatewayUrl ? t("desktop.settings.unreachable") : t("desktop.settings.notConfigured")}</div>
+              <div dir="auto" className="mt-1 break-words text-xs text-ink-3 [overflow-wrap:anywhere] [unicode-bidi:isolate]">{s.gatewayDraftUrl || t("desktop.settings.enterGatewayUrl")}</div>
             </div>
           </div>
           <Field label={t("desktop.settings.gatewayUrlLabel")} htmlFor="gw-url" hint={t("desktop.settings.gatewayUrlHint")}>
             <Input id="gw-url" dir="ltr" value={s.gatewayDraftUrl} onChange={(e) => s.setGatewayDraftUrl(e.target.value)} placeholder="https://gateway.example.com" className="font-mono text-sm" />
           </Field>
           <div className="space-y-1 rounded-md border border-edge-subtle bg-surface-2 px-3 py-2.5 text-xs text-ink-3">
-            <div dir="auto" className="truncate [unicode-bidi:isolate]">{t("desktop.settings.savedGateway", { url: s.gatewayUrl || t("desktop.settings.notConfigured") })}</div>
-            <div dir="auto" className="truncate [unicode-bidi:isolate]">{t("desktop.settings.lastObservedGateway", { url: s.checkedGatewayUrl || t("desktop.settings.notObservedYet") })}</div>
+            <div dir="auto" className="break-words [overflow-wrap:anywhere] [unicode-bidi:isolate]">{t("desktop.settings.savedGateway", { url: s.gatewayUrl || t("desktop.settings.notConfigured") })}</div>
+            <div dir="auto" className="break-words [overflow-wrap:anywhere] [unicode-bidi:isolate]">{t("desktop.settings.lastObservedGateway", { url: s.checkedGatewayUrl || t("desktop.settings.notObservedYet") })}</div>
           </div>
           {gatewayDraftPending && <p className="text-xs text-warn">{t("desktop.settings.draftNotSavedBody")}</p>}
           <div className="flex min-w-0 justify-end"><Button variant="primary" onClick={s.checkHealth} loading={s.gatewayChecking} icon={<Activity className="h-4 w-4" />} className="max-w-full min-w-0 h-auto min-h-10" ><span className="min-w-0 whitespace-normal break-words text-center leading-snug">{t("desktop.settings.checkConnection")}</span></Button></div>
@@ -93,14 +93,14 @@ export function SettingsPage({ s }: { s: DesktopState }) {
       </div>
 
       <Card className="overflow-hidden">
-        <div className="flex items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-edge-subtle px-5 py-4">
           <div className="flex items-start gap-2.5"><KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" /><div className="min-w-0"><h2 className="text-base font-semibold text-ink">{t("desktop.settings.pairTitle")}</h2><p className="mt-1 text-sm leading-snug text-ink-3">{t("desktop.settings.pairSubtitle")}</p></div></div>
           <StatusBadge label={s.isOnline ? (s.gatewayConnected ? t("desktop.settings.pairRunning") : t("desktop.settings.pairGatewayUnreachable")) : t("desktop.settings.pairStopped")} tone={s.isOnline ? (s.gatewayConnected ? "ok" : "warn") : "neutral"} />
         </div>
         <div className="grid gap-5 px-5 py-5 lg:grid-cols-[1fr_auto] lg:items-end">
           <ol className="space-y-2.5 text-sm text-ink-2">
             {[t("desktop.settings.pairStep1"), t("desktop.settings.pairStep2"), t("desktop.settings.pairStep3")].map((step, i) => (
-              <li key={step} className="flex items-center gap-2.5"><span className="flex h-5 w-5 items-center justify-center rounded-sm bg-brand-solid text-2xs font-bold text-brand-contrast">{i + 1}</span><span>{step}</span></li>
+              <li key={step} className="flex items-start gap-2.5"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm bg-brand-solid text-2xs font-bold text-brand-contrast">{i + 1}</span><span className="min-w-0 break-words">{step}</span></li>
             ))}
           </ol>
           <div className="flex w-full max-w-sm flex-col gap-3">
@@ -125,7 +125,10 @@ export function SettingsPage({ s }: { s: DesktopState }) {
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.gatewaySection")}</span><span className={s.gatewayConnected ? "font-semibold text-ok" : s.gatewayUrl ? "font-semibold text-bad" : "font-semibold text-warn"}>{s.gatewayConnected ? t("desktop.settings.reachable") : s.gatewayUrl ? t("desktop.settings.failedCheck") : t("desktop.settings.notConfigured")}</span></div>
             {s.healthError && <div className="rounded-sm border border-bad-edge bg-bad-bg px-3 py-2 text-sm leading-relaxed text-bad">{s.healthError}</div>}
             <div className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="font-medium text-ink-2">{t("desktop.settings.devices")}</span><span className="font-semibold text-ink tabular-nums">{s.printers.length}</span></div>
-            {s.printers.map((p) => (<div key={p.id} className="flex min-h-10 items-center justify-between gap-4 py-2"><span className="truncate text-ink-2">{p.name}</span><span className={`text-xs font-semibold ${printerDisplayStatus(p, s.nowMs) === "online" ? "text-ok" : ["offline", "error"].includes(printerDisplayStatus(p, s.nowMs)) ? "text-bad" : "text-warn"}`}>{labelPrinter(printerDisplayStatus(p, s.nowMs), locale)}</span></div>))}
+            {s.printers.map((p) => {
+              const view = printerPresentation(p, undefined, s.nowMs);
+              return <div key={p.id} className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-3 py-3"><span className="min-w-0 flex-1 break-words text-ink-2">{printerDisplayName(p, locale)}</span><StatusBadge tone={view.tone} label={t(view.labelKey)} /></div>;
+            })}
             {s.printers.length === 0 && <p className="py-3 text-sm text-ink-3">{t("desktop.settings.noDevices")}</p>}
           </div>
         </div>
@@ -136,7 +139,7 @@ export function SettingsPage({ s }: { s: DesktopState }) {
         {s.advancedOpen && (
           <div className="grid gap-5 border-t border-edge px-5 py-5 lg:grid-cols-2">
             <div><div className="mb-2 text-sm font-[600] text-ink">{t("desktop.settings.security")}</div><p className="text-sm text-ink-2 leading-relaxed">{t("desktop.settings.securityBody")}</p><div className="mt-3 inline-flex items-center gap-2 rounded-md border border-ok-edge bg-ok-bg px-3 py-2 text-xs font-medium text-ok"><Lock className="h-4 w-4" />{t("desktop.settings.credentialsLocal")}</div></div>
-            <div><div className="mb-2 text-sm font-[600] text-ink">{t("desktop.settings.dataLocations")}</div>{paths.length > 0 ? <div className="space-y-1.5">{paths.map(([label, path]) => (<div key={label} className="flex items-center gap-2 rounded-md border border-edge bg-surface-2 px-3 py-2"><span className="w-24 text-xs font-semibold text-ink-2">{label}</span><span dir="ltr" className="flex-1 truncate font-mono text-xs text-ink-3 [unicode-bidi:isolate]">{path}</span><CopyButton value={path} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.settings.copied"), type: "success" })} /></div>))}</div> : <p className="text-xs text-ink-3">{t("desktop.settings.loadingPaths")}</p>}<p className="mt-4 text-xs text-ink-3">{t("desktop.settings.footer", { version: s.version || "—" })}</p></div>
+            <div className="min-w-0"><div className="mb-2 text-sm font-[600] text-ink">{t("desktop.settings.dataLocations")}</div>{paths.length > 0 ? <div className="space-y-2">{paths.map(([label, path]) => (<div key={label} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-md border border-edge bg-surface-2 px-3 py-3"><span className="min-w-0 break-words text-xs font-semibold leading-normal text-ink-2">{label}</span><span dir="ltr" className="col-span-2 row-start-2 min-w-0 break-all font-mono text-xs leading-normal text-ink-3 [unicode-bidi:isolate]">{path}</span><div className="col-start-2 row-start-1"><CopyButton value={path} label={t("desktop.agents.copy")} onCopied={() => s.setMsg({ text: t("desktop.settings.copied"), type: "success" })} /></div></div>))}</div> : <p className="text-xs text-ink-3">{t("desktop.settings.loadingPaths")}</p>}<p className="mt-4 text-xs text-ink-3">{t("desktop.settings.footer", { version: s.version || "—" })}</p></div>
           </div>
         )}
       </Card>

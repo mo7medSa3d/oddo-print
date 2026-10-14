@@ -6,7 +6,7 @@ import type { PoolClient } from "pg";
 import { runtimeSecret } from "../src/lib/runtime-secret";
 
 
-// Forward repairs live here because this audit may not add migration files.
+// Retained forward repairs supplement the immutable SQL migration journal.
 // Append versioned entries; never edit historical SQL/hash identities.
 export const AUDIT_REPAIRS: readonly string[] = [
   `-- audit A98 v1: preserve catalog price identities used by existing subscriptions
@@ -43,11 +43,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS print_job_receipts_tenant_idempotency_unique O
 ALTER TABLE print_job_receipts ALTER COLUMN requested_by DROP NOT NULL;`,
 ];
 
+/** Scope legacy name-only guards without changing stored migration SQL/hashes. */
+export function scopeMigrationConstraintGuards(statement: string): string {
+  return statement.replaceAll(
+    /FROM pg_constraint WHERE conname =/g,
+    "FROM pg_constraint WHERE connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema()) AND conname =",
+  );
+}
+
 /** Apply journal order by recorded content hash, including skipped older timestamps. */
 export async function migrateByHash(client: PoolClient, migrationsFolder: string): Promise<void> {
   const migrations = readMigrationFiles({ migrationsFolder });
   await client.query("BEGIN");
   try {
+    // Historical DDL explicitly references public; keep unqualified tables and
+    // catalog guards in that same target instead of an inherited search path.
+    await client.query("SET LOCAL search_path TO public");
     await client.query("SELECT pg_advisory_xact_lock(hashtext(current_database() || ':' || current_schema() || ':migrations'))");
     await client.query('CREATE SCHEMA IF NOT EXISTS drizzle');
     await client.query('CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)');
@@ -56,7 +67,7 @@ export async function migrateByHash(client: PoolClient, migrationsFolder: string
     for (const migration of migrations) {
       if (applied.has(migration.hash)) continue;
       for (const statement of migration.sql) {
-        if (statement.trim()) await client.query(statement);
+        if (statement.trim()) await client.query(scopeMigrationConstraintGuards(statement));
       }
       await client.query('INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)', [migration.hash, migration.folderMillis]);
       applied.add(migration.hash);

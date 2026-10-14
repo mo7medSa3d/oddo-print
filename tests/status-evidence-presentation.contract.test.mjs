@@ -33,12 +33,17 @@ test("effective Agent presentation preserves stale and missing evidence as unkno
 
 test("stale printer evidence is never promoted back to its last reported status", () => {
   const dashboard = read("src/app/dashboard/dashboard-client.tsx");
+  const presentation = read("src/shared/printer-presentation.ts");
   const desktop = read("src/desktop/lib/printers.ts");
   const odooAgentField = read("odoo_addons/print_gateway/static/src/components/runtime_agent_field.js");
   const odooPrinterField = read("odoo_addons/print_gateway/static/src/components/runtime_printer_field.js");
 
   assert.doesNotMatch(dashboard, /freshness === "stale" \? \(printer\.reportedStatus/);
-  assert.match(dashboard, /const displayStatus = effStatus;/g);
+  assert.match(dashboard, /const presentation = printerPresentation\(printer, parentAgent, nowMs\);/);
+  assert.match(dashboard, /printerLabel\(effectivePrinterStatus\(selectedPrinterView, null, nowMs\), locale\)/);
+  assert.match(presentation, /printerObservationFreshness\(printer\.lastSeenAt, nowMs\) !== "fresh"/);
+  assert.match(presentation, /return unavailable\("printer\.presentation\.statusUnavailableReason"\)/);
+  assert.doesNotMatch(presentation, /reportedStatus/);
 
   const desktopDisplay = desktop.slice(desktop.indexOf("export function printerDisplayStatus"), desktop.indexOf("export function isVirtualPrinter"));
   assert.match(desktopDisplay, /return effectivePrinterStatus\(p, undefined, nowMs\)/);

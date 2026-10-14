@@ -1,6 +1,8 @@
 import type { PrinterInfo } from "./ipc";
 import type { Tone } from "../../shared/job-vocabulary";
 import { isVirtualPrinterRecord } from "../../lib/printer-virtual";
+import { printerPresentation as gatewayPrinterPresentation } from "../../shared/printer-presentation";
+export { printerDisplayName, printerStatusDetail } from "../../shared/printer-presentation";
 
 export {
   agentLiveView,
@@ -79,6 +81,7 @@ export function printerAgentView(
   return agentLiveView(
     {
       status: printer.agentStatus ?? null,
+      lifecycle: printer.agentLifecycle ?? null,
       lastSeenAt: printer.agentLastSeenAt ?? null,
       staleThresholdSeconds: printer.agentStaleThresholdSeconds ?? null,
     },
@@ -89,6 +92,7 @@ export function printerAgentView(
 
 export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.now()): boolean {
   if (!p) return false;
+  if (isLocalPrinter(p)) return printerObservationFreshness(new Date(p.localObservedAt!), nowMs) !== "fresh";
   if (p.freshness === "stale") return true;
   // The snapshot field above ages: recompute from the observation timestamp
   // as the screen stays open so a printer cannot stay green after its
@@ -100,24 +104,66 @@ export function printerIsStale(p: PrinterInfo | null | undefined, nowMs = Date.n
 }
 
 export function printerDisplayStatus(p: PrinterInfo, nowMs = Date.now()): string {
+  if (isLocalPrinter(p)) {
+    const state = printerPresentation(p, undefined, nowMs).state;
+    return state === "ready" ? "online" : state === "printing" ? "busy" : state === "attention" ? "error" : "unknown";
+  }
   // Even an initially valid /api/printers snapshot ages. Never resurrect the
   // last reported online status when observation evidence is stale or missing.
   // This shared function also handles non-active lifecycle states.
   return effectivePrinterStatus(p, undefined, nowMs);
 }
 
+export function isLocalPrinter(p: PrinterInfo): boolean {
+  return typeof p.localObservedAt === "number" && Number.isFinite(p.localObservedAt);
+}
+
+export function isLocalSetupCandidate(p: PrinterInfo): boolean {
+  return p.capabilities?.verification === "candidate_only" || p.capabilities?.verification === "device_detected_only";
+}
+
+/** Local completion is Windows observation evidence, never Agent heartbeat evidence. */
+export function printerPresentation(p: PrinterInfo, agent?: Parameters<typeof gatewayPrinterPresentation>[1], nowMs = Date.now()): ReturnType<typeof gatewayPrinterPresentation> {
+  if (!isLocalPrinter(p)) return gatewayPrinterPresentation(p, agent, nowMs);
+  const unavailable = () => ({ state: "unavailable" as const, tone: "neutral" as const, labelKey: "printer.presentation.unavailable" as const, reasonKey: "printer.presentation.statusUnavailableReason" as const });
+  if (printerObservationFreshness(new Date(p.localObservedAt!), nowMs) !== "fresh"
+      || isLocalSetupCandidate(p)) return unavailable();
+  if (p.enabled === false) {
+    return { state: "attention", tone: "warn", labelKey: "printer.presentation.attention", reasonKey: "printer.presentation.inactiveReason" };
+  }
+  switch (p.status.trim().toLowerCase()) {
+    case "online": case "idle": return { state: "ready", tone: "ok", labelKey: "printer.presentation.ready", reasonKey: "printer.presentation.readyReason" };
+    case "busy": case "printing": return { state: "printing", tone: "info", labelKey: "printer.presentation.printing", reasonKey: "printer.presentation.printingReason" };
+    case "offline": case "error": case "paper_out": case "driver_error": case "spooler_error": return { state: "attention", tone: "bad", labelKey: "printer.presentation.attention", reasonKey: "printer.presentation.attentionReason" };
+    default: return unavailable();
+  }
+}
+
+export function mergePrinterInventories(cloud: PrinterInfo[], local: PrinterInfo[]): PrinterInfo[] {
+  const rows = new Map(cloud.filter(isProductionPrinter).map((p) => [p.id, p]));
+  for (const printer of local.filter((p) => isProductionPrinter(p) && !isLocalSetupCandidate(p))) {
+    rows.set(printer.id, { ...rows.get(printer.id), ...printer, lifecycle: printer.lifecycle, inventoryPresent: printer.inventoryPresent, sharedWithGateway: printer.sharedWithGateway ?? true });
+  }
+  return [...rows.values()];
+}
+
+/** Unknown native health may be admitted, but local readiness grants no cloud route. */
+export function eligibleGatewayTestPrinterIds(cloud: PrinterInfo[], local: PrinterInfo[], connected: boolean, nowMs: number): ReadonlySet<string> {
+  const privateIds = new Set(local.filter((p) => p.sharedWithGateway === false).map((p) => p.id));
+  return new Set(connected ? cloud.filter((p) => !privateIds.has(p.id) && p.sharedWithGateway !== false
+    && isMainInventoryPrinter(p) && p.inventoryPresent === true && !!p.agentId && p.configurationConverged !== false
+    && p.agentFreshness !== "stale" && p.agentFreshness !== "missing" && p.freshness !== "stale" && p.freshness !== "missing"
+    && printerAgentView(p, nowMs).tone === "ok"
+    && printerObservationFreshness(p.lastSeenAt, nowMs) === "fresh").map((p) => p.id) : []);
+}
+
 /** Single advancing-clock projection used by every Desktop status summary. */
 export function printerHealthCounts(printers: PrinterInfo[], nowMs = Date.now()) {
-  let online = 0;
-  let offline = 0;
-  let unknown = 0;
+  const counts = { ready: 0, printing: 0, attention: 0, unavailable: 0 };
   for (const printer of printers) {
-    const effective = printerDisplayStatus(printer, nowMs);
-    if (effective === "online") online += 1;
-    else if (effective === "offline" || effective === "error") offline += 1;
-    else unknown += 1;
+    if (isMainInventoryPrinter(printer)) counts[printerPresentation(printer, undefined, nowMs).state] += 1;
   }
-  return { online, offline, unknown };
+  return { ...counts, online: counts.ready + counts.printing, offline: counts.attention, unknown: counts.unavailable };
 }
 
 export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
@@ -126,16 +172,30 @@ export function isVirtualPrinter(p: PrinterInfo | null | undefined): boolean {
   if (anyP.isVirtual === true || anyP.is_virtual === true) return true;
   return isVirtualPrinterRecord({
     name: p.name,
+    displayName: p.displayName,
+    display_name: p.display_name,
+    spoolerName: p.spoolerName,
+    spooler_name: p.spooler_name,
+    endpoint: p.endpoint,
+    port: p.port,
+    driverName: typeof anyP.driverName === "string" ? anyP.driverName : undefined,
     printerType: p.printer_type || p.printerType,
     connectionType: p.connection_type || p.connectionType,
     protocol: p.protocol,
     capabilities: p.capabilities,
+    config: p.config,
   });
 }
 
 /** Only real printers enter Desktop inventory and bindings. */
 export function isProductionPrinter(p: PrinterInfo): boolean {
   return !isVirtualPrinter(p);
+}
+
+/** Saved absent/inactive devices remain manageable outside the current list. */
+export function isMainInventoryPrinter(p: PrinterInfo): boolean {
+  if (isLocalPrinter(p)) return isProductionPrinter(p) && !isLocalSetupCandidate(p);
+  return isProductionPrinter(p) && p.inventoryPresent !== false && p.enabled !== false && (!p.lifecycle || p.lifecycle === "active");
 }
 
 /* ---------- Status vocabulary ---------- */

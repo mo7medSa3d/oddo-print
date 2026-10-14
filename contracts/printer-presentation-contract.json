@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "producer": "Agent Windows queue/status inventory and Gateway tenant-scoped printer/Agent records",
+  "sharedConsumer": "src/shared/printer-presentation.ts",
+  "surfaces": ["Gateway dashboard", "Agent desktop printer list"],
+  "states": ["ready", "printing", "attention", "unavailable"],
+  "rules": {
+    "owner": "Cloud inventory requires current active Agent ownership; missing, disconnected, inactive or stale Agent evidence gives unavailable and paginated cloud lists use embedded owner status/lifecycle/heartbeat/threshold. Desktop's authoritative fresh local Windows observation may show actual local queue health independently of cloud connectivity; it never grants Gateway admission.",
+    "health": "Current online -> ready; busy -> printing; proven offline/error -> attention; unknown, unreadable, deferred, pending or stale -> unavailable; no cached probe status may be refreshed as new evidence",
+    "details": "Native status, freshness, lifecycle, transport, language, queue identity and diagnostics remain available in details; presentation does not rewrite raw health or admission",
+    "inventory": "Cloud main/Saved views exclude sharedWithGateway=false before pagination/counting; canonical private rows and authorized by-ID/job history remain. Cloud main otherwise contains active currently-present physical printers and Saved retains missing/inactive shared physical records. Desktop's local primary inventory retains actual private queues with independent sharing controls, without deleting or disabling the Windows queue.",
+    "windows": "Automatic main inventory uses named installed physical Windows queues; discovery scans remain candidates for explicit setup; manual/config/desired-owned routes are preserved. Current-account user connections remain setup-only unless Session 0 is positively established; unreadable session identity cannot authorize their shared service inventory",
+    "identity": "Friendly name/display aliases cannot mask actual configured or observed Windows spooler queue identity. Agent and Gateway/Desktop classify name, displayName, spoolerName and existing config/capability aliases together; endpoint/address is a queue-name fallback only for explicitly declared native spooler transport or protocol, including legacy USB+spooler. Existing driver/port/software/RDP precedence remains unchanged; real physical Canon/UNC/network queues are retained. The bounded dashboard SQL predicate shares classification rule lists so rows, health filters and counts agree without post-filter pagination loss.",
+    "submission": "Installed-driver/GDI for document queues, RAW only for explicitly declared byte languages; transport success does not prove physical paper output. Local unshare denies new Gateway work after fresh admission checks, while already-admitted native work and terminal/UNKNOWN reconciliation continue.",
+    "capabilityBinding": "Legacy observed supported_protocols belongs to the current execution endpoint/transport/USB identity. Binding changes invalidate prior observations; name/media-only changes preserve them. Heartbeats report captured-config facts and cannot restore old-binding observations during replacement; current explicit passthrough opt-ins and document baselines remain authoritative."
+  },
+  "dashboardFilters": ["all", "ready", "printing", "attention", "unavailable", "saved"],
+  "embeddedOwnerFields": ["agentStatus", "agentLifecycle", "agentLastSeenAt", "agentStaleThresholdSeconds", "inventoryPresent"],
+  "dashboardAgentCounts": "currentPrinterCount counts physical active present queues for cards; printerCount retains all stored registrations for management confirmations",
+  "compatibility": "Existing raw-status dashboard filters and HTTP printer/job status enums remain accepted and unchanged"
+}

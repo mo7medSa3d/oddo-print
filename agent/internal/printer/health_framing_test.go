@@ -40,6 +40,18 @@ func TestInvalidStatusFramingCannotAssertHardwareFaults(t *testing.T) {
 	}
 }
 
+func TestMissingStatusRepliesDoNotInventOfflineHardware(t *testing.T) {
+	for _, replies := range [][]byte{{}, {0x12}, {0x12, 0x12}} {
+		status, err := QueryHealthStatus(scriptedHealthChannel{bytes.NewReader(replies)})
+		if status != nil || !errors.Is(err, ErrPrinterStatusUnsupported) || !errors.Is(err, io.EOF) {
+			t.Fatalf("missing reply %x: status=%v error=%v", replies, status, err)
+		}
+		if errors.Is(err, ErrPrinterOffline) {
+			t.Fatalf("missing reply %x fabricated physical offline: %v", replies, err)
+		}
+	}
+}
+
 func TestValidPaperNearEndDoesNotAssertPaperOut(t *testing.T) {
 	status, err := QueryHealthStatus(scriptedHealthChannel{bytes.NewReader([]byte{0x12, 0x12, 0x1e})})
 	if err != nil || status == nil || !status.Online || !status.PaperNearEnd || status.PaperOut {

@@ -232,9 +232,14 @@ export const AGENT_REQUEUE_REASONS = [
   "pending_full",
   "printer_pending_full",
   "printer_not_at_desired_state",
+  "printer_not_shared",
   "agent_shutting_down",
   "ledger_unavailable",
 ] as const;
+
+// Proven zero-byte hand-back waits for fresh explicit owner permission; it is
+// never a physical UNKNOWN marker and must not spin a delivery/retry loop.
+export const PRINTER_NOT_SHARED_PAUSE = "Agent returned job before execution (printer_not_shared)";
 
 // Explicit, operator-configured at-least-once recovery after an Agent restart
 // during physical printing. This is intentionally separate from pre-execution

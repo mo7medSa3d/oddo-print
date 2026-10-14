@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isPrinterAvailableForJob } from "../src/lib/routing";
 import { isVirtualPrinterRecord } from "../src/lib/printer-virtual";
+import { isVirtualPrinter, isProductionPrinter } from "../src/desktop/lib/printers";
+import type { PrinterInfo } from "../src/desktop/lib/ipc";
 
 const VIRTUAL = [
   { name: "Microsoft Print to PDF", record: { printerType: "virtual" } },
@@ -117,8 +119,47 @@ describe("desktop manager safety net", () => {
       port: record.port as string,
       driverName: record.driverName as string,
       capabilities: record.capabilities as Record<string, unknown>,
+      status: "online",
+      enabled: true,
     };
-    expect(isVirtualPrinterRecord(printer)).toBe(true);
+    expect(isVirtualPrinter(printer as unknown as PrinterInfo)).toBe(true);
+  });
+});
+
+describe("friendly labels cannot mask actual Windows queue identity", () => {
+  const physical = { name: "Chosen office label", printerType: "physical", connectionType: "spooler", protocol: "spooler" };
+  it.each(["Microsoft Print to PDF", "Microsoft XPS Document Writer", "OneNote", "HP LaserJet (redirected 3)", "HP LaserJet redirected)", "HP (from HOST) in session4", "Canon G4070 series FAX"])("rejects aliased %s at every identity source", (queue) => {
+    for (const identity of [
+      { spoolerName: queue }, { spooler_name: queue }, { displayName: queue }, { display_name: queue },
+      { config: { spooler_name: queue } }, { config: { address: queue } },
+      { capabilities: { spooler_name: queue } }, { capabilities: { displayName: queue } }, { endpoint: queue },
+    ]) {
+      const row = { ...physical, ...identity };
+      expect(isVirtualPrinterRecord(row)).toBe(true);
+      expect(isPrinterAvailableForJob({ ...row, lifecycle: "active", status: "unknown" })).toBe(false);
+      expect(isProductionPrinter({ ...row, id: "alias", status: "unknown", enabled: true })).toBe(false);
+    }
+  });
+
+  it("preserves real Canon and shared physical queue admission despite friendly aliases", () => {
+    for (const identity of [
+      { config: { spooler_name: "Canon G4070 series" }, capabilities: { driver_name: "Canon G4070 series Printer", port_name: "USB001" } },
+      { spoolerName: "\\\\server\\Office Queue", driverName: "Microsoft enhanced point and print compatibility driver", port: "\\\\server\\Office Queue" },
+    ]) {
+      const row = { ...physical, ...identity };
+      expect(isVirtualPrinterRecord(row)).toBe(false);
+      expect(isPrinterAvailableForJob({ ...row, lifecycle: "active", status: "unknown" })).toBe(true);
+    }
+    expect(isVirtualPrinterRecord({ name: "Real printer", printerType: "physical", connectionType: "network", protocol: "raw", endpoint: "Microsoft Print to PDF", config: { address: "Microsoft Print to PDF" } })).toBe(false);
+  });
+  it("keeps both legacy and canonical observed aliases in the Desktop guard", () => {
+    expect(isVirtualPrinter({ ...physical, id: "mixed", status: "online", enabled: true,
+      display_name: "Friendly display", displayName: "Microsoft Print to PDF",
+      spooler_name: "Friendly queue", spoolerName: "HP LaserJet (redirected 3)",
+    })).toBe(true);
+  });
+  it("recognizes native queue identity in a legacy USB+spooler declaration", () => {
+    expect(isVirtualPrinterRecord({ name: "Friendly USB queue", connectionType: "usb", protocol: "spooler", endpoint: "Microsoft Print to PDF" })).toBe(true);
   });
 });
 

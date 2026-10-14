@@ -8,6 +8,7 @@ import requests
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
+from ..runtime_policy import is_gateway_shared_printer
 
 _logger = logging.getLogger(__name__)
 
@@ -479,6 +480,8 @@ class PrintGatewayBinding(models.Model):
         printer_match = next((printer for printer in printers or [] if isinstance(printer, dict) and printer.get("id") == self.printer_id), None)
         if not isinstance(printers, list) or not printer_match:
             raise ValidationError(_("The selected Gateway Runtime Printer is not found."))
+        if not is_gateway_shared_printer(printer_match):
+            raise ValidationError(_("Printer '%s' is local-only. Share it from the Agent before sending a cloud print job.") % self.printer_id)
         if printer_match.get("lifecycle") != "active":
             raise ValidationError(
                 _("Printer '%s' cannot be assigned because its lifecycle is '%s'. Only printers with lifecycle 'active' may receive print jobs.")

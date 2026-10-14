@@ -48,7 +48,6 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0073 | 1 | Refresh tokens table for auth session management |
 | 0074 | 1 | Token-table delete cascades and drop of the dead applications table |
 | 0075 | 1 | Discovery state-machine CHECKs and drop of the redundant device-identity index |
-
 | 0076 | 1 | Candidate provisioning discovery CHECK |
 | 0077 | 1 | Durable per-Agent inventory snapshots and ordering state |
 | 0078 | 1 | Hot-path query indexes for jobs, audit events, Agents, and printers |
@@ -57,8 +56,11 @@ This runs `scripts/db-migrate.ts` which applies all pending migrations from `dri
 | 0081 | 1 | Physical-only printer admission; transactional removal of legacy virtual/redirected destinations and associated history |
 | 0082 | 1 | Forward tracking for audit repairs, maintenance sweep index, foreign key cascade indexes, and tenant-scoped notification trigger |
 | 0083 | 1 | Standalone tenant-scoped E2E capture queue for simulated PDF rendering, without physical print-job accounting |
+| 0084 | 1 | Agent-owned printer cloud sharing and retained version fence, preserving canonical identities/health/lifecycle/history |
 
-**Total**: 84 forward-only SQL migrations (0000–0083), plus retained hash-versioned forward repairs in `scripts/db-migrate.ts`.
+**Total**: 85 forward-only SQL migrations (0000–0084), plus retained hash-versioned forward repairs in `scripts/db-migrate.ts`.
+
+Apply `0084` before deploying the matching Gateway and Agent/Desktop sharing feature. Existing rows default to shared; the owning Agent's newer explicit permission decides subsequent publication. Same-version denial is retained across pages/replays. Private printer/job identities are preserved, and no backfill deletes or disables Windows queues. Keep the protected local sharing file and a compatible Agent/CLI bundle during rollback; see `docs/RELEASE_GATES.md`.
 
 **Deployment warning for 0081:** Back up PostgreSQL and drain active print jobs before running this migration. Migration 0081 removes virtual/redirected printer records and their associated historical jobs/receipts; it refuses to proceed while any affected job is claimed or printing. This is a permanent data-removal migration already present in the source, **not** introduced by the CI documentation update.
 
@@ -80,12 +82,16 @@ All fixes must use **new forward migrations** with idempotent guards:
 ```sql
 DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'my_constraint'
+    SELECT 1 FROM pg_constraint
+    WHERE connamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+      AND conname = 'my_constraint'
   ) THEN
     ALTER TABLE my_table ADD CONSTRAINT my_constraint ...;
   END IF;
 END $$;
 ```
+
+Constraint names can repeat in different schemas. New guards must check the target namespace as well as the name. The production migrator pins the canonical public search path and scopes known legacy name-only guards at execution while retaining their original content hashes.
 
 ### Statement Breakpoints
 

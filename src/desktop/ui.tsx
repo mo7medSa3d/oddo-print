@@ -40,12 +40,12 @@ export function StatItem({ label, value, sub, tone = "neutral", icon }: { label:
   return (
     <div className="min-w-0 bg-surface px-4 py-4 sm:px-5">
       <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0 break-words text-xs font-[550] text-ink-3">{label}</span>
+        <span className="min-w-0 break-words text-sm font-[550] leading-normal text-ink-3">{label}</span>
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface-2 text-ink-3">{icon}</span>
       </div>
       <div className="mt-3 flex items-center gap-2">
         <StatusDot tone={tone} pulse={tone === "ok"} />
-        <span className="min-w-0 break-words text-xl font-[650] leading-tight tracking-[-0.02em] text-ink tabular-nums">{value}</span>
+        <span className="min-w-0 break-words text-3xl font-[650] leading-tight tracking-[-0.02em] text-ink tabular-nums">{value}</span>
       </div>
       {sub && <p className="mt-1.5 break-words text-xs leading-relaxed text-ink-3">{sub}</p>}
     </div>
@@ -65,10 +65,10 @@ const noticeIconStyles: Record<NoticeTone, string> = {
 
 export function StatusNotice({ tone = "warn", icon, title, children, action, className = "" }: { tone?: NoticeTone; icon: React.ReactNode; title: string; children?: React.ReactNode; action?: React.ReactNode; className?: string; }) {
   return (
-    <div role="status" className={`flex flex-col gap-3 rounded-sg border p-4 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
+    <div role="status" className={`flex flex-col gap-3 rounded-sg border p-5 sm:flex-row sm:items-start ${noticeStyles[tone]} ${className}`}>
       <span className={`mt-0.5 shrink-0 ${noticeIconStyles[tone]}`}>{icon}</span>
-      <div className="min-w-0 flex-1"><div className="text-sm font-semibold leading-snug">{title}</div>{children && <div className="mt-1 text-sm leading-relaxed text-ink-2">{children}</div>}</div>
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      <div className="min-w-0 flex-1"><div className="break-words text-base font-semibold leading-snug">{title}</div>{children && <div className="mt-1 break-words text-sm leading-relaxed text-ink-2">{children}</div>}</div>
+      {action && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">{action}</div>}
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function PrinterAvatar({ name, size = "md", tone = "brand" }: { name: str
 }
 
 export function Toolbar({ children }: { children: React.ReactNode }) {
-  return <div className="min-w-0 rounded-sg border border-edge bg-surface p-3.5"><div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">{children}</div></div>;
+  return <div className="min-w-0 rounded-sg border border-edge bg-surface p-4"><div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">{children}</div></div>;
 }
 
 export function SettingsSection({ title, description, icon, children, className = "" }: { title: string; description?: string; icon: React.ReactNode; children: React.ReactNode; className?: string; }) {
@@ -90,7 +90,7 @@ export function SettingsSection({ title, description, icon, children, className 
       <div className="border-b border-edge bg-surface-2/60 px-5 py-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-edge bg-surface text-brand">{icon}</span>
-          <div className="min-w-0"><h2 className="text-base font-semibold leading-tight tracking-[-0.015em] text-ink">{title}</h2>{description && <p className="mt-1 text-sm leading-relaxed text-ink-3">{description}</p>}</div>
+          <div className="min-w-0"><h2 className="break-words text-lg font-semibold leading-snug tracking-[-0.015em] text-ink">{title}</h2>{description && <p className="mt-1 break-words text-sm leading-relaxed text-ink-3">{description}</p>}</div>
         </div>
       </div>
       <div className="space-y-5 px-5 py-5">{children}</div>
@@ -100,13 +100,13 @@ export function SettingsSection({ title, description, icon, children, className 
 
 export function DetailList({ rows, className = "" }: { rows: { label: string; value: React.ReactNode }[]; className?: string; }) {
   return <dl className={`divide-y divide-edge ${className}`}>
-    {rows.map((r) => <div key={r.label} className="flex items-start justify-between gap-6 py-2.5">
-      <dt className="shrink-0 text-xs text-ink-3">{r.label}</dt>
-      <dd className="min-w-0 text-end text-sm font-medium text-ink">{r.value}</dd>
+    {rows.map((r) => <div key={r.label} className="grid min-w-0 grid-cols-1 gap-1.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] sm:gap-4">
+      <dt className="min-w-0 break-words text-sm leading-normal text-ink-3">{r.label}</dt>
+      <dd className="min-w-0 break-words text-base font-medium leading-normal text-ink [overflow-wrap:anywhere] sm:text-end">{r.value}</dd>
     </div>)}
   </dl>;
 }
 
 export function ViewAllButton({ label, onClick }: { label: string; onClick: () => void; }) {
-  return <button type="button" onClick={onClick} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-sm px-2 py-2.5 text-sm font-semibold text-ink-3 transition hover:bg-surface-2 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{label}<ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden /></button>;
+  return <button type="button" onClick={onClick} className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-sm px-3 py-3 text-sm font-semibold text-ink-3 transition hover:bg-surface-2 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{label}<ChevronRight className="h-4 w-4 shrink-0 rtl:-scale-x-100" aria-hidden /></button>;
 }

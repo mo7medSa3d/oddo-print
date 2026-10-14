@@ -35,7 +35,7 @@ export class RuntimeAgentField extends Component {
                     </option>
                     <option t-if="!state.loading &amp;&amp; !state.error &amp;&amp; state.companyId &amp;&amp; !state.agents.length" value="" disabled="disabled"><t t-esc="emptyMessage"/></option>
                 </select>
-                <div t-if="state.error" class="mt-1 d-flex align-items-center gap-2">
+                <div t-if="state.error" class="o_pg_picker_feedback mt-1 d-flex align-items-center gap-2">
                     <small t-att-id="errorId" class="text-danger"><t t-esc="labels.loadError"/></small>
                     <button type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"><t t-esc="labels.retry"/></button>
                 </div>

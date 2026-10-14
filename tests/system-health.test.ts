@@ -6,8 +6,8 @@ describe("system-health", () => {
   it("derives schema version from the latest Drizzle migration", async () => {
     const journal = await import("../drizzle/meta/_journal.json");
     expect(CURRENT_SCHEMA_VERSION).toBe(Number(journal.default.entries.at(-1)?.tag?.slice(0, 4)));
-    // New E2E capture outbox is forward migration 0083; 0082 remains immutable.
-    expect(CURRENT_SCHEMA_VERSION).toBe(83);
+    // Local-owner cloud sharing is forward migration 0084; earlier SQL stays immutable.
+    expect(CURRENT_SCHEMA_VERSION).toBe(84);
   });
   it("gateway check returns ok with heap and uptime", () => {
     const check = checkGateway();

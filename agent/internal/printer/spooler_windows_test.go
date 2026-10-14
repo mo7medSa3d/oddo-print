@@ -568,6 +568,22 @@ func TestPreFlightAcceptsHealthyQueue(t *testing.T) {
 	}
 }
 
+func TestUnknownQueueHealthRetainsOnlySuccessfulTransportObservation(t *testing.T) {
+	withFakeQueue(t, PRINTER_STATUS_SERVER_UNKNOWN, 0)
+	p := NewSpooler("Unknown-Observed-Queue", "")
+	if status := p.Status(); status != "unknown" || !p.TransportObserved() {
+		t.Fatalf("readable queue with unknown device health: status=%q observed=%v", status, p.TransportObserved())
+	}
+	restore := setPrinterHooks(
+		func(*uint16) (syscall.Handle, error) { return 0, syscall.Errno(5) },
+		fakePrinterInfo2(PRINTER_STATUS_SERVER_UNKNOWN, 0),
+	)
+	defer restore()
+	if status := p.Status(); status != "unknown" || p.TransportObserved() {
+		t.Fatalf("unreadable queue retained earlier observation: status=%q observed=%v", status, p.TransportObserved())
+	}
+}
+
 func TestPreFlightRejectsOfflineQueue(t *testing.T) {
 	withFakeQueue(t, PRINTER_STATUS_OFFLINE, 0)
 	err := preFlightSpoolerCheck("Offline Printer")

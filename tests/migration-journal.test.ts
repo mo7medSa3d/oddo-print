@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { scopeMigrationConstraintGuards } from "../scripts/db-migrate";
 
 describe("Drizzle Migration Journal & File Integrity", () => {
+  it("scopes legacy constraint guards without changing the original trusted SQL", () => {
+    const original = "SELECT 1 FROM pg_constraint WHERE conname = 'agents_tenant_id_unique'";
+    const scoped = scopeMigrationConstraintGuards(original);
+    expect(scoped).toContain("connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())");
+    expect(scoped).toContain("AND conname = 'agents_tenant_id_unique'");
+    expect(original).toBe("SELECT 1 FROM pg_constraint WHERE conname = 'agents_tenant_id_unique'");
+    expect(scopeMigrationConstraintGuards(scoped)).toBe(scoped);
+  });
+  it("retains already-scoped and unrelated catalog statements", () => {
+    for (const statement of [
+      "SELECT 1 FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE c.conname='agents_tenant_id_unique' AND n.nspname=current_schema()",
+      "SELECT 1 FROM pg_constraint WHERE connamespace = 42 AND conname = 'agents_tenant_id_unique'",
+      "ALTER TABLE agents ADD CONSTRAINT agents_tenant_id_unique UNIQUE(tenant_id,id)",
+    ]) expect(scopeMigrationConstraintGuards(statement)).toBe(statement);
+  });
   it("enforces exact 1-to-1 match between SQL migration files and _journal.json", () => {
     const drizzleDir = join(process.cwd(), "drizzle");
     const sqlFiles = readdirSync(drizzleDir)
@@ -69,10 +85,17 @@ describe("Drizzle Migration Journal & File Integrity", () => {
     // snapshot that still advertises virtual printers will cause drizzle-kit
     // to emit misleading follow-up migrations.
     const printersSnapshot = snapshot.tables?.["public.printers"] as
-      | { checkConstraints?: { printers_type_check?: { value?: string } } }
+      | { columns?: Record<string, { type?: string; notNull?: boolean; default?: unknown }>;
+          checkConstraints?: { printers_type_check?: { value?: string }; printers_sharing_version_check?: { value?: string } } }
       | undefined;
     const typeCheck = printersSnapshot?.checkConstraints?.printers_type_check?.value ?? "";
     expect(typeCheck).toContain(`"printers"."printer_type" = 'physical'`);
     expect(typeCheck).not.toContain("in ('physical','virtual','redirected')");
+    expect(printersSnapshot?.columns?.shared_with_gateway).toMatchObject({ type: "boolean", notNull: true, default: true });
+    expect(printersSnapshot?.columns?.shared_with_gateway_version).toMatchObject({ type: "text", notNull: false });
+    const sharingCheck = printersSnapshot?.checkConstraints?.printers_sharing_version_check?.value ?? "";
+    expect(sharingCheck).toContain(`"printers"."shared_with_gateway_version" IS NULL`);
+    expect(sharingCheck).toContain("'^[1-9][0-9]{0,18}$'");
+    expect(sharingCheck).toContain("9223372036854775807");
   });
 });

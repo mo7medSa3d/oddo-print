@@ -8,11 +8,11 @@ test("direct-browser bridge preserves caller authorization and safe response pag
   const source = readFileSync("src/desktop/lib/ipc.ts", "utf8");
   const start = source.indexOf("async function gatewayConsoleRequest(");
   const end = source.indexOf("async function fetchGatewayFleet(", start);
-  const headerStart = source.indexOf("const FLEET_RESPONSE_HEADERS =");
-  const headerEnd = source.indexOf(";", headerStart) + 1;
-  assert.ok(start >= 0 && end > start && headerStart >= 0);
+  const headerSource = readFileSync("src/desktop/lib/gateway-headers.ts", "utf8").replace(/^export /gm, "");
+  assert.ok(start >= 0 && end > start);
   let forwarded;
-  const request = vm.runInNewContext(stripTypeScriptTypes(source.slice(headerStart, headerEnd) + "\n" + source.slice(start, end)) + "\ngatewayConsoleRequest", {
+  const request = vm.runInNewContext(stripTypeScriptTypes(headerSource + "\n" + source.slice(start, end)) + "\ngatewayConsoleRequest", {
+    TextEncoder,
     isTauri: false, normalizeGatewayUrl: url => url,
     fetchWithTimeout: async (_url, init) => {
       forwarded = init;
@@ -28,3 +28,20 @@ test("direct-browser bridge preserves caller authorization and safe response pag
   assert.equal(response.headers["x-next-before-id-encoded"], "cDE");
   assert.equal(response.headers["set-cookie"], undefined);
 });
+
+for (const isTauri of [false, true]) {
+  test(`${isTauri ? "native" : "browser"} Gateway bridge rejects oversized continuation metadata`, async () => {
+    const source = readFileSync("src/desktop/lib/ipc.ts", "utf8");
+    const start = source.indexOf("async function gatewayConsoleRequest(");
+    const end = source.indexOf("async function fetchGatewayFleet(", start);
+    const headerSource = readFileSync("src/desktop/lib/gateway-headers.ts", "utf8").replace(/^export /gm, "");
+    assert.ok(start >= 0 && end > start);
+    const headers = { "x-has-more": "true", "x-next-cursor": "a".repeat(4097) };
+    const request = vm.runInNewContext(stripTypeScriptTypes(headerSource + "\n" + source.slice(start, end)) + "\ngatewayConsoleRequest", {
+      TextEncoder, isTauri, normalizeGatewayUrl: url => url,
+      invoke: async () => JSON.stringify({ status: 200, body: "[]", headers }),
+      fetchWithTimeout: async () => new Response("[]", { headers }),
+    });
+    await assert.rejects(request("https://gateway.example", "/api/printers"), /Invalid Gateway pagination metadata/);
+  });
+}

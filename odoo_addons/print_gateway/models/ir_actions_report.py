@@ -9,6 +9,18 @@ from .binding import _assert_report_usage_access
 class IrActionsReportGateway(models.Model):
     _inherit = "ir.actions.report"
 
+    def get_paperformat(self):
+        width = self.env.context.get("print_gateway_diagnostic_paper_width_mm")
+        if self.report_name == "print_gateway.diagnostic_report" and type(width) in (int, float) and width in (58, 80):
+            # In-memory format keeps concurrent diagnostics from mutating a shared report.
+            return self.env["report.paperformat"].new({
+                "name": "Print Gateway diagnostic", "format": "custom",
+                "page_width": width, "page_height": 100, "orientation": "Portrait",
+                "margin_top": 4, "margin_bottom": 4, "margin_left": 4, "margin_right": 4,
+                "header_line": False, "header_spacing": 0, "dpi": 96,
+            })
+        return super().get_paperformat()
+
     def report_action(self, docids, data=None, config=True):
         self.ensure_one()
         # Odoo 19 distinguishes qweb-pdf from qweb-html. The Gateway is a

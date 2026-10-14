@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -37,6 +37,7 @@ import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
 import { AdminPrivilegeDialog } from "./components/AdminPrivilegeDialog";
+import { PrinterSharingControl } from "./components/PrinterSharingControl";
 import { OverviewPage } from "./pages/Overview";
 import { TestCenterPage } from "./pages/TestCenter";
 import { PrintersPage } from "./pages/Printers";
@@ -53,6 +54,7 @@ import {
   relaunchAsAdmin,
   getGatewayUrl,
   getPrinters,
+  setPrinterSharing,
   fetchGatewayPrinters,
   fetchGatewayAgents,
   registerGatewayPrinter,
@@ -82,6 +84,7 @@ import {
   humanConnection,
   humanType,
   isProductionPrinter,
+  isMainInventoryPrinter,
   jobDestination,
   jobDocType,
   jobGuidance,
@@ -93,16 +96,21 @@ import {
   labelJob,
   toneJob,
   labelPrinter,
+  printerPresentation,
+  printerDisplayName,
+  printerStatusDetail,
   printerDisplayStatus,
   printerHealthCounts,
   printerEndpoint,
   printerIsStale,
-  printerTone,
+  mergePrinterInventories,
+  eligibleGatewayTestPrinterIds,
   jobTimeMs,
   jobTimestamp,
 } from "./lib/printers";
 import { DiagnosticOperations, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, diagnosticIsInProgress } from "../shared/diagnostic-test";
 import { generateIdempotencyKey } from "../lib/idempotency";
+import { lifecycleLabel } from "../lib/lifecycle-labels";
 import type {
   AgentStatusView,
   DesktopState,
@@ -179,6 +187,9 @@ export default function App() {
   useEffect(() => { savedOriginRef.current = savedGatewayUrl; }, [savedGatewayUrl]);
   const printersGeneration = useRef(0);
   const localPrintersGeneration = useRef(0);
+  const localPrinterReadFlight = useRef(false);
+  const localInventoryReadyRef = useRef(false);
+  const sharingFlights = useRef(new Set<string>());
   const jobsGeneration = useRef(0);
   const healthGeneration = useRef(0);
   const gatewayProbeFlightRef = useRef<string | null>(null);
@@ -213,6 +224,12 @@ export default function App() {
   }, []);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
+  const [localPrinters, setLocalPrinters] = useState<PrinterInfo[]>([]);
+  const [localPrintersLoading, setLocalPrintersLoading] = useState(false);
+  const [localPrintersError, setLocalPrintersError] = useState<string | null>(null);
+  const [localInventoryReady, setLocalInventoryReady] = useState(false);
+  const [sharingPendingPrinterIds, setSharingPendingPrinterIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [sharingErrors, setSharingErrors] = useState<Record<string, string>>({});
   const [printersLoading, setPrintersLoading] = useState(false);
   const [printersError, setPrintersError] = useState<string | null>(null);
   const [printersFilter, setPrintersFilter] = useState("");
@@ -225,7 +242,7 @@ export default function App() {
   const [autostart, setAutostartState] = useState<boolean | null>(null);
   const [lastStatusCheck, setLastStatusCheck] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [selectedPrinter, setSelectedPrinter] = useState<PrinterInfo | null>(null);
+  const [selectedPrinterSnapshot, setSelectedPrinter] = useState<PrinterInfo | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [gatewayChecking, setGatewayChecking] = useState(false);
@@ -312,20 +329,63 @@ export default function App() {
     }
   }, [locale]);
 
-  const refreshLocalPrinters = useCallback(async () => {
+  const refreshLocalPrinters = useCallback(async (force = false) => {
     if (!isTauri) return false;
+    if (localPrinterReadFlight.current && !force) return false;
     const generation = ++localPrintersGeneration.current;
+    localPrinterReadFlight.current = true;
+    localInventoryReadyRef.current = false;
+    setLocalInventoryReady(false);
+    setLocalPrintersLoading(true);
     try {
       const list = await getPrinters();
       if (generation !== localPrintersGeneration.current) return false;
-      setDiscoveredPrinters(list.filter(isProductionPrinter));
+      const completedAt = Date.now();
+      setLocalPrinters(list.filter(isProductionPrinter).map((p) => ({ ...p, localObservedAt: completedAt, sharedWithGateway: p.sharedWithGateway ?? true })));
+      localInventoryReadyRef.current = true;
+      setLocalInventoryReady(true);
+      setLocalPrintersError(null);
       return true;
-    } catch {
-      // Local inventory is supplementary to the Gateway view. Do not turn a
-      // local registry read failure into a false remote printer outage.
+    } catch (error) {
+      if (generation === localPrintersGeneration.current) setLocalPrintersError(friendlyAgentError(errMsg(error), locale));
+      // Preserve confirmed choices/observations; no stale-file success fallback.
       return false;
+    } finally {
+      if (generation === localPrintersGeneration.current) {
+        localPrinterReadFlight.current = false;
+        setLocalPrintersLoading(false);
+      }
     }
-  }, []);
+  }, [locale]);
+
+  const handlePrinterSharing = useCallback(async (id: string, shared: boolean) => {
+    if (sharingFlights.current.has(id)) return;
+    if (!isTauri || isAdmin !== true || !localInventoryReadyRef.current || !localPrinters.some((p) => p.id === id && !printerIsStale(p, Date.now()))) {
+      setSharingErrors((current) => ({ ...current, [id]: t(isAdmin !== true ? "desktop.printers.sharingAdminRequired" : "desktop.printers.sharingRefreshRequired") }));
+      return;
+    }
+    sharingFlights.current.add(id);
+    setSharingPendingPrinterIds(new Set(sharingFlights.current));
+    setSharingErrors((current) => { const next = { ...current }; delete next[id]; return next; });
+    try {
+      const reply = await setPrinterSharing(id, shared);
+      ++localPrintersGeneration.current;
+      localInventoryReadyRef.current = false;
+      setLocalInventoryReady(false);
+      // Only a validated durable acknowledgment updates the local choice.
+      setLocalPrinters((current) => current.map((p) => p.id === reply.printerId ? { ...p, sharedWithGateway: reply.sharedWithGateway } : p));
+      setMsg({ text: t("desktop.printers.sharingSaved"), type: "success" });
+      await refreshLocalPrinters(true);
+    } catch (error) {
+      setSharingErrors((current) => ({ ...current, [id]: friendlyAgentError(errMsg(error), locale) }));
+      // A lost acknowledgment may follow a committed choice. Read the policy
+      // again before allowing another mutation, without an optimistic update.
+      await refreshLocalPrinters(true);
+    } finally {
+      sharingFlights.current.delete(id);
+      setSharingPendingPrinterIds(new Set(sharingFlights.current));
+    }
+  }, [isAdmin, localPrinters, t, locale, refreshLocalPrinters]);
 
   const refreshPrinters = useCallback(async () => {
     if (!savedGatewayUrl) {
@@ -521,6 +581,7 @@ export default function App() {
       const res = await discoverPrinters();
       const list = res.printers.filter(isProductionPrinter);
       setDiscoveredPrinters(list);
+      await refreshLocalPrinters(true);
       // Partial-source diagnostics are retained in the protected native log.
       // Only a failed CLI discovery itself is an actionable UI error.
       const refreshed = await refreshPrinters();
@@ -539,12 +600,18 @@ export default function App() {
     } finally {
       setPrintersLoading(false);
     }
-  }, [refreshPrinters, t, locale]);
+  }, [refreshPrinters, refreshLocalPrinters, t, locale]);
 
   const handleTest = useCallback(
     async (id: string) => {
       if (!savedGatewayUrl) {
         setMsg({ text: t("desktop.app.gatewayUrlMissing"), type: "error" });
+        return;
+      }
+      let connected = false;
+      try { connected = health?.ok === true && !healthError && checkedGatewayUrl === normalizeGatewayUrl(savedGatewayUrl); } catch { /* invalid saved origin remains unavailable */ }
+      if (!localInventoryReadyRef.current || !eligibleGatewayTestPrinterIds(printers, localPrinters, connected, Date.now()).has(id)) {
+        setMsg({ text: t("desktop.printers.cloudTestUnavailable"), type: "error" });
         return;
       }
       const scope = diagnosticScope(savedGatewayUrl, "paired-agent", id);
@@ -571,8 +638,9 @@ export default function App() {
         // about a prior committed job. Keep the identical key for retry.
         diagnosticOps.current.uncertain(scope);
         const status = (e as { status?: unknown } | null)?.status;
+        const code = (e as { code?: unknown } | null)?.code;
         setMsg({
-          text: status === 401 ? t("diagnostic.authRequired") :
+          text: code === "PRINTER_NOT_SHARED" ? t("printer.presentation.notSharedReason") : status === 401 ? t("diagnostic.authRequired") :
                 status === 403 ? t("diagnostic.permissionDenied") :
                 status === 429 ? friendlyPrinterError(errMsg(e), locale) :
                 t("diagnostic.admissionUnknown"),
@@ -583,7 +651,7 @@ export default function App() {
         setBusyBoth(false);
       }
     },
-    [savedGatewayUrl, refreshJobs, setBusyBoth, t, locale]
+    [savedGatewayUrl, printers, localPrinters, health, healthError, checkedGatewayUrl, refreshJobs, setBusyBoth, t, locale]
   );
 
   const startAgent = useCallback(async () => {
@@ -707,6 +775,14 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshStatus, refreshLocalPrinters, t]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    const refresh = () => { if (document.visibilityState === "visible") void refreshLocalPrinters(); };
+    const timer = setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [refreshLocalPrinters]);
 
   useEffect(() => {
     if (!isTauri || !savedGatewayUrl) return;
@@ -879,8 +955,11 @@ export default function App() {
     : gatewayConnected
       ? t("desktop.settings.reachable")
       : t("desktop.app.failedLastCheckLong");
-  const physicalPrinters = useMemo(() => printers.filter(isProductionPrinter), [printers]);
-  const totalPrinters = physicalPrinters.length;
+  const physicalPrinters = useMemo(() => mergePrinterInventories(printers, localPrinters), [printers, localPrinters]);
+  const gatewayTestPrinterIds = useMemo(() => localInventoryReady
+    ? eligibleGatewayTestPrinterIds(printers, localPrinters, gatewayConnected, nowMs) : new Set<string>(),
+    [printers, localPrinters, gatewayConnected, localInventoryReady, nowMs]);
+  const totalPrinters = physicalPrinters.filter(isMainInventoryPrinter).length;
   // Counts are liveness evidence, not snapshot status: a printer whose
   // observations went stale while the screen stays open must not count as
   // online (C045). nowMs ticks every 15s to re-derive these on open screens.
@@ -921,8 +1000,8 @@ export default function App() {
   // to operators; absent data renders as an explicit dash instead.
   const fleetTotal: number | null = fleetAgents ? Number(fleetAgents.total ?? 0) : null;
   const fleetOnline: number | null = fleetAgents ? Number(fleetAgents.online ?? 0) : null;
-  const printerFilterName =
-    printers.find((pp) => pp.id === jobPrinterFilter)?.name ?? jobPrinterFilter ?? "";
+  const queuePrinter = printers.find((pp) => pp.id === jobPrinterFilter);
+  const printerFilterName = queuePrinter ? printerDisplayName(queuePrinter, locale) : jobPrinterFilter ? t("printer.presentation.unnamed") : "";
 
   const filteredPrinters = useMemo(() => {
     let list = physicalPrinters;
@@ -930,17 +1009,18 @@ export default function App() {
       const q = printersFilter.toLowerCase();
       list = list.filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
+          printerDisplayName(p, locale).toLowerCase().includes(q) ||
           ((p.connection_type || p.connectionType) || "").toLowerCase().includes(q) ||
           ((p.printer_type || p.printerType) || "").toLowerCase().includes(q) ||
           printerEndpoint(p).toLowerCase().includes(q)
       );
     }
-    if (statusFilter !== "all") {
-      list = list.filter((p) => statusFilter === "stale" ? printerIsStale(p, nowMs) : printerDisplayStatus(p, nowMs) === statusFilter);
+    list = list.filter((p) => statusFilter === "saved" ? !isMainInventoryPrinter(p) : isMainInventoryPrinter(p));
+    if (statusFilter !== "all" && statusFilter !== "saved") {
+      list = list.filter((p) => printerPresentation(p, undefined, nowMs).state === statusFilter);
     }
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  }, [physicalPrinters, printersFilter, statusFilter, nowMs]);
+    return [...list].sort((a, b) => printerDisplayName(a, locale).localeCompare(printerDisplayName(b, locale), locale));
+  }, [physicalPrinters, printersFilter, statusFilter, nowMs, locale]);
 
   const jobsFiltered = useMemo(() => {
     let list = jobs;
@@ -958,7 +1038,7 @@ export default function App() {
       list = list.filter((j) => jobMatchesTab(j, jobTab));
     }
     if (jobSearch) {
-      const q = jobSearch.toLowerCase();
+      const q = jobSearch.trim().toLowerCase();
       list = list.filter(
         (j) =>
           jobId(j).toLowerCase().includes(q) ||
@@ -1009,11 +1089,13 @@ export default function App() {
   // win over local discovery rows for the same ID (they carry lifecycle and
   // management source). A selection with no live row resolves to null —
   // explicit missing handling instead of a stale drawer.
-  const resolvedSelectedPrinter = selectedPrinter
-    ? printers.find((p) => p.id === selectedPrinter.id)
-      ?? discoveredPrinters.find((p) => p.id === selectedPrinter.id)
+  const resolvedSelectedPrinter = selectedPrinterSnapshot
+    ? physicalPrinters.find((p) => p.id === selectedPrinterSnapshot.id)
+      ?? discoveredPrinters.find((p) => p.id === selectedPrinterSnapshot.id)
       ?? null
     : null;
+  const selectedPrinter = resolvedSelectedPrinter;
+  const selectedPrinterView = selectedPrinter ? printerPresentation(selectedPrinter, undefined, nowMs) : null;
   const resolvedSelectedJob = selectedJob
     ? jobs.find((j) => jobId(j) === jobId(selectedJob)) ?? null
     : null;
@@ -1050,6 +1132,16 @@ export default function App() {
     pair,
     printers: physicalPrinters,
     discoveredPrinters,
+    localPrinters,
+    localPrintersLoading,
+    localPrintersError,
+    localInventoryReady,
+    canManagePrinterSharing: isTauri && isAdmin === true,
+    sharingPendingPrinterIds,
+    sharingErrors,
+    refreshLocalPrinters,
+    handlePrinterSharing,
+    gatewayTestPrinterIds,
     printersLoading,
     printersError,
     printersFilter,
@@ -1061,7 +1153,7 @@ export default function App() {
     onlinePrinters,
     offlinePrinters,
     nowMs,
-    refreshPrinters,
+    refreshPrinters: () => { void refreshPrinters(); void refreshLocalPrinters(); },
     handleDiscover,
     handleTest,
     showAdd,
@@ -1117,20 +1209,20 @@ export default function App() {
         lastStatusCheck={lastStatusCheck}
       />
       <div
-        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[92px]" : "lg:ps-[276px]"}`}
+        className={`flex min-h-screen min-w-0 flex-col transition-[padding] duration-200 ${collapsed ? "lg:ps-[calc(var(--sidebar-collapsed)+0.75rem)]" : "lg:ps-[calc(var(--sidebar-width)+0.75rem)]"}`}
       >
-        <header className="tg-desktop-topbar tg-desktop-header sticky top-2 z-20 mx-2 mb-2 mt-2 flex min-h-14 min-w-0 items-center gap-2 px-3 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
+        <header className="tg-desktop-topbar tg-desktop-header sticky top-2 z-20 mx-2 mb-2 mt-2 flex min-h-16 min-w-0 items-center gap-2 px-3 py-2 sm:top-3 sm:mx-3 sm:mt-3 sm:gap-3 sm:px-5 lg:mx-3 lg:px-6">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label={t("desktop.app.openNavigation")}
             aria-expanded={sidebarOpen}
             aria-controls="desktop-mobile-nav"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 sm:h-9 sm:w-9 lg:hidden"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 lg:hidden"
           >
             <Menu className="h-5 w-5" aria-hidden />
           </button>
-          <h1 className="tg-desktop-header-title min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">{pageMeta[page].title}</h1>
+          <h1 className="tg-desktop-header-title min-w-0 flex-1 break-words text-xl font-semibold leading-snug tracking-tight text-ink">{pageMeta[page].title}</h1>
           <div className="tg-desktop-header-actions flex shrink-0 items-center gap-1 sm:gap-2">
             <span className="inline-flex sm:hidden" role="status" title={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} aria-label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")}>
               <StatusDot tone={isOnline ? "ok" : "bad"} pulse={isOnline} />
@@ -1138,7 +1230,7 @@ export default function App() {
             <span className="hidden sm:inline-flex"><StatusBadge tone={isOnline ? "ok" : "bad"} label={isOnline ? t("desktop.status.agentRunning") : t("desktop.status.agentStopped")} /></span>
             <button type="button" onClick={() => { setNavSearchQuery(""); setNavSearchOpen(true); }}
               aria-label={t("common.search")} title={t("common.search")}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 sm:h-9 sm:w-9">
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
               <Search className="h-[18px] w-[18px]" aria-hidden />
             </button>
             <div className="hidden items-center gap-1 sm:flex">
@@ -1195,10 +1287,10 @@ export default function App() {
 
         {isAdmin === false && (
           <div
-            className="flex items-center justify-between gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn lg:px-8"
+            className="flex min-w-0 flex-col gap-3 border-b border-warn-edge bg-warn-bg px-5 py-3 text-sm text-warn sm:flex-row sm:items-center sm:justify-between lg:px-8"
             role="status"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
                 <strong>
@@ -1264,7 +1356,7 @@ export default function App() {
           refreshPrinters();
           setMsg({ text: t("desktop.app.printerAdded"), type: "success" });
         }}
-        printers={discoveredPrinters}
+        printers={mergePrinterInventories(discoveredPrinters, localPrinters)}
         gatewayUrl={savedGatewayUrl}
       />
 
@@ -1325,23 +1417,26 @@ export default function App() {
         open={!!selectedPrinter}
         onClose={() => setSelectedPrinter(null)}
         title={t("desktop.drawer.printerTitle")}
-        description={selectedPrinter?.name}
+        description={selectedPrinter ? printerDisplayName(selectedPrinter, locale) : undefined}
       >
-        {selectedPrinter && (
+        {selectedPrinter && selectedPrinterView && (
           <div className="space-y-6">
             <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-2 px-4 py-4">
-              <StatusDot tone={printerTone(printerDisplayStatus(selectedPrinter, nowMs))} />
+              <StatusDot tone={selectedPrinterView.tone} />
               <span className="text-lg font-semibold text-ink">
-                {labelPrinter(printerDisplayStatus(selectedPrinter, nowMs), locale)}
+                {t(selectedPrinterView.labelKey)}
               </span>
-              {printerIsStale(selectedPrinter, nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}
               <span className="ms-auto text-sm text-ink-3">
                 {humanType(selectedPrinter, locale)}
               </span>
             </div>
-            <div className="divide-y divide-edge">
+            <p className="text-sm text-ink-3">{t(selectedPrinterView.reasonKey)}</p>
+            <PrinterSharingControl s={state} printer={selectedPrinter} />
+            <details className="rounded-md border border-edge px-4 py-3">
+              <summary className="cursor-pointer text-sm font-semibold text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{t("printer.presentation.details")}</summary>
+            <div className="mt-3 divide-y divide-edge">
               <MetaRow label={t("desktop.drawer.name")}>
-                <span className="block truncate">{selectedPrinter.name}</span>
+                <span className="block truncate">{printerDisplayName(selectedPrinter, locale)}</span>
               </MetaRow>
               <MetaRow label={t("desktop.drawer.connection")}>{humanConnection(selectedPrinter, locale)}</MetaRow>
               <MetaRow label={t("desktop.drawer.protocol")}>{selectedPrinter.protocol || "—"}</MetaRow>
@@ -1351,7 +1446,12 @@ export default function App() {
               <MetaRow label={t("desktop.drawer.stableId")}>
                 <Mono>{selectedPrinter.id}</Mono>
               </MetaRow>
-              <MetaRow label={t("desktop.drawer.lifecycle")}>{selectedPrinter.lifecycle ?? "active"}</MetaRow>
+              <MetaRow label={t("desktop.drawer.lifecycle")}>{lifecycleLabel(t, selectedPrinter.lifecycle)}</MetaRow>
+              <MetaRow label={t("common.status")}>{labelPrinter(printerDisplayStatus(selectedPrinter, nowMs), locale)}{printerIsStale(selectedPrinter, nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}</MetaRow>
+              <MetaRow label={t("printer.presentation.reportedStatus")}><Mono>{selectedPrinter.reportedStatus || selectedPrinter.status}</Mono></MetaRow>
+              <MetaRow label={t("agent.lastSeen")}>{selectedPrinter.lastSeenAt ? formatDateTime(selectedPrinter.lastSeenAt) : "—"}</MetaRow>
+              {selectedPrinter.localObservedAt != null && <MetaRow label={t("desktop.printers.localObservation")}>{formatDateTime(new Date(selectedPrinter.localObservedAt).toISOString())}</MetaRow>}
+              {printerStatusDetail(selectedPrinter, locale) && <MetaRow label={t("printer.presentation.diagnostic")}>{printerStatusDetail(selectedPrinter, locale)}</MetaRow>}
               <MetaRow label={t("desktop.drawer.management")}>
                 {selectedPrinter.managementSource === "manager" ? t("desktop.drawer.gatewayDesired") : t("desktop.drawer.agentOwned")}
               </MetaRow>
@@ -1382,9 +1482,11 @@ export default function App() {
                 </MetaRow>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            </details>
+            <div className="flex min-w-0 flex-wrap gap-3">
               <Button
                 variant="primary"
+                disabled={busy || !gatewayTestPrinterIds.has(selectedPrinter.id)}
                 onClick={() => handleTest(selectedPrinter.id)}
                 icon={<Play className="h-4 w-4" />}
               >
@@ -1394,6 +1496,8 @@ export default function App() {
                 variant="secondary"
                 onClick={() => {
                   setJobPrinterFilter(selectedPrinter.id);
+                  setJobTab("all");
+                  setJobSearch("");
                   setSelectedPrinter(null);
                   navigate("jobs");
                 }}
@@ -1402,6 +1506,7 @@ export default function App() {
                 {t("desktop.drawer.viewJobs")}
               </Button>
             </div>
+            {!gatewayTestPrinterIds.has(selectedPrinter.id) && <p className="text-xs text-ink-3">{t("desktop.printers.cloudTestUnavailable")}</p>}
             <p className="text-sm leading-relaxed text-ink-3">
               {t("desktop.drawer.testPageNote")}
             </p>

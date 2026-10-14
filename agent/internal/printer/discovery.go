@@ -48,13 +48,13 @@ func IsRuntimeDiscoveryPrinter(d DeviceInfo) bool {
 	// actual successful IPP Get-Printer-Attributes probe for executable
 	// auto-discovery. Manually configured IPP printers remain operator-owned
 	// and still undergo format negotiation at print time.
-	if d.Capabilities != nil && (protocol == "ipp" || protocol == "ipps") {
+	if !isOperatorRegisteredDevice(d) && d.Capabilities != nil && (protocol == "ipp" || protocol == "ipps") {
 		if _, discovered := d.Capabilities["discovered_via"]; discovered &&
 			!isCapabilityVerified(d.Capabilities, "ipp_verified") {
 			return false
 		}
 	}
-	if d.Capabilities != nil {
+	if !isOperatorRegisteredDevice(d) && d.Capabilities != nil {
 		if verification, ok := d.Capabilities["verification"].(string); ok {
 			switch strings.ToLower(strings.TrimSpace(verification)) {
 			case "candidate_only", "device_detected_only":
@@ -339,6 +339,7 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 		defer mu.Unlock()
 		for _, d := range infos {
 			d = markAutomaticDiscoveryRegistration(d)
+			d = discoveredDeviceNames(d)
 			if d.ID == "" {
 				d.ID = StableIDForDevice(d)
 			}
@@ -416,24 +417,7 @@ func DiscoverQuick(cfg *config.Config, registryPath string) DiscoveryResult {
 	}()
 	wg.Wait()
 	for i := range all {
-		if all[i].ID == "" {
-			all[i].ID = StableIDForDevice(all[i])
-		}
-		if all[i].Status == "" {
-			all[i].Status = "unknown"
-		}
-		if all[i].ConnectionType == "" {
-			all[i].ConnectionType = strings.ToLower(all[i].Type)
-			if all[i].ConnectionType == "" {
-				all[i].ConnectionType = "network"
-			}
-		}
-		// Protocol stays EMPTY (undeclared) when discovery could not prove
-		// one. Empty is reported as "unknown" upstream and the gateway never
-		// routes to it — inventing "raw" here was the wildcard bug.
-		if all[i].Type == "" {
-			all[i].Type = all[i].ConnectionType
-		}
+		all[i] = finalizeDiscoveredDevice(all[i])
 	}
 	return DiscoveryResult{Printers: all, Errors: errors}
 }
@@ -515,6 +499,7 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 		defer mu.Unlock()
 		for _, d := range infos {
 			d = markAutomaticDiscoveryRegistration(d)
+			d = discoveredDeviceNames(d)
 			if d.ID == "" {
 				d.ID = StableIDForDevice(d)
 			}
@@ -854,9 +839,26 @@ func discoverWithContext(ctx context.Context, cfg *config.Config, registryPath s
 	return result
 }
 
-// finalizeDiscoveredDevice applies the defaults every discovery consumer
-// relies on: a stable ID and non-empty status/connection/protocol fields.
+// discoveredDeviceNames uses observed names only, never an ID/guessed model.
+func discoveredDeviceNames(d DeviceInfo) DeviceInfo {
+	if !isOperatorRegisteredDevice(d) && isGenericPrinterName(d.Name) && !isGenericPrinterName(d.DisplayName) {
+		d.Name = strings.TrimSpace(d.DisplayName)
+	}
+	if strings.TrimSpace(d.Name) == "" {
+		d.Name = strings.TrimSpace(d.SpoolerName)
+		if d.Name == "" {
+			d.Name = strings.TrimSpace(d.DisplayName)
+		}
+	}
+	if strings.TrimSpace(d.DisplayName) == "" {
+		d.DisplayName = d.Name
+	}
+	return d
+}
+
+// finalizeDiscoveredDevice applies common identity and inventory defaults.
 func finalizeDiscoveredDevice(d DeviceInfo) DeviceInfo {
+	d = discoveredDeviceNames(d)
 	if d.ID == "" {
 		d.ID = StableIDForDevice(d)
 	}
@@ -901,6 +903,11 @@ func discoverFromConfig(cfg *config.Config) []DeviceInfo {
 		caps := map[string]interface{}{}
 		for k, v := range pc.Capabilities {
 			caps[k] = v
+		}
+		if pc.PaperWidthMM > 0 && pc.PaperWidthMM <= 1000 {
+			// Preserve nominal media without inferring millimetres from dots.
+			// Top-level office widths also override conflicting thermal hints.
+			caps["paper_width_mm"] = pc.PaperWidthMM
 		}
 		if pc.PaperWidthMM > 0 {
 			if _, ok := caps["max_paper_width"]; !ok {
@@ -991,13 +998,15 @@ func enumSpoolerImpl() ([]DeviceInfo, error) {
 
 // ListPrinters returns the current registry + config view suitable for CLI "printers list".
 func ListPrinters(cfg *config.Config, registryPath string) ([]DeviceInfo, error) {
-	result := Discover(cfg, registryPath)
+	// Listing installed/registered printers is not a request to scan the LAN.
+	// Full bounded scans remain available through Discover and setup sessions.
+	result := DiscoverQuick(cfg, registryPath)
 	if len(result.Errors) > 0 {
 		for _, e := range result.Errors {
 			log.Printf("discovery warning: %s", e)
 		}
 	}
-	return result.Printers, nil
+	return RuntimeInventoryPrinters(result.Printers), nil
 }
 
 func endpointHasNetworkAddress(endpoint, networkAddress string) bool {
@@ -1018,6 +1027,12 @@ func endpointHasNetworkAddress(endpoint, networkAddress string) bool {
 }
 
 func sameNetworkEndpoint(a, b DeviceInfo) bool {
+	// An installed queue is a distinct execution destination, even when its
+	// port references the same host as a directly discovered byte endpoint.
+	// Queue/physical identities are reconciled separately, never by IP alone.
+	if isSpoolerDevice(a) || isSpoolerDevice(b) {
+		return false
+	}
 	if a.NetworkAddress == "" || b.NetworkAddress == "" || a.Port <= 0 || b.Port <= 0 {
 		return false
 	}
@@ -1036,21 +1051,38 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	merged := existing
 	// Earlier progress snapshots may still be consumed after the scan times out.
 	merged.Capabilities = maps.Clone(existing.Capabilities)
-	if incoming.Name != "" && incoming.Name != existing.Name {
-		if existing.SpoolerName == "" && incoming.SpoolerName != "" {
-			merged.Name = incoming.Name
-			merged.DisplayName = incoming.DisplayName
-		}
+	registrationSource, _ := existing.Capabilities["registration_source"].(string)
+	operatorNamed := isOperatorRegisteredDevice(existing)
+	if strings.TrimSpace(incoming.Name) != "" &&
+		(strings.TrimSpace(existing.Name) == "" ||
+			(!operatorNamed && existing.SpoolerName == "" && incoming.SpoolerName != "") ||
+			(!operatorNamed && isGenericPrinterName(existing.Name) && !isGenericPrinterName(incoming.Name))) {
+		merged.Name = incoming.Name
+		merged.DisplayName = incoming.DisplayName
+	}
+	if strings.TrimSpace(merged.DisplayName) == "" && strings.TrimSpace(incoming.DisplayName) != "" {
+		merged.DisplayName = incoming.DisplayName
 	}
 	// Select the complete transport tuple together. Metadata from another
 	// source must never replace just the port while retaining an old URI.
 	preferIncoming := merged.Endpoint == "" || merged.Protocol == "" || merged.Protocol == "unknown" ||
-		(incoming.ConnectionType == "spooler" && merged.ConnectionType != "spooler")
-	if preferIncoming && incoming.Endpoint != "" {
+		(incoming.ConnectionType == "spooler" && merged.ConnectionType != "spooler") || isOperatorRegisteredDevice(incoming)
+	if operatorNamed && !isOperatorRegisteredDevice(incoming) && merged.Endpoint != "" {
+		// Discovery may enrich a selected direct transport, but cannot replace
+		// the operator's backend/protocol with an automatic Windows queue.
+		preferIncoming = false
+	}
+	selectedIncoming := preferIncoming && incoming.Endpoint != ""
+	if selectedIncoming {
 		merged.Endpoint, merged.ConnectionType, merged.Protocol, merged.Type = incoming.Endpoint, incoming.ConnectionType, incoming.Protocol, incoming.Type
 		merged.NetworkAddress, merged.Port = incoming.NetworkAddress, incoming.Port
+		if isSpoolerDevice(incoming) {
+			merged.SpoolerName = incoming.SpoolerName
+			merged.SpoolerPort, merged.SpoolerDriver = incoming.SpoolerPort, incoming.SpoolerDriver
+			merged.SpoolerServer, merged.SpoolerShare = incoming.SpoolerServer, incoming.SpoolerShare
+		}
 	}
-	if incoming.SpoolerName != "" && merged.SpoolerName == "" {
+	if incoming.SpoolerName != "" && merged.SpoolerName == "" && isSpoolerDevice(merged) {
 		merged.SpoolerName = incoming.SpoolerName
 	}
 	if incoming.USBVID != "" && merged.USBVID == "" {
@@ -1062,22 +1094,12 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	if incoming.USBSerial != "" && merged.USBSerial == "" {
 		merged.USBSerial = incoming.USBSerial
 	}
-	// USB and spooler same physical printer: if USB serial matches spooler printer's location/port, merge
-	if incoming.ConnectionType == "usb" && existing.ConnectionType == "spooler" && incoming.USBVID != "" && existing.USBVID == "" {
-		merged.USBVID = incoming.USBVID
-		merged.USBPID = incoming.USBPID
-		merged.USBSerial = incoming.USBSerial
-		if merged.Capabilities == nil {
-			merged.Capabilities = make(map[string]interface{})
-		}
-		for k, v := range incoming.Capabilities {
-			if _, exists := merged.Capabilities[k]; !exists {
-				merged.Capabilities[k] = v
-			}
-		}
-		return merged
+	sameTransport := strings.EqualFold(existing.ConnectionType, incoming.ConnectionType) &&
+		strings.EqualFold(existing.Protocol, incoming.Protocol) && existing.Endpoint == incoming.Endpoint
+	if isSpoolerDevice(existing) && isSpoolerDevice(incoming) {
+		sameTransport = strings.EqualFold(strings.TrimSpace(existing.Endpoint), strings.TrimSpace(incoming.Endpoint))
 	}
-	if incoming.Status != "" && incoming.Status != "unknown" {
+	if incoming.Status != "" && (selectedIncoming || (sameTransport && incoming.Status != "unknown")) {
 		merged.Status = incoming.Status
 	}
 	if incoming.PrinterType != "" && incoming.PrinterType != "unknown" && merged.PrinterType == "unknown" {
@@ -1089,8 +1111,26 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 			merged.Capabilities = make(map[string]interface{})
 		}
 		for k, v := range incoming.Capabilities {
+			if !selectedIncoming && ((isSpoolerDevice(existing) && !isSpoolerDevice(incoming)) ||
+				(operatorNamed && !isOperatorRegisteredDevice(incoming) && !sameTransport)) {
+				// Other transport observations may enrich a selected printer, but their
+				// admission/readiness/protocol evidence cannot govern it.
+				switch k {
+				case "discovered_via", "verification", "runtime_scope", "candidate_reason", "supported_protocols", "requires_spooler":
+					continue
+				}
+				if _, present := merged.Capabilities[k]; present {
+					continue
+				}
+			}
 			merged.Capabilities[k] = v
 		}
+	}
+	if operatorNamed {
+		if merged.Capabilities == nil {
+			merged.Capabilities = make(map[string]interface{})
+		}
+		merged.Capabilities["registration_source"] = registrationSource
 	}
 	if incoming.Endpoint != "" && merged.Endpoint == "" {
 		merged.Endpoint = incoming.Endpoint

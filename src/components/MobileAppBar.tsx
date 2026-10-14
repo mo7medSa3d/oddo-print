@@ -47,11 +47,11 @@ export function MobileAppBar({
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <BrandMarkIcon size="sm" className="rounded-md" />
           <div className="min-w-0 flex-1 text-start leading-tight">
-            <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold leading-4 text-ink-3">
+            <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold leading-snug text-ink-3">
               <span className="shrink-0" dir="ltr">Yaseir</span>
               {section && <span className="min-w-0 truncate opacity-80" aria-hidden>· {section}</span>}
             </div>
-            <div className="truncate text-sm font-bold leading-5 tracking-[-0.012em] text-ink" title={title}>
+            <div className="truncate text-base font-bold leading-snug text-ink" title={title}>
               {title}
             </div>
           </div>
