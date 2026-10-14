@@ -14,7 +14,10 @@ export function PrinterSharingControl({ s, printer, candidate = false }: { s: De
   if (!local && !candidate) return null;
   const shared = (local ?? printer).sharedWithGateway !== false;
   const pending = s.sharingPendingPrinterIds.has(printer.id);
-  const unproven = candidate || (local ? isLocalSetupCandidate(local) : true);
+  // A pending Gateway sync is not an unverified local device. A fresh,
+  // native-confirmed local identity may opt into sharing before its first
+  // cloud inventory appearance; discovered-only/setup candidates cannot.
+  const unproven = !local || isLocalSetupCandidate(local);
   const actionShared = shared && !unproven;
   const disabledReason = unproven ? t("desktop.printers.sharingSetupRequired")
     : !s.canManagePrinterSharing ? t("desktop.printers.sharingAdminRequired")

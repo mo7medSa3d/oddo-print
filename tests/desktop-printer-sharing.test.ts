@@ -93,6 +93,24 @@ describe("local health and sharing stay independent of cloud evidence", () => {
 });
 
 describe("actual Desktop sharing controls", () => {
+  it("allows a confirmed private local queue to be shared before its first Gateway sync, never a discovery-only candidate", () => {
+    const pending = state({ printers: [], filteredPrinters: [], totalPrinters: 0, localPrinters: [local], discoveredPrinters: [local] });
+    const markup = renderToStaticMarkup(tree(h(PrintersPage, { s: pending })));
+    const doc = new DOMParser().parseFromString(markup, "text/html");
+    const controls = doc.querySelectorAll(`[data-printer-sharing="${local.id}"]`);
+    expect(controls).toHaveLength(2); // pending rows in both responsive layouts
+    for (const control of controls) {
+      const action = control.querySelector("button")!;
+      expect(action.disabled).toBe(false);
+      expect(action.getAttribute("aria-label")).toContain(local.name);
+    }
+    const discovered = state({ printers: [], filteredPrinters: [], totalPrinters: 0, localPrinters: [], discoveredPrinters: [local] });
+    const candidateMarkup = renderToStaticMarkup(tree(h(PrintersPage, { s: discovered })));
+    const candidateDoc = new DOMParser().parseFromString(candidateMarkup, "text/html");
+    const candidateActions = candidateDoc.querySelectorAll(`[data-printer-sharing="${local.id}"] button`);
+    expect(candidateActions).toHaveLength(2);
+    for (const action of candidateActions) expect((action as HTMLButtonElement).disabled).toBe(true);
+  });
   it.each(["en", "ar"] as const)("keeps the private printer and sharing action in actual cards/table during cloud loading (%s)", (locale) => {
     const doc = new DOMParser().parseFromString(renderToStaticMarkup(tree(h(PrintersPage, { s: state({ printersLoading: true, printersError: "Gateway offline" }) }), locale)), "text/html");
     const controls = doc.querySelectorAll(`[data-printer-sharing="${local.id}"]`);
