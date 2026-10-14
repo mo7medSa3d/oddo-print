@@ -1,5 +1,5 @@
 import React from "react";
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock, FileText, Play, Printer as PrinterIcon, RefreshCw, Server, Settings, ShieldCheck } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock, FileText, Play, Printer as PrinterIcon, RefreshCw, Server, Settings } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingState, Mono, StatusBadge } from "../../components/ui";
 import { DetailList, StatItem, StatStrip, StatusNotice, ViewAllButton, PrinterAvatar } from "../ui";
 import { PrinterSharingControl } from "../components/PrinterSharingControl";

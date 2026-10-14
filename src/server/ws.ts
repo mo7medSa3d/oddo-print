@@ -308,7 +308,8 @@ function websocketClientKey(req: IncomingMessage): string {
   // TRUST_PROXY=1, whose token is verified by the caller (upgrade path)
   // before this function is reached. Do not reuse this helper on an
   // unauthenticated path without verifying the proxy token first.
-  if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
+  // AUDIT_FINDINGS.md [src/server/ws.ts]: use shared trustProxyEnabled() helper
+  if (trustProxyEnabled()) {
     const forwarded = req.headers["x-forwarded-for"];
     const candidates = typeof forwarded === "string" ? forwarded.split(",") : [];
     // Last valid entry wins: the edge overwrites X-Forwarded-For with the

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../../db";
-import { agents, discoverySessions, discoveredDevices } from "../../../../../../db/schema";
+import { discoverySessions, discoveredDevices } from "../../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../lib/authorization";
 import { eq, and } from "drizzle-orm";

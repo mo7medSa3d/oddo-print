@@ -12,8 +12,9 @@ export async function GET(req: Request) {
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
-  return runWithCorrelation({ requestId, tenantId: claims.tenantId } as any, async () => {
+  // AUDIT_FINDINGS.md [src/app/api/system/health/route.ts]: remove unnecessary any casts
+  const requestId = requestIdFrom(req) || generateRequestId();
+  return runWithCorrelation({ requestId, tenantId: claims.tenantId }, async () => {
     const health = await getSystemHealth(claims.tenantId);
     return NextResponse.json(health, { headers: { "x-request-id": requestId } });
   });

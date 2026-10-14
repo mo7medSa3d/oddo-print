@@ -2,7 +2,7 @@ import { logError } from "../../../../lib/log";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
 import { tenantUsers, tenants, authRateLimits } from "../../../../db/schema";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { validateWorkspaceManager, revokeLegacyManagerSessionInTransaction } from "../../../../lib/manager-auth";
 import { verifyTenantSelectionToken, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
 import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction, AuthenticationChangedError } from "../../../../lib/session-tokens";

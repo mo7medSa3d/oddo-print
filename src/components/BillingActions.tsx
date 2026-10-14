@@ -7,7 +7,6 @@ import { ArrowRight, CreditCard, ExternalLink, RotateCcw } from "lucide-react";
 import { Button, Callout, ConfirmDialog, StatusBadge } from "./ui";
 import { useI18n } from "../i18n/react";
 import { billingIntervalLabel } from "../lib/billing-labels";
-import type { MessageKey } from "../i18n/messages/en";
 import type { Translator } from "../i18n/translate";
 
 type PlanOption = {

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Inbox, Printer as PrinterIcon, RefreshCw, Search, Trash2, X, XCircle, ShieldCheck } from "lucide-react";
-import { Button, Card, EmptyState, ErrorState, Field, Input, LoadingState, Modal, Mono, StatusBadge, Tabs } from "../../components/ui";
+import { AlertTriangle, CheckCircle2, Eye, Inbox, Printer as PrinterIcon, RefreshCw, Search, Trash2, X, XCircle } from "lucide-react";
+import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Modal, Mono, StatusBadge, Tabs } from "../../components/ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { cleanupLocalJobs } from "../lib/ipc";
-import { friendlyAgentError, friendlyPrinterError, jobDestination, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob } from "../lib/printers";
+import { friendlyAgentError, jobDestination, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob } from "../lib/printers";
 
 const TABS = ["all", "in_flight", "queued", "unassigned", "delivered", "failed", "unknown", "expired"] as const;
 

@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import { getServerLocale, makeT } from "../../i18n/server";
-import type { MessageKey } from "../../i18n/messages/en";
 import { formatDate as formatDateI18n, formatNumber } from "../../i18n/format";
 import type { Locale } from "../../i18n/config";
 import { redirect } from "next/navigation";

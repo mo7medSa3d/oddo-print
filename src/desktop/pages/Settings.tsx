@@ -4,7 +4,7 @@ import { Button, Card, CopyButton, ErrorState, Field, Input, StatusBadge, Status
 import { SettingsSection } from "../ui";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
-import { friendlyAgentError, friendlyPrinterError, printerDisplayName, printerPresentation, printerDisplayStatus } from "../lib/printers";
+import { friendlyAgentError, printerDisplayName, printerPresentation, printerDisplayStatus } from "../lib/printers";
 import { getAutostart, setAutostart } from "../lib/ipc";
 
 export function SettingsPage({ s }: { s: DesktopState }) {

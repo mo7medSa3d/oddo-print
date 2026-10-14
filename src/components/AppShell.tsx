@@ -33,8 +33,6 @@ import { NavIconFrame, ShellSearchButton } from "./visual-system";
 import { useI18n } from "../i18n/react";
 import type { Translator } from "../i18n/translate";
 
-import type { MessageKey } from "../i18n/messages/en";
-
 const NAV_ITEMS: TopNavItem[] = [
   { href: "/dashboard", labelKey: "nav.console", icon: LayoutDashboard, sectionKey: "nav.section.operations", keywords: "console dashboard overview printers jobs" },
   { href: "/system-health", labelKey: "nav.systemHealth", icon: Activity, sectionKey: "nav.section.operations", keywords: "system health monitoring uptime incidents" },

@@ -20,7 +20,6 @@ import {
   Card,
   CardHeader,
   ConfirmDialog,
-  DataTableShell,
   EmptyState,
   ErrorState,
   Field,
