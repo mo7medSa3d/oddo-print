@@ -119,6 +119,8 @@ async function invoke<T>(
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;
+    case "set_tray_locale":
+      return undefined as unknown as T;
     case "is_running_as_admin":
       return true as unknown as T;
     case "get_gateway_config":
@@ -213,7 +215,9 @@ describe("desktop manager", () => {
 
     window.location.hash = "printers";
     window.dispatchEvent(new Event("hashchange"));
-    await waitUntil(() => document.querySelector('[data-printer-sharing="p2"] button') !== null);
+    // The local-inventory read and the elevated-rights check settle independently.
+    // Visibility is not proof that an elevated, fresh inventory is ready yet.
+    await waitUntil(() => document.querySelector<HTMLButtonElement>('[data-printer-sharing="p2"] button')?.disabled === false);
     const share = document.querySelector<HTMLButtonElement>('[data-printer-sharing="p2"] button')!;
     expect(share.disabled).toBe(false);
     expect(share.getAttribute("aria-label")).toBe("Share Zebra ZD421 with Gateway");

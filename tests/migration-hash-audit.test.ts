@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { PoolClient } from "pg";
-import { migrateByHash, AUDIT_REPAIRS } from "../scripts/db-migrate";
+import { migrateByHash, AUDIT_REPAIRS, scopeMigrationConstraintGuards } from "../scripts/db-migrate";
 
 describe("migration hash recovery", () => {
   it("recovers timestamp-regressed holes once and keeps journal order", async () => {
@@ -16,7 +16,10 @@ describe("migration hash recovery", () => {
       return { rows: [] };
     } } as unknown as PoolClient;
     await migrateByHash(client, "./drizzle");
-    const statements = [...holes].flatMap(i => migrations[i].sql.filter(s => s.trim()));
+    // Runtime deliberately scopes legacy catalog guards to public; history hashes
+    // remain based on the untouched migration files, but executed SQL is fenced.
+    const statements = [...holes].flatMap(i => migrations[i].sql.filter(s => s.trim()).map(scopeMigrationConstraintGuards));
+    expect(statements.some(s => s.includes("connamespace = (SELECT oid FROM pg_namespace"))).toBe(true);
     expect(calls.filter(s => statements.includes(s))).toEqual(statements);
     expect(calls.filter(s => s.startsWith("INSERT INTO drizzle.__drizzle_migrations"))).toHaveLength(holes.size + AUDIT_REPAIRS.length);
     calls.length = 0;
