@@ -81,10 +81,9 @@ import {
   jobLabel,
   jobTone as sharedJobTone,
   printerLabel,
-  printerObservationFreshness,
-  printerTone as sharedPrinterTone,
   effectivePrinterStatus,
 } from "../../shared/job-vocabulary";
+import { printerDisplayName, printerPresentation, printerStatusDetail } from "../../shared/printer-presentation";
 import { copyTextToClipboard } from "../../lib/clipboard";
 import { generateIdempotencyKey } from "../../lib/idempotency";
 import { DiagnosticOperations, decodeDiagnosticResult, diagnosticScope, diagnosticMessageKey, diagnosticMessageType, diagnosticIsInProgress, type DiagnosticResult } from "../../shared/diagnostic-test";
@@ -107,14 +106,21 @@ export type Agent = {
   lastSeenAt: Date | null;
   createdAt: Date;
   printerCount: number;
+  currentPrinterCount?: number;
   staleThresholdSeconds?: number;
   metadata?: unknown;
 };
 
 export type Printer = {
+  sharedWithGateway?: boolean;
   id: string;
   agentId: string;
   agentName?: string | null;
+  agentStatus?: string | null;
+  agentLifecycle?: string | null;
+  agentLastSeenAt?: Date | string | null;
+  agentStaleThresholdSeconds?: number;
+  inventoryPresent?: boolean;
   name: string;
   printerType: string;
   deviceClass?: string | null;
@@ -124,8 +130,8 @@ export type Printer = {
   status: string;
   reportedStatus?: string | null;
   freshness?: "fresh" | "stale" | "missing";
-  config?: unknown;
-  capabilities?: unknown;
+  config?: Record<string, unknown> | null;
+  capabilities?: Record<string, unknown> | null;
   lastSeenAt?: Date | null;
 };
 
@@ -160,6 +166,7 @@ type FleetMeta = {
   onlineAgents: number;
   totalPrinters: number;
   onlinePrinters: number;
+  savedPrinters?: number;
 };
 
 type JobDetailsResponse = Omit<Job, "payload"> & {
@@ -406,6 +413,7 @@ export default function DashboardClient({
   initialFleet,
   databaseError,
   canMutate,
+  canReadBillingUsage,
   diagnosticActorScope,
 }: {
   initialAgents: Agent[];
@@ -413,7 +421,8 @@ export default function DashboardClient({
   initialJobs: Job[];
   initialFleet: FleetMeta;
   databaseError: string | null;
-  canMutate: { printers: boolean; printersTest: boolean; agentsLifecycle: boolean; jobsCancel: boolean; jobsRetry: boolean };
+  canMutate: { printers: boolean; printersTest: boolean; agentsPair: boolean; agentsLifecycle: boolean; jobsCancel: boolean; jobsRetry: boolean };
+  canReadBillingUsage: boolean;
   diagnosticActorScope: string;
 }) {
   const [agents, setAgents] = useState<Agent[]>(initialAgents);
@@ -463,6 +472,7 @@ export default function DashboardClient({
   const [repeatDiagnosticCandidate, setRepeatDiagnosticCandidate] = useState<{ printerId: string; printerName: string } | null>(null);
   const diagnosticOps = React.useRef(new DiagnosticOperations(generateIdempotencyKey));
   const [certifyPrinter, setCertifyPrinter] = useState<Printer | null>(null);
+  const [selectedPrinter, setSelectedPrinter] = useState<Printer | null>(null);
   const [message, setMessage] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [activePairing, setActivePairing] = useState<{ id?: string; code: string; expiresAt: Date } | null>(null);
   // Agent ids known when the current pairing attempt started, keyed by the
@@ -484,8 +494,19 @@ export default function DashboardClient({
     periodEnd?: string | null;
     retryAfterSeconds?: number | null;
   } | null>(null);
-  const [billingUsage, setBillingUsage] = useState<BillingUsage | null>(null);
-  const [billingUsageError, setBillingUsageError] = useState(false);
+  const [billingState, setBillingState] = useState(() => ({
+    authority: { canReadBillingUsage, diagnosticActorScope },
+    usage: null as BillingUsage | null,
+    error: false,
+  }));
+  const billingAuthority = billingState.authority;
+  const billingScopeMatches = billingAuthority.canReadBillingUsage === canReadBillingUsage && billingAuthority.diagnosticActorScope === diagnosticActorScope;
+  if (!billingScopeMatches) {
+    setBillingState({ authority: { canReadBillingUsage, diagnosticActorScope }, usage: null, error: false });
+  }
+  const billingUsage = canReadBillingUsage && billingScopeMatches ? billingState.usage : null;
+  const billingUsageError = canReadBillingUsage && billingScopeMatches && billingState.error;
+  const [billingRefreshTick, setBillingRefreshTick] = useState(0);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
@@ -681,24 +702,40 @@ export default function DashboardClient({
     return () => clearInterval(timer);
   }, []);
 
-  const refreshBillingUsage = React.useCallback(async () => {
-    try {
-      const res = await fetchWithTimeout("/api/billing/usage", { credentials: "same-origin", cache: "no-store" });
-      if (!res.ok) {
-        setBillingUsageError(true);
-        return;
-      }
-      const data = await res.json().catch(() => null);
-      if (!data || typeof data !== "object") {
-        setBillingUsageError(true);
-        return;
-      }
-      setBillingUsage(data as BillingUsage);
-      setBillingUsageError(false);
-    } catch {
-      setBillingUsageError(true);
-    }
+  const refreshBillingUsage = React.useCallback(() => {
+    setBillingRefreshTick((tick) => tick + 1);
   }, []);
+
+  useEffect(() => {
+    if (!billingAuthority.canReadBillingUsage || billingRefreshTick === 0) return;
+    const controller = new AbortController();
+    // Scope identity changes even when the same role returns after revocation.
+    // A cancelled response must never restore another actor's usage or errors.
+    const update = (usage: BillingUsage | undefined, error: boolean) => {
+      if (controller.signal.aborted) return;
+      setBillingState((current) => current.authority === billingAuthority
+        ? { ...current, usage: usage === undefined ? current.usage : usage, error }
+        : current);
+    };
+    void (async () => {
+      try {
+        const res = await fetchWithTimeout("/api/billing/usage", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+        if (!res.ok) {
+          update(undefined, true);
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        if (!data || typeof data !== "object") {
+          update(undefined, true);
+          return;
+        }
+        update(data as BillingUsage, false);
+      } catch {
+        update(undefined, true);
+      }
+    })();
+    return () => controller.abort();
+  }, [billingAuthority, billingRefreshTick]);
 
   const [refreshing, setRefreshing] = React.useState(false);
   const refreshingRef = React.useRef(false);
@@ -925,6 +962,11 @@ export default function DashboardClient({
   };
 
   const handleGatewayTestPrint = async (printerId: string, printerName: string) => {
+    const target = printers.find((printer) => printer.id === printerId) ?? (selectedPrinter?.id === printerId ? selectedPrinter : null);
+    if (target?.sharedWithGateway === false) {
+      setMessage({ type: "err", text: t("printer.presentation.notSharedReason") });
+      return;
+    }
     const scope = diagnosticScope(window.location.origin, diagnosticActorScope, printerId);
     // A subsequent physical print after a verified Gateway outcome is NEVER
     // a silent click/retry. A lost response retries the same existing key.
@@ -957,7 +999,7 @@ export default function DashboardClient({
           setUpgradeLimit(limit);
           return;
         }
-        const errorKey = error.httpStatus === 401 ? "diagnostic.authRequired"
+        const errorKey = error.code === "PRINTER_NOT_SHARED" ? "printer.presentation.notSharedReason" : error.httpStatus === 401 ? "diagnostic.authRequired"
           : error.httpStatus === 403 ? "diagnostic.permissionDenied" : "diagnostic.admissionUnknown";
         setMessage({ text: t(errorKey), type: "err" });
       } else {
@@ -1082,12 +1124,13 @@ export default function DashboardClient({
     }
   };
 
+  const selectedPrinterView = selectedPrinter ? printers.find((printer) => printer.id === selectedPrinter.id) ?? selectedPrinter : null;
   const filteredPrinters = printers;
   const printerFiltersActive = printerStatusFilter !== "all" || debouncedPrinterSearch.length >= 2;
 
   const filteredJobs = useMemo(() => {
     if (!jobSearch.trim()) return jobs;
-    const q = jobSearch.toLowerCase();
+    const q = jobSearch.trim().toLowerCase();
     // Superset of the server search fields (id, destination, document type,
     // printer, agent, error): the client pass must never remove a row the
     // server matched (C056).
@@ -1155,18 +1198,19 @@ export default function DashboardClient({
     const active = printer.lifecycle === "active";
     const retired = printer.lifecycle === "retired";
     return [
+      { key: "details", label: t("printer.presentation.details"), icon: <Eye className="h-4 w-4" />, onSelect: () => setSelectedPrinter(printer) },
       ...(canMutate.printersTest
         ? [
             {
               key: "test",
               label: t("printer.sendTestPage"),
               icon: <PlayCircle className="h-4 w-4" />,
-              disabled: busy || testingPrinterId !== null || !active,
-              onSelect: () => void handleGatewayTestPrint(printer.id, printer.name),
+              disabled: busy || testingPrinterId !== null || !active || printer.sharedWithGateway === false,
+              onSelect: () => void handleGatewayTestPrint(printer.id, printerDisplayName(printer, locale)),
             },
           ]
         : []),
-      { key: "certify", label: t("cert.run"), icon: <ShieldCheck className="h-4 w-4" />, onSelect: () => setCertifyPrinter(printer) },
+      ...(canMutate.printersTest ? [{ key: "certify", label: t("cert.run"), icon: <ShieldCheck className="h-4 w-4" />, disabled: printer.sharedWithGateway === false, onSelect: () => setCertifyPrinter(printer) }] : []),
       {
         key: "copy",
         label: t("printer.copyPrinterId"),
@@ -1255,7 +1299,7 @@ export default function DashboardClient({
           },
         ]
       : []),
-    {
+    ...(canMutate.agentsLifecycle ? [{
       key: "delete",
       label: t("agent.delete"),
       icon: <Trash2 className="h-4 w-4" />,
@@ -1263,14 +1307,14 @@ export default function DashboardClient({
       separatorBefore: true,
       disabled: busy,
       onSelect: () => setAgentToDelete(agent),
-    },
+    }] : []),
   ];
 
   const prints = billingUsage?.resources.prints;
   const printsLimitReached = prints && prints.limit !== "unlimited" && prints.remaining !== "unlimited" && prints.remaining === 0;
   const printsPercent =
     prints && prints.limit !== "unlimited" ? (prints.used / Math.max(1, prints.limit)) * 100 : null;
-  const printerStatusOptions = ["all", "online", "busy", "offline", "error", "unknown", "stale", "disabled", "retired"] as const;
+  const printerStatusOptions = ["all", "ready", "printing", "attention", "unavailable", "saved"] as const;
 
   const onlineAgentsLabel =
     kpis.totalAgents === 0
@@ -1488,7 +1532,7 @@ export default function DashboardClient({
                 </p>
               </div>
             </div>
-            <Button
+            {canMutate.agentsPair && <Button
               variant="primary"
               size="sm"
               onClick={() => setRegisterOpen(true)}
@@ -1497,7 +1541,7 @@ export default function DashboardClient({
               className="shrink-0"
             >
               {t("agent.registerTitle")}
-            </Button>
+            </Button>}
           </div>
 
           {agents.length === 0 ? (
@@ -1506,9 +1550,9 @@ export default function DashboardClient({
               title={t("empty.agents.title")}
               description={t("agent.registerEmptyDescription")}
               action={
-                <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy || databaseError !== null} icon={<Plus className="h-3.5 w-3.5" />}>
+                canMutate.agentsPair ? <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)} disabled={busy || databaseError !== null} icon={<Plus className="h-3.5 w-3.5" />}>
                   {t("agent.register")}
-                </Button>
+                </Button> : undefined
               }
             />
           ) : (
@@ -1543,7 +1587,7 @@ export default function DashboardClient({
                         )}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
-                        <span>{tc("printer.count", agent.printerCount ?? 0)}</span>
+                        <span>{tc("printer.count", agent.currentPrinterCount ?? agent.printerCount ?? 0)}</span>
                         <span aria-hidden>·</span>
                         <span title={formatDateTime(agent.lastSeenAt)}>
                           {t("agent.lastSeen")} {formatRelativeTime(agent.lastSeenAt)}
@@ -1557,12 +1601,12 @@ export default function DashboardClient({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      {agent.lifecycle === "disabled" && (
+                      {canMutate.agentsLifecycle && agent.lifecycle === "disabled" && (
                         <Button variant="secondary" size="sm" onClick={() => { void reenableAgent(agent); }} disabled={busy}>
                           {t("agent.reenable")}
                         </Button>
                       )}
-                      <Menu
+                      {canMutate.agentsLifecycle && <Menu
                         label={t("common.agentActions", { name: agent.name })}
                         items={agentActions(agent)}
                         trigger={
@@ -1570,7 +1614,7 @@ export default function DashboardClient({
                             <MoreHorizontal className="h-4 w-4" aria-hidden />
                           </span>
                         }
-                      />
+                      />}
                     </div>
                   </li>
                 );
@@ -1634,7 +1678,7 @@ export default function DashboardClient({
             </div>
           </div>
 
-          {fleet.totalPrinters > 0 && (
+          {(fleet.totalPrinters > 0 || (fleet.savedPrinters ?? 0) > 0) && (
             <div className="flex flex-col gap-2.5 border-b border-edge-subtle px-4 py-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-4" aria-hidden />
@@ -1656,7 +1700,7 @@ export default function DashboardClient({
               >
                 {printerStatusOptions.map((status) => (
                   <option key={status} value={status}>
-                    {status === "all" ? t("printer.allStatuses") : status === "disabled" || status === "retired" ? lifecycleLabel(t, status) : printerLabel(status, locale)}
+                    {status === "all" ? t("printer.allStatuses") : t(`printer.presentation.${status}`)}
                   </option>
                 ))}
               </Select>
@@ -1692,10 +1736,9 @@ export default function DashboardClient({
             <ul className={`grid min-w-0 gap-3 p-3 sm:grid-cols-2 sm:p-4 ${printerViewMode === "table" ? "xl:hidden" : ""}`}>
               {filteredPrinters.map((printer) => {
                 const parentAgent = agentById.get(printer.agentId);
-                const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
-                const freshness = printerObservationFreshness(printer.lastSeenAt, nowMs);
-                const displayStatus = effStatus;
-                const active = printer.lifecycle === "active";
+                const presentation = printerPresentation(printer, parentAgent, nowMs);
+                const displayName = printerDisplayName(printer, locale);
+                const active = printer.lifecycle === "active" && printer.sharedWithGateway !== false;
                 return (
                   <li
                     key={printer.id}
@@ -1704,66 +1747,39 @@ export default function DashboardClient({
                     <div className="flex min-w-0 flex-wrap items-start gap-2.5">
                       <PrinterIcon className="mt-1 h-4 w-4 shrink-0 text-ink-4" aria-hidden />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-[600] text-ink">{printer.name}</div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
-                          {connectionIcon(printer.connectionType)}
-                          <span>{connectionLabel(printer.connectionType, t)}</span>
-                          {printer.protocol && (
-                            <>
-                              <span aria-hidden>·</span>
-                              <span className="font-[550] text-ink-3">{printer.protocol}</span>
-                            </>
-                          )}
+                        <div className="truncate text-sm font-[600] text-ink">{displayName}</div>
+                        <div className="mt-0.5 truncate text-xs text-ink-3">
+                          {printer.agentName ?? parentAgent?.name ?? t("printer.unknownAgent")}
                         </div>
                       </div>
-                      <div className="flex max-w-full flex-wrap items-center gap-1.5">
-                      <StatusBadge
-                        tone={sharedPrinterTone(displayStatus)}
-                        label={printerLabel(displayStatus, locale)}
-                        size="sm"
-                        pulse={displayStatus === "online" && freshness === "fresh"}
-                      />
-                      {freshness === "stale" ? <StatusBadge tone="warn" label={t("status.stale")} size="sm" /> : null}
-                      </div>
+                      <StatusBadge tone={presentation.tone} label={t(presentation.labelKey)} size="sm" />
                     </div>
-
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                      <div className="min-w-0">
-                        <dt className="text-ink-4">{t("printer.agent")}</dt>
-                        <dd className="truncate text-ink-2" title={printer.agentName ?? parentAgent?.name ?? undefined}>
-                          {printer.agentName ?? parentAgent?.name ?? t("printer.unknownAgent")}
-                        </dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-ink-4">{t("printer.languages")}</dt>
-                        <dd className="mt-0.5">
-                          <PrinterLanguageChips printer={printer} />
-                        </dd>
-                      </div>
-                    </dl>
+                    {(presentation.state === "attention" || presentation.state === "unavailable") && (
+                      <p className="text-xs leading-relaxed text-ink-3">{t(presentation.reasonKey)}</p>
+                    )}
 
                     <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-edge-subtle pt-3">
-                      <Button
+                      {canMutate.printersTest && <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                        onClick={() => void handleGatewayTestPrint(printer.id, displayName)}
                         loading={testingPrinterId === printer.id}
                         disabled={busy || testingPrinterId !== null || !active}
                         icon={testingPrinterId === printer.id ? undefined : <PlayCircle className="h-3.5 w-3.5" />}
                       >
                         {testingPrinterId === printer.id ? t("printer.sending") : t("printer.sendTestPage")}
-                      </Button>
+                      </Button>}
                       <div className="flex flex-wrap items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setCertifyPrinter(printer)}
-                          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                          onClick={() => setSelectedPrinter(printer)}
+                          icon={<Eye className="h-3.5 w-3.5" />}
                         >
-                          {t("printer.certify")}
+                          {t("printer.presentation.details")}
                         </Button>
                         <Menu
-                          label={t("printer.moreActions", { name: printer.name })}
+                          label={t("printer.moreActions", { name: displayName })}
                           items={printerActions(printer)}
                           trigger={
                             <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
@@ -1785,8 +1801,6 @@ export default function DashboardClient({
                   <tr>
                     <th scope="col">{t("printer.printer")}</th>
                     <th scope="col">{t("printer.agent")}</th>
-                    <th scope="col">{t("printer.connection")}</th>
-                    <th scope="col">{t("printer.languages")}</th>
                     <th scope="col">{t("common.status")}</th>
                     <th scope="col" className="w-[1%] text-end">{t("common.actions")}</th>
                   </tr>
@@ -1794,45 +1808,35 @@ export default function DashboardClient({
                 <tbody>
                   {filteredPrinters.map((printer) => {
                     const parentAgent = agentById.get(printer.agentId);
-                    const effStatus = effectivePrinterStatus(printer, parentAgent, nowMs).toLowerCase();
-                    const freshness = printerObservationFreshness(printer.lastSeenAt, nowMs);
-                    const displayStatus = effStatus;
-                    const active = printer.lifecycle === "active";
+                    const presentation = printerPresentation(printer, parentAgent, nowMs);
+                    const displayName = printerDisplayName(printer, locale);
+                    const active = printer.lifecycle === "active" && printer.sharedWithGateway !== false;
                     return (
                       <tr key={printer.id}>
                         <td>
-                          <div className="text-sm font-[550] text-ink">{printer.name}</div>
-                          <div className="mt-0.5 truncate font-mono text-2xs text-ink-3" title={printer.id}>
-                            {shortId(printer.id)}
-                          </div>
+                          <div className="text-sm font-[550] text-ink">{displayName}</div>
+
                         </td>
                         <td className="text-sm text-ink-2">{printer.agentName ?? parentAgent?.name ?? "—"}</td>
                         <td>
-                          <div className="flex items-center gap-1.5 text-xs text-ink-2">
-                            {connectionIcon(printer.connectionType)}
-                            <span>{connectionLabel(printer.connectionType, t)}</span>
-                            {printer.protocol && <span className="font-[550] text-ink-3">· {printer.protocol}</span>}
-                          </div>
-                        </td>
-                        <td>
-                          <PrinterLanguageChips printer={printer} />
-                        </td>
-                        <td>
-                          <div className="flex items-center gap-1"><StatusBadge tone={sharedPrinterTone(displayStatus)} label={printerLabel(displayStatus, locale)} size="sm" />{freshness === "stale" ? <StatusBadge tone="warn" label={t("status.stale")} size="sm" /> : null}</div>
+                          <StatusBadge tone={presentation.tone} label={t(presentation.labelKey)} size="sm" />
+                          {(presentation.state === "attention" || presentation.state === "unavailable") && (
+                            <p className="mt-1 max-w-xs text-xs text-ink-3">{t(presentation.reasonKey)}</p>
+                          )}
                         </td>
                         <td className="text-end">
                           <div className="flex items-center justify-end gap-1.5">
-                            <Button
+                            {canMutate.printersTest && <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => void handleGatewayTestPrint(printer.id, printer.name)}
+                              onClick={() => void handleGatewayTestPrint(printer.id, displayName)}
                               loading={testingPrinterId === printer.id}
                               disabled={busy || testingPrinterId !== null || !active}
                             >
                               {testingPrinterId === printer.id ? t("printer.sending") : t("printer.testPage")}
-                            </Button>
+                            </Button>}
                             <Menu
-                              label={t("printer.moreActionsFor", { name: printer.name })}
+                              label={t("printer.moreActionsFor", { name: displayName })}
                               items={printerActions(printer)}
                               trigger={
                                 <span className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors duration-150 hover:bg-surface-2 hover:text-ink">
@@ -2304,11 +2308,38 @@ export default function DashboardClient({
         )}
       </Modal>
 
+      <Modal
+        open={selectedPrinterView !== null}
+        onClose={() => setSelectedPrinter(null)}
+        title={selectedPrinterView ? printerDisplayName(selectedPrinterView, locale) : t("printer.presentation.details")}
+        description={selectedPrinterView ? t(printerPresentation(selectedPrinterView, agentById.get(selectedPrinterView.agentId), nowMs).reasonKey) : undefined}
+        footer={<Button variant="secondary" onClick={() => setSelectedPrinter(null)}>{t("common.close")}</Button>}
+      >
+        {selectedPrinterView && (
+          <div className="space-y-4">
+            <KeyValueList rows={[
+              { label: t("common.status"), value: printerLabel(effectivePrinterStatus(selectedPrinterView, null, nowMs), locale) },
+              { label: t("desktop.printers.sharingLabel"), value: t(selectedPrinterView.sharedWithGateway === false ? "desktop.printers.sharingPrivate" : "desktop.printers.sharingShared") },
+              { label: t("printer.agent"), value: selectedPrinterView.agentName ?? agentById.get(selectedPrinterView.agentId)?.name ?? t("printer.unknownAgent") },
+              { label: t("desktop.drawer.lifecycle"), value: lifecycleLabel(t, selectedPrinterView.lifecycle) },
+              { label: t("printer.connection"), value: connectionLabel(selectedPrinterView.connectionType, t) },
+              { label: t("desktop.drawer.protocol"), value: selectedPrinterView.protocol ?? "—" },
+              { label: t("desktop.drawer.address"), value: <Mono>{String(selectedPrinterView.config?.spooler_name ?? selectedPrinterView.config?.address ?? selectedPrinterView.config?.ip ?? "—")}</Mono> },
+              { label: t("desktop.drawer.stableId"), value: <CopyButton value={selectedPrinterView.id} label={selectedPrinterView.id} /> },
+              { label: t("agent.lastSeen"), value: formatDateTime(selectedPrinterView.lastSeenAt) },
+              { label: t("desktop.drawer.observed"), value: printerStatusDetail(selectedPrinterView, locale) || "—" },
+            ]} />
+            <div className="space-y-2"><div className="text-xs text-ink-3">{t("printer.languages")}</div><PrinterLanguageChips printer={selectedPrinterView} /></div>
+            {canMutate.printersTest && <Button variant="secondary" disabled={selectedPrinterView.sharedWithGateway === false} onClick={() => { setSelectedPrinter(null); setCertifyPrinter(selectedPrinterView); }} icon={<ShieldCheck className="h-4 w-4" />}>{t("printer.certify")}</Button>}
+          </div>
+        )}
+      </Modal>
+
       {/* ── Certify printer ───────────────────────────────────────── */}
       <Modal
         open={certifyPrinter !== null}
         onClose={() => setCertifyPrinter(null)}
-        title={certifyPrinter ? `${t("printer.certify")} ${certifyPrinter.name}` : t("printer.certification")}
+        title={certifyPrinter ? `${t("printer.certify")} ${printerDisplayName(certifyPrinter, locale)}` : t("printer.certification")}
         description={t("printer.certifyDescription")}
         wide
         footer={
@@ -2330,7 +2361,7 @@ export default function DashboardClient({
         footer={
           <>
             <Button variant="secondary" onClick={() => setRepeatDiagnosticCandidate(null)}>{t("common.cancel")}</Button>
-            <Button
+            {canMutate.printersTest && <Button
               variant="primary"
               onClick={() => {
                 const candidate = repeatDiagnosticCandidate;
@@ -2343,7 +2374,7 @@ export default function DashboardClient({
               }}
             >
               {t("common.confirm")}
-            </Button>
+            </Button>}
           </>
         }
       >

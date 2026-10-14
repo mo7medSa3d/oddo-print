@@ -343,6 +343,7 @@ class TestControlPlane(TransactionCase):
 
         ConfigClass = type(self.gateway_config)
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch.object(type(job), "_primary_shared_for_fallback", return_value=True), \
              patch("requests.post", side_effect=[_refused_connection(), mock_resp]):
             job.action_submit()
             self.assertEqual(job.printer_id, self.backup_binding.printer_id, "Job must safely failover to backup printer on pre-dispatch connection error")
@@ -450,6 +451,7 @@ class TestControlPlane(TransactionCase):
             return True
 
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch.object(type(job), "_primary_shared_for_fallback", return_value=True), \
              patch("requests.post", side_effect=[_refused_connection(), _refused_connection()]), \
              patch.object(type(job), "_persist_state", side_effect=_mock_persist_state):
             with self.assertRaises(ValidationError):
@@ -497,6 +499,7 @@ class TestControlPlane(TransactionCase):
         mock_resp.json.return_value = {"jobId": "gw_job_cto_123", "status": "queued"}
         ConfigClass = type(self.gateway_config)
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch.object(type(job), "_primary_shared_for_fallback", return_value=True), \
              patch("requests.post", side_effect=[exc, mock_resp]):
             job.action_submit()
             self.assertEqual(job.printer_id, self.backup_binding.printer_id)
@@ -543,9 +546,11 @@ class TestControlPlane(TransactionCase):
                 })
                 self.assertNotEqual(binding.document_type, "test_page")
 
-                with patch.object(RouterClass, "_persist_durable_job", side_effect=self._fake_persist_job), \
+                with patch.object(type(binding), "_validate_runtime_target", return_value={"capabilities": {"paper_width_mm": 80}}) as runtime_check, \
+                     patch.object(RouterClass, "_persist_durable_job", side_effect=self._fake_persist_job), \
                      patch.object(RouterClass, "_submit_durable_job", return_value="submitted"):
                     res = router.route_test_page(binding)
+                    self.assertTrue(runtime_check.called, "document test must validate its selected runtime target")
 
                 job = self.env["print_gateway.print_job"].browse(res["job_id"])
                 self.assertEqual(job.document_type, binding.document_type)
@@ -781,6 +786,7 @@ class TestControlPlane(TransactionCase):
         refused.__cause__ = ConnectionRefusedError(111, "Connection refused")
         ConfigClass = type(self.gateway_config)
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch.object(type(job), "_primary_shared_for_fallback", return_value=True), \
              patch("requests.post", side_effect=refused):
             # Must terminate gracefully, not hang in recursion
             job.action_submit()
@@ -845,6 +851,7 @@ class TestControlPlane(TransactionCase):
 
         ConfigClass = type(self.gateway_config)
         with patch.object(ConfigClass, "_validate_gateway_host", return_value=None), \
+             patch.object(type(job), "_primary_shared_for_fallback", return_value=True), \
              patch("requests.post", side_effect=[_refused(), _refused(), _refused(), _refused()]) as mock_post:
             job.action_submit()
             # A->backup->C->D all engaged (3 failovers = MAX depth); a fifth

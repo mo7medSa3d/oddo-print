@@ -133,18 +133,20 @@
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
   /* ---------- Type scale ---------- */
-  --fs-2xs: 12px;
-  --fs-xs: 13px;
-  --fs-sm: 14px;
-  --fs-body: 16px;
-  --fs-md: 16px;
-  --fs-lg: 17px;
-  --fs-title: 18px;
-  --fs-xl: 19px;
-  --fs-2xl: 23px;
-  --fs-3xl: 28px;
-  --fs-display: 32px;
-  --fs-display-lg: 40px;
+  /* Relative roles respect browser text preferences: primary copy 18px,
+     supporting copy 16px, and compact labels 14px at the default root size. */
+  --fs-2xs: 0.875rem;
+  --fs-xs: 0.875rem;
+  --fs-sm: 1rem;
+  --fs-body: 1.125rem;
+  --fs-md: 1.125rem;
+  --fs-lg: 1.25rem;
+  --fs-title: 1.375rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.625rem;
+  --fs-3xl: 2rem;
+  --fs-display: 2.25rem;
+  --fs-display-lg: 3rem;
 
   --lh-tight: 1.15;
   --lh-snug: 1.3;
@@ -167,8 +169,8 @@
   --ease-spring: cubic-bezier(0.32, 1.28, 0.62, 1);
 
   /* ---------- Layout ---------- */
-  --sidebar-width: 264px;
-  --sidebar-collapsed: 80px;
+  --sidebar-width: 18rem;
+  --sidebar-collapsed: 5rem;
   --header-height: 64px;
   --content-max: 1440px;
   --content-max-wide: 1680px;
@@ -176,9 +178,9 @@
   --page-py: 28px;
 
   /* ---------- Control geometry ---------- */
-  --control-h-sm: 36px;
-  --control-h-md: 40px;
-  --control-h-lg: 44px;
+  --control-h-sm: 2.5rem;
+  --control-h-md: 2.75rem;
+  --control-h-lg: 3rem;
 
   /* ---------- Platform (control plane) accent ---------- */
   --platform-accent: #2563eb;
@@ -445,9 +447,14 @@
     font-feature-settings: "cv02", "cv03", "cv04", "ss01";
   }
 
-  html[dir="rtl"] body {
-    font-family: var(--font-ibm-plex-sans-arabic, "Noto Sans Arabic"),
+  html[dir="rtl"] {
+    /* Explicit font-sans utilities must inherit the bundled Arabic family too. */
+    --font-sans: var(--font-ibm-plex-sans-arabic, "Noto Sans Arabic"),
       var(--font-ibm-plex-sans, "Segoe UI Variable Text"), Tahoma, Arial, sans-serif;
+  }
+
+  html[dir="rtl"] body {
+    font-family: var(--font-sans);
     font-feature-settings: normal;
   }
 
@@ -471,7 +478,8 @@
     color: var(--text-display);
     font-weight: 600;
     letter-spacing: var(--tracking-tight);
-    text-wrap: pretty;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
   }
 
   /* One display voice: page titles. Section titles use `text-lg`+. */
@@ -750,6 +758,7 @@
     width: 100%;
     align-items: center;
     gap: 10px;
+    min-height: var(--control-h-md);
     border-radius: var(--r-sm);
     padding: 8px 10px;
     font-size: var(--fs-sm);
@@ -830,7 +839,7 @@
     background: var(--surface-2);
     padding: 1px 5px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     font-weight: 500;
     color: var(--text-3);
   }
@@ -946,6 +955,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
     border-radius: var(--r-md);
     padding: 9px 10px;
     font-size: var(--fs-sm);
@@ -1018,10 +1028,9 @@
   .data-table td,
   .data-table th {
     border-bottom: 1px solid var(--border-subtle);
-    /* Tighter vertical rhythm: rows carry a primary line plus a secondary
-       meta line, so 22px of padding per row pushed tables past a screenful
-       without adding scannable separation (the row border already does that). */
-    padding: 9px 14px;
+    /* Let larger primary/meta lines breathe while retaining table scanning. */
+    padding: 13px 16px;
+    vertical-align: middle;
   }
   .data-table tbody tr:last-child td {
     border-bottom: 0;
@@ -1036,7 +1045,7 @@
   @media (max-width: 720px) {
     .data-table td,
     .data-table th {
-      padding: 8px 12px;
+      padding: 12px;
     }
   }
 }
@@ -1075,6 +1084,10 @@
 
   [dir="rtl"] .yz-menu-in {
     transform-origin: top left;
+  }
+
+  [dir="rtl"] :is(.tg-sidebar-label, .tg-panel-title, .tg-page-title, .tg-action-button) {
+    letter-spacing: 0;
   }
 }
 
@@ -1210,9 +1223,9 @@
 
   .tg-sidebar-label {
     color: var(--text-4);
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 700;
-    letter-spacing: 0.075em;
+    letter-spacing: 0.025em;
   }
 
   .tg-nav-item {
@@ -1427,9 +1440,9 @@
     }
     .tg-desktop-header-title {
       flex: 1 1 auto;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .tg-desktop-header-actions {
       flex: 0 0 auto;
@@ -1484,9 +1497,9 @@
     .tg-page-heading > div { padding-block: 16px 18px; }
     .tg-page-heading .tg-page-eyebrow,
     .tg-page-heading .tg-page-icon { display: none; }
-    .tg-page-heading .tg-page-title { font-size: clamp(1.375rem, 6vw, 1.75rem); }
+    .tg-page-heading .tg-page-title { font-size: clamp(1.625rem, 6vw, 2rem); }
     .tg-page-heading .tg-page-description {
-      font-size: 0.875rem;
+      font-size: var(--fs-sm);
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
@@ -1708,6 +1721,33 @@
 
 /* Operational dashboards — high-density with deliberate information hierarchy. */
 @layer components {
+  .yw-throughput-plot {
+    container-type: inline-size;
+    container-name: platform-throughput;
+    font-size: var(--fs-xs);
+  }
+  .yw-throughput-axis {
+    position: relative;
+    min-height: 2.9em;
+    line-height: 1.45;
+  }
+  .yw-throughput-tick {
+    position: absolute;
+    inset-block-start: 0;
+    display: none;
+    width: max-content;
+    max-width: 50%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .yw-throughput-tick[data-axis-caption="edge"] { display: block; }
+  .yw-throughput-tick[data-axis-caption="middle"] { max-width: 25%; }
+  /* Relative query lengths use the container's own caption font size, so a
+     narrow card or enlarged text retains sparse, readable axis captions. */
+  @container platform-throughput (min-width: 28em) {
+    .yw-throughput-tick[data-axis-caption="middle"] { display: block; }
+  }
+
   .yw-gateway-dashboard .yw-fleet-board {
     position: relative;
     overflow: hidden;

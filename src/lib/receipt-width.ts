@@ -13,6 +13,19 @@ function dotsForPaper(mm: number, dpi: number | null): number | null {
   return null; // Ambiguous intermediate widths need explicit dot dimensions
 }
 
+/** A selected roll, or one unambiguous advertised size; dots do not prove media size. */
+export function receiptPaperWidthMM(capabilities: Caps): 58 | 80 | null {
+  if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities)) return null;
+  const asRoll = (value: unknown): 58 | 80 | null => {
+    const n = typeof value === "string" && /^[0-9]+$/.test(value.trim()) ? Number(value.trim()) : value;
+    return n === 58 || n === 80 ? n : null;
+  };
+  const selected = capabilities.paper_width_mm;
+  if (selected != null && !(typeof selected === "string" && selected.trim() === "")) return asRoll(selected);
+  const widths = capabilities.paper_widths;
+  return Array.isArray(widths) && widths.length === 1 ? asRoll(widths[0]) : null;
+}
+
 /**
  * Prefer operator/device reported printable dots. Use nominal roll size
  * only for familiar 58/80mm media. Returning null is intentional: Odoo's

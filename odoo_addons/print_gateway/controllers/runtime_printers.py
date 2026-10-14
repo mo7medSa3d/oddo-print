@@ -5,6 +5,7 @@ from werkzeug.exceptions import Forbidden
 from odoo import http
 from odoo.http import request
 from odoo.exceptions import ValidationError
+from ..runtime_policy import is_gateway_shared_printer
 
 
 class PrintGatewayRuntimePrinterController(http.Controller):
@@ -207,7 +208,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             lifecycle = printer.get('lifecycle') if isinstance(printer.get('lifecycle'), str) else ''
             agent = printer.get('agent') if isinstance(printer.get('agent'), dict) else {}
             returned_agent_id = agent.get('id') if isinstance(agent.get('id'), str) else ''
-            if lifecycle != 'active' or returned_agent_id != selected_agent_id:
+            if lifecycle != 'active' or returned_agent_id != selected_agent_id or not is_gateway_shared_printer(printer):
                 continue
             capabilities = printer.get('capabilities') if isinstance(printer.get('capabilities'), dict) else {}
             raw_supported = capabilities.get('supported_protocols')
@@ -220,8 +221,13 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                     normalized = value.strip().lower()
                     if normalized in allowed_protocols and normalized not in supported_protocols:
                         supported_protocols.append(normalized)
+            sanitized_capabilities = {'supported_protocols': supported_protocols}
+            paper_width = capabilities.get('paper_width_mm')
+            if type(paper_width) is int and paper_width in (58, 80):
+                sanitized_capabilities['paper_width_mm'] = paper_width
             sanitized.append({
                 'id': printer_id,
+                'sharedWithGateway': True,
                 'name': printer.get('name') if isinstance(printer.get('name'), str) else printer_id,
                 'status': printer.get('status') if isinstance(printer.get('status'), str) else 'unknown',
                 'reportedStatus': printer.get('reportedStatus') if isinstance(printer.get('reportedStatus'), str) else 'unknown',
@@ -230,7 +236,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'deviceClass': printer.get('deviceClass') if isinstance(printer.get('deviceClass'), str) else 'unknown',
                 'connectionType': printer.get('connectionType') if isinstance(printer.get('connectionType'), str) else 'unknown',
                 'protocol': printer.get('protocol') if isinstance(printer.get('protocol'), str) else 'unknown',
-                'capabilities': {'supported_protocols': supported_protocols},
+                'capabilities': sanitized_capabilities,
                 'agentId': returned_agent_id,
                 'agentName': agent.get('name') if isinstance(agent.get('name'), str) else selected_agent_id,
             })

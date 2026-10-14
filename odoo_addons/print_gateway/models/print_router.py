@@ -6,6 +6,7 @@ import binascii
 import hashlib
 import logging
 import time
+import textwrap
 import uuid
 
 from odoo import api, fields, models, _
@@ -1082,11 +1083,6 @@ class PrintGatewayRouter(models.AbstractModel):
         not RAW WritePrinter. Physical output remains unknown until observed;
         spool acceptance only proves that Windows accepted the document job.
         """
-        pdf_content = self._generate_test_pdf(
-            company_name=company_name, branch_name=branch_name,
-            printer_name=printer_name, now_str=now_str,
-        )
-        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         route = self.resolve_binding(
             record=False, company=company, document_type=binding.document_type,
             explicit_binding=binding, payload_type="pdf",
@@ -1095,6 +1091,15 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
             )
+        runtime_capabilities = binding._validate_runtime_target().get("capabilities")
+        declared_width = runtime_capabilities.get("paper_width_mm") if isinstance(runtime_capabilities, dict) else None
+        paper_width_mm = declared_width if type(declared_width) is int and declared_width in (58, 80) else None
+        pdf_content = self._generate_test_pdf(
+            company_name=company_name, branch_name=branch_name,
+            printer_name=printer_name, now_str=now_str,
+            paper_width_mm=paper_width_mm,
+        )
+        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         return self._submit_route(
             route=route, payload=payload, company=company,
             source_model="print_gateway.binding", source_record_id=binding.id,
@@ -1104,11 +1109,6 @@ class PrintGatewayRouter(models.AbstractModel):
     @api.private
     def _route_ipp_test_page(self, *, binding, company, company_name, branch_name, printer_name, now_str):
         """PDF test page through the IPP document transport."""
-        pdf_content = self._generate_test_pdf(
-            company_name=company_name, branch_name=branch_name,
-            printer_name=printer_name, now_str=now_str,
-        )
-        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         route = self.resolve_binding(
             record=False, company=company, document_type=binding.document_type,
             explicit_binding=binding, payload_type="pdf",
@@ -1117,6 +1117,15 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
             )
+        runtime_capabilities = binding._validate_runtime_target().get("capabilities")
+        declared_width = runtime_capabilities.get("paper_width_mm") if isinstance(runtime_capabilities, dict) else None
+        paper_width_mm = declared_width if type(declared_width) is int and declared_width in (58, 80) else None
+        pdf_content = self._generate_test_pdf(
+            company_name=company_name, branch_name=branch_name,
+            printer_name=printer_name, now_str=now_str,
+            paper_width_mm=paper_width_mm,
+        )
+        payload = {"type": "pdf", "encoding": "base64", "data": base64.b64encode(pdf_content).decode("ascii")}
         return self._submit_route(
             route=route, payload=payload, company=company,
             source_model="print_gateway.binding", source_record_id=binding.id,
@@ -1124,19 +1133,26 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
-    def _generate_test_pdf(self, *, company_name, branch_name, printer_name, now_str):
+    def _generate_test_pdf(self, *, company_name, branch_name, printer_name, now_str, paper_width_mm=None):
         """Minimal valid single-page PDF test document.
 
         Offsets and stream Length are computed from actual content; text is
         PDF-escaped so operator names cannot break document syntax.
         """
+        if paper_width_mm is not None and (type(paper_width_mm) not in (int, float) or paper_width_mm not in (58, 80)):
+            raise ValidationError(_("Diagnostic paper width must be 58 or 80 mm."))
         if any(not str(value or "").isascii() for value in (company_name, branch_name, printer_name)):
             # Unicode names require font shaping; the ASCII diagnostic writer
             # cannot represent Arabic using its built-in Type1 font.
-            pdf, report_type = self.env["ir.actions.report"].with_context(force_report_rendering=True)._render_qweb_pdf(
+            pdf, report_type = self.env["ir.actions.report"].with_context(
+                force_report_rendering=True,
+                print_gateway_diagnostic_paper_width_mm=paper_width_mm,
+            )._render_qweb_pdf(
                 "print_gateway.action_diagnostic_report", res_ids=[],
-                data={"company_name": company_name, "branch_name": branch_name,
-                      "printer_name": printer_name, "now_str": now_str},
+                data={"company_name": str(company_name or "")[:40] if paper_width_mm else company_name,
+                      "branch_name": str(branch_name or "")[:40] if paper_width_mm else branch_name,
+                      "printer_name": str(printer_name or "")[:40] if paper_width_mm else printer_name,
+                      "now_str": now_str, "paper_width_mm": paper_width_mm},
             )
             if report_type != "pdf" or not pdf.startswith(b"%PDF-"):
                 raise ValidationError(_("The diagnostic PDF renderer did not return a valid PDF document."))
@@ -1162,11 +1178,31 @@ class PrintGatewayRouter(models.AbstractModel):
             f"(Time: {_pdf_text(now_str)}) Tj",
             "ET",
         ]
+        page_width, page_height = 612, 792
+        if paper_width_mm:
+            page_width, page_height = paper_width_mm * 72 / 25.4, 100 * 72 / 25.4
+            lines = ["BT", "/F1 8 Tf", "12 %.3f Td" % (page_height - 14)]
+            diagnostic_lines = [
+                "YASEIR PRINT GATEWAY", "PRINTER TEST PAGE",
+                "Company: %s" % str(company_name or "")[:40],
+                "Location: %s" % str(branch_name or "")[:40],
+                "Printer: %s" % str(printer_name or "")[:40],
+                "Time: %s" % str(now_str or "")[:40],
+                "Check the physical printer.",
+            ]
+            # One-em character budget keeps even wide Helvetica glyphs within the roll.
+            character_width = int((page_width - 24) / 8)
+            for text in diagnostic_lines:
+                for part in textwrap.wrap(text, width=character_width):
+                    if len(lines) > 3:
+                        lines.append("0 -12 Td")
+                    lines.append("(%s) Tj" % _pdf_text(part))
+            lines.append("ET")
         content = "\n".join(lines).encode("latin-1", errors="replace")
         objects = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>" % (page_width, page_height)).encode("ascii"),
             b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
             b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         ]
@@ -1182,4 +1218,3 @@ class PrintGatewayRouter(models.AbstractModel):
             pdf += ("%010d 00000 n \n" % offset).encode("ascii")
         pdf += ("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(objects) + 1, xref_pos)).encode("ascii")
         return bytes(pdf)
-

@@ -86,7 +86,7 @@ async function renderFleetGauges(): Promise<string> {
           )::bigint AS routable
         FROM (
           SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS printer_fresh
-          FROM printers
+          FROM printers WHERE shared_with_gateway = true
         ) p
         LEFT JOIN (
           SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $2) AND now(), false) AS agent_fresh

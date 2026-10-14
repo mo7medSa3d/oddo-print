@@ -48,6 +48,9 @@ type PrinterConfig struct {
 	Capabilities   map[string]interface{} `yaml:"capabilities,omitempty"`
 	PaperWidthMM   int                    `yaml:"paper_width_mm,omitempty"`
 	Enabled        *bool                  `yaml:"enabled,omitempty"`
+	// Local native discovery alone creates this alternate execution descriptor.
+	// Operator YAML/cloud metadata cannot assert a verified Windows share pair.
+	VerifiedSpoolerSharingAlias bool `yaml:"-" json:"-"`
 }
 
 func (c *Config) ReprintAfterCrashEnabled() bool {

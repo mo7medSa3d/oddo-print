@@ -41,3 +41,8 @@ odoo_addons/**/*.pyc
 # findings, architecture map). Local-only by design: never shipped, never
 # committed — the corrected source tree is the deliverable.
 .engineering/
+
+# Local verification logs, screenshots, binaries and generated graph cache
+.audit/
+graphify-out/*
+!graphify-out/FINAL_AUDIT.md

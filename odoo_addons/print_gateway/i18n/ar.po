@@ -2414,8 +2414,8 @@ msgstr "تعذّرت طباعة الإيصال."
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/js/pos_print_router.js:0
-msgid "Receipt sent. Check Print Activity for the result."
-msgstr "تم إرسال الإيصال. راجع نشاط الطباعة لمعرفة النتيجة."
+msgid "Receipt accepted by the printing service. Paper output is not confirmed."
+msgstr "قبلت خدمة الطباعة الإيصال. خروج الورق غير مؤكد."
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_intent_list
@@ -2792,8 +2792,14 @@ msgstr "تم تقديم المهمة"
 
 #. module: print_gateway
 #: model:ir.model.fields.selection,name:print_gateway.selection__print_gateway_print_job__status__success
-msgid "Success"
-msgstr "نجاح"
+msgid "Submission completed"
+msgstr "اكتمل إرسال المهمة"
+
+#. module: print_gateway
+#. odoo-python
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Diagnostic paper width must be 58 or 80 mm."
+msgstr "يجب أن يكون عرض ورق الاختبار 58 أو 80 مم."
 
 #. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_runtime_assignment_form
@@ -4162,3 +4168,9 @@ msgstr "تحديث النتيجة"
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_e2e_capture_wizard_form
 msgid "This runs a diagnostic from Odoo through Gateway to the assigned Windows Agent.\n                        It creates a local PDF capture, never registers a virtual printer or prints paper."
 msgstr "يجري هذا الاختبار تشخيصًا من Odoo عبر Gateway إلى Windows Agent المخصص. ينشئ ملف PDF محليًا فقط، ولا يسجّل طابعة افتراضية أو يطبع ورقًا."
+
+#. module: print_gateway
+#: code:addons/print_gateway/models/binding.py:0
+#: code:addons/print_gateway/models/print_job.py:0
+msgid "Printer '%s' is local-only. Share it from the Agent before sending a cloud print job."
+msgstr "الطابعة '%s' للاستخدام المحلي فقط. فعّل مشاركتها من Agent قبل إرسال مهمة طباعة سحابية."

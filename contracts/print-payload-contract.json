@@ -36,6 +36,16 @@
     "pdfPrefix": "%PDF-",
     "jpegHexPrefix": "ffd8ff"
   },
+  "diagnosticPage": {
+    "inventoryEndpoint": "/api/odoo/printers",
+    "optionalCapability": "paper_width_mm",
+    "rollWidthsMM": [58, 80],
+    "rollLengthMM": 100,
+    "source": "explicit paper_width_mm or one advertised paper_widths value; never infer physical media from printable dots, printer names or ambiguous multiple widths",
+    "producerConsumers": "Gateway test-print/certification and Odoo exact-binding document test generate the same physical roll media; Agent validates PDF/driver dimensions before submission",
+    "fallback": "Existing office document format when no unambiguous roll is declared; successful submission does not prove physical paper output"
+  },
+  "printerSharing": "Odoo selectors and new cloud jobs require the Agent-owned sharedWithGateway permission. Private exact bindings return PRINTER_NOT_SHARED without silent fallback; historical idempotency, terminal/outbox and physical UNKNOWN semantics remain. See printer-sharing-contract.json.",
   "discoveryReport": {
     "endpoint": "/api/agent/discovery",
     "optionalFields": "Omit absent port, manufacturer, capabilities, ipAddress and uri; do not send null or port 0.",

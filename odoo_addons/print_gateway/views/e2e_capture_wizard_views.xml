@@ -4,7 +4,7 @@
         <field name="name">print_gateway.e2e_capture_wizard.form</field>
         <field name="model">print_gateway.e2e_capture_wizard</field>
         <field name="arch" type="xml">
-            <form string="End-to-End Capture Test" class="o_pg_view">
+            <form string="End-to-End Capture Test" class="o_pg_view o_pg_wizard">
                 <sheet>
                     <div class="alert alert-info" role="status">
                         This runs a diagnostic from Odoo through Gateway to the assigned Windows Agent.

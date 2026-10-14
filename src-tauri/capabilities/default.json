@@ -21,6 +21,7 @@
     "allow-get-runtime-paths",
     "allow-get-app-version",
     "allow-get-printers",
+    "allow-set-printer-sharing",
     "allow-discover-printers",
     "allow-get-e2e-capture-config",
     "allow-set-e2e-capture-config",

@@ -149,6 +149,21 @@ test('receipt retry after failed silent counter write repairs bookkeeping withou
   assert.equal(h.seen.submissions[0].image, h.seen.submissions[1].image);
 });
 
+test('accepted receipt statuses report submission information without claiming paper output', async () => {
+  for (const status of ['queued', 'submitted', 'claimed', 'printing', 'success']) {
+    const h = harness();
+    const originalCall = h.store.data.call;
+    h.store.data.call = async (...args) => args[1] === 'action_print_gateway_receipt'
+      ? { gateway_enabled: true, status }
+      : originalCall(...args);
+    await h.init('pos_print_router.js');
+    assert.equal(await h.store.printReceipt(), true, `status=${status}`);
+    assert.equal(h.seen.notifications.length, 1);
+    assert.equal(h.seen.notifications[0].options.type, 'info', `status=${status}`);
+    assert.match(h.seen.notifications[0].message, /Paper output is not confirmed\./);
+  }
+});
+
 
 test('two kitchen stations retain accepted ticket while retrying only a definitely failed station', async () => {
   const h = harness();

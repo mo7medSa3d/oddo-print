@@ -227,7 +227,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId))),
+      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId), eq(printers.sharedWithGateway, true))),
       3000,
       "agentPrinters"
     );
@@ -321,7 +321,7 @@ export async function getAllAgentsHealth(tenantId: string, limit = 100, offset =
         ) AS INTEGER)`,
       })
         .from(printers)
-        .where(and(eq(printers.tenantId, tenantId), inArray(printers.agentId, ids)))
+        .where(and(eq(printers.tenantId, tenantId), inArray(printers.agentId, ids), eq(printers.sharedWithGateway, true)))
         .groupBy(printers.agentId),
       3000,
       "allAgentsPrinters",

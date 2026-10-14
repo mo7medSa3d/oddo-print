@@ -16,6 +16,8 @@ Odoo 19's normal receipt renderer uses a 512px/30px CSS snapshot. The Gateway no
 5. **Direct ESC/POS** raster uses its own `RasterMaxWidthFromCapabilities` and the verified width for the physical printer. It does not share the Windows GDI form. Verify the selected printer supports GS v 0 raster commands.
 6. **Odoo QWeb PDFs**, invoices, deliveries and purchase documents continue to use the *actual PDF* page size and binding. Do not force thermal 58/80mm geometry onto A4 reports.
 
+Gateway test pages and certification tickets use a 58×100mm or 80×100mm PDF when the selected roll is explicit (`paper_width_mm`) or the inventory advertises exactly one 58/80mm size (`paper_widths`). The Odoo inventory passes the same bounded optional `capabilities.paper_width_mm` to its exact-binding document diagnostic. Unknown media retains the existing office format. Multiple advertised sizes and printable dots alone do not identify the loaded roll; configure the selected media. The Agent still checks the requested driver form before `StartDocW`; unsupported custom forms fail visibly. The additive metadata and diagnostic geometry are recorded in `contracts/print-payload-contract.json`; job payloads and result enums are unchanged.
+
 ## Configuration examples
 
 On the Windows Agent, edit its existing secure config file (`C:\\ProgramData\\YaseirAgent\\config.yaml` unless data directory customized). For a genuine installed 80mm ESC/POS-capable Windows printer queue:

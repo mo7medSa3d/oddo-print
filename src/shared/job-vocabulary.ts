@@ -172,13 +172,12 @@ export function deriveOutcome(status: string, error?: string | null): PhysicalOu
 }
 
 export function jobTone(status: string, outcome?: PhysicalOutcome): Tone {
-  // A terminal transport success is healthy even when its physical outcome
-  // is unverified. Only genuinely ambiguous failure/expiry states need the
-  // attention tone.
+  // A completed submission is informational until paper output is verified.
+  // Unknown failures still need attention without inviting an automatic retry.
   if (status.toLowerCase() !== "success" && outcome === "unknown") return "warn";
   switch (status.toLowerCase()) {
     case "success":
-      return "ok";
+      return outcome === "printed" ? "ok" : "info";
     case "failed":
       return "bad";
     case "expired":
@@ -206,7 +205,7 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Loca
     case "printing":
       return word("job.printing");
     case "success":
-      return word("job.success");
+      return word(outcome === "printed" ? "job.success" : "job.successUnverified");
     case "failed":
       return outcome === "unknown" ? word("job.failedUnknown") : word("job.failed");
     case "expired":

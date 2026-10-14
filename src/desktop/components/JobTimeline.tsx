@@ -1,5 +1,5 @@
 import React from "react";
-import { deriveOutcome, jobLabel } from "../lib/printers";
+import { deriveOutcome, jobLabel, jobTone } from "../lib/printers";
 import { useI18n } from "../../i18n/react";
 
 type TimelineProps = {
@@ -53,14 +53,14 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
   });
 
   const terminalLabel = done || failed || unknown ? jobLabel(s, outcome, locale) : t("desktop.timeline.outcome");
-  const terminalTone = done ? "ok" : unknown ? "warn" : failed ? "bad" : "todo";
+  const terminalTone = done ? jobTone(s, outcome) : unknown ? "warn" : failed ? "bad" : "todo";
 
   const fullSteps = [
     ...steps.map((step) => ({
       label: step.label,
       state: step.state as string,
     })),
-    { label: terminalLabel, state: terminalTone === "todo" ? "todo" : terminalTone === "ok" ? "done" : "attention" },
+    { label: terminalLabel, state: terminalTone === "todo" ? "todo" : done ? "done" : "attention" },
   ];
   const srSummary = fullSteps
     .map((step, i) =>
@@ -131,6 +131,8 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
               className={`flex h-[26px] w-[26px] items-center justify-center rounded-sm border text-xs font-bold transition-colors ${
                 terminalTone === "ok"
                   ? "border-ok-edge bg-ok-solid text-on-solid"
+                  : terminalTone === "info"
+                  ? "border-info-edge bg-info-solid text-on-solid"
                   : terminalTone === "warn"
                   ? "border-warn-edge bg-warn-solid text-on-solid"
                   : terminalTone === "bad"
@@ -138,11 +140,11 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
                   : "border-edge-strong bg-surface text-ink-4"
               }`}
             >
-              {done ? "✓" : failed || unknown ? (unknown ? "?" : "✕") : ""}
+              {done ? (unknown ? "i" : "✓") : failed || unknown ? (unknown ? "?" : "✕") : ""}
             </span>
             <span
               className={`min-w-max text-center text-xs font-semibold ${
-                terminalTone === "ok" ? "text-ok" : terminalTone === "bad" ? "text-bad" : terminalTone === "warn" ? "text-warn" : "text-ink-3"
+                terminalTone === "ok" ? "text-ok" : terminalTone === "info" ? "text-info" : terminalTone === "bad" ? "text-bad" : terminalTone === "warn" ? "text-warn" : "text-ink-3"
               }`}
             >
               {terminalLabel}

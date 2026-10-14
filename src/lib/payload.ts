@@ -1,5 +1,6 @@
 import payloadContract from "../../contracts/print-payload-contract.json";
 import { z } from "zod";
+import { receiptPaperWidthMM } from "./receipt-width";
 
 const MAX_PAYLOAD_BYTES = payloadContract.maxPayloadBytes;
 const PAYLOAD_TYPES = payloadContract.wireTypes as ["raw", "escpos", "pdf", "image"];
@@ -119,12 +120,20 @@ function safeTsplQuotedText(value: string): string {
   return safeTestText(value).replace(/["\\]/g, "_");
 }
 
-export function buildTestPdfPayload(printerName: string, agentName: string, operationId?: string): string {
+export function buildTestPdfPayload(printerName: string, agentName: string, operationId?: string, paperWidthMM?: 58 | 80): string {
   const safeName = escapePdfText(safeTestText(printerName));
   const safeAgent = escapePdfText(safeTestText(agentName));
   const stamp = operationId ? `Operation ${safeTestText(operationId)}` : new Date().toISOString().replace("T", " ").slice(0, 19);
 
-  const streamContent = [
+  const width = paperWidthMM ? Number((paperWidthMM * 72 / 25.4).toFixed(3)) : 612;
+  const height = paperWidthMM ? Number((payloadContract.diagnosticPage.rollLengthMM * 72 / 25.4).toFixed(3)) : 792;
+  const ticketLines = paperWidthMM ? [
+    `Printer: ${safeTestText(printerName)}`, `Agent: ${safeTestText(agentName)}`, `Status: OK | ${stamp}`,
+  ].flatMap((line) => line.match(new RegExp(`.{1,${Math.floor((width - 24) / 8)}}`, "g")) ?? []) : [];
+  const streamContent = (paperWidthMM ? [
+    "BT", "/F1 12 Tf", `12 ${height - 24} Td`, "(YASEIR TEST PAGE) Tj", "/F1 8 Tf", "0 -22 Td",
+    ...ticketLines.flatMap((line, index) => [...(index ? ["0 -12 Td"] : []), `(${escapePdfText(line)}) Tj`]), "ET",
+  ] : [
     "BT",
     "/F1 18 Tf",
     "50 720 Td",
@@ -137,14 +146,14 @@ export function buildTestPdfPayload(printerName: string, agentName: string, oper
     "0 -20 Td",
     `(Status: OK | ${escapePdfText(stamp)}) Tj`,
     "ET",
-  ].join("\n");
+  ]).join("\n");
 
   const streamLength = Buffer.byteLength(streamContent, "utf-8");
 
   const header = "%PDF-1.4\n";
   const obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
   const obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
-  const obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+  const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`;
   const obj4 = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
   const obj5 = `5 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
 
@@ -186,7 +195,7 @@ export function buildTestPdfPayload(printerName: string, agentName: string, oper
 export function buildTestPrintPayloadForPrinter(
   printerName: string,
   agentName: string,
-  printer: { protocol?: string | null; connectionType?: string | null; capabilities?: { supported_protocols?: string[] } | null },
+  printer: { protocol?: string | null; connectionType?: string | null; capabilities?: Record<string, unknown> | null; config?: Record<string, unknown> | null },
   operationId?: string,
 ): PrintJobPayload {
   const rawDeclared = (printer.protocol ?? "").toLowerCase().trim();
@@ -276,7 +285,8 @@ export function buildTestPrintPayloadForPrinter(
   // supported_protocols may opt a spooler into byte passthrough, but it must
   // never make an otherwise valid spooler/IPP test page stop being printable.
   if (physicalDocumentTransport) {
-    const pdf = buildTestPdfPayload(plainName, plainAgent, operationId);
+    const roll = receiptPaperWidthMM(capabilities) ?? receiptPaperWidthMM(printer.config);
+    const pdf = buildTestPdfPayload(plainName, plainAgent, operationId, roll ?? undefined);
     return {
       type: "pdf",
       encoding: "base64",

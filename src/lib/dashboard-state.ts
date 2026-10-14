@@ -3,12 +3,18 @@ import { agents, printers, printJobs } from "../db/schema";
 import { and, count, desc, eq, or, sql, type SQL } from "drizzle-orm";
 import { agentStaleThresholdSeconds, getEffectiveAgentStatus, printerStaleThresholdSeconds } from "./agent-availability";
 import { gatewayNow } from "./database-clock";
+import { nonVirtualPrinterPredicate } from "./printer-virtual-sql";
 
 export const DASHBOARD_FLEET_PAGE_SIZE = 100;
 export const DASHBOARD_FLEET_SEARCH_MAX_LENGTH = 64;
 
 export const DASHBOARD_PRINTER_FILTER_STATUSES = [
   "all",
+  "ready",
+  "printing",
+  "attention",
+  "unavailable",
+  "saved",
   "online",
   "busy",
   "offline",
@@ -48,7 +54,7 @@ function printerFilterConditions(
   options: DashboardFleetOptions,
   now: Date,
 ): SQL[] {
-  const conditions: SQL[] = [eq(printers.tenantId, tenantId)];
+  const conditions: SQL[] = [eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true), nonVirtualPrinterPredicate()];
   const search = options.printerSearch?.trim() ?? "";
   if (search.length >= 2 && search.length <= DASHBOARD_FLEET_SEARCH_MAX_LENGTH) {
     const term = `%${escapeLike(search.toLowerCase())}%`;
@@ -56,13 +62,36 @@ function printerFilterConditions(
       or(
         sql`LOWER(${printers.name}) LIKE ${term} ESCAPE '\\'`,
         sql`LOWER(${printers.id}) LIKE ${term} ESCAPE '\\'`,
-        sql`LOWER(${printers.connectionType}) LIKE ${term} ESCAPE '\\'`
+        sql`LOWER(${printers.connectionType}) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printers.config}->>'spooler_name', '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printers.config}->>'address', '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(COALESCE(${printers.config}->>'ip', '')) LIKE ${term} ESCAPE '\\'`,
+        sql`LOWER(${agents.name}) LIKE ${term} ESCAPE '\\'`
       )!
     );
   }
 
   const status = normalizedPrinterStatus(options.printerStatus);
-  if (status === "all") return conditions;
+  if (status === "saved") {
+    conditions.push(or(eq(printers.inventoryPresent, false), sql`${printers.lifecycle} <> 'active'`)!);
+    return conditions;
+  }
+  if (status === "all" || ["ready", "printing", "attention", "unavailable"].includes(status)) {
+    conditions.push(eq(printers.inventoryPresent, true), eq(printers.lifecycle, "active"));
+    if (status === "all") return conditions;
+    const printerCutoff = new Date(now.getTime() - printerStaleThresholdSeconds() * 1000);
+    const agentCutoff = new Date(now.getTime() - agentStaleThresholdSeconds() * 1000);
+    const presentation = sql`CASE
+      WHEN NOT COALESCE(${agents.lifecycle} = 'active' AND ${agents.status} = 'online'
+        AND ${agents.lastSeenAt} >= ${agentCutoff} AND ${agents.lastSeenAt} <= ${now}, false) THEN 'unavailable'
+      WHEN NOT COALESCE(${printers.lastSeenAt} >= ${printerCutoff} AND ${printers.lastSeenAt} <= ${now}, false) THEN 'unavailable'
+      WHEN ${printers.status} = 'online' THEN 'ready'
+      WHEN ${printers.status} = 'busy' THEN 'printing'
+      WHEN ${printers.status} IN ('offline', 'error') THEN 'attention'
+      ELSE 'unavailable' END`;
+    conditions.push(sql`${presentation} = ${status}`);
+    return conditions;
+  }
   if (status === "disabled" || status === "retired") {
     conditions.push(eq(printers.lifecycle, status));
     return conditions;
@@ -110,9 +139,10 @@ export async function loadDashboardStateForTenant(
         lastSeenAt: agents.lastSeenAt,
         createdAt: agents.createdAt,
         printerCount: count(printers.id),
+        currentPrinterCount: sql<number>`COUNT(*) FILTER (WHERE ${printers.lifecycle} = 'active' AND ${printers.inventoryPresent} = true AND ${nonVirtualPrinterPredicate()})`,
       })
       .from(agents)
-      .leftJoin(printers, and(eq(printers.agentId, agents.id), eq(printers.tenantId, tenantId)))
+      .leftJoin(printers, and(eq(printers.agentId, agents.id), eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true)))
       .where(eq(agents.tenantId, tenantId))
       .groupBy(agents.id)
       .orderBy(desc(agents.createdAt), desc(agents.id))
@@ -123,6 +153,11 @@ export async function loadDashboardStateForTenant(
         id: printers.id,
         agentId: printers.agentId,
         agentName: agents.name,
+        agentStatus: agents.status,
+        agentLifecycle: agents.lifecycle,
+        agentLastSeenAt: agents.lastSeenAt,
+        inventoryPresent: printers.inventoryPresent,
+        sharedWithGateway: printers.sharedWithGateway,
         name: printers.name,
         printerType: printers.printerType,
         deviceClass: printers.deviceClass,
@@ -177,24 +212,30 @@ export async function loadDashboardStateForTenant(
       .where(eq(agents.tenantId, tenantId)),
     db
       .select({
-        total: count(),
-        online: sql<number>`COUNT(*) FILTER (WHERE ${printers.lifecycle} = 'active' AND ${printers.status} = 'online' AND ${printers.lastSeenAt} IS NOT NULL AND ${printers.lastSeenAt} >= ${new Date(now.getTime() - printerStaleThresholdSeconds() * 1000)} AND ${printers.lastSeenAt} <= ${now})`,
+        total: sql<number>`COUNT(*) FILTER (WHERE ${printers.lifecycle} = 'active' AND ${printers.inventoryPresent} = true)`,
+        saved: sql<number>`COUNT(*) FILTER (WHERE ${printers.lifecycle} <> 'active' OR ${printers.inventoryPresent} = false)`,
+        online: sql<number>`COUNT(*) FILTER (WHERE ${printers.lifecycle} = 'active' AND ${printers.inventoryPresent} = true AND ${printers.status} IN ('online', 'busy') AND ${printers.lastSeenAt} >= ${new Date(now.getTime() - printerStaleThresholdSeconds() * 1000)} AND ${printers.lastSeenAt} <= ${now} AND ${agents.lifecycle} = 'active' AND ${agents.status} = 'online' AND ${agents.lastSeenAt} >= ${new Date(now.getTime() - staleThresholdSeconds * 1000)} AND ${agents.lastSeenAt} <= ${now})`,
       })
       .from(printers)
-      .where(eq(printers.tenantId, tenantId)),
+      .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
+      .where(and(eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true), nonVirtualPrinterPredicate())),
   ]);
 
   const agentHasMore = agentRows.length > DASHBOARD_FLEET_PAGE_SIZE;
   const printerHasMore = printerRows.length > DASHBOARD_FLEET_PAGE_SIZE;
   const visibleAgents = agentRows.slice(0, DASHBOARD_FLEET_PAGE_SIZE).map((agent) => ({
     ...agent,
+    currentPrinterCount: Number(agent.currentPrinterCount ?? 0),
     reportedStatus: agent.status,
     status: getEffectiveAgentStatus(agent, now),
     staleThresholdSeconds,
   }));
-  const visiblePrinters = printerRows.slice(0, DASHBOARD_FLEET_PAGE_SIZE);
+  const visiblePrinters = printerRows.slice(0, DASHBOARD_FLEET_PAGE_SIZE).map((printer) => ({
+    ...printer,
+    agentStaleThresholdSeconds: staleThresholdSeconds,
+  }));
   const agentSummary = agentSummaryRows[0] ?? { total: 0, online: 0 };
-  const printerSummary = printerSummaryRows[0] ?? { total: 0, online: 0 };
+  const printerSummary = printerSummaryRows[0] ?? { total: 0, online: 0, saved: 0 };
 
   return {
     agents: visibleAgents,
@@ -210,6 +251,7 @@ export async function loadDashboardStateForTenant(
       onlineAgents: Number(agentSummary.online ?? 0),
       totalPrinters: Number(printerSummary.total ?? 0),
       onlinePrinters: Number(printerSummary.online ?? 0),
+      savedPrinters: Number(printerSummary.saved ?? 0),
     },
   };
 }

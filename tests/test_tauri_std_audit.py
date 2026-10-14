@@ -8,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_actual_rust_logging_and_process_identity(tmp_path):
     agent = (ROOT / "src-tauri/src/agent.rs").read_text()
     helpers = agent[agent.index("fn normalized_process_image("):agent.index("#[cfg(windows)]\nfn expected_agent_image(")]
-    identity_tests = agent[agent.index("#[cfg(test)]\nmod image_identity_audit_tests"):]
+    identity_begin = agent.index("#[cfg(test)]\nmod image_identity_audit_tests")
+    identity_end = agent.index("#[cfg(test)]\nmod command_io_tests", identity_begin)
+    identity_tests = agent[identity_begin:identity_end]
     logging = (ROOT / "src-tauri/src/logging.rs").read_text()
     # Only the OS data-root boundary is substituted; logger code/tests stay intact.
     source = (

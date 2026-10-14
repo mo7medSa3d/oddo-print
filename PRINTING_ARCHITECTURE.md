@@ -79,9 +79,11 @@ sequenceDiagram
     Odoo->>GW: POST /api/print/jobs (Idempotency-Key, Payload)
     GW->>GW: Insert print_jobs (status='queued', tenant_id)
     GW->>AG: WebSocket Push or HTTP Poll (job_envelope)
+    GW->>GW: Record successful transport hand-off (delivered_at)
     AG->>GW: WS job_ack (jobId, claimToken)
-    GW->>GW: Update print_jobs (delivered_at=now())
+    GW->>GW: Record bounded local executor admission (acked_at)
     AG->>GW: PATCH /api/agent/jobs (status='printing', claimToken)
+    GW-->>AG: Acknowledge current printing claim (success=true)
     AG->>PR: Transmit bytes / Spool document
     PR-->>AG: Transmission completed / Spooled
     AG->>GW: PATCH /api/agent/jobs (status='success', claimToken)

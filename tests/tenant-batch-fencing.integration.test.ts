@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import { printJobs } from "../src/db/schema";
-import { hasTestDatabase, truncateAll, seedFixture, insertQueuedJob } from "./helpers/pg";
+import { applyMigrations, closePool, hasTestDatabase, truncateAll, seedFixture, insertQueuedJob } from "./helpers/pg";
 import { db } from "../src/db";
 
 const dbSuite = describe.skipIf(!hasTestDatabase);
 
 dbSuite("AUDIT-01: Tenant Batch Fencing Database Proof", () => {
+  beforeAll(async () => { await applyMigrations(); });
+  afterAll(async () => { await closePool(); });
+
   it("does not select or mutate cross-tenant jobs during batch materialization", async () => {
     await truncateAll();
     const a = await seedFixture();

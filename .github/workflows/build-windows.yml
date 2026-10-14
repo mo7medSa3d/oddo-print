@@ -65,7 +65,7 @@ jobs:
                 while IFS= read -r file; do
                   [ -z "$file" ] && continue
                   case "$file" in
-                    agent/*|src-tauri/*|src/desktop/*|src/components/*|src/i18n/*|src/shared/*|src/lib/*|src/app/globals.css|contracts/*|scripts/build-windows-installer.ps1|scripts/smoke-test-windows.ps1|vite.desktop.config.mts|postcss.config.*|package.json|package-lock.json|tsconfig.json|.nvmrc|.github/workflows/build-windows.yml)
+                    agent/*|src-tauri/*|src/desktop/*|src/components/*|src/i18n/*|src/shared/*|src/lib/*|src/app/globals.css|contracts/*|scripts/build-windows-installer.ps1|scripts/smoke-test-windows.ps1|tests/windows-release-builder-helpers.ps1|tests/test_windows_release_builder_guards.py|vite.desktop.config.mts|postcss.config.*|package.json|package-lock.json|tsconfig.json|.nvmrc|.github/workflows/build-windows.yml)
                       windows=true
                       ;;
                   esac
@@ -183,38 +183,40 @@ jobs:
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
           key: ${{ runner.os }}-tauri-cli-2.11.4
-      - name: Restore persistent signing certificate cache
-        id: signing-cert-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.yaseir-signing
-          key: yaseir-windows-signing-cert-v1
-          restore-keys: |
-            yaseir-windows-signing-cert-
+      - name: Verify Windows release helper behavior without building or signing
+        shell: pwsh
+        run: ./tests/windows-release-builder-helpers.ps1
       - name: Build Go Agent resources for Tauri
         working-directory: agent
         shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '1'
         run: |
           go build -mod=readonly -trimpath -ldflags="-s -w" -o YaseirAgent.exe ./cmd/agent
+          if ($LASTEXITCODE -ne 0) { throw "Windows Agent release build failed" }
           go build -mod=readonly -trimpath -ldflags="-s -w" -o yaseir-agent-cli.exe ./cmd/cli
+          if ($LASTEXITCODE -ne 0) { throw "Windows Agent CLI release build failed" }
           if (-not (Test-Path .\YaseirAgent.exe)) { throw "Missing agent/YaseirAgent.exe" }
           if (-not (Test-Path .\yaseir-agent-cli.exe)) { throw "Missing agent/yaseir-agent-cli.exe" }
       - name: Prepare code-signing certificate and sign Go Agent binaries
         shell: pwsh
         env:
-          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
-          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
-          GH_PAT_SECRETS: ${{ secrets.GH_PAT_SECRETS }}
+          # PR/merge-queue head code must never receive the release private key
+          # or secret-writing token. Its self-signed identity is runner-local.
+          WINDOWS_PFX_BASE64: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && secrets.WINDOWS_PFX_BASE64 || '' }}
+          WINDOWS_PFX_PASSWORD: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && secrets.WINDOWS_PFX_PASSWORD || '' }}
+          GH_PAT_SECRETS: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && secrets.GH_PAT_SECRETS || '' }}
           GH_REPO: ${{ github.repository }}
         run: |
           $ErrorActionPreference = "Stop"
-          $cacheDir = Join-Path $HOME ".yaseir-signing"
-          New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-          $cachedPfx = Join-Path $cacheDir "yaseir-signing.pfx"
-          $cachedPassFile = Join-Path $cacheDir "yaseir-signing.pass"
           $cert = $null
+          $hasPfx = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_PASSWORD)
+          if ($hasPfx -ne $hasPassword) { throw "Both Windows signing PFX and password secrets must be configured together" }
 
-          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_BASE64) -and -not [string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_PASSWORD)) {
+          if ($hasPfx) {
             Write-Host "Importing code-signing certificate from GitHub Secrets..."
             $pfxBytes = [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64)
             $tempPfx = Join-Path $env:RUNNER_TEMP "secret-signing.pfx"
@@ -225,25 +227,8 @@ jobs:
             } finally {
               Remove-Item -Force $tempPfx -ErrorAction SilentlyContinue
             }
-          } elseif ((Test-Path $cachedPfx) -and (Test-Path $cachedPassFile)) {
-            Write-Host "Restoring persistent self-signed certificate from Actions cache..."
-            $cachedPass = (Get-Content -LiteralPath $cachedPassFile -Raw).Trim()
-            $secPass = ConvertTo-SecureString -String $cachedPass -Force -AsPlainText
-            $cert = Import-PfxCertificate -FilePath $cachedPfx -CertStoreLocation Cert:\CurrentUser\My -Password $secPass -Exportable
-            if (-not [string]::IsNullOrWhiteSpace($env:GH_PAT_SECRETS)) {
-              $pfxBytes = [IO.File]::ReadAllBytes($cachedPfx)
-              $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
-              Write-Host "::add-mask::$($env:GH_PAT_SECRETS)"
-              Write-Host "::add-mask::$cachedPass"
-              Write-Host "::add-mask::$pfxBase64"
-              $env:GH_TOKEN = $env:GH_PAT_SECRETS
-              $pfxBase64 | & gh secret set WINDOWS_PFX_BASE64 --repo $env:GH_REPO
-              $cachedPass | & gh secret set WINDOWS_PFX_PASSWORD --repo $env:GH_REPO
-              $cert.Thumbprint | & gh secret set WINDOWS_CERTIFICATE_THUMBPRINT --repo $env:GH_REPO
-              Write-Host "Synced cached certificate secrets to GitHub Actions Secrets."
-            }
           } else {
-            Write-Host "Generating one-time persistent self-signed Code Signing certificate..."
+            Write-Host "Generating runner-local self-signed Code Signing certificate..."
             $cert = New-SelfSignedCertificate `
               -Type CodeSigningCert `
               -Subject "CN=Yaseir, O=Yaseir Cloud Printing, C=EG" `
@@ -252,23 +237,25 @@ jobs:
               -HashAlgorithm SHA256 `
               -CertStoreLocation Cert:\CurrentUser\My `
               -NotAfter (Get-Date).AddYears(5)
-            $bytes = New-Object byte[] 24
-            [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-            $password = [Convert]::ToBase64String($bytes)
-            $secPass = ConvertTo-SecureString -String $password -Force -AsPlainText
-            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $secPass)
-            [IO.File]::WriteAllBytes($cachedPfx, $pfxBytes)
-            Set-Content -LiteralPath $cachedPassFile -Value $password -NoNewline -Encoding UTF8
-
             if (-not [string]::IsNullOrWhiteSpace($env:GH_PAT_SECRETS)) {
+              # Persist an explicitly configured release identity only through
+              # GitHub Secrets; private keys/passwords must never enter caches.
+              $bytes = New-Object byte[] 24
+              [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+              $password = [Convert]::ToBase64String($bytes)
+              $secPass = ConvertTo-SecureString -String $password -Force -AsPlainText
+              $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $secPass)
               $pfxBase64 = [Convert]::ToBase64String($pfxBytes)
               Write-Host "::add-mask::$($env:GH_PAT_SECRETS)"
               Write-Host "::add-mask::$password"
               Write-Host "::add-mask::$pfxBase64"
               $env:GH_TOKEN = $env:GH_PAT_SECRETS
               $pfxBase64 | & gh secret set WINDOWS_PFX_BASE64 --repo $env:GH_REPO
+              if ($LASTEXITCODE -ne 0) { throw "Failed to persist Windows signing PFX secret" }
               $password | & gh secret set WINDOWS_PFX_PASSWORD --repo $env:GH_REPO
+              if ($LASTEXITCODE -ne 0) { throw "Failed to persist Windows signing password secret" }
               $cert.Thumbprint | & gh secret set WINDOWS_CERTIFICATE_THUMBPRINT --repo $env:GH_REPO
+              if ($LASTEXITCODE -ne 0) { throw "Failed to persist Windows signing thumbprint secret" }
               Write-Host "Automatically persisted certificate secrets to GitHub Actions Secrets."
             }
           }
@@ -281,7 +268,7 @@ jobs:
 
           foreach ($exe in @("agent\YaseirAgent.exe", "agent\yaseir-agent-cli.exe")) {
             $sig = Set-AuthenticodeSignature -FilePath $exe -Certificate $cert -HashAlgorithm SHA256
-            if ($sig.Status -ne "Valid") { throw "Authenticode signing failed for $exe ($($sig.Status))" }
+            if ($sig.Status -ne "Valid" -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { throw "Authenticode signing failed for $exe ($($sig.Status))" }
             Write-Host "Signed $exe ($($cert.Thumbprint))"
           }
 
@@ -300,13 +287,6 @@ jobs:
           } | ConvertTo-Json -Depth 6 -Compress)
           "TAURI_CONFIG=$tauriConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding UTF8
           "YASEIR_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding UTF8
-      - name: Save persistent signing certificate cache
-        if: steps.signing-cert-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.yaseir-signing
-          key: yaseir-windows-signing-cert-v1
-
       - name: Install frontend dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
       - name: Verify Tauri icon assets
@@ -375,9 +355,10 @@ jobs:
           if ($legacyExe.Count -ne 0) { throw "Legacy Odoo Print Manager installer output detected" }
           if ($env:YASEIR_SIGNING_THUMBPRINT) {
             $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq $env:YASEIR_SIGNING_THUMBPRINT } | Select-Object -First 1
+            if (-not $cert) { throw "Requested installer signing certificate was not found" }
             if ($cert) {
               $sig = Set-AuthenticodeSignature -FilePath $exe[0].FullName -Certificate $cert -HashAlgorithm SHA256
-              if ($sig.Status -ne "Valid") { throw "NSIS installer signature invalid: $($sig.Status)" }
+              if ($sig.Status -ne "Valid" -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { throw "NSIS installer signature invalid: $($sig.Status)" }
               Write-Host "Verified Authenticode signature on $($exe[0].Name) ($($cert.Thumbprint))"
             }
           }

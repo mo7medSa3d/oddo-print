@@ -5,7 +5,6 @@ import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
 import { roleLabel } from "../../lib/roles";
 import { fetchWithTimeout } from "../../lib/fetch-timeout";
-import type { MessageKey } from "../../i18n/messages/en";
 import { useRouter } from "next/navigation";
 import {
   Users,

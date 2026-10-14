@@ -80,7 +80,7 @@ describe("production fixes contracts (2026-09)", () => {
     // default in job-maintenance.ts.
     expect(jobs).toMatch(/STALE_CLAIM|agentStaleThresholdSeconds/);
     const status = read("src/lib/job-status.ts");
-    expect(status).toMatch(/AGENT_REQUEUE_REASONS\s*=\s*\[\s*"pending_full",\s*"printer_pending_full",\s*"printer_not_at_desired_state",\s*"agent_shutting_down",\s*"ledger_unavailable",\s*\]\s*as const/);
+    expect(status).toMatch(/AGENT_REQUEUE_REASONS\s*=\s*\[\s*"pending_full",\s*"printer_pending_full",\s*"printer_not_at_desired_state",\s*"printer_not_shared",\s*"agent_shutting_down",\s*"ledger_unavailable",\s*\]\s*as const/);
     const normalizedJobs = jobs.replace(/\s+/g, " ");
     expect(normalizedJobs).toContain("COALESCE(p.error, '') <> ${DELIVERY_EVIDENCE_PENDING}");
     expect(normalizedJobs).toContain("error = ${DELIVERY_EVIDENCE_PENDING}");

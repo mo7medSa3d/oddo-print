@@ -7,6 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { decodeDiagnosticResult, type DiagnosticResult } from "../../shared/diagnostic-test";
+import { readGatewayPaginationHeaders } from "./gateway-headers";
 
 /** Tauri v2 injects __TAURI_INTERNALS__ only inside the real desktop shell. */
 export const isTauri =
@@ -94,8 +95,6 @@ interface GatewayResponse {
   headers?: Record<string, string>;
 }
 
-const FLEET_RESPONSE_HEADERS = ["x-has-more", "x-next-before-created-at", "x-next-before-id-encoded", "x-next-before-id", "x-next-cursor"] as const;
-
 function gatewayErrorMessage(body: string, fallback: string): string {
   const raw = body.trim();
   if (!raw) return fallback;
@@ -167,10 +166,7 @@ async function gatewayConsoleRequest(
       body,
       credentials: "omit",
     });
-    const responseHeaders = Object.fromEntries(FLEET_RESPONSE_HEADERS.flatMap((key) => {
-      const value = response.headers.get(key);
-      return value === null ? [] : [[key, value]];
-    }));
+    const responseHeaders = readGatewayPaginationHeaders((key) => response.headers.get(key));
     return { status: response.status, body: await response.text(), headers: responseHeaders };
   }
   const responseEnvelope = await invoke<string>("gateway_agent_request", {
@@ -180,10 +176,7 @@ async function gatewayConsoleRequest(
   if (typeof response.status !== "number" || typeof response.body !== "string") {
     throw new Error("Invalid Gateway response envelope");
   }
-  const responseHeaders = Object.fromEntries(FLEET_RESPONSE_HEADERS.flatMap((key) => {
-    const value = response.headers?.[key];
-    return typeof value === "string" && value.length <= 4096 ? [[key, value]] : [];
-  }));
+  const responseHeaders = readGatewayPaginationHeaders((key) => response.headers?.[key]);
   return { status: response.status, body: response.body, headers: responseHeaders };
 }
 
@@ -311,6 +304,9 @@ export interface PrinterInfo {
   reportedStatus?: string | null;
   freshness?: "fresh" | "stale" | "missing";
   enabled: boolean;
+  sharedWithGateway?: boolean;
+  /** UI-only completion time of the fresh native snapshot, never a Gateway heartbeat. */
+  localObservedAt?: number;
   isVirtual?: boolean;
   is_virtual?: boolean;
   usbVid?: string;
@@ -352,6 +348,7 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
   const base = normalizeGatewayUrl(gatewayUrl);
   const rows = await fetchGatewayFleet(base, "/api/printers");
   return rows.map((row) => {
+    if (row.sharedWithGateway !== undefined && typeof row.sharedWithGateway !== "boolean") throw new Error("Invalid Gateway printer sharing state");
     const config = row.config && typeof row.config === "object"
       ? row.config as Record<string, unknown>
       : {};
@@ -373,6 +370,8 @@ export async function fetchGatewayPrinters(gatewayUrl: string): Promise<PrinterI
     };
     return {
       ...row,
+      localObservedAt: undefined,
+      sharedWithGateway: row.sharedWithGateway === undefined ? true : row.sharedWithGateway,
       enabled: row.lifecycle === "active",
       endpoint: rowString("endpoint") ?? stringOrUndefined(config.address),
       spooler_name:
@@ -474,12 +473,36 @@ export interface DiscoverResult {
   errors: string[];
 }
 
-export function getPrinters(): Promise<PrinterInfo[]> {
-  return invoke<PrinterInfo[]>("get_printers");
+export async function getPrinters(): Promise<PrinterInfo[]> {
+  const rows = await invoke<unknown>("get_printers");
+  if (!Array.isArray(rows)) throw new Error("Invalid local printer inventory");
+  return rows.map((row: unknown) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("Invalid local printer inventory row");
+    const p = row as Record<string, unknown>;
+    if (typeof p.id !== "string" || !p.id.trim() || typeof p.name !== "string" || typeof p.status !== "string"
+        || typeof p.enabled !== "boolean" || (p.sharedWithGateway !== undefined && typeof p.sharedWithGateway !== "boolean")) {
+      throw new Error("Invalid local printer inventory row");
+    }
+    return { ...p, localObservedAt: undefined, sharedWithGateway: p.sharedWithGateway ?? true } as unknown as PrinterInfo;
+  });
 }
 
 export function discoverPrinters(): Promise<DiscoverResult> {
   return invoke<DiscoverResult>("discover_printers");
+}
+
+export async function setPrinterSharing(printerId: string, sharedWithGateway: boolean): Promise<{ printerId: string; sharedWithGateway: boolean }> {
+  const id = printerId;
+  if (!id || id.trim() !== id || new TextEncoder().encode(id).length > 256 || id.startsWith("-") || /[\u0000-\u001f\u007f-\u009f]/.test(id) || typeof sharedWithGateway !== "boolean") {
+    throw new Error("Invalid local printer sharing request");
+  }
+  const reply = await invoke<unknown>("set_printer_sharing", { printerId: id, sharedWithGateway });
+  if (!reply || typeof reply !== "object" || Array.isArray(reply)) throw new Error("Invalid local printer sharing acknowledgment");
+  const value = reply as Record<string, unknown>;
+  if (Object.keys(value).length !== 2 || value.printerId !== id || value.sharedWithGateway !== sharedWithGateway) {
+    throw new Error("Local printer sharing acknowledgment did not match the request");
+  }
+  return { printerId: id, sharedWithGateway };
 }
 
 /** Read-only opt-in state; only an elevated Manager can change service settings. */

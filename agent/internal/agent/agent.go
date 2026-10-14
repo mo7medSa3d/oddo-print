@@ -380,17 +380,28 @@ func (a *Agent) deleteProbeState(printerID string) {
 	a.probeStateMu.Unlock()
 }
 
-// observeDesiredRevision advances the physical-observation fence only after
-// a real backend status probe returns a usable device state. Instantiating a
-// backend from configuration is not proof that the device is reachable.
+// observeDesiredRevision requires a real backend observation, independent of
+// physical readiness. Instantiating configured transport alone is not evidence.
 func (a *Agent) observeDesiredRevision(printerID, status string) {
 	a.desiredStateMu.Lock()
 	defer a.desiredStateMu.Unlock()
+	a.printersMu.RLock()
+	backend := a.printers[printerID]
+	a.printersMu.RUnlock()
+	a.observeDesiredRevisionLocked(printerID, status, backend)
+}
+
+func (a *Agent) observeDesiredRevisionLocked(printerID, status string, backend printer.Printer) {
 	row, ok := a.desiredStates[printerID]
 	if !ok || row.Desired.Lifecycle != "active" || row.ApplyError != "" {
 		return
 	}
 	usable := status == "online" || status == "busy"
+	if status == "unknown" {
+		if reporter, ok := backend.(printer.TransportObservationReporter); ok && reporter.TransportObserved() {
+			usable = true
+		}
+	}
 	if status == "unknown" && row.Desired.ConnectionType == "network" {
 		switch strings.ToLower(strings.TrimSpace(row.Desired.Protocol)) {
 		case "raw", "escpos", "zpl", "tspl":
@@ -407,6 +418,23 @@ func (a *Agent) observeDesiredRevision(printerID, status string) {
 		row.ObservedDesiredRevision = row.AppliedDesiredRevision
 		a.desiredStates[printerID] = row
 	}
+}
+
+func (a *Agent) recordPrinterProbeResult(printerID string, probedConfig config.PrinterConfig, backend printer.Printer, status string) bool {
+	a.desiredStateMu.Lock()
+	defer a.desiredStateMu.Unlock()
+	a.printersMu.RLock()
+	defer a.printersMu.RUnlock()
+	current, present := a.printerConfigs[printerID]
+	if !present || !reflect.DeepEqual(current, probedConfig) {
+		return false
+	}
+	if row, managed := a.desiredStates[printerID]; managed && !reflect.DeepEqual(current, desiredPrinterConfig(row)) {
+		return false
+	}
+	a.setProbeLastStatus(printerID, status)
+	a.observeDesiredRevisionLocked(printerID, status, backend)
+	return true
 }
 
 func (a *Agent) legacyPrinterDisabled(id string) bool {
@@ -518,6 +546,7 @@ func (a *Agent) addPrinter(id string, p printer.Printer, pc config.PrinterConfig
 	}
 	a.printers[id] = p
 	a.printerConfigs[id] = pc
+	a.setProbeLastStatus(id, "unknown")
 	return true
 }
 
@@ -663,7 +692,7 @@ func New(cfg *config.Config, configPath string) (*Agent, error) {
 	// Phase14: Do quick local discovery synchronously (config+spooler+registry) to avoid
 	// blocking startup on 8s LAN scan. Full network/USB discovery runs asynchronously.
 	quick := printer.DiscoverQuick(cfg, registryPath)
-	quick.Printers = printer.RuntimeDiscoveryPrinters(quick.Printers)
+	quick.Printers = printer.RuntimeInventoryPrinters(quick.Printers)
 	quick.Printers = a.filterGatewayOwned(quick.Printers)
 	if len(quick.Errors) > 0 {
 		for _, e := range quick.Errors {
@@ -700,7 +729,7 @@ func (a *Agent) persistDiscoveredPrinters(infos []printer.DeviceInfo) ([]printer
 		// UpsertRegistry merges the current observations with historical rows.
 		// Re-apply the runtime-capability filter so an old candidate-only LPR
 		// row cannot re-enter the production inventory after a newer scan.
-		return printer.RuntimeDiscoveryPrinters(merged), nil
+		return printer.RuntimeInventoryPrinters(merged), nil
 	}
 	log.Printf("WARNING: failed to persist discovery registry; retaining %d runtime observations: %v", len(infos), err)
 	return markRegistryPersistenceError(infos, err), err
@@ -712,11 +741,11 @@ func (a *Agent) persistDiscoveredPrinters(infos []printer.DeviceInfo) ([]printer
 // authoritative. USB/network non-response and partial source failures remain
 // additive and can never delete durable inventory.
 func (a *Agent) persistLiveDiscovery(result printer.DiscoveryResult) ([]printer.DeviceInfo, error) {
-	infos := printer.RuntimeDiscoveryPrinters(result.Printers)
+	infos := printer.RuntimeInventoryPrinters(result.Printers)
 	infos = a.filterGatewayOwned(infos)
 	merged, err := printer.ReconcileDiscoveryRegistry(a.registryPath, infos, result.CompleteSources)
 	if err == nil {
-		return printer.RuntimeDiscoveryPrinters(merged), nil
+		return printer.RuntimeInventoryPrinters(merged), nil
 	}
 	log.Printf("WARNING: failed to reconcile live discovery registry; retaining %d runtime observations: %v", len(infos), err)
 	return markRegistryPersistenceError(infos, err), err
@@ -741,7 +770,7 @@ func (a *Agent) ListPrinters() []printer.DeviceInfo {
 		log.Printf("[printer] failed to list printers: %v", err)
 		return nil
 	}
-	return printer.RuntimeDiscoveryPrinters(infos)
+	return printer.RuntimeInventoryPrinters(infos)
 }
 
 // Discover runs discovery and refreshes the local registry + printer map.
@@ -1149,7 +1178,8 @@ func (a *Agent) cleanupRetainedLocalJobs() {
 }
 
 // reportPendingTerminalStatuses replays durable local terminal outcomes until
-// the Gateway acknowledges one with a 2xx response. This is an Agent-local
+// the Gateway acknowledges one with bounded valid JSON containing success:true
+// and the requested terminal status. This is an Agent-local
 // transactional outbox: it closes the crash window between the SQLite terminal
 // write and the remote status report without ever re-running printer I/O.
 func (a *Agent) reportPendingTerminalStatuses(ctx context.Context) {
@@ -1220,7 +1250,11 @@ func (a *Agent) reportPendingPreDispatchReturns(ctx context.Context) {
 			if a.queue.ClaimTokenFor(item.ID) != item.ClaimToken {
 				return
 			}
-			if err := a.rejectJobExact(ctx, item.ID, item.ClaimToken, "agent_shutting_down"); err != nil {
+			reason := "agent_shutting_down"
+			if printerID, _, found, err := a.queue.Get(item.ID); err == nil && found && !a.isPrinterSharedWithGateway(a.resolvePrinterAlias(printerID)) {
+				reason = "printer_not_shared"
+			}
+			if err := a.rejectJobExact(ctx, item.ID, item.ClaimToken, reason); err != nil {
 				var rejected gatewayHandBackError
 				if !errors.As(err, &rejected) || (rejected.status != http.StatusConflict && rejected.status != http.StatusNotFound) {
 					log.Printf("Job %s: pre-dispatch claim return pending: %v", item.ID, err)
@@ -2259,6 +2293,10 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 	if !ok {
 		return printer.TransportFacts{}, false
 	}
+	return printerConfigFacts(pc), true
+}
+
+func printerConfigFacts(pc config.PrinterConfig) printer.TransportFacts {
 	proto, err := pc.NormalizedProtocol()
 	family := proto
 	if err != nil {
@@ -2275,14 +2313,38 @@ func (a *Agent) deviceFacts(printerID string) (printer.TransportFacts, bool) {
 		}
 	} else if explicit, ok := pc.Capabilities["supported_protocols"].([]string); ok {
 		supportedProtocolsDeclared = true
-		caps = explicit
+		caps = append([]string(nil), explicit...)
 	}
 	return printer.TransportFacts{
 		Protocol:                  family,
 		Connection:                pc.NormalizedType(),
 		SupportedProtocol:         caps,
 		SupportedProtocolDeclared: supportedProtocolsDeclared,
-	}, true
+	}
+}
+
+func (a *Agent) recordPrinterProtocolObservation(printerID string, pc config.PrinterConfig, facts printer.TransportFacts) bool {
+	if !facts.SupportedProtocolDeclared {
+		return false
+	}
+	a.desiredStateMu.Lock()
+	defer a.desiredStateMu.Unlock()
+	a.printersMu.RLock()
+	defer a.printersMu.RUnlock()
+	current, present := a.printerConfigs[printerID]
+	row, managed := a.desiredStates[printerID]
+	if !present || !managed || !reflect.DeepEqual(current, pc) ||
+		!samePrinterTransportBinding(pc, desiredPrinterConfig(row)) {
+		return false
+	}
+	observed := append([]string(nil), facts.SupportedProtocol...)
+	if row.ObservedSupportedProtocolsKnown && reflect.DeepEqual(row.ObservedSupportedProtocols, observed) {
+		return false
+	}
+	row.ObservedSupportedProtocols = observed
+	row.ObservedSupportedProtocolsKnown = true
+	a.desiredStates[printerID] = row
+	return true
 }
 
 // printStatusTransport describes the selected, configured transport, NOT a
@@ -2330,15 +2392,22 @@ func (a *Agent) gatewayOwnedPrinterIDs() []string {
 }
 
 func (a *Agent) printerStatusPayload() []map[string]interface{} {
+	return a.printerStatusPayloadWithSharing(a.loadLocalPrinterSharing())
+}
+
+func (a *Agent) printerStatusPayloadWithSharing(sharing localPrinterSharingSnapshot) []map[string]interface{} {
 	// Snapshot the printer map under the read lock: the async discovery
 	// goroutine may add printers while heartbeats probe statuses.
 	a.printersMu.RLock()
 	ids := make([]string, 0, len(a.printers))
 	for id := range a.printers {
 		pc := a.printerConfigs[id]
+		if shared, err := sharing.shared(pc); !shared || err != nil {
+			continue
+		}
 		c := printer.ClassifyDeviceInfo(printer.DeviceInfo{
 			Name: pc.Name, PrinterType: pc.PrinterType,
-			SpoolerName: pc.SpoolerName, ConnectionType: pc.NormalizedType(),
+			SpoolerName: pc.SpoolerName, Endpoint: pc.Endpoint, ConnectionType: pc.NormalizedType(),
 			Protocol: pc.NormalizedProtocolOrUnknown(), Capabilities: pc.Capabilities,
 		})
 		if c.IsVirtual || c.Class == printer.ClassRedirected {
@@ -2358,6 +2427,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	sort.Strings(ids) // deterministic order aids gateway-side diffing
 
 	statuses := make([]string, len(ids))
+	details := make([]string, len(ids))
 	// Probe results flow back through a bounded worker pool. The old heartbeat
 	// ceiling implicitly capped this at 500 goroutines; once inventory became
 	// paginated, keeping one goroutine per printer would turn a large fleet
@@ -2366,6 +2436,7 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	type probeResult struct {
 		idx    int
 		status string
+		detail string
 	}
 	type probeWork struct {
 		idx   int
@@ -2381,8 +2452,9 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		state := a.getProbeState(id)
 		if !state.running.CompareAndSwap(false, true) {
 			// A previous probe is still running in the OS/RPC driver!
-			// Do NOT spawn another goroutine. Reuse the last known status.
-			statuses[i] = a.probeLastStatus(id)
+			// Do NOT spawn another goroutine or reissue cached health as a
+			// fresh observation. Internal last-known evidence stays diagnostic.
+			statuses[i] = "unknown"
 			probed[i] = true
 			continue
 		}
@@ -2405,18 +2477,24 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 						work.state.running.Store(false)
 						a.deleteProbeState(work.pid)
 					}()
-					status := "error"
+					status, detail := "unknown", ""
 					func() {
 						defer func() {
 							if r := recover(); r != nil {
+								status, detail = "unknown", ""
 								log.Printf("Status probe panic for %s: %v", work.pid, r)
 							}
 						}()
-						status = work.p.Status()
+						observed := work.p.Status()
+						if !a.recordPrinterProbeResult(work.pid, configByID[work.pid], work.p, observed) {
+							return
+						}
+						status = observed
+						if reporter, ok := work.p.(interface{ StatusDetail() string }); ok {
+							detail = boundedDiscoveryText(strings.TrimSpace(reporter.StatusDetail()), 255)
+						}
 					}()
-					a.setProbeLastStatus(work.pid, status)
-					a.observeDesiredRevision(work.pid, status)
-					results <- probeResult{idx: work.idx, status: status}
+					results <- probeResult{idx: work.idx, status: status, detail: detail}
 				}()
 			}
 		}()
@@ -2432,10 +2510,10 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 	// wedged driver. Each individual probe already has its own timeout
 	// (spooler 5s, network 2s, IPP 5s), but a fleet of slow printers could
 	// still exceed the heartbeat HTTP budget. After 10s total, stop waiting:
-	// slow printers keep their last-known status and their helpers finish in
+	// slow printers report unknown and their helpers finish in
 	// the background (single-flight guarantees at most one stuck helper per
 	// printer, and the bounded pool caps total helpers). The next heartbeat
-	// reuses the cached result until the stuck probe clears.
+	// remains unknown until its own completed read provides current evidence.
 	// A bad printer probe must never make the Agent appear offline.
 	budgetTimer := time.NewTimer(10 * time.Second)
 	defer budgetTimer.Stop()
@@ -2444,23 +2522,21 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		select {
 		case res := <-results:
 			statuses[res.idx] = res.status
+			details[res.idx] = res.detail
 			probed[res.idx] = true
 			pendingProbes--
 		case <-warningC:
 			warningC = nil
 			deferred := 0
-			for i, id := range ids {
+			for i := range ids {
 				if !probed[i] {
-					statuses[i] = a.probeLastStatus(id)
-					if statuses[i] == "" {
-						statuses[i] = "unknown"
-					}
+					statuses[i] = "unknown"
 					probed[i] = true
 					pendingProbes--
 					deferred++
 				}
 			}
-			log.Printf("WARNING: Printer status probe batch exceeded 10s budget; %d slow probe(s) deferred to background (last-known status reported)", deferred)
+			log.Printf("WARNING: Printer status probe batch exceeded 10s budget; %d slow probe(s) deferred to background (current status unknown)", deferred)
 		}
 	}
 	// Slow helpers are single-flight per printer and self-clearing; joining
@@ -2488,15 +2564,16 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 		printerType := normalizePrinterType(pc.PrinterType)
 		// Build payload with all required fields for Gateway inventory
 		entry := map[string]interface{}{
-			"id":             id,
-			"name":           heartbeatPrinterName(pc.Name, id),
-			"displayName":    boundedDiscoveryText(pc.Name, 255),
-			"printerType":    printerType,
-			"deviceClass":    deviceClass,
-			"connectionType": nt,
-			"protocol":       proto,
-			"status":         statuses[i],
-			"config":         endpointToConfig(pc),
+			"sharedWithGateway": true,
+			"id":                id,
+			"name":              heartbeatPrinterName(pc.Name, id),
+			"displayName":       boundedDiscoveryText(pc.Name, 255),
+			"printerType":       printerType,
+			"deviceClass":       deviceClass,
+			"connectionType":    nt,
+			"protocol":          proto,
+			"status":            statuses[i],
+			"config":            endpointToConfig(pc),
 		}
 		// Include USB identifiers if present
 		if pc.USBVID != "" {
@@ -2553,9 +2630,19 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			}
 			caps[k] = v
 		}
-		facts, found := a.deviceFacts(id)
+		// A config/registry capability is not a current health observation.
+		delete(caps, "status_detail")
+		// The selected nominal media width is independent of printable dots.
+		// Match the backend's top-level precedence, including office media.
+		if pc.PaperWidthMM > 0 && pc.PaperWidthMM <= 1000 {
+			caps["paper_width_mm"] = pc.PaperWidthMM
+		}
+		facts := printer.TransportFacts{}
+		_, found := configByID[id]
 		if !found {
 			log.Printf("[printer] device facts unavailable for %s; using unknown transport capabilities", id)
+		} else {
+			facts = printerConfigFacts(pc)
 		}
 		if _, ok := caps["supported_protocols"]; !ok {
 			// Derive the honest protocol list from the declared transport
@@ -2563,23 +2650,11 @@ func (a *Agent) printerStatusPayload() []map[string]interface{} {
 			// cross-protocol compatibility.
 			caps["supported_protocols"] = printer.SupportedProtocolsForDevice(facts)
 		}
-		if reporter, ok := printerByID[id].(interface{ StatusDetail() string }); ok {
-			if detail := strings.TrimSpace(reporter.StatusDetail()); detail != "" {
-				caps["status_detail"] = boundedDiscoveryText(detail, 255)
-			}
+		if details[i] != "" {
+			caps["status_detail"] = details[i]
 		}
-		if facts.SupportedProtocolDeclared {
-			a.desiredStateMu.Lock()
-			if row, managed := a.desiredStates[id]; managed {
-				observed := append([]string(nil), facts.SupportedProtocol...)
-				if !row.ObservedSupportedProtocolsKnown || !reflect.DeepEqual(row.ObservedSupportedProtocols, observed) {
-					row.ObservedSupportedProtocols = observed
-					row.ObservedSupportedProtocolsKnown = true
-					a.desiredStates[id] = row
-					observedCapabilityStateChanged = true
-				}
-			}
-			a.desiredStateMu.Unlock()
+		if a.recordPrinterProtocolObservation(id, pc, facts) {
+			observedCapabilityStateChanged = true
 		}
 		if len(caps) > 0 {
 			entry["capabilities"] = caps
@@ -2710,6 +2785,12 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 			cfgMap[k] = v
 		}
 	}
+	if pc.PaperWidthMM > 0 && pc.PaperWidthMM <= 1000 {
+		cfgMap["paper_width_mm"] = pc.PaperWidthMM
+		// Keep the manager desired-state representation aligned with the
+		// explicit selected width rather than a conflicting capability bag.
+		cfgMap["paper_widths"] = []interface{}{pc.PaperWidthMM}
+	}
 	// Legacy alias
 	if pc.PrinterType != "" {
 		cfgMap["printer_type"] = pc.PrinterType
@@ -2725,7 +2806,7 @@ func (a *Agent) reconcileRegistryPrinters(infos []printer.DeviceInfo) {
 	// Gateway-owned printer IDs remain authoritative until the Gateway desired
 	// state explicitly removes them. A stale printers.json entry must never
 	// re-enter the runtime registry during the heartbeat preflight.
-	infos = a.filterGatewayOwned(infos)
+	infos = a.filterGatewayOwned(printer.RuntimeInventoryPrinters(infos))
 
 	yamlOwned := make(map[string]struct{}, len(a.cfg.Printers))
 	for _, pc := range a.cfg.Printers {
@@ -2793,7 +2874,7 @@ func (a *Agent) reloadRegistryPrinters() bool {
 	// Old releases could persist candidate-only LPR observations even though
 	// there is no LPR execution backend. Keep those historical rows from
 	// re-entering runtime reconciliation/heartbeat after upgrade.
-	infos = printer.RuntimeDiscoveryPrinters(infos)
+	infos = printer.RuntimeInventoryPrinters(infos)
 	a.reconcileRegistryPrinters(infos)
 	return true
 }
@@ -2807,7 +2888,13 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 		return
 	}
 	reqURL := "/api/agent/heartbeat"
-	printerPayload := a.printerStatusPayload()
+	sharing := a.loadLocalPrinterSharing()
+	privateIDs, sharingComplete := a.privatePrinterIDs(sharing)
+	if !sharingComplete {
+		inventoryComplete = false
+		log.Printf("Heartbeat sharing inventory incomplete: local policy or execution binding could not be read")
+	}
+	printerPayload := a.printerStatusPayloadWithSharing(sharing)
 	desiredAcks := a.desiredStateAcksPayload()
 	gatewayOwnedIDs := a.gatewayOwnedPrinterIDs()
 
@@ -2819,7 +2906,7 @@ func (a *Agent) sendHeartbeatContext(parent context.Context) {
 	// entry can never bypass the ownership fence merely because it landed on a
 	// different page.
 	keepAlive := a.inFlightJobIDs(64)
-	pages := buildHeartbeatPayloadPages(printerPayload, desiredAcks, gatewayOwnedIDs, keepAlive, inventoryComplete)
+	pages := buildHeartbeatPayloadPages(printerPayload, desiredAcks, gatewayOwnedIDs, privateIDs, keepAlive, inventoryComplete)
 	for pageIndex, payload := range pages {
 		if parent.Err() != nil {
 			return
@@ -3098,6 +3185,15 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state")
 		return
 	}
+	if !a.isPrinterSharedWithGateway(localPrinterID) {
+		a.queue.AbortPrint(jobID, "printer_not_shared")
+		if err := a.rejectJob(ctx, jobID, claimToken, "printer_not_shared"); err == nil {
+			if err := a.queue.ClearPreDispatchClaim(jobID, claimToken); err != nil {
+				log.Printf("Job %s: private pre-dispatch return acknowledged but local token clear failed: %v", jobID, err)
+			}
+		}
+		return
+	}
 	// Two agents in one tenant can share local discovery coordinates; the
 	// Gateway then addresses this agent's device under a deterministic
 	// "<local>~<agent>" alias. Recover the local backend: exact local IDs
@@ -3217,11 +3313,16 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	printCtx, cancel := context.WithTimeout(ctx, printDocumentTimeout(len(pl.Data)))
 	defer cancel()
 	printCtx = printer.WithDispatchAdmission(printCtx, func(admissionCtx context.Context) error {
-		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) {
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) || !a.isPrinterSharedWithGateway(localPrinterID) {
 			return fmt.Errorf("dispatch refused: agent or printer configuration changed before this transport submission")
 		}
 		if err := a.updateJobStatusWithTransport(admissionCtx, jobID, "printing", "", claimToken, "", statusTransport); err != nil {
 			return fmt.Errorf("dispatch refused after preparation: %w", err)
+		}
+		// The bounded claim ACK is itself a wait. A local unshare during that
+		// request must still fence native creation/first bytes on its return.
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) || !a.isPrinterSharedWithGateway(localPrinterID) {
+			return fmt.Errorf("dispatch refused: local printer admission changed while acknowledging the claim")
 		}
 		return nil
 	})

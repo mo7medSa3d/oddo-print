@@ -56,7 +56,7 @@ function PlatformNavigation({
                     className={["sidebar-item tg-nav-item", active ? "sidebar-item-active" : "", collapsed ? "justify-center px-0" : ""].join(" ")}
                   >
                     {Icon && <NavIconFrame active={active}><Icon className="h-[17px] w-[17px]" /></NavIconFrame>}
-                    {!collapsed && <span className="truncate">{label}</span>}
+                    {!collapsed && <span className="min-w-0 flex-1 break-words leading-snug">{label}</span>}
                   </Link>
                 </li>
               );
@@ -119,13 +119,13 @@ export function PlatformSidebar({
   }
 
   return (
-    <div className="tg-shell-root tg-platform-shell min-h-screen min-w-0 max-w-full bg-app text-ink font-sans selection:bg-brand/20" style={{ "--nav-w": collapsed ? "80px" : "264px" } as CSSProperties}>
+    <div className="tg-shell-root tg-platform-shell min-h-screen min-w-0 max-w-full bg-app text-ink font-sans selection:bg-brand/20" style={{ "--nav-w": collapsed ? "var(--sidebar-collapsed)" : "var(--sidebar-width)" } as CSSProperties}>
       <aside
         aria-label={t("platform.brand.controlPlane")}
         className="tg-console-rail fixed z-40 hidden flex-col lg:flex"
         style={{ width: "var(--nav-w)", transition: hydrated ? "width var(--dur-normal) var(--ease-out)" : undefined }}
       >
-        <div className={["flex h-14 shrink-0 items-center gap-2 border-b border-edge-subtle", collapsed ? "justify-center px-2" : "px-4"].join(" ")}>
+        <div className={["flex min-h-18 shrink-0 items-center gap-2 border-b border-edge-subtle py-3", collapsed ? "justify-center px-2" : "px-4"].join(" ")}>
           <Link href="/platform/dashboard" aria-label={t("nav.home")} className="flex min-w-0 items-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">
             <BrandMark size="sm" subtitle={t("platform.brand.controlPlane")} showWordmark={!collapsed} />
           </Link>
@@ -135,7 +135,7 @@ export function PlatformSidebar({
               onClick={toggleCollapsed}
               aria-label={t("nav.collapseNavigation")}
               title={t("nav.collapseNavigation")}
-              className="ms-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+              className="ms-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-ink-4 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
             >
               <PanelLeftClose className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
             </button>
@@ -155,7 +155,7 @@ export function PlatformSidebar({
                 onClick={onLogout}
                 aria-label={t("nav.signOut")}
                 title={t("nav.signOut")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <LogOut className="h-4 w-4" aria-hidden />
               </button>
@@ -164,16 +164,16 @@ export function PlatformSidebar({
                 onClick={toggleCollapsed}
                 aria-label={t("nav.expandNavigation")}
                 title={t("nav.expandNavigation")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <PanelLeftOpen className="h-4 w-4 rtl:-scale-x-100" aria-hidden />
               </button>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-2 px-2">
-                <span className="truncate text-xs font-[600] text-ink-3">{t("nav.controlPlaneBadge")}</span>
-                <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-2">
+                <span className="min-w-0 break-words text-xs font-[600] text-ink-3">{t("nav.controlPlaneBadge")}</span>
+                <div className="flex shrink-0 items-center gap-1">
                   <LanguageSwitcher align="start" placement="above" />
                   <ThemeToggle />
                 </div>
@@ -216,13 +216,13 @@ export function PlatformSidebar({
             aria-label={t("platform.brand.controlPlane")}
             className="tg-mobile-sheet pg-slide-in-left absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col rounded-e-2xl border-e border-edge-strong bg-surface shadow-2xl"
           >
-            <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3">
+            <div className="flex min-h-18 shrink-0 items-center justify-between gap-2 border-b border-edge-subtle px-3 py-3">
               <BrandMark size="sm" subtitle={t("platform.brand.controlPlane")} />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 aria-label={t("nav.closeNavigation")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -231,7 +231,7 @@ export function PlatformSidebar({
               <PlatformNavigation items={items} pathname={pathname} onNavigate={() => setMobileOpen(false)} />
             </div>
             <div className="shrink-0 space-y-2 border-t border-edge-subtle p-3">
-              <div className="flex items-center justify-between px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <span className="text-xs font-[600] text-ink-3">{t("nav.controlPlaneBadge")}</span>
                 <div className="flex items-center gap-1">
                   <LanguageSwitcher align="start" placement="above" />

@@ -5,6 +5,7 @@ import { and, sql } from "drizzle-orm";
 import { fencedDeliveryWrite } from "./job-fencing";
 import { MAX_DELIVERY_ATTEMPTS, MAX_RETRIES, DELIVERY_EVIDENCE_PENDING } from "./job-maintenance";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
+import { PRINTER_NOT_SHARED_PAUSE } from "./job-status";
 
 /**
  * Hard ceiling on live (claimed + printing, unexpired) jobs per agent.
@@ -153,6 +154,7 @@ export async function claimJobForDelivery(
         AND p.tenant_id = a.tenant_id
         AND p.agent_id = ${agentId}
         AND p.status = 'queued'
+        AND COALESCE(p.error, '') <> ${PRINTER_NOT_SHARED_PAUSE}
         AND p.expires_at > now()
         AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
         AND p.retries < ${MAX_RETRIES}
@@ -163,6 +165,7 @@ export async function claimJobForDelivery(
         AND a.last_seen_at >= now() - make_interval(secs => ${agentStaleThresholdSeconds()})
         AND pr.lifecycle = 'active'
         AND pr.inventory_present = true
+        AND pr.shared_with_gateway = true
         AND (pr.status = 'online' OR pr.status = 'busy' OR (pr.status = 'unknown' AND (pr.connection_type = 'spooler' OR pr.connection_type IN ('ipp','ipps') OR (pr.connection_type = 'network' AND pr.protocol IN ('ipp','ipps')) OR (pr.connection_type IN ('network','usb') AND pr.protocol IN ('raw','escpos','zpl','tspl')))))
         AND (pr.management_source = 'agent' OR (
           pr.applied_desired_revision >= pr.desired_revision

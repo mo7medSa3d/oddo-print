@@ -15,11 +15,13 @@ import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { liveTenantSubscriptionPredicate } from "../../../../lib/entitlements";
 import { recordJobEvent } from "../../../../lib/job-timeline";
+import { PRINTER_NOT_SHARED_PAUSE } from "../../../../lib/job-status";
 
 export const dynamic = "force-dynamic";
 const printerEligibilityPredicate = (tenantId: SQL) => sql`
   pr.lifecycle = 'active'
   AND pr.inventory_present = true
+  AND pr.shared_with_gateway = true
   AND (
     pr.status = 'online'
     OR pr.status = 'busy'
@@ -181,6 +183,7 @@ export async function GET(req: Request) {
         WHERE p.agent_id = ${agent.id}
           AND p.expires_at > now()
           AND p.status = 'queued'
+          AND COALESCE(p.error, '') <> ${PRINTER_NOT_SHARED_PAUSE}
           AND p.delivery_attempts < ${MAX_DELIVERY_ATTEMPTS}
           AND p.retries < ${MAX_RETRIES}
           AND ${queuedLimit} > 0
@@ -487,7 +490,7 @@ export async function PATCH(req: Request) {
         deliveredAt: null,
         ackedAt: null,
         claimedAt: null,
-        error: `Agent returned job before execution (${reason})`,
+        error: reason === "printer_not_shared" ? PRINTER_NOT_SHARED_PAUSE : `Agent returned job before execution (${reason})`,
         updatedAt: sql`clock_timestamp()`,
         // claimed has not crossed printing admission, even when WS delivery
         // and ACK evidence exist. This is a pre-execution hand-back: no printer bytes were

@@ -80,6 +80,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       protocol: printer.protocol,
       connectionType: printer.connectionType,
       capabilities: printer.capabilities,
+      config: printer.config,
     }, idempotencyKey ?? undefined);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Test page not supported for this printer", code: "CAPABILITY_MISMATCH", retryable: false }, { status: 422 });

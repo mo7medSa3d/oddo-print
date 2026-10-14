@@ -31,6 +31,7 @@ const CODE_KEYS: Record<string, MessageKey> = {
   LIFECYCLE_CONFLICT: "errors.lifecycleConflict",
   // Printers
   PRINTER_NOT_FOUND: "errors.printerNotFound",
+  PRINTER_NOT_SHARED: "printer.presentation.notSharedReason",
   PRINTER_OWNER_MISSING: "errors.printerOwnerMissing",
   PRINTER_INVALID_LIFECYCLE: "errors.printerInvalidLifecycle",
   PRINTER_TRANSITION_BLOCKED: "errors.printerTransitionBlocked",

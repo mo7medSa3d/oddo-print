@@ -169,7 +169,7 @@ func FactsFromDevice(d DeviceInfo) DeviceFacts {
 		f.HardwareIDs = capStringSlice(caps, "hardware_ids")
 		f.CompatibleIDs = capStringSlice(caps, "compatible_ids")
 	}
-	if f.SpoolerName == "" && spoolerToLowerTrim(f.ConnectionType) == "spooler" {
+	if f.SpoolerName == "" && isSpoolerDevice(d) {
 		f.SpoolerName = d.Endpoint
 	}
 	return f
@@ -368,15 +368,17 @@ func ClassifyDevice(f DeviceFacts) DeviceClassification {
 
 // redirectedEvidence looks for Remote Desktop / Citrix / VMware tunnels.
 func redirectedEvidence(f DeviceFacts) (string, bool) {
-	name := spoolerToLowerTrim(f.Name)
 	// Windows names RDP-redirected queues "HP LaserJet (redirected 3)";
 	// Citrix uses "… (from WKS12) in session 4".
-	inSession := strings.Contains(name, "in session")
-	if strings.Contains(name, "(redirected") ||
-		strings.HasSuffix(name, "redirected)") ||
-		strings.Contains(name, " in session ") ||
-		(strings.Contains(name, "(from ") && inSession) {
-		return "redirected-printer-name", true
+	for _, label := range []string{f.Name, f.DisplayName, f.SpoolerName} {
+		name := spoolerToLowerTrim(label)
+		inSession := strings.Contains(name, "in session")
+		if strings.Contains(name, "(redirected") ||
+			strings.HasSuffix(name, "redirected)") ||
+			strings.Contains(name, " in session ") ||
+			(strings.Contains(name, "(from ") && inSession) {
+			return "redirected-printer-name", true
+		}
 	}
 	// Terminal Services port monitors are named TS001, TS002 …
 	port := portHead(f.PortName)
@@ -422,11 +424,14 @@ func virtualEvidence(f DeviceFacts) []string {
 			reasons = append(reasons, "software-writer-driver:"+t)
 		}
 	}
-	name := spoolerToLowerTrim(f.Name)
-	if name != "" {
-		for _, t := range softwareWriterTokens {
+	// A custom friendly label cannot erase known software evidence in the
+	// actual Windows queue name, including manual/configured registrations.
+	names := [3]string{spoolerToLowerTrim(f.Name), spoolerToLowerTrim(f.DisplayName), spoolerToLowerTrim(f.SpoolerName)}
+	for _, t := range softwareWriterTokens {
+		for _, name := range names {
 			if strings.Contains(name, t) {
 				reasons = append(reasons, "software-writer-name:"+t)
+				break
 			}
 		}
 	}

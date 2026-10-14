@@ -21,6 +21,8 @@ const printers = [
     connectionType: "spooler",
     protocol: "spooler",
     status: "online",
+    enabled: true,
+    sharedWithGateway: true,
     spoolerName: "HP LaserJet Pro M404",
     endpoint: "HP LaserJet Pro M404",
   },
@@ -32,6 +34,8 @@ const printers = [
     connectionType: "network",
     protocol: "raw",
     status: "online",
+    enabled: true,
+    sharedWithGateway: false,
     endpoint: "192.168.1.62:9100",
     networkAddress: "192.168.1.62",
     port: 9100,
@@ -75,7 +79,7 @@ const jobs = [
 
 async function invoke<T>(
   cmd: string,
-  options?: { args?: { path?: string; method?: string } },
+  options?: { args?: { path?: string; method?: string }; printerId?: string; sharedWithGateway?: boolean },
 ): Promise<T> {
   switch (cmd) {
     case "plugin:event|listen":
@@ -85,7 +89,7 @@ async function invoke<T>(
       const body = path.startsWith("/api/agents")
         ? [{ id: "agent-1", name: "Reception Agent", status: "online", lifecycle: "active" }]
         : path.startsWith("/api/printers")
-          ? printers
+          ? printers.filter((p) => p.sharedWithGateway !== false)
           : jobs;
       return JSON.stringify({ status: 200, body: JSON.stringify(body) }) as unknown as T;
     }
@@ -98,7 +102,7 @@ async function invoke<T>(
           : path === "/api/agents"
             ? [{ id: "agent-1", name: "Reception Agent", status: "online", lifecycle: "active" }]
             : path === "/api/printers"
-              ? printers
+              ? printers.filter((p) => p.sharedWithGateway !== false)
               : jobs;
       return {
         status: 200,
@@ -115,6 +119,8 @@ async function invoke<T>(
       } as unknown as T;
     case "get_app_version":
       return "1.0.0" as unknown as T;
+    case "set_tray_locale":
+      return undefined as unknown as T;
     case "is_running_as_admin":
       return true as unknown as T;
     case "get_gateway_config":
@@ -129,6 +135,12 @@ async function invoke<T>(
       } as unknown as T;
     case "get_printers":
       return printers as unknown as T;
+    case "set_printer_sharing": {
+      const printer = printers.find((p) => p.id === options?.printerId);
+      if (!printer || typeof options?.sharedWithGateway !== "boolean") throw new Error("Invalid smoke sharing request");
+      printer.sharedWithGateway = options.sharedWithGateway;
+      return { printerId: printer.id, sharedWithGateway: printer.sharedWithGateway } as unknown as T;
+    }
     case "discover_printers":
       return { printers, errors: [] } as unknown as T;
     case "get_autostart":
@@ -200,6 +212,19 @@ describe("desktop manager", () => {
     expect(text()).toContain("Zebra ZD421");
     // The virtual queue survives the IPC stub but must never reach the screen.
     expect(text()).not.toContain("Microsoft Print to PDF");
+
+    window.location.hash = "printers";
+    window.dispatchEvent(new Event("hashchange"));
+    // The local-inventory read and the elevated-rights check settle independently.
+    // Visibility is not proof that an elevated, fresh inventory is ready yet.
+    await waitUntil(() => document.querySelector<HTMLButtonElement>('[data-printer-sharing="p2"] button')?.disabled === false);
+    const share = document.querySelector<HTMLButtonElement>('[data-printer-sharing="p2"] button')!;
+    expect(share.disabled).toBe(false);
+    expect(share.getAttribute("aria-label")).toBe("Share Zebra ZD421 with Gateway");
+    share.click();
+    await waitUntil(() => document.querySelector('[data-printer-sharing="p2"]')?.textContent?.includes("Gateway sharing enabled") === true);
+    expect(printers.find((p) => p.id === "p2")?.sharedWithGateway).toBe(true);
+    expect(text()).toContain("Sharing preference saved on this computer");
 
     for (const page of ["printers", "jobs", "test-center", "agents", "settings"] as const) {
       window.location.hash = page;

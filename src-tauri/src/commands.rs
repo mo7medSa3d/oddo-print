@@ -9,6 +9,10 @@ use crate::agent;
 use crate::logging;
 use crate::paths;
 
+const GATEWAY_CONSOLE_MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+// Five allowed4096-byte pagination headers plus envelope field names fit64KiB.
+// Go json.Marshal may expand an ASCII body/header byte to a six-byte escape.
+const GATEWAY_CONSOLE_MAX_ENVELOPE_BYTES: usize = 6 * (GATEWAY_CONSOLE_MAX_BODY_BYTES + 64 * 1024);
 /// Execute a blocking operation (process spawn, sc.exe/tasklist, or the
 /// pairing CLI's HTTP round-trip) on Tauri's blocking thread pool. Tauri runs
 /// synchronous commands on the main thread, so without this every long action
@@ -50,8 +54,8 @@ fn launch_elevated_manager() -> Result<(), String> {
     }
 
     const SW_SHOWNORMAL: i32 = 1;
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("resolve current Manager executable: {e}"))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("resolve current Manager executable: {e}"))?;
     let operation: Vec<u16> = std::ffi::OsStr::new("runas")
         .encode_wide()
         .chain(Some(0))
@@ -168,26 +172,35 @@ pub fn is_running_as_admin() -> bool {
 // agent::status; a service still needs a restart after an Agent upgrade.
 fn bundled_agent_build_marker(app: &tauri::AppHandle) -> String {
     static BUNDLED_AGENT_BUILD: OnceLock<String> = OnceLock::new();
-    BUNDLED_AGENT_BUILD.get_or_init(|| {
-        let Ok(path) = agent::agent_path(app) else { return "unavailable".into(); };
-        let mut cmd = Command::new(path);
-        cmd.arg("-version");
-        let Ok(output) = agent::run_bounded_command(
-            cmd,
-            std::time::Duration::from_secs(3),
-            256,
-            256,
-        ) else { return "unavailable".into(); };
-        if !output.status.success() { return "unavailable".into(); }
-        let Ok(marker) = std::str::from_utf8(&output.stdout) else { return "unavailable".into(); };
-        let marker = marker.trim();
-        if marker.len() <= 128 && marker.starts_with("YaseirAgent go=")
-            && !marker.chars().any(char::is_control) {
-            marker.to_string()
-        } else {
-            "legacy / unverified".into()
-        }
-    }).clone()
+    BUNDLED_AGENT_BUILD
+        .get_or_init(|| {
+            let Ok(path) = agent::agent_path(app) else {
+                return "unavailable".into();
+            };
+            let mut cmd = Command::new(path);
+            cmd.arg("-version");
+            let Ok(output) =
+                agent::run_bounded_command(cmd, std::time::Duration::from_secs(3), 256, 256)
+            else {
+                return "unavailable".into();
+            };
+            if !output.status.success() {
+                return "unavailable".into();
+            }
+            let Ok(marker) = std::str::from_utf8(&output.stdout) else {
+                return "unavailable".into();
+            };
+            let marker = marker.trim();
+            if marker.len() <= 128
+                && marker.starts_with("YaseirAgent go=")
+                && !marker.chars().any(char::is_control)
+            {
+                marker.to_string()
+            } else {
+                "legacy / unverified".into()
+            }
+        })
+        .clone()
 }
 
 #[tauri::command]
@@ -213,8 +226,15 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
     // included — no invented values.
     match tauri::async_runtime::spawn_blocking(move || {
         let status = agent::status(&app);
-        (status.0, status.1, status.2, bundled_agent_build_marker(&app))
-    }).await {
+        (
+            status.0,
+            status.1,
+            status.2,
+            bundled_agent_build_marker(&app),
+        )
+    })
+    .await
+    {
         Ok((running, service_running, note, version)) => {
             let note_code = if note.starts_with("service state unavailable:") {
                 "service_status_unavailable"
@@ -240,7 +260,7 @@ pub async fn get_agent_status(app: tauri::AppHandle) -> AgentStatus {
                 note_code: note_code.into(),
                 ..base
             }
-        },
+        }
         Err(e) => AgentStatus {
             note: format!("status check failed: {e}"),
             note_code: "status_check_failed".into(),
@@ -284,15 +304,18 @@ fn run_capture_mode(app: &tauri::AppHandle, mode: &str) -> Result<bool, String> 
     let root = paths::agent_data_root();
     let mut cmd = Command::new(cli);
     cmd.arg("capture-config")
-        .arg("-mode").arg(mode)
-        .arg("-config").arg(&config)
+        .arg("-mode")
+        .arg(mode)
+        .arg("-config")
+        .arg(&config)
         .env("YASEIR_AGENT_DATA_DIR", &root);
-    let output = agent::run_bounded_command(
-        cmd, std::time::Duration::from_secs(15), 1024, 8192,
-    )?;
+    let output = agent::run_bounded_command(cmd, std::time::Duration::from_secs(15), 1024, 8192)?;
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Agent capture setting: {}", error.trim().chars().take(480).collect::<String>()));
+        return Err(format!(
+            "Agent capture setting: {}",
+            error.trim().chars().take(480).collect::<String>()
+        ));
     }
     let reply: CaptureModeReply = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("invalid Agent capture setting response: {e}"))?;
@@ -307,7 +330,10 @@ pub async fn get_e2e_capture_config(app: tauri::AppHandle) -> Result<bool, Strin
 #[tauri::command]
 pub async fn set_e2e_capture_config(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
     if !is_running_as_admin() {
-        return Err("Administrator privileges are required to change the Agent service configuration".into());
+        return Err(
+            "Administrator privileges are required to change the Agent service configuration"
+                .into(),
+        );
     }
     run_blocking(move || run_capture_mode(&app, if enabled { "enable" } else { "disable" })).await
 }
@@ -358,7 +384,9 @@ fn normalize_gateway_url(raw: &str) -> Result<String, String> {
     if parsed.username() != "" || parsed.password().is_some() {
         return Err("gateway URL cannot include embedded credentials".into());
     }
-    if parsed.path() != "/" { return Err("gateway URL must use the origin root".into()); }
+    if parsed.path() != "/" {
+        return Err("gateway URL must use the origin root".into());
+    }
     if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err("gateway URL cannot include query strings or fragments".into());
     }
@@ -523,8 +551,7 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
 
     let started = std::time::Instant::now();
     logging::info(&format!("Gateway probe started origin={base}"));
-    let client = gateway_http_client()
-        .map_err(|e| log_gateway_probe_error(&base, started, e))?;
+    let client = gateway_http_client().map_err(|e| log_gateway_probe_error(&base, started, e))?;
     let response = client
         .get(target)
         .header("Origin", "tauri://localhost")
@@ -533,47 +560,80 @@ pub async fn probe_gateway_health(url: String) -> Result<GatewayResponse, String
         .map_err(|e| log_gateway_probe_error(&base, started, gateway_http_error_detail(e)))?;
     let status = response.status().as_u16();
     // Correlate a server response without logging bodies, cookies or headers.
-    let request_id = gateway_request_id(response.headers().get("x-request-id").and_then(|v| v.to_str().ok()));
+    let request_id = gateway_request_id(
+        response
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok()),
+    );
     let body = read_response_body_limited(response, 1024 * 1024)
         .await
         .map_err(|e| log_gateway_probe_error(&base, started, e))?;
     let confirmed = (200..300).contains(&status)
-        && serde_json::from_str::<serde_json::Value>(&body).ok().is_some_and(|value| {
-            value.get("ok").and_then(|v| v.as_bool()) == Some(true)
-                && value.get("service").and_then(|v| v.as_str()) == Some("yaseir-print-gateway")
-        });
+        && serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .is_some_and(|value| {
+                value.get("ok").and_then(|v| v.as_bool()) == Some(true)
+                    && value.get("service").and_then(|v| v.as_str()) == Some("yaseir-print-gateway")
+            });
     let summary = format!(
         "Gateway probe completed origin={base} status={status} confirmed={confirmed} elapsed_ms={} request_id={request_id}",
         started.elapsed().as_millis(),
     );
-    if confirmed { logging::info(&summary); } else { logging::warn(&summary); }
-    Ok(GatewayResponse { status, body, headers: Default::default() })
+    if confirmed {
+        logging::info(&summary);
+    } else {
+        logging::warn(&summary);
+    }
+    Ok(GatewayResponse {
+        status,
+        body,
+        headers: Default::default(),
+    })
 }
 
 fn gateway_request_id(value: Option<&str>) -> String {
-    value.unwrap_or("none").chars().filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | ':')).take(128).collect()
+    value
+        .unwrap_or("none")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | ':'))
+        .take(128)
+        .collect()
 }
 
 fn gateway_http_error_detail(error: reqwest::Error) -> String {
     // reqwest's Display omits DNS/TLS/socket causes. Keep a bounded cause chain
     // and remove the request URL (other Gateway calls can contain queries).
-    let category = if error.is_timeout() { "timeout" }
-        else if error.is_connect() { "connect" }
-        else { "transport" };
+    let category = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else {
+        "transport"
+    };
     let error = error.without_url();
     let mut detail = format!("{category}: {error}");
     let mut cause = std::error::Error::source(&error);
     for _ in 0..8 {
-        let Some(current) = cause else { break; };
+        let Some(current) = cause else {
+            break;
+        };
         detail.push_str(&format!(": {current}"));
         cause = current.source();
     }
-    detail.chars().filter(|c| !c.is_control()).take(2048).collect()
+    detail
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(2048)
+        .collect()
 }
 
 fn log_gateway_probe_error(base: &str, started: std::time::Instant, detail: String) -> String {
     let message = format!("Gateway probe failed: {detail}");
-    logging::error(&format!("{message} origin={base} elapsed_ms={}", started.elapsed().as_millis()));
+    logging::error(&format!(
+        "{message} origin={base} elapsed_ms={}",
+        started.elapsed().as_millis()
+    ));
     message
 }
 
@@ -646,16 +706,24 @@ fn valid_fleet_query(path: &str) -> bool {
     }
     let mut keys = std::collections::BTreeSet::new();
     for pair in query.split('&') {
-        let Some((key, value)) = pair.split_once('=') else { return false; };
-        if !matches!(key, "limit" | "offset" | "beforeCreatedAt" | "beforeId" | "beforeIdEncoded")
-            || value.is_empty() || value.len() > 4096 || !keys.insert(key)
+        let Some((key, value)) = pair.split_once('=') else {
+            return false;
+        };
+        if !matches!(
+            key,
+            "limit" | "offset" | "beforeCreatedAt" | "beforeId" | "beforeIdEncoded"
+        ) || value.is_empty()
+            || value.len() > 4096
+            || !keys.insert(key)
         {
             return false;
         }
         let bytes = value.as_bytes();
         for (index, byte) in bytes.iter().enumerate() {
-            if *byte == b'%' && (index + 2 >= bytes.len()
-                || !bytes[index + 1].is_ascii_hexdigit() || !bytes[index + 2].is_ascii_hexdigit())
+            if *byte == b'%'
+                && (index + 2 >= bytes.len()
+                    || !bytes[index + 1].is_ascii_hexdigit()
+                    || !bytes[index + 2].is_ascii_hexdigit())
             {
                 return false;
             }
@@ -666,8 +734,13 @@ fn valid_fleet_query(path: &str) -> bool {
 
 fn valid_capture_preview_path(path: &str) -> bool {
     const PREFIX: &str = "/api/agent/test-captures/preview?id=cap_";
-    let Some(id) = path.strip_prefix(PREFIX) else { return false; };
-    id.len() == 32 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    let Some(id) = path.strip_prefix(PREFIX) else {
+        return false;
+    };
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
@@ -677,8 +750,12 @@ fn allowed_agent_gateway_path(path: &str, method: &str) -> bool {
         // (gatewayAgentPathRe also permits /api/agents/<id>): the desktop
         // console proxy exposes only the agent list, while the operator CLI
         // needs single-agent fetch for diagnostics. Both are read-only.
-        "GET" => valid_fleet_query(path) || valid_jobs_query(path)
-            || path == "/api/agent/test-captures/status" || valid_capture_preview_path(path),
+        "GET" => {
+            valid_fleet_query(path)
+                || valid_jobs_query(path)
+                || path == "/api/agent/test-captures/status"
+                || valid_capture_preview_path(path)
+        }
         "POST" => {
             path == "/api/printers"
                 || gateway_printer_action_path(path, "test-connection")
@@ -708,7 +785,7 @@ pub async fn gateway_agent_request(
     if args
         .body
         .as_ref()
-        .map(|b| b.len() > 8 * 1024 * 1024)
+        .map(|b| b.len() > GATEWAY_CONSOLE_MAX_BODY_BYTES)
         .unwrap_or(false)
     {
         return Err("gateway request body exceeds 8 MiB".into());
@@ -718,7 +795,9 @@ pub async fn gateway_agent_request(
     if let Some(key) = args.idempotency_key.as_deref() {
         if !gateway_printer_action_path(&path, "test-print")
             || !(8..=128).contains(&key.len())
-            || !key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+            || !key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
         {
             return Err("invalid printer diagnostic idempotency key".into());
         }
@@ -743,9 +822,12 @@ pub async fn gateway_agent_request(
             .arg("-config")
             .arg(&config)
             .env("YASEIR_AGENT_DATA_DIR", &root);
-        if let Some(body) = args.body {
-            request_cmd.arg("-body").arg(body);
-        }
+        // Windows command lines are limited to32767 UTF-16 characters. Keep
+        // the unchanged8MiB body gate, but send bytes through owned stdin.
+        let input = args.body.map(|body| {
+            request_cmd.arg("-body-stdin");
+            body.into_bytes()
+        });
         if let Some(key) = args.idempotency_key {
             request_cmd.arg("-idempotency-key").arg(key);
         }
@@ -754,11 +836,19 @@ pub async fn gateway_agent_request(
             use std::os::windows::process::CommandExt;
             request_cmd.creation_flags(0x0800_0000);
         }
-        // The optional single JPEG preview is bounded to 256 KiB before base64;
-        // allow the resulting JSON envelope without raising other API budgets.
-        let max_stdout = if valid_capture_preview_path(&path) { 512 * 1024 } else { 256 * 1024 };
-        let out = agent::run_bounded_command(
+        // The CLI independently bounds the HTTP body to8MiB. JSON string/HTML
+        // escaping can expand one input byte to6 bytes; include bounded header
+        // metadata/envelope overhead without changing any API or helper limit.
+        // Capture preview keeps its tighter existing cap: the producer allows
+        // one256KiB JPEG, whose base64/JSON envelope remains below512KiB.
+        let max_stdout = if valid_capture_preview_path(&path) {
+            512 * 1024
+        } else {
+            GATEWAY_CONSOLE_MAX_ENVELOPE_BYTES
+        };
+        let out = agent::run_bounded_command_with_input(
             request_cmd,
+            input,
             std::time::Duration::from_secs(20),
             max_stdout,
             64 * 1024,
@@ -774,8 +864,16 @@ pub async fn gateway_agent_request(
         // visible to the desktop instead of manufacturing HTTP 200.
         let mut response: GatewayResponse = serde_json::from_str(&stdout)
             .map_err(|e| format!("invalid agent Gateway response envelope: {e}"))?;
-        response.headers.retain(|key, _| matches!(key.as_str(),
-            "x-has-more" | "x-next-before-created-at" | "x-next-before-id-encoded" | "x-next-before-id" | "x-next-cursor"));
+        response.headers.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "x-has-more"
+                    | "x-next-before-created-at"
+                    | "x-next-before-id-encoded"
+                    | "x-next-before-id"
+                    | "x-next-cursor"
+            )
+        });
         serde_json::to_string(&response)
             .map_err(|e| format!("serialize agent Gateway response: {e}"))
     })
@@ -806,8 +904,16 @@ fn atomic_replace_file(temp_path: &Path, destination: &Path) -> Result<(), Strin
 
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
-    let from: Vec<u16> = temp_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-    let to: Vec<u16> = destination.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let from: Vec<u16> = temp_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let to: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let ok = unsafe {
         MoveFileExW(
             from.as_ptr(),
@@ -853,10 +959,7 @@ fn atomic_write_settings(path: &Path, contents: &[u8]) -> Result<(), String> {
         .unwrap_or("settings.json");
     let mut last_collision = None;
     for attempt in 0..16u32 {
-        let temp_path = parent.join(format!(
-            ".{file_name}.tmp-{}-{attempt}",
-            std::process::id()
-        ));
+        let temp_path = parent.join(format!(".{file_name}.tmp-{}-{attempt}", std::process::id()));
         let mut file = match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -927,7 +1030,9 @@ pub fn get_gateway_config() -> Result<GatewayConfig, String> {
 #[tauri::command]
 pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, String> {
     let url = normalize_gateway_url(&url)?;
-    let state = GATEWAY_CONFIG_LOCK.lock().map_err(|_| "gateway config lock poisoned")?;
+    let state = GATEWAY_CONFIG_LOCK
+        .lock()
+        .map_err(|_| "gateway config lock poisoned")?;
     let previous = get_gateway_config().map(|cfg| cfg.url).unwrap_or_default();
     let root = paths::ensure_manager_data_root()
         .map_err(|e| format!("manager data directory is not secure or accessible: {e}"))?;
@@ -941,7 +1046,8 @@ pub fn set_gateway_config(url: String, app: tauri::AppHandle) -> Result<String, 
     logging::info(&format!("gateway settings saved to {}", path.display()));
     if previous != url {
         drop(state);
-        app.emit("gateway:config_changed", &url).map_err(|e| format!("Gateway saved but change notification failed: {e}"))?;
+        app.emit("gateway:config_changed", &url)
+            .map_err(|e| format!("Gateway saved but change notification failed: {e}"))?;
     }
     Ok(format!("saved gateway settings to {}", path.display()))
 }
@@ -992,6 +1098,11 @@ pub struct PrinterInfo {
     pub port: Option<i32>,
     pub status: String,
     pub enabled: bool,
+    #[serde(
+        rename = "sharedWithGateway",
+        default = "default_printer_gateway_sharing"
+    )]
+    pub shared_with_gateway: bool,
     #[serde(rename = "isVirtual", alias = "is_virtual")]
     pub is_virtual: Option<bool>,
     #[serde(rename = "usbVid")]
@@ -1007,6 +1118,86 @@ pub struct PrinterInfo {
 pub struct DiscoverResult {
     pub printers: Vec<PrinterInfo>,
     pub errors: Vec<String>,
+}
+
+fn default_printer_gateway_sharing() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrinterSharingReply {
+    pub printer_id: String,
+    pub shared_with_gateway: bool,
+}
+
+fn validate_local_printer_id(raw: &str) -> Result<String, String> {
+    let id = raw;
+    if id.is_empty()
+        || id.trim() != id
+        || id.len() > 256
+        || id.starts_with('-')
+        || id.chars().any(char::is_control)
+    {
+        return Err("invalid local printer id".into());
+    }
+    Ok(id.to_string())
+}
+
+fn decode_printer_sharing_reply(
+    stdout: &[u8],
+    id: &str,
+    shared: bool,
+) -> Result<PrinterSharingReply, String> {
+    let reply: PrinterSharingReply = serde_json::from_slice(stdout)
+        .map_err(|_| "invalid local printer sharing acknowledgment".to_string())?;
+    if reply.printer_id != id || reply.shared_with_gateway != shared {
+        return Err("local printer sharing acknowledgment did not match the request".into());
+    }
+    Ok(reply)
+}
+
+#[tauri::command]
+pub async fn set_printer_sharing(
+    app: tauri::AppHandle,
+    printer_id: String,
+    shared_with_gateway: bool,
+) -> Result<PrinterSharingReply, String> {
+    if !is_running_as_admin() {
+        return Err("Administrator privileges are required to change local printer sharing".into());
+    }
+    let id = validate_local_printer_id(&printer_id)?;
+    run_blocking(move || {
+        let mut cmd = Command::new(agent::cli_path(&app)?);
+        cmd.arg("printers-share")
+            .arg("--id")
+            .arg(&id)
+            .arg("--shared")
+            .arg(if shared_with_gateway { "true" } else { "false" })
+            .arg("-config")
+            .arg(paths::agent_config_path())
+            .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        // Go JSON can escape each byte of the validated256-byte ID sixfold.
+        let output =
+            agent::run_bounded_command(cmd, std::time::Duration::from_secs(15), 2048, 8192)?;
+        if !output.status.success() {
+            return Err(format!(
+                "Local printer sharing: {}",
+                String::from_utf8_lossy(&output.stderr)
+                    .trim()
+                    .chars()
+                    .take(480)
+                    .collect::<String>()
+            ));
+        }
+        decode_printer_sharing_reply(&output.stdout, &id, shared_with_gateway)
+    })
+    .await
 }
 
 /// Virtual / software / RDP-redirected queue detection — desktop safety net.
@@ -1220,19 +1411,39 @@ fn is_valid_printer_for_ui(p: &PrinterInfo) -> bool {
 }
 
 #[tauri::command]
-pub async fn get_printers(_app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, String> {
+pub async fn get_printers(app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, String> {
     run_blocking(move || {
-        let path = paths::agent_data_root().join("printers.json");
-        if !path.exists() {
-            return Ok(vec![]);
+        // The registry is durable configuration, not a live Windows observation.
+        let mut cmd = Command::new(agent::cli_path(&app)?);
+        cmd.arg("printers")
+            .arg("list")
+            .arg("--json")
+            .arg("-config")
+            .arg(paths::agent_config_path())
+            .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
         }
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {}: {}", path.display(), e))?;
-        if raw.trim().is_empty() {
-            return Ok(vec![]);
+        let output = agent::run_bounded_command(
+            cmd,
+            std::time::Duration::from_secs(30),
+            512 * 1024,
+            64 * 1024,
+        )?;
+        if !output.status.success() {
+            return Err(format!(
+                "Local printer inventory: {}",
+                String::from_utf8_lossy(&output.stderr)
+                    .trim()
+                    .chars()
+                    .take(480)
+                    .collect::<String>()
+            ));
         }
-        let v: Vec<PrinterInfo> =
-            serde_json::from_str(&raw).map_err(|e| format!("parse {}: {}", path.display(), e))?;
+        let v: Vec<PrinterInfo> = serde_json::from_slice(&output.stdout)
+            .map_err(|_| "invalid local printer inventory response".to_string())?;
         let filtered: Vec<PrinterInfo> = v
             .into_iter()
             .filter(|p| is_valid_printer_for_ui(p))
@@ -1241,7 +1452,6 @@ pub async fn get_printers(_app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, St
     })
     .await
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1278,7 +1488,9 @@ fn validate_capture_request(req: &CaptureTestRequest) -> Result<(), String> {
 
 struct TemporaryCaptureInput(std::path::PathBuf);
 impl Drop for TemporaryCaptureInput {
-    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 #[tauri::command]
@@ -1297,55 +1509,75 @@ pub async fn capture_test_document(
             .map_err(|e| format!("secure private capture folder: {e}"))?;
         let id = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("capture timestamp: {e}"))?.as_nanos();
+            .map_err(|e| format!("capture timestamp: {e}"))?
+            .as_nanos();
         let input_path = folder.join(format!("input-{}-{}.bin", std::process::id(), id));
         let mut file = std::fs::OpenOptions::new()
-            .write(true).create_new(true).open(&input_path)
+            .write(true)
+            .create_new(true)
+            .open(&input_path)
             .map_err(|e| format!("create capture input: {e}"))?;
         let _cleanup = TemporaryCaptureInput(input_path.clone());
         paths::ensure_manager_file_security(&input_path)
             .map_err(|e| format!("secure capture input: {e}"))?;
         file.write_all(&request.document_bytes)
             .map_err(|e| format!("write capture input: {e}"))?;
-        file.sync_all().map_err(|e| format!("sync capture input: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("sync capture input: {e}"))?;
         drop(file);
 
         // Bundled CLI only: no Agent service, printer queue, or Gateway request.
         let cli = agent::cli_path(&app)?;
         let mut cmd = Command::new(cli);
         cmd.arg("capture-test")
-            .arg("-input").arg(&input_path)
-            .arg("-output-dir").arg(&folder)
-            .arg("-format").arg(&request.format)
-            .arg("-paper-mm").arg(request.paper_mm.to_string());
+            .arg("-input")
+            .arg(&input_path)
+            .arg("-output-dir")
+            .arg(&folder)
+            .arg("-format")
+            .arg(&request.format)
+            .arg("-paper-mm")
+            .arg(request.paper_mm.to_string());
         let output = agent::run_bounded_command(
-            cmd, std::time::Duration::from_secs(45), 3 * 1024 * 1024, 32 * 1024,
+            cmd,
+            std::time::Duration::from_secs(45),
+            3 * 1024 * 1024,
+            32 * 1024,
         )?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("PDF test failed: {}",
-                stderr.trim().chars().take(600).collect::<String>()));
+            return Err(format!(
+                "PDF test failed: {}",
+                stderr.trim().chars().take(600).collect::<String>()
+            ));
         }
         let response: CaptureTestResult = serde_json::from_slice(&output.stdout)
             .map_err(|e| format!("invalid capture response: {e}"))?;
-        if response.outcome != "rendered_locally" || response.renderer != "embedded_pdfium"
-            || response.pages == 0 || response.pages > 10
-            || !response.preview_data_uri.starts_with("data:image/png;base64,") {
+        if response.outcome != "rendered_locally"
+            || response.renderer != "embedded_pdfium"
+            || response.pages == 0
+            || response.pages > 10
+            || !response
+                .preview_data_uri
+                .starts_with("data:image/png;base64,")
+        {
             return Err("invalid local PDFium capture result".into());
         }
-        let canonical_folder = folder.canonicalize()
+        let canonical_folder = folder
+            .canonicalize()
             .map_err(|e| format!("resolve capture folder: {e}"))?;
         for path in [&response.pdf_path, &response.preview_path] {
-            let canonical_file = std::path::Path::new(path).canonicalize()
+            let canonical_file = std::path::Path::new(path)
+                .canonicalize()
                 .map_err(|e| format!("verify local capture file: {e}"))?;
             if !canonical_file.starts_with(&canonical_folder) || !canonical_file.is_file() {
                 return Err("capture artifact escaped private directory".into());
             }
         }
         Ok(response)
-    }).await
+    })
+    .await
 }
-
 
 const CAPTURE_CLEANUP_GRACE_SECS: u64 = 120;
 
@@ -1365,15 +1597,24 @@ pub struct TestCaptureCleanupResult {
 /// Arbitrary uploads, protected settings, secrets and Windows printer
 /// spool files cannot match this intentionally narrow filename contract.
 fn is_capture_artifact_name(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix("capture-") else { return false; };
-    let stem = rest.strip_suffix(".pdf").or_else(|| rest.strip_suffix(".png"));
-    let Some(stem) = stem else { return false; };
-    stem.len() == 24 && stem.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    let Some(rest) = name.strip_prefix("capture-") else {
+        return false;
+    };
+    let stem = rest
+        .strip_suffix(".pdf")
+        .or_else(|| rest.strip_suffix(".png"));
+    let Some(stem) = stem else {
+        return false;
+    };
+    stem.len() == 24
+        && stem
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn prune_manager_capture_evidence() -> Result<(usize, u64, usize), String> {
-    let root = paths::ensure_manager_data_root()
-        .map_err(|e| format!("private Manager storage: {e}"))?;
+    let root =
+        paths::ensure_manager_data_root().map_err(|e| format!("private Manager storage: {e}"))?;
     let dir = root.join("test-captures");
     let meta = match std::fs::symlink_metadata(&dir) {
         Ok(meta) => meta,
@@ -1385,10 +1626,12 @@ fn prune_manager_capture_evidence() -> Result<(usize, u64, usize), String> {
     }
     // Reject junctions/reparse-point redirects, including Windows junctions
     // not surfaced as ordinary symlinks by symlink_metadata.
-    let expected = root.canonicalize()
+    let expected = root
+        .canonicalize()
         .map_err(|e| format!("resolve private Manager storage: {e}"))?
         .join("test-captures");
-    let actual = dir.canonicalize()
+    let actual = dir
+        .canonicalize()
         .map_err(|e| format!("resolve Manager capture directory: {e}"))?;
     if actual != expected {
         return Err("Manager capture directory redirects outside its private root".into());
@@ -1400,22 +1643,28 @@ fn prune_manager_capture_evidence() -> Result<(usize, u64, usize), String> {
     let mut bytes = 0u64;
     let mut recent = 0usize;
     let now = std::time::SystemTime::now();
-    let entries = std::fs::read_dir(&dir)
-        .map_err(|e| format!("read Manager test storage: {e}"))?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("read Manager test storage: {e}"))?;
     for item in entries {
         let item = item.map_err(|e| format!("read Manager test entry: {e}"))?;
         let name = item.file_name();
-        let Some(name) = name.to_str() else { continue; };
-        if !is_capture_artifact_name(name) { continue; }
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !is_capture_artifact_name(name) {
+            continue;
+        }
         let info = std::fs::symlink_metadata(item.path())
             .map_err(|e| format!("inspect Manager test artifact: {e}"))?;
         if !info.file_type().is_file() || info.file_type().is_symlink() {
             continue;
         }
-        let age = info.modified()
+        let age = info
+            .modified()
             .ok()
             .and_then(|created| now.duration_since(created).ok());
-        if age.map_or(true, |value| value < std::time::Duration::from_secs(CAPTURE_CLEANUP_GRACE_SECS)) {
+        if age.map_or(true, |value| {
+            value < std::time::Duration::from_secs(CAPTURE_CLEANUP_GRACE_SECS)
+        }) {
             recent += 1;
             continue;
         }
@@ -1430,14 +1679,20 @@ fn prune_manager_capture_evidence() -> Result<(usize, u64, usize), String> {
 /// Local evidence is removed separately from Gateway history: a network
 /// outage must never prevent an Administrator from recovering disk space.
 #[tauri::command]
-pub async fn clear_test_capture_files(app: tauri::AppHandle) -> Result<TestCaptureCleanupResult, String> {
+pub async fn clear_test_capture_files(
+    app: tauri::AppHandle,
+) -> Result<TestCaptureCleanupResult, String> {
     if !is_running_as_admin() {
-        return Err("Administrator privileges are required to clear private capture evidence".into());
+        return Err(
+            "Administrator privileges are required to clear private capture evidence".into(),
+        );
     }
     run_blocking(move || {
         let (manager_files, manager_bytes, manager_recent_kept) = prune_manager_capture_evidence()?;
         let mut response = TestCaptureCleanupResult {
-            manager_files, manager_bytes, manager_recent_kept,
+            manager_files,
+            manager_bytes,
+            manager_recent_kept,
             ..Default::default()
         };
         let cli = match agent::cli_path(&app) {
@@ -1449,16 +1704,16 @@ pub async fn clear_test_capture_files(app: tauri::AppHandle) -> Result<TestCaptu
         };
         let mut cmd = std::process::Command::new(cli);
         cmd.arg("capture-cleanup")
-            .arg("-config").arg(paths::agent_config_path())
+            .arg("-config")
+            .arg(paths::agent_config_path())
             .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let result = agent::run_bounded_command(
-            cmd, std::time::Duration::from_secs(20), 4096, 4096,
-        );
+        let result =
+            agent::run_bounded_command(cmd, std::time::Duration::from_secs(20), 4096, 4096);
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct CliCleanupReport {
@@ -1478,34 +1733,59 @@ pub async fn clear_test_capture_files(app: tauri::AppHandle) -> Result<TestCaptu
         }
         response.agent_cleanup_unavailable = true;
         Ok(response)
-    }).await
+    })
+    .await
 }
 
 #[cfg(test)]
 mod capture_request_tests {
-    use super::{is_capture_artifact_name, CaptureTestRequest, validate_capture_request};
+    use super::{CaptureTestRequest, is_capture_artifact_name, validate_capture_request};
 
     #[test]
     fn cleanup_does_not_accept_arbitrary_files_or_paths() {
-        assert!(is_capture_artifact_name(&format!("capture-{}.pdf", "a".repeat(24))));
-        assert!(is_capture_artifact_name(&format!("capture-{}.png", "0".repeat(24))));
-        for name in ["config.yaml", "capture-abc.pdf", "../capture-.pdf",
-            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.pdf.exe", "capture-AAAAAAAAAAAAAAAAAAAAAAAA.pdf",
-            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.bin"] {
-            assert!(!is_capture_artifact_name(name), "unexpected safe path: {name}");
+        assert!(is_capture_artifact_name(&format!(
+            "capture-{}.pdf",
+            "a".repeat(24)
+        )));
+        assert!(is_capture_artifact_name(&format!(
+            "capture-{}.png",
+            "0".repeat(24)
+        )));
+        for name in [
+            "config.yaml",
+            "capture-abc.pdf",
+            "../capture-.pdf",
+            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.pdf.exe",
+            "capture-AAAAAAAAAAAAAAAAAAAAAAAA.pdf",
+            "capture-aaaaaaaaaaaaaaaaaaaaaaaa.bin",
+        ] {
+            assert!(
+                !is_capture_artifact_name(name),
+                "unexpected safe path: {name}"
+            );
         }
     }
     #[test]
     fn capture_rejects_virtual_queues_and_bad_dimensions() {
         for (format, mm) in [("virtual", 80), ("pdf", 58), ("jpeg", 60)] {
-            assert!(validate_capture_request(&CaptureTestRequest {
-                document_bytes: vec![42], format: format.into(), paper_mm: mm,
-            }).is_err());
+            assert!(
+                validate_capture_request(&CaptureTestRequest {
+                    document_bytes: vec![42],
+                    format: format.into(),
+                    paper_mm: mm,
+                })
+                .is_err()
+            );
         }
         for (format, mm) in [("pdf", 0), ("jpeg", 0), ("jpeg", 58), ("jpeg", 80)] {
-            assert!(validate_capture_request(&CaptureTestRequest {
-                document_bytes: vec![42], format: format.into(), paper_mm: mm,
-            }).is_ok());
+            assert!(
+                validate_capture_request(&CaptureTestRequest {
+                    document_bytes: vec![42],
+                    format: format.into(),
+                    paper_mm: mm,
+                })
+                .is_ok()
+            );
         }
     }
 }
@@ -1551,7 +1831,10 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
         // Retain source-level diagnostics in the protected Manager log rather
         // than raising non-actionable warning banners in the customer UI.
         for diagnostic in &errors {
-            logging::warn(&format!("printer discovery source: {}", diagnostic.chars().take(400).collect::<String>()));
+            logging::warn(&format!(
+                "printer discovery source: {}",
+                diagnostic.chars().take(400).collect::<String>()
+            ));
         }
         // --json returns this scan's inventory. Registry persistence can fail;
         // rereading the file would silently substitute stale or empty results.
@@ -1570,7 +1853,10 @@ fn parse_discovery_diagnostics(stderr: &str) -> Vec<String> {
         }
         let actionable = ["Failed to persist discovery:", "Discovery warning:"]
             .iter()
-            .find_map(|marker| line.find(marker).map(|index| line[index..].trim().to_string()));
+            .find_map(|marker| {
+                line.find(marker)
+                    .map(|index| line[index..].trim().to_string())
+            });
         if let Some(message) = actionable {
             if !diagnostics.iter().any(|existing| existing == &message) {
                 diagnostics.push(message);
@@ -1584,12 +1870,15 @@ fn parse_discovery_stdout(stdout: &str) -> Result<Vec<PrinterInfo>, String> {
     // Older CLI builds encoded an empty slice as null. Accept that legacy
     // representation, but reject corrupt/non-JSON output rather than showing
     // an unrelated on-disk inventory as a successful discovery.
-    let printers: Option<Vec<PrinterInfo>> = serde_json::from_str(stdout)
-        .map_err(|e| format!("parse discovery JSON: {e}"))?;
+    let printers: Option<Vec<PrinterInfo>> =
+        serde_json::from_str(stdout).map_err(|e| format!("parse discovery JSON: {e}"))?;
     // The desktop neither enumerates nor exposes software writers. A stale
     // CLI can still return them, so retain this independent fail-closed guard.
-    Ok(printers.unwrap_or_default().into_iter()
-        .filter(is_valid_printer_for_ui).collect())
+    Ok(printers
+        .unwrap_or_default()
+        .into_iter()
+        .filter(is_valid_printer_for_ui)
+        .collect())
 }
 
 #[cfg(test)]
@@ -2046,26 +2335,54 @@ mod autostart_choice_tests {
 
 #[cfg(test)]
 mod agent_console_path_tests {
-    use super::{allowed_agent_gateway_path, gateway_printer_action_path, valid_fleet_query, valid_jobs_query};
+    use super::{
+        allowed_agent_gateway_path, gateway_printer_action_path, valid_fleet_query,
+        valid_jobs_query,
+    };
 
     #[test]
     fn fleet_pagination_is_read_only_and_bounded() {
-        assert!(allowed_agent_gateway_path("/api/printers?limit=100&beforeCreatedAt=2026-10-13T00%3A00%3A00Z&beforeIdEncoded=cDE", "GET"));
-        assert!(allowed_agent_gateway_path("/api/agents?beforeId=a1&beforeCreatedAt=2026-10-13", "GET"));
-        assert!(!allowed_agent_gateway_path("/api/printers?limit=100", "POST"));
-        for path in ["/api/printers?", "/api/printers?limit=", "/api/agents?limit=1&limit=2", "/api/printers?redirect=x", "/api/agents?beforeId=%GG", "/api/agents?beforeId=a#fragment", "/api/printers/p1?limit=10"] {
+        assert!(allowed_agent_gateway_path(
+            "/api/printers?limit=100&beforeCreatedAt=2026-10-13T00%3A00%3A00Z&beforeIdEncoded=cDE",
+            "GET"
+        ));
+        assert!(allowed_agent_gateway_path(
+            "/api/agents?beforeId=a1&beforeCreatedAt=2026-10-13",
+            "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/printers?limit=100",
+            "POST"
+        ));
+        for path in [
+            "/api/printers?",
+            "/api/printers?limit=",
+            "/api/agents?limit=1&limit=2",
+            "/api/printers?redirect=x",
+            "/api/agents?beforeId=%GG",
+            "/api/agents?beforeId=a#fragment",
+            "/api/printers/p1?limit=10",
+        ] {
             assert!(!valid_fleet_query(path), "accepted {path}");
         }
-        assert!(!valid_fleet_query(&format!("/api/printers?beforeIdEncoded={}", "a".repeat(4097))));
+        assert!(!valid_fleet_query(&format!(
+            "/api/printers?beforeIdEncoded={}",
+            "a".repeat(4097)
+        )));
     }
 
     #[test]
     fn gateway_envelopes_remain_backward_compatible() {
-        let legacy: super::GatewayResponse = serde_json::from_str(r#"{"status":200,"body":"[]"}"#).unwrap();
+        let legacy: super::GatewayResponse =
+            serde_json::from_str(r#"{"status":200,"body":"[]"}"#).unwrap();
         assert!(legacy.headers.is_empty());
         let paged: super::GatewayResponse = serde_json::from_str(r#"{"status":200,"body":"[]","headers":{"x-has-more":"true","x-next-before-id-encoded":"cDE"}}"#).unwrap();
         assert_eq!(paged.headers.get("x-has-more").unwrap(), "true");
-        assert!(serde_json::to_string(&paged).unwrap().contains("x-next-before-id-encoded"));
+        assert!(
+            serde_json::to_string(&paged)
+                .unwrap()
+                .contains("x-next-before-id-encoded")
+        );
     }
 
     #[test]
@@ -2129,16 +2446,20 @@ mod agent_console_path_tests {
         // Keep this allowlist narrow: no read or control-plane mutation
         // through the test-print path, no query injection or path traversal.
         assert!(!allowed_agent_gateway_path(
-            "/api/printers/p1/test-print", "GET"
+            "/api/printers/p1/test-print",
+            "GET"
         ));
         assert!(!allowed_agent_gateway_path(
-            "/api/printers/p1/test-print", "PATCH"
+            "/api/printers/p1/test-print",
+            "PATCH"
         ));
         assert!(!allowed_agent_gateway_path(
-            "/api/printers/p1/test-print?redirect=/api/agents", "POST"
+            "/api/printers/p1/test-print?redirect=/api/agents",
+            "POST"
         ));
         assert!(!allowed_agent_gateway_path(
-            "/api/printers/../test-print", "POST"
+            "/api/printers/../test-print",
+            "POST"
         ));
         assert!(!allowed_agent_gateway_path(
             "/api/other/p1/test-print",
@@ -2153,28 +2474,50 @@ mod agent_console_path_tests {
             "GET"
         ));
         assert!(!allowed_agent_gateway_path("/api/printers/p1", "PATCH"));
-        assert!(allowed_agent_gateway_path("/api/agent/test-captures/status", "GET"));
         assert!(allowed_agent_gateway_path(
-            &format!("/api/agent/test-captures/preview?id=cap_{}", "a".repeat(32)), "GET"
+            "/api/agent/test-captures/status",
+            "GET"
         ));
-        assert!(!allowed_agent_gateway_path("/api/agent/test-captures", "GET"));
-        assert!(!allowed_agent_gateway_path("/api/agent/test-captures/status", "POST"));
-        assert!(allowed_agent_gateway_path("/api/agent/test-captures/status", "DELETE"));
-        assert!(!allowed_agent_gateway_path("/api/agent/test-captures", "DELETE"));
-        assert!(!allowed_agent_gateway_path("/api/agent/test-captures/status?all=1", "DELETE"));
-        assert!(!allowed_agent_gateway_path(
-            &format!("/api/agent/test-captures/preview?id=cap_{}&extra=1", "a".repeat(32)), "GET"
+        assert!(allowed_agent_gateway_path(
+            &format!("/api/agent/test-captures/preview?id=cap_{}", "a".repeat(32)),
+            "GET"
         ));
         assert!(!allowed_agent_gateway_path(
-            &format!("/api/agent/test-captures/preview?id=cap_{}", "A".repeat(32)), "GET"
+            "/api/agent/test-captures",
+            "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/agent/test-captures/status",
+            "POST"
+        ));
+        assert!(allowed_agent_gateway_path(
+            "/api/agent/test-captures/status",
+            "DELETE"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/agent/test-captures",
+            "DELETE"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            "/api/agent/test-captures/status?all=1",
+            "DELETE"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            &format!(
+                "/api/agent/test-captures/preview?id=cap_{}&extra=1",
+                "a".repeat(32)
+            ),
+            "GET"
+        ));
+        assert!(!allowed_agent_gateway_path(
+            &format!("/api/agent/test-captures/preview?id=cap_{}", "A".repeat(32)),
+            "GET"
         ));
     }
 }
 #[cfg(test)]
 mod security_tests {
-    use super::{
-        gateway_http_client, gateway_request_id, is_valid_code, normalize_gateway_url,
-    };
+    use super::{gateway_http_client, gateway_request_id, is_valid_code, normalize_gateway_url};
 
     #[test]
     fn gateway_http_client_is_process_reused() {
@@ -2184,9 +2527,35 @@ mod security_tests {
     }
 
     #[test]
+    fn gateway_envelope_budget_covers_max_body_and_pagination_escaping() {
+        let body_bytes = crate::commands::GATEWAY_CONSOLE_MAX_BODY_BYTES;
+        let body = "\0".repeat(body_bytes);
+        let response = serde_json::json!({
+            "status": 200,
+            "body": body,
+            "headers": {
+                "x-has-more": "&".repeat(4096),
+                "x-next-before-created-at": "&".repeat(4096),
+                "x-next-before-id-encoded": "&".repeat(4096),
+                "x-next-before-id": "&".repeat(4096),
+                "x-next-cursor": "&".repeat(4096),
+            },
+        });
+        let envelope = serde_json::to_vec(&response).unwrap();
+        assert!(envelope.len() > 6 * body_bytes);
+        assert!(envelope.len() <= crate::commands::GATEWAY_CONSOLE_MAX_ENVELOPE_BYTES);
+        assert!(
+            crate::commands::GATEWAY_CONSOLE_MAX_ENVELOPE_BYTES
+                >= 6 * body_bytes + 6 * 5 * 4096 + 1024
+        );
+    }
+    #[test]
     fn probe_correlation_is_bounded_and_cannot_inject_log_lines() {
         assert_eq!(gateway_request_id(None), "none");
-        assert_eq!(gateway_request_id(Some("req-1\r\nERROR: injected")), "req-1ERROR:injected");
+        assert_eq!(
+            gateway_request_id(Some("req-1\r\nERROR: injected")),
+            "req-1ERROR:injected"
+        );
         assert_eq!(gateway_request_id(Some(&"a".repeat(200))).len(), 128);
     }
 

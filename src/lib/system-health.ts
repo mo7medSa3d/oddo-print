@@ -152,7 +152,7 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
         COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total,
         COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}))::int as ready,
         COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as routable
-        FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId}`),
+        FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId} AND p.shared_with_gateway = true`),
       2000,
       "systemHealthPrinters"
     );

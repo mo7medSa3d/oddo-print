@@ -137,10 +137,37 @@ func TestGatewayPaginationHeadersPreserveOnlyFleetMetadata(t *testing.T) {
 	headers.Set("Set-Cookie", "private-session")
 	headers.Set("Authorization", "private-token")
 	headers.Set("X-Runtime-Secret", "private-runtime-token")
-	if got := gatewayPaginationHeaders(headers); !reflect.DeepEqual(got, want) {
-		t.Fatalf("console pagination headers missing or private headers exposed: %v", got)
+	if got, err := gatewayPaginationHeaders(headers); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("console pagination headers missing or private headers exposed: %v err=%v", got, err)
 	}
-	if got := gatewayPaginationHeaders(http.Header{}); got != nil {
-		t.Fatalf("legacy response must omit absent pagination headers: %v", got)
+	if got, err := gatewayPaginationHeaders(http.Header{}); err != nil || got != nil {
+		t.Fatalf("legacy response must omit absent pagination headers: %v err=%v", got, err)
+	}
+}
+
+func TestGatewayPaginationHeaderValuesAreBoundedWithoutTruncation(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("X-Has-More", "true")
+	for _, key := range []string{"X-Next-Before-Created-At", "X-Next-Before-Id-Encoded", "X-Next-Before-Id", "X-Next-Cursor"} {
+		t.Run(key, func(t *testing.T) {
+			headers.Set(key, strings.Repeat("x", gatewayPaginationHeaderMaxBytes))
+			if got, err := gatewayPaginationHeaders(headers); err != nil || got[strings.ToLower(key)] != headers.Get(key) || got["x-has-more"] != "true" {
+				t.Fatalf("exact-bound cursor was truncated/dropped or unrelated metadata lost: %v err=%v", got, err)
+			}
+			headers.Set(key, strings.Repeat("x", gatewayPaginationHeaderMaxBytes+1))
+			if got, err := gatewayPaginationHeaders(headers); err == nil || got != nil {
+				t.Fatalf("oversized cursor was silently dropped/truncated or returned partial metadata: %v err=%v", got, err)
+			}
+			headers.Del(key)
+		})
+	}
+	headers.Set("X-Has-More", strings.Repeat("x", gatewayPaginationHeaderMaxBytes+1))
+	if got, err := gatewayPaginationHeaders(headers); err == nil || got != nil {
+		t.Fatalf("oversized metadata must be rejected, never silently dropped/truncated: %v err=%v", got, err)
+	}
+	headers.Del("X-Has-More")
+	headers.Set("Set-Cookie", strings.Repeat("private", gatewayPaginationHeaderMaxBytes))
+	if got, err := gatewayPaginationHeaders(headers); err != nil || got != nil {
+		t.Fatalf("nonallowlisted private headers must not enter the envelope or alter accepted fleet metadata: %v err=%v", got, err)
 	}
 }

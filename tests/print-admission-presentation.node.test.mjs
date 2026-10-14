@@ -11,9 +11,9 @@ test('historical success-looking printing event is rendered as pending admission
   });
 });
 
-test('actual terminal status and error semantics remain unchanged', () => {
+test('terminal submission keeps execution success while declaring paper unverified', () => {
   assert.deepEqual(persistedTimelinePresentation({stage:'success',status:'ok'}), {
-    status:'ok',messageKey:null,
+    status:'ok',messageKey:'job.timeline.successUnverified',
   });
   assert.deepEqual(persistedTimelinePresentation({stage:'failed',status:'error'}), {
     status:'error',messageKey:null,

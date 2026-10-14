@@ -1,11 +1,11 @@
 import { db, type DbTx } from "../db";
 import { platformSessions, users } from "../db/schema";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { verifyPassword, normalizeEmail } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
-import { LEGACY_SESSION_MAX_AGE_SECONDS, sessionCookieSecure } from "./session-config";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
 import { databaseNowMs } from "./database-clock";
 import {
   accessCookieHeader,
@@ -176,7 +176,8 @@ export async function validatePlatformClaims(
     where: eq(users.id, claims.userId),
     columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
   });
-  if (!user || !user.isPlatformOwner || !user.emailVerifiedAt) return null;
+  // AUDIT_FINDINGS.md [src/lib/platform-auth.ts]: enforce email match on legacy fallback tokens (parity with v2 session validation)
+  if (!user || !user.isPlatformOwner || !user.emailVerifiedAt || user.email !== claims.email) return null;
 
   return claims;
 }

@@ -79,4 +79,43 @@ describe("Odoo 19 module layout contract — full-width pages", () => {
     const manifest = read("odoo_addons/print_gateway/__manifest__.py");
     expect(manifest).toContain("print_gateway_backend.scss");
   });
+
+  it("opts every native business list and form into addon readability without moving report assets", () => {
+    for (const file of [
+      "binding_views.xml",
+      "gateway_config_views.xml",
+      "print_policy_views.xml",
+      "print_job_views.xml",
+      "print_intent_views.xml",
+      "runtime_assignment_views.xml",
+      "e2e_capture_wizard_views.xml",
+    ]) {
+      const xml = read(`odoo_addons/print_gateway/views/${file}`);
+      const views = Array.from(xml.matchAll(/<(form|list)\b[^>]*>/g));
+      expect(views.length, file).toBeGreaterThan(0);
+      for (const [tag, type] of views) {
+        expect(tag, `${file}: ${type}`).toMatch(type === "form" ? /class="[^"]*\bo_pg_view\b/ : /class="[^"]*\bo_pg_list\b/);
+      }
+    }
+    const manifest = read("odoo_addons/print_gateway/__manifest__.py");
+    const posAssets = manifest.slice(manifest.indexOf("'point_of_sale._assets_pos'"), manifest.indexOf("'web.assets_backend'"));
+    expect(posAssets).toContain("receipt_raster.css");
+    expect(posAssets).not.toContain("print_gateway_tokens.scss");
+    expect(posAssets).not.toContain("print_gateway_backend.scss");
+  });
+
+  it("keeps pairing and capture dialogs compact and keyboard errors connected to native controls", () => {
+    const scss = read("odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss");
+    const capture = read("odoo_addons/print_gateway/views/e2e_capture_wizard_views.xml");
+    expect(capture).toContain('class="o_pg_view o_pg_wizard"');
+    expect(scss).toMatch(/\.o_pg_view\.o_pg_pairing_wizard,\s*\.o_pg_view\.o_pg_wizard\s*\{\s*min-height:\s*0/);
+    expect(scss).toMatch(/\.o_pg_view,\s*\.o_pg_list,\s*\.o_pg_kanban\s*\{\s*:focus-visible/);
+    for (const name of ["agent", "printer"]) {
+      const widget = read(`odoo_addons/print_gateway/static/src/components/runtime_${name}_field.js`);
+      expect(widget).toContain('class="o_pg_picker_feedback mt-1 d-flex');
+      expect(widget).toContain('t-att-aria-describedby="state.error ? errorId : undefined"');
+      expect(widget).toContain('t-att-id="errorId"');
+      expect(widget).toContain('type="button" class="btn btn-link btn-sm p-0" t-on-click="retryLoad"');
+    }
+  });
 });

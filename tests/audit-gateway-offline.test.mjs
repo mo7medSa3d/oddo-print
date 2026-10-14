@@ -108,7 +108,7 @@ test("desktop discovery preserves a failed Gateway refresh and uses translated o
   const api = await loadModule("src/desktop/main.tsx", {
     useCallback: (fn) => fn, isTauri: true, locale: "ar",
     setPrintersLoading: () => {}, setPrintersError: (error) => errors.push(error),
-    setDiscoveryWarning: () => {}, setDiscoveredPrinters: () => {}, setDiscoveredVirtualPrinters: () => {}, refreshPrinters: refresh,
+    setDiscoveryWarning: () => {}, setDiscoveredPrinters: () => {}, setDiscoveredVirtualPrinters: () => {}, refreshPrinters: refresh, refreshLocalPrinters: async () => true,
     discoverPrinters: async () => ({ printers: [{ id: "physical" }], errors: [] }),
     isProductionPrinter: () => true, isVirtualPrinter: () => false,
     t: (key, values) => `${key}:${values?.count ?? ""}`,
@@ -173,7 +173,7 @@ test("desktop discovery shows only actionable persistence errors while retaining
     setPrintersLoading: () => {}, setPrintersError: () => {},
     setDiscoveredPrinters: (value) => discovered.push(value),
     setDiscoveredVirtualPrinters: () => {},
-    refreshPrinters: async () => true,
+    refreshPrinters: async () => true, refreshLocalPrinters: async () => true,
     discoverPrinters: async () => ({ printers: [{ id: "local-1", connectionType: "spooler", protocol: "spooler" }], errors: ["Failed to persist discovery: access denied"] }),
     isProductionPrinter: () => true, isVirtualPrinter: () => false,
     t: (key, values) => `${key}:${values?.count ?? ""}`,

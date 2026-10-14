@@ -99,7 +99,11 @@ test('status badges retain visible text and semantic status dots', () => {
   const badge = ui.StatusBadge({ tone: 'warn', label: 'Needs attention', pulse: false });
   assert.equal(badge.type, 'span');
   assert.match(badge.props.className, /tg-status-pill/);
-  assert.ok([badge.props.children].flat(Infinity).includes('Needs attention'));
+  assert.equal(walk(badge, node => node.type === 'span' && node.props.children === 'Needs attention').length, 1);
+  const dots = walk(badge, node => node.type === ui.StatusDot);
+  assert.equal(dots.length, 1);
+  assert.equal(dots[0].props.tone, 'warn');
+  assert.equal(dots[0].props.pulse, false);
 });
 
 test('tabs preserve real handler and accessible selected state in TailGrids-style group', () => {
@@ -159,17 +163,17 @@ test('Gateway and Platform float above the page with an inset rounded rail; Desk
   assert.match(platformSidebar, /area="platform"/);
   assert.match(read('src/components/MobileAppBar.tsx'), /tg-mobile-appbar sticky top-0/);
   assert.doesNotMatch(gateway, /tg-console-topbar/);
-  assert.match(gateway, /flex h-14 shrink-0 items-center gap-2 border-b/);
+  assert.match(gateway, /flex min-h-18 shrink-0 items-center gap-2 border-b/);
 
   // Tauri Windows chrome is unchanged.
   assert.match(css, /\.tg-desktop-rail\s*\{\s*background: var\(--surface\);\s*border: 1px solid var\(--border\);\s*box-shadow: var\(--shadow-md\);/);
   assert.match(css, /\.tg-desktop-rail\s*\{\s*inset-block: 12px;\s*inset-inline-start: 12px;\s*border-radius: var\(--r-2xl\)/);
   assert.match(desktop, /tg-desktop-topbar tg-desktop-header sticky top-2/);
   assert.match(desktop, /lg:mx-3/);
-  assert.match(desktop, /lg:ps-\[92px\]/);
-  assert.match(desktop, /lg:ps-\[276px\]/);
+  assert.match(desktop, /lg:ps-\[calc\(var\(--sidebar-collapsed\)\+0\.75rem\)\]/);
+  assert.match(desktop, /lg:ps-\[calc\(var\(--sidebar-width\)\+0\.75rem\)\]/);
   assert.match(rail, /lg:inset-y-3 lg:start-3/);
-  assert.match(rail, /flex h-14 shrink-0 items-center gap-3 border-b/);
+  assert.match(rail, /flex min-h-16 shrink-0 items-center gap-3 border-b/);
 });
 
 test('console hides only the page scrollbar without disabling native scrolling', () => {
@@ -198,10 +202,10 @@ test('dashboard titles merge with the web canvas instead of a full-width tinted 
   assert.doesNotMatch(header.props.className, /border-b|glass-chrome|shadow/);
   assert.match(sticky.props.className, /glass-chrome border-b border-edge-subtle/);
   const headerLayout = walk(header, node =>
-    typeof node.props?.className === 'string' && node.props.className.includes('sm:justify-between')
+    typeof node.props?.className === 'string' && node.props.className.includes('justify-between')
   );
   assert.equal(headerLayout.length, 1);
-  assert.match(headerLayout[0].props.className, /sm:items-center/);
+  assert.match(headerLayout[0].props.className, /flex-wrap items-start/);
   const headerContent = walk(header, node =>
     typeof node.props?.className === 'string' && node.props.className.includes('lg:pt-7')
   );

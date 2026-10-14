@@ -6,6 +6,8 @@
 
 The Yaseir Print Gateway Odoo addon enables silent, hardware-level printing from Odoo ERP to physical printers through the central Gateway. Odoo owns all business context (what to print, where to print); the Gateway owns runtime infrastructure (agents, printers, job queue).
 
+Document test pages use the selected runtime printer's bounded optional `capabilities.paper_width_mm` (58 or 80) to generate a matching 100mm-long thermal ticket. The Gateway inventory and Odoo picker retain this physical-media field separately from `printableWidthDots`. Missing or ambiguous dimensions retain the existing office format; no printer-name or raster-dot inference is made. Driver form acceptance is checked by the Agent before submission. A completed submission remains informational until the operator verifies paper output.
+
 ## Architecture
 
 ```
@@ -139,6 +141,8 @@ Discovery reports use the additive `errors: string[]` contract in `contracts/pri
 `Send Test Page` treats the explicitly selected valid binding as authoritative: it validates that binding and its current runtime Agent/printer identity and does **not** independently resolve a second binding to compare against it. The test uses the binding's real document type, then chooses the payload from the printer's current runtime transport—not from a stale protocol field or marketing device class. A Windows-installed queue (`connectionType=spooler`) receives a real PDF through the Agent's Windows document-rendering path, so laser, inkjet, thermal, USB, WSD, and network printers are testable when they are installed as a working Windows queue with a usable driver. IPP/IPPS printers receive PDF through IPP. ESC/POS, ZPL, TSPL, and explicit raw byte transports receive protocol-specific diagnostics. Direct USB/TCP devices with an unknown byte language remain intentionally non-routable: the system will not guess a language or send arbitrary PDF bytes to them.
 
 Printer status and Agent connectivity are separate evidence. A lost/stale Agent heartbeat is displayed as an Agent connectivity problem; it does not rewrite the last printer observation to physical `offline`. Stale printer observations become `unknown` until fresh evidence arrives. Odoo runtime pickers render the Gateway `status` as the current state; `reportedStatus` is retained only for diagnostics/history and is never promoted to current Online/Offline once `freshness` is stale or missing.
+
+The Agent decides which local printers are shared with Gateway. Private queues are excluded from Odoo runtime selectors without deleting saved binding IDs or job history. A stale explicit private binding is unavailable and new dispatch returns `PRINTER_NOT_SHARED`; it does not silently select another printer. Re-sharing restores selection only after a newer Agent snapshot passes Gateway capacity and lifecycle checks. Existing admitted outcomes continue to reconcile; successful submission still requires operator verification of paper output.
 
 ### Upgrade gate for print status fairness (19.0.2.13.0)
 

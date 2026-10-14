@@ -2,11 +2,11 @@
 
 ## Klippa go-pdfium
 
-The Agent uses `github.com/klippa-app/go-pdfium` v1.19.8. The upstream project is licensed under the MIT License.
+The Agent uses `github.com/klippa-app/go-pdfium` v1.21.1. The upstream project is licensed under the MIT License.
 
 Copyright (c) 2022 Klippa App BV.
 
-Upstream source: https://github.com/klippa-app/go-pdfium/tree/v1.19.8
+Upstream source: https://github.com/klippa-app/go-pdfium/tree/v1.21.1
 
 ## Google PDFium
 

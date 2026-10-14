@@ -1,16 +1,17 @@
 import React from "react";
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock, FileText, Play, Printer as PrinterIcon, RefreshCw, Server, Settings, ShieldCheck } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock, FileText, Play, Printer as PrinterIcon, RefreshCw, Server, Settings } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingState, Mono, StatusBadge } from "../../components/ui";
 import { DetailList, StatItem, StatStrip, StatusNotice, ViewAllButton, PrinterAvatar } from "../ui";
+import { PrinterSharingControl } from "../components/PrinterSharingControl";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { getPrinterLanguageBadges } from "../../lib/printer-capability";
-import { agentStatusNoteKey, deriveOutcome, humanConnection, humanType, isProductionPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, labelPrinter, printerDisplayStatus, printerHealthCounts, printerEndpoint, printerIsStale, printerTone } from "../lib/printers";
+import { agentStatusNoteKey, deriveOutcome, isProductionPrinter, isMainInventoryPrinter, jobDocType, jobId, jobPrinterId, jobStatus, jobTimestamp, labelJob, toneJob, printerDisplayName, printerPresentation, printerHealthCounts } from "../lib/printers";
 
 export function OverviewPage({ s }: { s: DesktopState }) {
   const { t, tc, locale, formatTime, formatDateTime } = useI18n();
-  const shownPrinters = s.printers.filter(isProductionPrinter);
-  const gatewayPrinterIds = new Set(shownPrinters.map((p) => p.id));
+  const shownPrinters = s.printers.filter(isMainInventoryPrinter);
+  const gatewayPrinterIds = new Set(s.printers.map((p) => p.id));
   const pendingLocalPrinters = s.discoveredPrinters.filter(isProductionPrinter).filter((p) => !gatewayPrinterIds.has(p.id));
   const { online, offline, unknown: unknownPrinters } = printerHealthCounts(shownPrinters, s.nowMs);
   // Uncertain physical outcomes are attention-worthy on their own: a failed
@@ -29,6 +30,9 @@ export function OverviewPage({ s }: { s: DesktopState }) {
     if (!s.isOnline) {
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.agentOfflineTitle")} action={<Button variant="primary" onClick={s.startAgent} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.startAgent")}</Button>}>{t("desktop.overview.agentNotRunning")}</StatusNotice>;
     }
+    if (s.localPrintersError) {
+      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.printers.localInventoryFailed")} action={<Button variant="secondary" onClick={() => void s.refreshLocalPrinters()} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>}>{s.localPrintersError}</StatusNotice>;
+    }
     if (s.printersError || s.jobsError) {
       const detail = s.printersError || s.jobsError || t("desktop.overview.gatewayNoAnswerPlain");
       return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => { void s.refreshPrinters(); void s.refreshJobs(); }} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>}>{detail}</StatusNotice>;
@@ -39,7 +43,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       if (unknownPrinters > 0) parts.push(t("desktop.overview.unreadable", { count: unknownPrinters }));
       if (s.failedJobs > 0) parts.push(tc("desktop.overview.jobsFailed", s.failedJobs));
       if (unknownJobs > 0) parts.push(tc("desktop.overview.jobsUnknown", unknownJobs));
-      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => s.navigate(offline > 0 ? "printers" : "jobs")}>{offline > 0 ? t("desktop.overview.reviewPrinters") : t("desktop.overview.reviewJobs")}</Button>}>{parts.join(" • ")}</StatusNotice>;
+      return <StatusNotice tone="warn" icon={<AlertTriangle className="h-5 w-5" />} title={t("desktop.overview.needsAttention")} action={<Button variant="secondary" onClick={() => s.navigate(offline > 0 || unknownPrinters > 0 ? "printers" : "jobs")}>{offline > 0 || unknownPrinters > 0 ? t("desktop.overview.reviewPrinters") : t("desktop.overview.reviewJobs")}</Button>}>{parts.join(" • ")}</StatusNotice>;
     }
     return <StatusNotice tone="ok" icon={<CheckCircle2 className="h-5 w-5" />} title={t("desktop.overview.allNormal")}>{t("desktop.overview.allNormalBody")}</StatusNotice>;
   })();
@@ -51,7 +55,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
       <div className="yw-agent-stats"><StatStrip>
         <StatItem label={t("desktop.overview.statAgent")} value={s.isOnline ? t("desktop.status.online") : t("desktop.status.offline")} sub={s.agentStatus ? t(agentStatusNoteKey(s.agentStatus as Record<string, unknown>)) : s.isOnline ? t("desktop.overview.agentRunningExe") : t("desktop.overview.notRunning")} tone={s.isOnline ? "ok" : "bad"} icon={<Activity className="h-4 w-4" />} />
         <StatItem label={t("desktop.overview.statGateway")} value={s.gatewayUrl ? (s.gatewayConnected ? t("desktop.status.connected") : t("desktop.status.unreachable")) : t("desktop.status.notConfigured")} sub={!s.gatewayUrl ? t("desktop.overview.setUrlInSettings") : s.gatewayConnected ? t("desktop.status.reachable") : t("desktop.status.failedLastCheck")} tone={s.gatewayConnected ? "ok" : s.gatewayUrl ? "bad" : "neutral"} icon={<Server className="h-4 w-4" />} />
-        <StatItem label={t("desktop.overview.statPrinters")} value={`${online} / ${shownPrinters.length}`} sub={offline + unknownPrinters > 0 ? t("desktop.overview.unreadable", { count: offline + unknownPrinters }) : t("desktop.status.online")} tone={shownPrinters.length > 0 && offline + unknownPrinters === 0 ? "ok" : shownPrinters.length === 0 ? "neutral" : "warn"} icon={<PrinterIcon className="h-4 w-4" />} />
+        <StatItem label={t("desktop.overview.statPrinters")} value={`${online} / ${shownPrinters.length}`} sub={unknownPrinters > 0 ? t("printer.presentation.unavailableCount", { count: unknownPrinters }) : offline > 0 ? t("printer.presentation.attentionCount", { count: offline }) : t("printer.presentation.availableCount", { count: online })} tone={shownPrinters.length > 0 && offline + unknownPrinters === 0 ? "ok" : shownPrinters.length === 0 ? "neutral" : "warn"} icon={<PrinterIcon className="h-4 w-4" />} />
         <StatItem label={t("desktop.overview.statJobs")} value={String(s.pendingJobs)} sub={s.failedJobs > 0 ? tc("desktop.overview.jobsFailed", s.failedJobs) : t("desktop.status.pending")} tone={s.failedJobs > 0 ? "bad" : s.pendingJobs > 0 ? "info" : "neutral"} icon={<ClipboardList className="h-4 w-4" />} />
       </StatStrip></div>
 
@@ -59,7 +63,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
         <Card className="overflow-hidden lg:col-span-2">
           <CardHeader title={t("desktop.overview.printersTitle")} subtitle={t("desktop.overview.printersOnlineCount", { online, total: shownPrinters.length })} icon={<PrinterIcon className="h-4 w-4 text-brand" />} actions={<Button size="sm" variant="secondary" onClick={s.refreshPrinters} icon={<RefreshCw className="h-4 w-4" />}>{t("desktop.overview.refresh")}</Button>} />
           <div className="px-5 pb-5">
-            {s.printersLoading ? <LoadingState rows={3} /> : s.printersError && pendingLocalPrinters.length === 0 ? <ErrorState title={t("desktop.overview.unableToLoadPrinters")} message={s.printersError} retry={s.refreshPrinters} /> : shownPrinters.length === 0 ? (
+            {s.printersLoading && shownPrinters.length === 0 ? <LoadingState rows={3} /> : s.printersError && shownPrinters.length === 0 && pendingLocalPrinters.length === 0 ? <ErrorState title={t("desktop.overview.unableToLoadPrinters")} message={s.printersError} retry={s.refreshPrinters} /> : shownPrinters.length === 0 ? (
               <EmptyState
                 icon={<PrinterIcon className="h-8 w-8" />}
                 title={pendingLocalPrinters.length > 0 ? t("desktop.printers.waitingTitle") : t("desktop.overview.noPhysicalPrinters")}
@@ -69,21 +73,20 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             ) : (
               <div className="divide-y divide-edge-subtle">
                 {shownPrinters.slice(0, 5).map((p) => {
-                  // Language badges derive ONLY from the declared protocol
-                  // and connection type (printer-capability.ts) — device
-                  // class must never invent a language.
-                  const badgeLabel = getPrinterLanguageBadges(p.protocol ?? "unknown", (p.connection_type || p.connectionType) ?? "unknown").join(" · ") || t("desktop.status.unknown");
+                  const view = printerPresentation(p, undefined, s.nowMs);
+                  const name = printerDisplayName(p, locale);
                   return (
                     <div key={p.id} className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 px-1 py-3.5 transition-colors hover:bg-surface-hover sm:px-2">
-                      <button type="button" onClick={() => s.setSelectedPrinter(p)} className="flex min-w-0 flex-1 items-center gap-3 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app">
-                        <PrinterAvatar name={p.name} size="lg" tone={printerTone(printerDisplayStatus(p, s.nowMs)) === "neutral" ? "brand" : printerTone(printerDisplayStatus(p, s.nowMs))} />
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{p.name}</span><span className="mt-0.5 block truncate text-xs text-ink-3">{humanType(p, locale)} • {humanConnection(p, locale)} • {printerEndpoint(p)}</span></span>
+                      <button type="button" onClick={() => { s.setJobPrinterFilter(p.id); s.setJobTab("all"); s.setJobSearch(""); s.navigate("jobs"); }} className="flex min-w-0 flex-1 items-center gap-3 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35 focus-visible:ring-offset-1 focus-visible:ring-offset-app">
+                        <PrinterAvatar name={name} size="lg" tone={view.tone} />
+                        <span className="min-w-0 flex-1"><span className="block break-words text-base font-semibold text-ink">{name}</span>{p.agentName && <span className="mt-0.5 block break-words text-xs text-ink-3">{p.agentName}</span>}</span>
                       </button>
                       <div className="flex max-w-full flex-wrap items-center gap-2">
-                        <span className="hidden text-xs font-[550] text-ink-3 sm:inline">{badgeLabel}</span>
-                        <div className="flex items-center gap-1"><StatusBadge tone={printerTone(printerDisplayStatus(p, s.nowMs))} label={labelPrinter(printerDisplayStatus(p, s.nowMs), locale)} />{printerIsStale(p, s.nowMs) ? <StatusBadge tone="warn" label={t("status.stale")} /> : null}</div>
-                        <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy} icon={<Activity className="h-3 w-3 text-brand" />} title={t("desktop.overview.testNamed", { name: p.name })}>{t("desktop.overview.test")}</Button>
+                        <StatusBadge tone={view.tone} label={t(view.labelKey)} />
+                        <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)}>{t("desktop.printers.details")}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => s.handleTest(p.id)} disabled={s.busy || !s.gatewayTestPrinterIds.has(p.id)} icon={<Activity className="h-3 w-3 text-brand" />} title={t("desktop.overview.testNamed", { name })}>{t("desktop.overview.test")}</Button>
                       </div>
+                      <div className="w-full min-w-0 space-y-2"><PrinterSharingControl s={s} printer={p} />{!s.gatewayTestPrinterIds.has(p.id) && <p className="text-xs text-ink-3">{t("desktop.printers.cloudTestUnavailable")}</p>}</div>
                     </div>
                   );
                 })}
@@ -128,7 +131,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             {s.jobs.slice(0, 5).map((j) => (
               <li key={jobId(j)} className="min-w-0 space-y-2 px-4 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</span>
+                  <span className="break-words text-base font-semibold text-ink">{jobDocType(j, locale)}</span>
                   <StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} />
                 </div>
                 <p className="truncate font-mono text-xs text-ink-3" dir="ltr" title={jobId(j)}>{jobId(j)}</p>
@@ -141,9 +144,9 @@ export function OverviewPage({ s }: { s: DesktopState }) {
             ))}
           </ul>
           <div className="hidden min-w-0 overflow-x-auto lg:block">
-            <table className="data-table min-w-[720px]">
+            <table className="data-table min-w-[720px] text-base">
               <thead><tr><th>{t("desktop.overview.colDocument")}</th><th>{t("desktop.overview.colPrinter")}</th><th>{t("desktop.overview.colStatus")}</th><th className="text-end">{t("desktop.overview.colUpdated")}</th></tr></thead>
-              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)}><td><div className="text-sm font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-xs text-ink-3">{jobId(j)}</div></td><td className="text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="text-end text-xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
+              <tbody>{s.jobs.slice(0, 5).map((j) => (<tr key={jobId(j)}><td><div className="break-words text-base font-semibold text-ink">{jobDocType(j, locale)}</div><div className="font-mono text-xs text-ink-3">{jobId(j)}</div></td><td className="text-ink-2">{String(s.printers.find((p) => p.id === jobPrinterId(j))?.name || jobPrinterId(j) || "—")}</td><td><StatusBadge tone={toneJob(jobStatus(j), j.error)} label={labelJob(jobStatus(j), j.error, locale)} /></td><td className="text-end text-xs text-ink-3">{formatDateTime(jobTimestamp(j, "updatedAt"))}</td></tr>))}</tbody>
             </table>
           </div>
           </>
@@ -166,7 +169,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
           <Card className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-2.5"><Activity className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" /><div className="min-w-0"><div className="text-sm font-semibold text-ink">{t("desktop.overview.hardwareProfile")}</div><p className="mt-1 text-xs text-ink-3">{t("desktop.overview.hardwareProfileBody")}</p></div></div>
-              <div className="flex flex-wrap gap-2">{escpos && <Button variant="secondary" onClick={() => s.handleTest(escpos.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testEscPos")}</Button>}{zpl && <Button variant="secondary" onClick={() => s.handleTest(zpl.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testZpl")}</Button>}{spooler && <Button variant="secondary" onClick={() => s.handleTest(spooler.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testSpooler")}</Button>}{!escpos && !zpl && !spooler && <Button variant="secondary" onClick={() => s.handleTest(shownPrinters[0].id)} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.testNamed", { name: shownPrinters[0].name.slice(0, 18) })}</Button>}</div>
+              <div className="flex min-w-0 flex-wrap gap-2">{escpos && <Button variant="secondary" disabled={s.busy || !s.gatewayTestPrinterIds.has(escpos.id)} onClick={() => s.handleTest(escpos.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testEscPos")}</Button>}{zpl && <Button variant="secondary" disabled={s.busy || !s.gatewayTestPrinterIds.has(zpl.id)} onClick={() => s.handleTest(zpl.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testZpl")}</Button>}{spooler && <Button variant="secondary" disabled={s.busy || !s.gatewayTestPrinterIds.has(spooler.id)} onClick={() => s.handleTest(spooler.id)} icon={<Activity className="h-4 w-4" />}>{t("desktop.overview.testSpooler")}</Button>}{!escpos && !zpl && !spooler && <Button variant="secondary" disabled={s.busy || !s.gatewayTestPrinterIds.has(shownPrinters[0].id)} onClick={() => s.handleTest(shownPrinters[0].id)} icon={<Play className="h-4 w-4" />}>{t("desktop.overview.testNamed", { name: shownPrinters[0].name.slice(0, 18) })}</Button>}<p className="w-full text-xs text-ink-3">{t("desktop.printers.cloudTestUnavailable")}</p></div>
             </div>
           </Card>
         );

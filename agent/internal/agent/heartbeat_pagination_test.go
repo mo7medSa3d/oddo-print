@@ -289,7 +289,7 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 		acks = append(acks, map[string]interface{}{"printerId": "manager-" + formatTestIndex(i), "appliedDesiredRevision": 1, "observedDesiredRevision": 1})
 	}
 
-	pages := buildHeartbeatPayloadPages(printers, acks, nil, nil, true)
+	pages := buildHeartbeatPayloadPages(printers, acks, nil, nil, nil, true)
 	if got, want := len(pages), 3; got != want {
 		t.Fatalf("expected auxiliary heartbeat state to expand pages to %d, got %d", want, got)
 	}
@@ -324,7 +324,7 @@ func TestHeartbeatPaginationSplitsLargeAuxiliaryState(t *testing.T) {
 		t.Fatalf("lost desired-state ACKs during pagination: got %d, want %d", ackCount, len(acks))
 	}
 
-	incompletePages := buildHeartbeatPayloadPages(printers[:1], nil, nil, nil, false)
+	incompletePages := buildHeartbeatPayloadPages(printers[:1], nil, nil, nil, nil, false)
 	if got := incompletePages[0]["inventoryComplete"]; got != false {
 		t.Fatalf("incomplete registry snapshot must propagate inventoryComplete=false, got %#v", got)
 	}

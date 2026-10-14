@@ -27,13 +27,14 @@ const sendSource = between(dashboard, 'async function sendGatewayTestPage(', '/*
 const dashHandler = between(dashboard, '  const handleGatewayTestPrint = async', '  /**\n   * Reprint');
 const desktopHandler = between(desktop, '  const handleTest = useCallback(', '  const startAgent = useCallback');
 const ipcSource = between(ipc, 'export async function testGatewayPrinter(', 'export function cleanupLocalJobs');
-function makeDashboard(send, { actor = 'tenant1:user1:owner' } = {}) {
+const desktopEligibility = between(read('src/desktop/lib/printers.ts'), 'export function eligibleGatewayTestPrinterIds(', '/** Single advancing-clock').replace(/^export /, '');
+function makeDashboard(send, { actor = 'tenant1:user1:owner', printers = [{ id:'printer1', sharedWithGateway:true }, { id:'printer2', sharedWithGateway:true }] } = {}) {
   let serial=0;
   const messages=[]; const requests=[]; const busy=[];
   const ops = new model.DiagnosticOperations(() => `diagnostic-operation-${++serial}`);
   let pendingRepeat=null;
   const context=vm.createContext({
-    ...model, diagnosticOps:{current:ops},diagnosticActorScope:actor,
+    ...model, diagnosticOps:{current:ops},diagnosticActorScope:actor,printers,selectedPrinter:null,
     window:{location:{origin:'https://gateway.example.com'}},
     setRepeatDiagnosticCandidate:v=>{pendingRepeat=v;},
     fetchWithTimeout:async (url,init)=>{requests.push({url,key:init.headers['Idempotency-Key']});return send(url,init);},
@@ -60,10 +61,11 @@ function gatewayResponse(body, status=201) {
   return {ok:status>=200&&status<300,status,json:async()=>body};
 }
 const good = (status='queued', id='printer1', extras={})=>({ok:true,jobId:`job-${id}`,printerId:id,status,...extras});
-function makeDesktop(send,{url='https://gateway.example.com'}={}) {
+function makeDesktop(send,{url='https://gateway.example.com',sharedWithGateway=true,ready=true}={}) {
   let serial=0;
   const messages=[]; const requests=[];
   const ops=new model.DiagnosticOperations(()=>`desktop-operation-${++serial}`);
+  const printer=id=>({id,sharedWithGateway,inventoryPresent:true,agentId:"agent1",lastSeenAt:new Date().toISOString()});
   let pendingRepeat=null;
   const ipcContext=vm.createContext({
     ...model, normalizeGatewayUrl:value=>value,
@@ -76,11 +78,15 @@ function makeDesktop(send,{url='https://gateway.example.com'}={}) {
   vm.runInContext(compile(`${ipcSource.replace(/^export /m, "")}\nglobalThis.send = testGatewayPrinter;`), ipcContext);
   const context=vm.createContext({
     ...model, useCallback:fn=>fn, diagnosticOps:{current:ops},savedGatewayUrl:url,
+    printers:[printer("printer1"),printer("printer2")],localPrinters:[],localInventoryReadyRef:{current:ready},
+    health:{ok:true},healthError:null,checkedGatewayUrl:url,normalizeGatewayUrl:v=>v,
+    isMainInventoryPrinter:p=>p.inventoryPresent===true,printerAgentView:()=>({tone:"ok"}),printerObservationFreshness:()=>"fresh",
     window:{},setRepeatDiagnosticPrinterId:v=>{pendingRepeat=v;},
     testGatewayPrinter:ipcContext.send,
     setBusyBoth:()=>{},setMsg:v=>messages.push(v),refreshJobs:()=>{},
     t:key=>key,friendlyPrinterError:v=>v,errMsg:e=>String(e),locale:'en',
   });
+  vm.runInContext(compile(desktopEligibility),context);
   vm.runInContext(compile(`${desktopHandler}\nglobalThis.runDiagnostic=handleTest;`),context);
   return {
     run:(id='printer1')=>context.runDiagnostic(id),
@@ -92,6 +98,22 @@ function makeDesktop(send,{url='https://gateway.example.com'}={}) {
     messages,requests,ops,
   };
 }
+
+test('dashboard refuses diagnostics to explicitly private printers',async()=>{
+  const fixture=makeDashboard(async()=>gatewayResponse(good()),{printers:[{id:'printer1',sharedWithGateway:false}]});
+  await fixture.run();
+  assert.equal(fixture.requests.length,0);
+  assert.equal(fixture.messages.at(-1).text,'printer.presentation.notSharedReason');
+});
+
+test('desktop refuses diagnostics before local inventory proof or cloud sharing',async()=>{
+  for(const settings of [{ready:false},{sharedWithGateway:false}]){
+    const fixture=makeDesktop(async()=>({status:200,body:JSON.stringify(good())}),settings);
+    await fixture.run();
+    assert.equal(fixture.requests.length,0);
+    assert.equal(fixture.messages.at(-1).text,'desktop.printers.cloudTestUnavailable');
+  }
+});
 
 test('strict decoder rejects malformed2xx and wrong printer/status/optional fields',()=>{
   for(const value of [null,{},[],{ok:false}, {ok:true,printerId:'printer1',status:'queued'},

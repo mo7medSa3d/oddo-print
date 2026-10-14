@@ -13,6 +13,11 @@
 
 export interface PrinterLike {
   name?: string | null;
+  displayName?: string | null;
+  display_name?: string | null;
+  spoolerName?: string | null;
+  spooler_name?: string | null;
+  endpoint?: string | null;
   printerType?: string | null;
   deviceClass?: string | null;
   connectionType?: string | null;
@@ -27,15 +32,15 @@ export interface PrinterLike {
 }
 
 /** Capability keys that mark a queue as software-only. */
-const VIRTUAL_CAPABILITY_KEYS = ["virtual", "is_virtual", "virtual_test_sink", "virtual_spooler_test"] as const;
-const VIRTUAL_CLASSES = new Set(["virtual", "redirected"]);
+export const VIRTUAL_CAPABILITY_KEYS = ["virtual", "is_virtual", "virtual_test_sink", "virtual_spooler_test"] as const;
+export const VIRTUAL_CLASSES: ReadonlySet<string> = new Set(["virtual", "redirected"]);
 
 /**
  * Windows port monitors whose output never reaches hardware: they write a
  * file, discard the job or dial a modem. Same authority as the agent's
  * classifier — a port monitor is device metadata, not a printer name.
  */
-const VIRTUAL_PORT_MONITORS = [
+export const VIRTUAL_PORT_MONITORS = [
   "portprompt:", // Microsoft Print to PDF / print-to-file prompt
   "xpsport:", // Microsoft XPS Document Writer
   "file:", // print to file
@@ -44,7 +49,7 @@ const VIRTUAL_PORT_MONITORS = [
   "shrfax:", // Windows Shared Fax
   "fax:",
   "brfax:", // Brother vendor software fax monitor
-];
+] as const;
 
 function isVirtualPortMonitor(port: unknown): boolean {
   const raw = lower(port);
@@ -62,7 +67,7 @@ function isVirtualPortMonitor(port: unknown): boolean {
  * printer name: a redirected or software queue is identified by its driver
  * far more reliably than by its display name.
  */
-const SOFTWARE_WRITER_TOKENS = [
+export const SOFTWARE_WRITER_TOKENS = [
   // Microsoft in-box software writers
   "microsoft print to pdf",
   "microsoft xps document writer",
@@ -106,13 +111,13 @@ const SOFTWARE_WRITER_TOKENS = [
   "7-pdf",
   "icecream pdf",
   "pdf24",
-];
+] as const;
 
 /**
  * Queues tunnelled from another desktop session: Remote Desktop, Citrix,
  * VMware, ThinPrint. Mirrors the agent's `sessionRedirectTokens`.
  */
-const SESSION_REDIRECT_TOKENS = [
+export const SESSION_REDIRECT_TOKENS = [
   "remote desktop easy print",
   "terminal services easy print",
   "ts easy print",
@@ -122,7 +127,7 @@ const SESSION_REDIRECT_TOKENS = [
   "vmware universal printer",
   "thinprint",
   "safeguard print",
-];
+] as const;
 
 function lower(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -196,14 +201,21 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
     if (isVirtualPortMonitor(caps.port_name ?? caps["portName"])) return true;
   }
 
+  // Friendly labels must not mask the actual Windows queue identity.
+  const labels = [printer.name, printer.displayName, printer.display_name,
+    printer.spoolerName, printer.spooler_name, config?.spooler_name, config?.spoolerName,
+    config?.display_name, config?.displayName, caps?.spooler_name, caps?.spoolerName,
+    caps?.display_name, caps?.displayName];
+  if (connection === "spooler" || connection === "windows_spooler" || protocol === "spooler" || protocol === "windows_spooler") {
+    labels.push(printer.endpoint, config?.address);
+  }
+  const names = labels.map(lower).filter(Boolean);
+
   // Session redirect: Remote Desktop / Citrix / VMware. Windows names these
   // "HP LaserJet (redirected 3)"; Citrix uses "… (from WKS12) in session 4".
-  const name = lower(printer.name);
-  if (
-    name.includes("(redirected") ||
-    name.includes(" in session ") ||
-    name.endsWith(" in session")
-  ) {
+  if (names.some((name) => name.includes("(redirected") ||
+    name.endsWith("redirected)") || name.includes(" in session ") || name.endsWith(" in session") ||
+    (name.includes("(from ") && name.includes("in session")))) {
     return true;
   }
 
@@ -221,7 +233,7 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
       text.endsWith("-fax") || text.endsWith(" (fax)");
   };
   if ([
-    printer.name, printer.driverName, caps?.driver_name, caps?.driverName,
+    ...names, printer.driverName, caps?.driver_name, caps?.driverName,
   ].some(vendorFaxName)) return true;
 
   // The driver (and PnP ids) identify a software writer or a session tunnel
@@ -233,7 +245,5 @@ export function isVirtualPrinterRecord(printer: PrinterLike | null | undefined):
   }
 
   // Legacy fallback: a row persisted before any metadata existed.
-  if (!name) return false;
-  return SOFTWARE_WRITER_TOKENS.some((pattern) => name.includes(pattern));
+  return names.some((name) => SOFTWARE_WRITER_TOKENS.some((pattern) => name.includes(pattern)));
 }
-

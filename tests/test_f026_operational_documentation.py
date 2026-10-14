@@ -14,11 +14,17 @@ def test_migration_inventory_matches_current_journal():
     # journal and the SQL files, including new forward-only migrations.
     tags=[entry['tag'] for entry in journal]
     assert tags==[path.stem for path in sql]
-    assert len(journal)==len(sql)==84
-    assert journal[-1]['tag']=='0083_e2e_capture_runs'
+    assert len(journal)==len(sql)==85
+    assert journal[-1]['tag']=='0084_printer_cloud_sharing'
     assert '| 0082 | 1 |' in read('MIGRATION.md')
     assert '| 0083 | 1 |' in read('MIGRATION.md')
-    assert '**Total**: 84 forward-only SQL migrations (0000–0083)' in read('MIGRATION.md')
+    assert '| 0084 | 1 |' in read('MIGRATION.md')
+    assert '**Total**: 85 forward-only SQL migrations (0000–0084)' in read('MIGRATION.md')
+    sharing=read('drizzle/0084_printer_cloud_sharing.sql')
+    assert '"shared_with_gateway" boolean NOT NULL DEFAULT true' in sharing
+    assert '"shared_with_gateway_version" text' in sharing
+    assert '"printers_sharing_version_check"' in sharing
+    assert "'^[1-9][0-9]{0,18}$'" in sharing and '9223372036854775807' in sharing
 
 def test_adr_targets_are_not_presented_as_measured_guarantees():
     content=read('ADR.md')

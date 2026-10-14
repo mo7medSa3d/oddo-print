@@ -38,6 +38,7 @@ const (
 	maxPDFDevModeBytes = 8 * 1024 * 1024
 
 	// GetDeviceCaps indices.
+	capRasterCaps      = 38
 	capLogPixelsX      = 88
 	capLogPixelsY      = 90
 	capPhysicalWidth   = 110
@@ -45,10 +46,11 @@ const (
 	capPhysicalOffsetX = 112
 	capPhysicalOffsetY = 113
 
-	biRGB        = 0
-	dibRGBColors = 0
-	srccopy      = 0x00CC0020
-	halftone     = 4
+	biRGB         = 0
+	dibRGBColors  = 0
+	srccopy       = 0x00CC0020
+	halftone      = 4
+	rcDIBToDevice = 0x0200
 )
 
 type winBITMAPINFOHEADER struct {
@@ -102,6 +104,7 @@ var (
 	procStartPage         = modGDI32.NewProc("StartPage")
 	procEndPage           = modGDI32.NewProc("EndPage")
 	procStretchDIBits     = modGDI32.NewProc("StretchDIBits")
+	procSetDIBitsToDevice = modGDI32.NewProc("SetDIBitsToDevice")
 	procSetStretchBltMode = modGDI32.NewProc("SetStretchBltMode")
 	procSetBrushOrgEx     = modGDI32.NewProc("SetBrushOrgEx")
 )
@@ -219,8 +222,8 @@ func rgbaToBGRAInPlace(src *image.RGBA) error {
 	if width <= 0 || height <= 0 {
 		return fmt.Errorf("PDFium returned an empty bitmap %dx%d", width, height)
 	}
-	if src.Stride != width*4 {
-		return fmt.Errorf("PDFium returned unsupported bitmap stride %d for width %d", src.Stride, width)
+	if src.Stride != width*4 || len(src.Pix) != width*height*4 {
+		return fmt.Errorf("PDFium returned unsupported bitmap layout: stride %d, %d bytes for %dx%d", src.Stride, len(src.Pix), width, height)
 	}
 	for i := 0; i < len(src.Pix); i += 4 {
 		r, g, b, a := src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3]
@@ -259,25 +262,41 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, pageWidth, p
 		return err
 	}
 
-	previousMode, _, modeErr := procSetStretchBltMode.Call(hdc, halftone)
-	if previousMode == 0 {
-		return fmt.Errorf("SetStretchBltMode(HALFTONE) failed: %w", modeErr)
-	}
-	brushOK, _, brushErr := procSetBrushOrgEx.Call(hdc, 0, 0, 0)
-	if brushOK == 0 {
-		return fmt.Errorf("SetBrushOrgEx after HALFTONE failed: %w", brushErr)
-	}
-	ret, _, callErr := procStretchDIBits.Call(
-		hdc,
-		uintptr(x), uintptr(y), uintptr(destinationWidth), uintptr(destinationHeight),
-		0, 0, uintptr(width), uintptr(height),
-		uintptr(unsafe.Pointer(&bitmap[0])),
-		uintptr(unsafe.Pointer(&info)),
-		dibRGBColors,
-		srccopy,
-	)
-	if int32(ret) <= 0 {
-		return fmt.Errorf("StretchDIBits failed for %dx%d bitmap: %w", width, height, callErr)
+	// Direct copy requires driver support; select the existing stretch path
+	// before submission when that capability is absent. Never replay a page.
+	directSupported := deviceCaps(hdc, capRasterCaps)&rcDIBToDevice != 0
+	err = transferGDIBitmap(width != destinationWidth || height != destinationHeight, directSupported, func() (int32, error) {
+		ret, _, _ := procSetDIBitsToDevice.Call(
+			hdc,
+			uintptr(x), uintptr(y), uintptr(width), uintptr(height),
+			0, 0, 0, uintptr(height),
+			uintptr(unsafe.Pointer(&bitmap[0])),
+			uintptr(unsafe.Pointer(&info)),
+			dibRGBColors,
+		)
+		return int32(ret), nil
+	}, func() (int32, error) {
+		previousMode, _, modeErr := procSetStretchBltMode.Call(hdc, halftone)
+		if previousMode == 0 {
+			return 0, fmt.Errorf("SetStretchBltMode(HALFTONE) failed: %w", modeErr)
+		}
+		brushOK, _, brushErr := procSetBrushOrgEx.Call(hdc, 0, 0, 0)
+		if brushOK == 0 {
+			return 0, fmt.Errorf("SetBrushOrgEx after HALFTONE failed: %w", brushErr)
+		}
+		ret, _, _ := procStretchDIBits.Call(
+			hdc,
+			uintptr(x), uintptr(y), uintptr(destinationWidth), uintptr(destinationHeight),
+			0, 0, uintptr(width), uintptr(height),
+			uintptr(unsafe.Pointer(&bitmap[0])),
+			uintptr(unsafe.Pointer(&info)),
+			dibRGBColors,
+			srccopy,
+		)
+		return int32(ret), nil
+	})
+	if err != nil {
+		return fmt.Errorf("GDI bitmap %dx%d to %d,%d %dx%d (32-bit BI_RGB, top-down) failed: %w", width, height, x, y, destinationWidth, destinationHeight, err)
 	}
 	return nil
 }

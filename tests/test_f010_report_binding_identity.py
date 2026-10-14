@@ -5,9 +5,11 @@ records are emulated. The production decision-making methods are not substituted
 """
 import ast
 import datetime
+import json
 import logging
 import time
 import uuid
+import requests
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,14 +37,21 @@ def production_methods(file, names):
           '_assert_report_usage_access': lambda env, report: report,
           'REPORT_DOCUMENT_TYPES': {'stock.picking': 'delivery', 'pos.order': 'receipt', 'account.move': 'invoice'},
           'datetime': datetime, 'db_now_utc': lambda cr: datetime.datetime(2026, 10, 9), '_logger': logging.getLogger('test-f010'),
-          'time': time, 'uuid': uuid}
+          'time': time, 'uuid': uuid, 'requests': requests, 'json': json}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'MAX_INVENTORY_RESPONSE_BYTES' for target in node.targets):
+            exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), ns)
+    policy_path = ROOT.parent / 'runtime_policy.py'
+    policy_ns = {}
+    exec(compile(policy_path.read_text(), str(policy_path), 'exec'), policy_ns)
+    ns['inventory_has_shared_printer'] = policy_ns['inventory_has_shared_printer']
     exec(compile(ast.fix_missing_locations(ast.Module(body=[expression], type_ignores=[])), str(path), 'exec'), ns)
     return ns['Production']
 
 
 BindingProduction = production_methods('binding.py', ['destination_for', 'resolve_explicit', 'find_for', '_check_fallback_binding_scope'])
 RouterProduction = production_methods('print_router.py', ['resolve_binding', 'destination_for', '_binding_scope', '_gateway_config', '_assert_current_company', '_document_type', '_submission_message', '_submit_route', 'route_report'])
-JobProduction = production_methods('print_job.py', ['_handle_pre_dispatch_failure'])
+JobProduction = production_methods('print_job.py', ['_primary_shared_for_fallback', '_handle_pre_dispatch_failure'])
 
 class Ref(SimpleNamespace):
     def __bool__(self):
@@ -215,11 +224,38 @@ class MockOutbox(Ref):
         self.last_audit = message
 
 
+class InventoryResponse(requests.Response):
+    """Observe external response reads/closure with Requests' real context manager."""
+    def __init__(self, body, *, status=200, stream_error=None):
+        super().__init__()
+        self.status_code = status
+        self.body = body
+        self.stream_error = stream_error
+        self.closed = False
+        self.iter_calls = 0
+        self.read_bytes = 0
+
+    def iter_content(self, chunk_size):
+        self.iter_calls += 1
+        assert chunk_size == 64 * 1024
+        for offset in range(0, len(self.body), chunk_size):
+            chunk = self.body[offset:offset + chunk_size]
+            self.read_bytes += len(chunk)
+            yield chunk
+            if self.stream_error:
+                raise self.stream_error
+
+    def close(self):
+        self.closed = True
+
+
 def failover_job(*, destination_key, report=REPORT_A, destination_name=None):
+    config = SimpleNamespace(_gateway_base=lambda **kw: 'https://gateway.invalid', _gateway_headers=lambda: {'Authorization': 'Bearer fixture'})
+    config.sudo = lambda: config
     return MockOutbox(id=500, attempts=0, company_id=BRANCH,
                       destination_key=destination_key, destination=destination_name or PICKING_TYPE.display_name,
                       document_type='delivery', report_id=report, payload_type='pdf', protocol=False,
-                      printer_id='primary', idempotency_key='example-operation-key', env=SimpleNamespace(cr=object()))
+                      printer_id='primary', idempotency_key='example-operation-key', gateway_config_id=config, env=SimpleNamespace(cr=object()))
 
 
 @pytest.mark.parametrize('key, report, name, should_switch', [
@@ -228,17 +264,103 @@ def failover_job(*, destination_key, report=REPORT_A, destination_name=None):
     (False, REPORT_A, PICKING_TYPE.display_name, False),
     ('stock.picking.type,8', REPORT_B, PICKING_TYPE.display_name, False),
 ])
-def test_live_pre_dispatch_fallback_requires_durable_identity(key, report, name, should_switch):
+def test_live_pre_dispatch_fallback_requires_durable_identity(key, report, name, should_switch, monkeypatch):
+    monkeypatch.setattr(requests, 'get', lambda *args, **kwargs: InventoryResponse(json.dumps({
+        'printers': [{'id': 'primary', 'lifecycle': 'active', 'agent': {'id': 'owner'}}],
+    }).encode()))
     job = failover_job(destination_key=key, report=report, destination_name=name)
     candidate = binding(90, REPORT_A, printer='backup')
-    result = JobProduction._handle_pre_dispatch_failure(
-        SimpleNamespace(env=SimpleNamespace(cr=object())), job, ConnectionError('no bytes delivered'), candidate, {'primary'}, 0, False,
-    )
+    service = JobProduction()
+    service.env = SimpleNamespace(cr=object())
+    result = service._handle_pre_dispatch_failure(job, ConnectionError('no bytes delivered'), candidate, {'primary'}, 0, False)
     assert (result[2] == 'continue') is should_switch
     if should_switch:
         assert job.last_written['printer_id'] == 'backup'
     else:
         assert 'printer_id' not in job.last_written
+
+
+@pytest.mark.parametrize('permission', ['legacy_shared', 'shared', 'private', 'missing', 'unavailable'])
+def test_actual_pre_dispatch_fallback_rechecks_primary_sharing(permission, monkeypatch):
+    calls = []
+    responses = []
+    def inventory(url, **kwargs):
+        calls.append((url, kwargs))
+        if permission == 'unavailable':
+            raise requests.ConnectionError('inventory unavailable')
+        rows = [] if permission == 'missing' else [{
+            'id': 'primary', 'lifecycle': 'active', 'agent': {'id': 'owner'},
+            **({'sharedWithGateway': permission == 'shared'} if permission != 'legacy_shared' else {}),
+        }]
+        response = InventoryResponse(json.dumps({'printers': rows}).encode())
+        responses.append(response)
+        return response
+    monkeypatch.setattr(requests, 'get', inventory)
+    job = failover_job(destination_key='stock.picking.type,8')
+    candidate = binding(90, REPORT_A, printer='backup')
+    service = JobProduction()
+    service.env = SimpleNamespace(cr=object())
+    result = service._handle_pre_dispatch_failure(job, ConnectionError('zero bytes'), candidate, {'primary'}, 0, False)
+    allowed = permission in ('legacy_shared', 'shared')
+    assert (result[2] == 'continue') is allowed
+    assert calls == [('https://gateway.invalid/api/odoo/printers', {
+        'headers': {'Authorization': 'Bearer fixture'}, 'timeout': 5, 'allow_redirects': False, 'stream': True,
+    })]
+    assert all(response.closed for response in responses)
+    if allowed:
+        assert job.last_written['printer_id'] == 'backup'
+    else:
+        assert job.printer_id == 'primary'
+        assert 'printer_id' not in job.last_written
+        assert job.last_written['status'] == 'queued'
+
+
+@pytest.mark.parametrize('response_case', [
+    'non_200', 'oversized', 'truncated_json', 'malformed_json', 'invalid_utf8',
+    'stream_failure', 'exact_bound_shared',
+])
+def test_actual_primary_sharing_http_read_is_bounded_and_closed(response_case, monkeypatch):
+    limit = JobProduction._primary_shared_for_fallback.__globals__['MAX_INVENTORY_RESPONSE_BYTES']
+    valid = json.dumps({'printers': [{
+        'id': 'primary', 'lifecycle': 'active', 'sharedWithGateway': True, 'agent': {'id': 'owner'},
+    }]}).encode()
+    body = valid
+    status = 503 if response_case == 'non_200' else 200
+    stream_error = None
+    if response_case in ('oversized', 'exact_bound_shared'):
+        body = valid + b' ' * (limit - len(valid) + (response_case == 'oversized'))
+    elif response_case == 'truncated_json':
+        body = valid[:-2]
+    elif response_case == 'malformed_json':
+        body = b'{invalid json}'
+    elif response_case == 'invalid_utf8':
+        body = b'\xff'
+    elif response_case == 'stream_failure':
+        stream_error = requests.exceptions.ChunkedEncodingError('truncated stream')
+    response = InventoryResponse(body, status=status, stream_error=stream_error)
+    calls = []
+    def inventory(url, **kwargs):
+        calls.append((url, kwargs))
+        return response
+    monkeypatch.setattr(requests, 'get', inventory)
+    job = failover_job(destination_key='stock.picking.type,8')
+    service = JobProduction()
+    service.env = SimpleNamespace(cr=object())
+    result = service._handle_pre_dispatch_failure(job, ConnectionError('zero bytes'), binding(90, REPORT_A, printer='backup'), {'primary'}, 0, False)
+    allowed = response_case == 'exact_bound_shared'
+    assert (result[2] == 'continue') is allowed
+    assert response.closed
+    assert response.iter_calls == (0 if response_case == 'non_200' else 1)
+    assert response.read_bytes <= limit + 64 * 1024
+    assert calls == [('https://gateway.invalid/api/odoo/printers', {
+        'headers': {'Authorization': 'Bearer fixture'}, 'timeout': 5, 'allow_redirects': False, 'stream': True,
+    })]
+    if allowed:
+        assert job.last_written['printer_id'] == 'backup'
+    else:
+        assert job.printer_id == 'primary'
+        assert 'printer_id' not in job.last_written
+        assert job.last_written['status'] == 'queued'
 
 
 def test_actual_submit_route_persists_selected_report_destination_identity():

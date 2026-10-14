@@ -88,14 +88,18 @@ function renderSidebar(narrow) {
 test("mobile drawer keeps route labels when desktop rail was saved collapsed", () => {
   const aside = renderSidebar(true);
   assert.match(aside.props.className, /w-\[min\(320px,90vw\)\]/);
-  assert.match(aside.props.className, /lg:w-\[264px\]/);
+  assert.match(aside.props.className, /lg:w-\[var\(--sidebar-width\)\]/);
+  assert.match(source("src/app/globals.css"), /--sidebar-width:\s*18rem/);
+  assert.match(source("src/desktop/main.tsx"), /lg:ps-\[calc\(var\(--sidebar-width\)\+0\.75rem\)\]/);
   assert.equal(aside.props.tabIndex, -1);
   assert.equal(collect(aside, (n) => n.type === "span" && n.props.children === "Printers").length, 1);
 });
 
 test("desktop collapsed rail stays compact and does not print route labels", () => {
   const aside = renderSidebar(false);
-  assert.match(aside.props.className, /lg:w-\[80px\]/);
+  assert.match(aside.props.className, /lg:w-\[var\(--sidebar-collapsed\)\]/);
+  assert.match(source("src/app/globals.css"), /--sidebar-collapsed:\s*5rem/);
+  assert.match(source("src/desktop/main.tsx"), /lg:ps-\[calc\(var\(--sidebar-collapsed\)\+0\.75rem\)\]/);
   assert.equal(collect(aside, (n) => n.type === "span" && n.props.children === "Printers").length, 0);
 });
 
@@ -134,6 +138,7 @@ test("horizontal table navigation is offered only when overflow exists", () => {
 test("mobile and RTL refinements remain scoped to the product UIs", () => {
   const css = source("src/app/globals.css");
   const odoo = source("odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss");
+  const odooTokens = source("odoo_addons/print_gateway/static/src/scss/print_gateway_tokens.scss");
   const gateway = source("src/components/AppShell.tsx");
   const platform = source("src/components/platform/PlatformSidebar.tsx");
   assert.match(css, /\.tg-desktop-header-actions\s*\{/);
@@ -143,7 +148,15 @@ test("mobile and RTL refinements remain scoped to the product UIs", () => {
   assert.match(css, /\.tg-desktop-topbar\.tg-desktop-header \{/);
   assert.match(gateway, /<MobileAppBar/);
   assert.match(platform, /<MobileAppBar/);
-  assert.match(odoo, /\.o_pg_view \{\s*--pg-fs-body: 14px/);
+  // Backend views opt into relative readable text. Mobile must not replace
+  // those shared tokens with a smaller fixed size, nor resize the Odoo host.
+  const bodyRem = Number(odooTokens.match(/--pg-fs-body:\s*([\d.]+)rem/)?.[1]);
+  const helpRem = Number(odooTokens.match(/--pg-fs-small:\s*([\d.]+)rem/)?.[1]);
+  assert.ok(bodyRem >= 1 && bodyRem <= 1.125, "body is 16–18px at the default root");
+  assert.ok(helpRem >= 1, "help text retains a readable relative size");
+  assert.match(odoo, /\.o_pg_view \{[\s\S]*?font-size: var\(--pg-fs-body\)/);
+  assert.doesNotMatch(odoo, /--pg-fs-(?:body|small)\s*:/);
+  assert.doesNotMatch(odoo, /(?:^|\n)(?:html|body|:root)\s*\{/);
   const en = source("src/i18n/messages/en.ts");
   const ar = source("src/i18n/messages/ar.ts");
   assert.match(en, /"ui\.scrollTable"/);

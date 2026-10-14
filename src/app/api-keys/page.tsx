@@ -4,7 +4,6 @@ import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import type { Translator } from "../../i18n/translate";
-import type { MessageKey } from "../../i18n/messages/en";
 import Link from "next/link";
 import {
   ChevronDown,

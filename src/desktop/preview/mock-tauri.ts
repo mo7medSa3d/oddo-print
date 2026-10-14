@@ -26,6 +26,7 @@ const demoPrinters = [
     spoolerName: "HP LaserJet Pro M404",
     status: "online",
     enabled: true,
+    sharedWithGateway: true,
     capabilities: { port_name: "USB001", driver_name: "HP LaserJet Pro M404 PCL 6" },
   },
   {
@@ -42,6 +43,7 @@ const demoPrinters = [
     port: 9100,
     status: "online",
     enabled: true,
+    sharedWithGateway: false,
   },
   {
     id: "printer_epson_tm_t82",
@@ -55,6 +57,7 @@ const demoPrinters = [
     endpoint: "\\\\?\\USB#VID_04B8&PID_0202#PREVIEW",
     status: "busy",
     enabled: true,
+    sharedWithGateway: true,
     usbVid: "04b8",
     usbPid: "0202",
   },
@@ -70,6 +73,7 @@ const demoPrinters = [
     endpoint: "ipp://192.168.1.80/ipp/print",
     status: "offline",
     enabled: true,
+    sharedWithGateway: true,
   },
 ];
 
@@ -186,8 +190,12 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
       else if (path === "/api/auth/manager/me") body = { authenticated: true, exp: Math.floor(Date.now() / 1000) + 900, tenantId: "preview-workspace", userId: "preview-manager", role: "owner" };
       else if (path.startsWith("/api/agents")) body = [{ id: "agent-preview", name: "Preview Agent", lifecycle: "active", status: "online" }];
       else if (path.startsWith("/api/jobs")) body = demoJobs;
-      else if (path.endsWith("/test-print")) body = { ok: true, jobId: "preview-test", printerId: decodeURIComponent(path.split("/").at(-2) ?? ""), status: "queued" };
-      else if (path.startsWith("/api/printers")) body = request?.method === "GET" ? demoPrinters : { ok: true };
+      else if (path.endsWith("/test-print")) {
+        const id = decodeURIComponent(path.split("/").at(-2) ?? "");
+        if (demoPrinters.find((p) => p.id === id)?.sharedWithGateway === false) { status = 409; body = { code: "PRINTER_NOT_SHARED", error: "Printer is local-only" }; }
+        else body = { ok: true, jobId: "preview-test", printerId: id, status: "queued" };
+      }
+      else if (path.startsWith("/api/printers")) body = request?.method === "GET" ? demoPrinters.filter((p) => p.sharedWithGateway !== false) : { ok: true };
       else { status = 404; body = { error: "Unsupported preview request" }; }
       const envelope = { status, body: JSON.stringify(body) };
       return (cmd === "gateway_agent_request" ? JSON.stringify(envelope) : envelope) as unknown as T;
@@ -225,13 +233,20 @@ async function mockInvoke<T>(cmd: string, args: Record<string, unknown> = {}): P
       } as unknown as T;
     case "get_printers":
       return demoPrinters as unknown as T;
+    case "set_printer_sharing": {
+      const printer = demoPrinters.find((p) => p.id === args.printerId);
+      if (!printer || typeof args.sharedWithGateway !== "boolean") throw new Error("Invalid preview sharing request");
+      if (typeof window !== "undefined" && window.location.search.includes("nonadmin=1")) throw new Error("Administrator permission is required");
+      printer.sharedWithGateway = args.sharedWithGateway;
+      return { printerId: printer.id, sharedWithGateway: printer.sharedWithGateway } as unknown as T;
+    }
     case "discover_printers":
       return {
         printers: demoPrinters,
         errors: [],
       } as unknown as T;
     case "test_printer":
-      return "Test page sent to the printer" as unknown as T;
+      return "Local readiness check completed; no test page was printed" as unknown as T;
     case "register_printer":
       return "Printer registered" as unknown as T;
     case "get_autostart":

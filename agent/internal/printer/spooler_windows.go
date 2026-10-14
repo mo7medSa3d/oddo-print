@@ -22,8 +22,10 @@ import (
 )
 
 var (
-	modWinspool          = syscall.NewLazyDLL("winspool.drv")
+	modWinspool          = windows.NewLazySystemDLL("winspool.drv")
 	procOpenPrinterW     = modWinspool.NewProc("OpenPrinterW")
+	modSpoolss           = windows.NewLazySystemDLL("spoolss.dll")
+	procOpenPrinter2W    = modSpoolss.NewProc("OpenPrinter2W")
 	procClosePrinter     = modWinspool.NewProc("ClosePrinter")
 	procStartDocPrinterW = modWinspool.NewProc("StartDocPrinterW")
 	procStartPagePrinter = modWinspool.NewProc("StartPagePrinter")
@@ -33,7 +35,7 @@ var (
 	procAbortPrinter     = modWinspool.NewProc("AbortPrinter")
 	procEnumPrintersW    = modWinspool.NewProc("EnumPrintersW")
 	procGetPrinterW      = modWinspool.NewProc("GetPrinterW")
-	modKernel32          = syscall.NewLazyDLL("kernel32.dll")
+	modKernel32          = windows.NewLazySystemDLL("kernel32.dll")
 	procProcessIDSession = modKernel32.NewProc("ProcessIdToSessionId")
 
 	// postCancelSpoolerResultGrace bounds how long a caller waits for an
@@ -91,6 +93,14 @@ type docInfo1 struct {
 	pDatatype   *uint16
 }
 
+// PRINTER_OPTIONSW uses UINT/DWORD fields, including on 64-bit Windows.
+type printerOptions struct {
+	cbSize  uint32
+	dwFlags uint32
+}
+
+const printerOptionNoCache = 1 << 0
+
 // SpoolerPrinter interacts with the Windows Spooler API (winspool.drv).
 //
 // Win32 WritePrinter is inherently synchronous in the Windows kernel driver
@@ -129,7 +139,9 @@ type SpoolerPrinter struct {
 	// while a prior session may still own the physical queue, instead of
 	// installing a fresh backend (fresh mutex) that permits overlapping
 	// submissions to the same device.
-	inflight atomic.Int32
+	inflight          atomic.Int32
+	transportObserved atomic.Bool
+	statusDetail      atomic.Value // string; written only by completed Status callers.
 }
 
 func NewSpooler(spoolerName, displayName string) *SpoolerPrinter {
@@ -557,22 +569,45 @@ func isInsufficientBuffer(err error) bool {
 	return ok && uintptr(errno) == errorInsufficientBuffer
 }
 
-// openPrinterWPtr performs OpenPrinterW for one UTF-16 queue name.
+// openPrinterWPtr opens a read-only query handle for one UTF-16 queue name.
+// Local queues use OpenPrinterW. UNC queues use OpenPrinter2W NO_CACHE so
+// GetPrinter reads the server rather than stale local connection data.
 //
 // It exists as a package-level indirection (openPrinterWPtrFn) purely so the
 // printer layer can be faked in tests: no test needs a real print queue to
 // prove the PRINTER_INFO_2 status logic above it.
 func openPrinterWPtr(printerNamePtr *uint16) (syscall.Handle, error) {
-	var hPrinter syscall.Handle
-	ret, _, lastErr := procOpenPrinterW.Call(
-		uintptr(unsafe.Pointer(printerNamePtr)),
-		uintptr(unsafe.Pointer(&hPrinter)),
-		0,
-	)
-	if ret == 0 {
-		return 0, fmt.Errorf("OpenPrinterW failed: %w", lastErr)
-	}
-	return hPrinter, nil
+	handle, err := openSpoolerQuery(utf16PtrToString(printerNamePtr), func() (uintptr, error) {
+		var hPrinter syscall.Handle
+		ret, _, lastErr := procOpenPrinterW.Call(
+			uintptr(unsafe.Pointer(printerNamePtr)),
+			uintptr(unsafe.Pointer(&hPrinter)),
+			0,
+		)
+		if ret == 0 {
+			return 0, fmt.Errorf("OpenPrinterW failed: %w", lastErr)
+		}
+		return uintptr(hPrinter), nil
+	}, func() (uintptr, error) {
+		// Find reports an unavailable API instead of letting LazyProc.Call
+		// panic; inability to obtain current remote evidence stays unknown.
+		if err := procOpenPrinter2W.Find(); err != nil {
+			return 0, fmt.Errorf("OpenPrinter2W unavailable: %w", err)
+		}
+		options := printerOptions{cbSize: uint32(unsafe.Sizeof(printerOptions{})), dwFlags: printerOptionNoCache}
+		var hPrinter syscall.Handle
+		ret, _, lastErr := procOpenPrinter2W.Call(
+			uintptr(unsafe.Pointer(printerNamePtr)),
+			uintptr(unsafe.Pointer(&hPrinter)),
+			0,
+			uintptr(unsafe.Pointer(&options)),
+		)
+		if ret == 0 {
+			return 0, fmt.Errorf("OpenPrinter2W NO_CACHE failed: %w", lastErr)
+		}
+		return uintptr(hPrinter), nil
+	})
+	return syscall.Handle(handle), err
 }
 
 var openPrinterWPtrFn = openPrinterWPtr
@@ -776,14 +811,14 @@ func dispatchPreFlightSpoolerCheck(spoolerName string) error {
 // heartbeat status consistent with discovery without turning non-blocking
 // activity bits (PRINTING/PROCESSING/BUSY/IO_ACTIVE/INITIALIZING/WARMING_UP)
 // into dispatch failures.
-func observedSpoolerStatus(spoolerName string) (string, error) {
+func observedSpoolerStatus(spoolerName string) (string, string, error) {
 	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
 	if err != nil {
-		return "unknown", fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
+		return "unknown", "", fmt.Errorf("invalid spooler name %q: %w", spoolerName, err)
 	}
 	hPrinter, err := currentOpenPrinterWPtr()(printerNamePtr)
 	if err != nil {
-		return "unknown", fmt.Errorf("%w: OpenPrinterW(%q) failed: %v", ErrSpoolerQueueInaccessible, spoolerName, err)
+		return "unknown", "", fmt.Errorf("%w: Windows query handle for %q failed: %v", ErrSpoolerQueueInaccessible, spoolerName, err)
 	}
 	defer procClosePrinter.Call(uintptr(hPrinter))
 	pi, keepBuf, err := currentGetPrinterInfo2()(hPrinter)
@@ -791,10 +826,10 @@ func observedSpoolerStatus(spoolerName string) (string, error) {
 		if err == nil {
 			err = fmt.Errorf("GetPrinterW(%q) returned no PRINTER_INFO_2", spoolerName)
 		}
-		return "unknown", err
+		return "unknown", "", err
 	}
 	defer runtime.KeepAlive(keepBuf)
-	return mapWindowsStatus(pi.Status, pi.Attributes), nil
+	return mapWindowsStatus(pi.Status, pi.Attributes), windowsStatusDetail(pi.Status, pi.Attributes), nil
 }
 
 // waitBeginSession acquires this printer's session slot with a bounded
@@ -1135,6 +1170,22 @@ const (
 // Win32 error; status bits are reported as observed flags, never collapsed
 // into physical truth.
 func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
+	var observed SpoolerProbe
+	if err := runPreflightBounded(spoolerName, preflightTimeout, context.Background(), func() error {
+		observed = probeSpoolerQueue(spoolerName)
+		return nil
+	}); err != nil {
+		return SpoolerProbe{
+			QueueName:       spoolerName,
+			GetPrinterError: err.Error(),
+			Verdict:         SpoolerStatusUnknown,
+			VerdictReason:   "current Windows queue evidence unavailable; no physical status inferred",
+		}
+	}
+	return observed
+}
+
+func probeSpoolerQueue(spoolerName string) SpoolerProbe {
 	probe := SpoolerProbe{QueueName: spoolerName}
 	printerNamePtr, err := syscall.UTF16PtrFromString(spoolerName)
 	if err != nil {
@@ -1143,26 +1194,17 @@ func ProbeSpoolerQueue(spoolerName string) SpoolerProbe {
 		probe.VerdictReason = "invalid spooler name"
 		return probe
 	}
-	var hPrinter syscall.Handle
-	ret, _, lastErr := procOpenPrinterW.Call(
-		uintptr(unsafe.Pointer(printerNamePtr)),
-		uintptr(unsafe.Pointer(&hPrinter)),
-		0,
-	)
-	if ret == 0 {
-		if lastErr != nil {
-			probe.OpenPrinterError = lastErr.Error()
-		} else {
-			probe.OpenPrinterError = "OpenPrinterW returned zero"
-		}
+	hPrinter, err := currentOpenPrinterWPtr()(printerNamePtr)
+	if err != nil {
+		probe.OpenPrinterError = err.Error()
 		probe.Verdict = SpoolerQueueUnavailable
-		probe.VerdictReason = "OpenPrinterW failed; queue inaccessible from service context (install as a per-machine printer connection — per-user queues are invisible to Windows Services)"
+		probe.VerdictReason = "Windows queue query handle unavailable from current security context; remote server or per-user queue access may be unavailable"
 		return probe
 	}
 	probe.OpenPrinterOK = true
 	defer procClosePrinter.Call(uintptr(hPrinter))
 
-	pi, keepBuf, gpErr := getPrinterInfo2(hPrinter)
+	pi, keepBuf, gpErr := currentGetPrinterInfo2()(hPrinter)
 	if gpErr != nil || pi == nil {
 		if gpErr != nil {
 			probe.GetPrinterError = gpErr.Error()
@@ -1251,6 +1293,8 @@ func (p *SpoolerPrinter) Test(ctx context.Context) error {
 }
 
 func (p *SpoolerPrinter) Status() string {
+	p.transportObserved.Store(false)
+	p.statusDetail.Store("")
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 1500 * time.Millisecond
@@ -1290,14 +1334,18 @@ func (p *SpoolerPrinter) Status() string {
 	// paper out) must not report "online" or the gateway keeps routing jobs
 	// at a printer that refuses them.
 	observed := "unknown"
+	observedDetail := ""
 	err := p.boundedPreflight(context.Background(), timeout, func() error {
-		status, err := observedSpoolerStatus(p.SpoolerName)
+		status, detail, err := observedSpoolerStatus(p.SpoolerName)
 		if err == nil {
 			observed = status
+			observedDetail = detail
 		}
 		return err
 	})
 	if err == nil {
+		p.statusDetail.Store(observedDetail)
+		p.transportObserved.Store(true)
 		return observed
 	}
 	if errors.Is(err, ErrSpoolerUnresponsive) || errors.Is(err, ErrSpoolerQueueInaccessible) {
@@ -1306,6 +1354,15 @@ func (p *SpoolerPrinter) Status() string {
 	}
 	log.Printf("WARNING: Spooler status read failed for %q: %v", p.SpoolerName, err)
 	return "unknown"
+}
+
+func (p *SpoolerPrinter) TransportObserved() bool { return p.transportObserved.Load() }
+
+func (p *SpoolerPrinter) StatusDetail() string {
+	if value := p.statusDetail.Load(); value != nil {
+		return value.(string)
+	}
+	return ""
 }
 
 type printerInfo2 struct {
@@ -1354,19 +1411,10 @@ func fallbackRegistryPrinters() ([]DeviceInfo, error) {
 
 	var out []DeviceInfo
 	for _, name := range names {
-		if name == "" {
+		if strings.TrimSpace(name) == "" {
 			continue
 		}
-		out = append(out, DeviceInfo{
-			Name:           name,
-			Protocol:       "spooler",
-			ConnectionType: "spooler",
-			Endpoint:       name,
-			SpoolerName:    name,
-			Capabilities: map[string]interface{}{
-				"discovered_via": SourceSpooler,
-			},
-		})
+		out = append(out, registrySpoolerCandidate(name))
 	}
 	log.Printf("[discovery] registry fallback found %d printers", len(out))
 	return out, nil
@@ -1436,7 +1484,6 @@ type printerQueueRef struct {
 // Level 4 supports exactly the flags used here (PRINTER_ENUM_LOCAL and
 // PRINTER_ENUM_CONNECTIONS) and requires a NULL Name, as documented.
 var enumerationActive atomic.Bool
-var queueDetailsActive sync.Map
 
 func enumPrinterQueuesPass(flags uintptr, scope string) ([]printerQueueRef, error) {
 	const printerEnumLevel = 4
@@ -1568,50 +1615,31 @@ func enumPrinterQueues() ([]printerQueueRef, error) {
 }
 
 // queueDetail reads PRINTER_INFO_2 for one queue (port, driver, status,
-// attributes) under a hard deadline. OpenPrinterW and GetPrinterW expose no
+// attributes) under a hard deadline. Query handle opens and GetPrinterW expose no
 // timeout of their own and block against a wedged spooler RPC, so the call
 // runs on a helper goroutine the caller abandons on timeout; the handle is
 // opened and closed inside that helper, so nothing is left dangling.
 func queueDetail(name string) (queueDetails, error) {
-	gateValue, _ := queueDetailsActive.LoadOrStore(name, &atomic.Bool{})
-	gate := gateValue.(*atomic.Bool)
-	if !gate.CompareAndSwap(false, true) {
-		return queueDetails{}, fmt.Errorf("previous queue detail for %q is still pending", name)
-	}
-
-	type detailResult struct {
-		detail queueDetails
-		err    error
-	}
-	done := make(chan detailResult, 1)
-	go func() {
-		defer func() { queueDetailsActive.Delete(name); gate.Store(false) }()
+	var detail queueDetails
+	err := runPreflightBounded(name, queueDetailTimeout, context.Background(), func() error {
 		namePtr, err := syscall.UTF16PtrFromString(name)
 		if err != nil {
-			done <- detailResult{err: fmt.Errorf("encode queue name %q: %w", name, err)}
-			return
+			return fmt.Errorf("encode queue name %q: %w", name, err)
 		}
-		var hPrinter syscall.Handle
-		ret, _, lastErr := procOpenPrinterW.Call(
-			uintptr(unsafe.Pointer(namePtr)),
-			uintptr(unsafe.Pointer(&hPrinter)),
-			0,
-		)
-		if ret == 0 {
-			done <- detailResult{err: fmt.Errorf("OpenPrinterW(%q) failed: %w", name, lastErr)}
-			return
+		hPrinter, err := currentOpenPrinterWPtr()(namePtr)
+		if err != nil {
+			return fmt.Errorf("query handle for queue %q failed: %w", name, err)
 		}
 		defer procClosePrinter.Call(uintptr(hPrinter))
 
-		pi, keep, err := getPrinterInfo2(hPrinter)
+		pi, keep, err := currentGetPrinterInfo2()(hPrinter)
 		if err == nil && pi == nil {
 			err = fmt.Errorf("GetPrinterW(%q) returned no PRINTER_INFO_2", name)
 		}
 		if err != nil {
-			done <- detailResult{err: err}
-			return
+			return err
 		}
-		detail := queueDetails{
+		detail = queueDetails{
 			portName:   utf16PtrToString(pi.pPortName),
 			driverName: utf16PtrToString(pi.pDriverName),
 			serverName: utf16PtrToString(pi.pServerName),
@@ -1620,17 +1648,12 @@ func queueDetail(name string) (queueDetails, error) {
 			attributes: pi.Attributes,
 		}
 		runtime.KeepAlive(keep)
-		done <- detailResult{detail: detail}
-	}()
-
-	timer := time.NewTimer(queueDetailTimeout)
-	defer timer.Stop()
-	select {
-	case r := <-done:
-		return r.detail, r.err
-	case <-timer.C:
-		return queueDetails{}, fmt.Errorf("queue detail for %q exceeded %v (spooler RPC stalled)", name, queueDetailTimeout)
+		return nil
+	})
+	if err != nil {
+		return queueDetails{}, err
 	}
+	return detail, nil
 }
 
 // currentProcessSessionID distinguishes a Windows service session (Session 0)
@@ -1657,26 +1680,7 @@ func currentProcessSessionID() (uint32, error) {
 // the shared ProgramData runtime registry used by the Session-0 service. A
 // service account's own Session-0 connection remains eligible.
 func markInteractiveUserConnectionsCandidateOnly(infos []DeviceInfo, sessionID uint32) int {
-	if sessionID == 0 {
-		return 0
-	}
-	marked := 0
-	for i := range infos {
-		scope, _ := infos[i].Capabilities["spooler_scope"].(string)
-		if scope != "user_connection" {
-			continue
-		}
-		caps := make(map[string]interface{}, len(infos[i].Capabilities)+3)
-		for key, value := range infos[i].Capabilities {
-			caps[key] = value
-		}
-		caps["verification"] = "candidate_only"
-		caps["candidate_reason"] = "per_user_spooler_connection"
-		caps["runtime_scope"] = "interactive_session_discovery_only"
-		infos[i].Capabilities = caps
-		marked++
-	}
-	return marked
+	return markUserSpoolerConnectionScope(infos, sessionID, true)
 }
 
 // EnumSpoolerPrinters enumerates installed Windows print queues.
@@ -1693,6 +1697,10 @@ func markInteractiveUserConnectionsCandidateOnly(infos []DeviceInfo, sessionID u
 func EnumSpoolerPrinters() ([]DeviceInfo, error) {
 	infos, err := enumerateSpoolerPrintersWindows()
 	if sessionID, sessionErr := currentProcessSessionID(); sessionErr != nil {
+		// An unreadable session cannot prove that user-scoped connections
+		// belong to the Session-0 service. Preserve them as setup evidence;
+		// machine-local queues remain independently valid observations.
+		markUserSpoolerConnectionScope(infos, 0, false)
 		err = errors.Join(err, fmt.Errorf("read discovery session: %w", sessionErr))
 	} else if marked := markInteractiveUserConnectionsCandidateOnly(infos, sessionID); marked > 0 {
 		err = errors.Join(err, discoveryDiagnosticf("%d per-user Windows printer connection(s) were discovered in interactive Session %d and kept discovery-only; the Session-0 Agent service cannot assume those user-scoped queues or credentials are available", marked, sessionID))
@@ -1727,12 +1735,15 @@ func enumerateSpoolerPrintersWindows() ([]DeviceInfo, error) {
 		log.Printf("[discovery] EnumPrintersW returned partial queue inventory: %v", enumErr)
 	}
 	if len(queues) == 0 {
-		// An empty answer is only trustworthy if the registry agrees: a
-		// spooler that silently returned nothing must not make real
-		// printers disappear from the inventory.
-		if reg, regErr := fallbackRegistryPrinters(); regErr == nil && len(reg) > 0 {
-			log.Printf("[discovery] EnumPrintersW returned no queues but the registry lists %d — using the registry", len(reg))
-			return reg, nil
+		// A complete empty native queue list stays authoritative. Registry
+		// remnants remain visible only as candidates, never executable queues.
+		reg, regErr := fallbackRegistryPrinters()
+		if regErr != nil {
+			return nil, discoveryDiagnosticf("native queue enumeration completed empty; registry candidates unreadable: %v", regErr)
+		}
+		if len(reg) > 0 {
+			log.Printf("[discovery] EnumPrintersW returned no queues; retaining %d registry names as candidates", len(reg))
+			return reg, discoveryDiagnosticf("native queue enumeration completed empty; %d registry names retained as unverified discovery candidates", len(reg))
 		}
 		log.Printf("[discovery] spooler discovery found no queues")
 		return nil, nil

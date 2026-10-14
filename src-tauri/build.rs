@@ -13,6 +13,7 @@ fn main() {
         "get_runtime_paths",
         "get_app_version",
         "get_printers",
+        "set_printer_sharing",
         "discover_printers",
         "get_e2e_capture_config",
         "set_e2e_capture_config",

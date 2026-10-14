@@ -95,6 +95,7 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 	}
 	production = make([]DeviceInfo, 0, len(infos))
 	for _, d := range infos {
+		d = discoveredDeviceNames(d)
 		if !isValidDiscoveredPrinter(d) {
 			// Not a printer at all — drop the stale entry.
 			removed++
@@ -287,6 +288,7 @@ func mutateRegistryFromDiscovery(registryPath string, discovered []DeviceInfo, c
 		discovered[index] = markAutomaticDiscoveryRegistration(discovered[index])
 	}
 	for _, d := range discovered {
+		d = discoveredDeviceNames(d)
 		if d.ID == "" {
 			d.ID = StableIDForDevice(d)
 		}

@@ -18,18 +18,71 @@ import (
 )
 
 const gatewayRequestMaxBody = 8 * 1024 * 1024
+const gatewayPaginationHeaderMaxBytes = 4096
 
-func gatewayPaginationHeaders(headers http.Header) map[string]string {
+// gatewayRequestBody completes the selected input before creating an HTTP
+// request. The stdin path avoids Windows argv limits without accepting a
+// silently truncated body or choosing between conflicting input sources.
+func gatewayRequestBody(body string, bodySupplied, fromStdin bool, stdin io.Reader) (string, error) {
+	if fromStdin && bodySupplied {
+		return "", fmt.Errorf("gateway request -body and -body-stdin are mutually exclusive")
+	}
+	if fromStdin {
+		if stdin == nil {
+			return "", fmt.Errorf("gateway request stdin is unavailable")
+		}
+		data, err := io.ReadAll(io.LimitReader(stdin, gatewayRequestMaxBody+1))
+		if err != nil {
+			return "", fmt.Errorf("read Gateway request stdin failed: %w", err)
+		}
+		if len(data) > gatewayRequestMaxBody {
+			return "", fmt.Errorf("gateway request body exceeds 8 MiB")
+		}
+		body = string(data)
+	}
+	if len(body) > gatewayRequestMaxBody {
+		return "", fmt.Errorf("gateway request body exceeds 8 MiB")
+	}
+	return body, nil
+}
+
+func gatewayPaginationHeaders(headers http.Header) (map[string]string, error) {
 	var pagination map[string]string
 	for _, key := range []string{"x-has-more", "x-next-before-created-at", "x-next-before-id-encoded", "x-next-before-id", "x-next-cursor"} {
 		if value := headers.Get(key); value != "" {
+			if len(value) > gatewayPaginationHeaderMaxBytes {
+				return nil, fmt.Errorf("Gateway pagination header %s exceeds 4096 bytes", key)
+			}
 			if pagination == nil {
 				pagination = make(map[string]string)
 			}
 			pagination[key] = value
 		}
 	}
-	return pagination
+	return pagination, nil
+}
+
+// encodeGatewayResponse is the shared producer for the desktop envelope.
+// json.Marshal escapes HTML/control bytes, so its stdout can be larger than
+// the HTTP body while both body and optional fleet metadata stay bounded.
+func encodeGatewayResponse(status uint16, data []byte, headers http.Header) ([]byte, error) {
+	if len(data) > gatewayRequestMaxBody {
+		return nil, fmt.Errorf("Gateway response exceeds 8 MiB")
+	}
+	paginationHeaders, err := gatewayPaginationHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+	response := struct {
+		Status  uint16            `json:"status"`
+		Body    string            `json:"body"`
+		Headers map[string]string `json:"headers,omitempty"`
+	}{
+		Status:  status,
+		Body:    string(data),
+		Headers: paginationHeaders,
+	}
+	return json.Marshal(response)
 }
 
 var gatewayPrinterActionPathRe = regexp.MustCompile("^/api/printers/[A-Za-z0-9._~-]+/test-connection$")
@@ -63,6 +116,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	path := fs.String("path", "", "API-relative Gateway path")
 	method := fs.String("method", "GET", "HTTP method")
 	body := fs.String("body", "", "Optional JSON request body")
+	bodyStdin := fs.Bool("body-stdin", false, "Read optional JSON request body from stdin")
 	idempotencyKey := fs.String("idempotency-key", "", "Required Agent diagnostic retry key for test-print")
 	expectOrigin := fs.String("expect-origin", "", "Expected desktop Gateway origin, verified against the paired Agent")
 	configOverride := fs.String("config", configPath, "Path to the paired agent config file")
@@ -77,8 +131,15 @@ func handleGatewayRequest(args []string, configPath string) {
 		fmt.Fprintln(os.Stderr, "gateway request path/method is not permitted")
 		os.Exit(2)
 	}
-	if len(*body) > gatewayRequestMaxBody {
-		fmt.Fprintln(os.Stderr, "gateway request body exceeds 8 MiB")
+	bodySupplied := false
+	fs.Visit(func(option *flag.Flag) {
+		if option.Name == "body" {
+			bodySupplied = true
+		}
+	})
+	requestBody, err := gatewayRequestBody(*body, bodySupplied, *bodyStdin, os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 	if gatewayTestPrintPathRe.MatchString(reqPath) {
@@ -122,8 +183,8 @@ func handleGatewayRequest(args []string, configPath string) {
 	}
 
 	var reader io.Reader
-	if *body != "" {
-		reader = bytes.NewBufferString(*body)
+	if requestBody != "" {
+		reader = bytes.NewBufferString(requestBody)
 	}
 	req, err := http.NewRequest(reqMethod, target, reader)
 	if err != nil {
@@ -135,7 +196,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	if *idempotencyKey != "" {
 		req.Header.Set("Idempotency-Key", *idempotencyKey)
 	}
-	if *body != "" {
+	if requestBody != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
@@ -174,16 +235,7 @@ func handleGatewayRequest(args []string, configPath string) {
 	// Return the real HTTP status and body for every application response.
 	// The Tauri desktop bridge uses this envelope to preserve 4xx/5xx semantics;
 	// only transport/configuration failures use a non-zero process exit.
-	response := struct {
-		Status  uint16            `json:"status"`
-		Body    string            `json:"body"`
-		Headers map[string]string `json:"headers,omitempty"`
-	}{
-		Status:  uint16(resp.StatusCode),
-		Body:    string(data),
-		Headers: gatewayPaginationHeaders(resp.Header),
-	}
-	encoded, err := json.Marshal(response)
+	encoded, err := encodeGatewayResponse(uint16(resp.StatusCode), data, resp.Header)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "encode Gateway response failed: %v\n", err)
 		os.Exit(1)

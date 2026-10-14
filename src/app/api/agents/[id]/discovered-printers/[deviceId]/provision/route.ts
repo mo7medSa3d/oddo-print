@@ -81,7 +81,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const device = await tx.query.discoveredDevices.findFirst({
       where: and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.tenantId, claims.tenantId)),
     });
-    if (!device || isVirtualPrinterRecord({ name: device.spoolerName ?? device.deviceName,
+    if (!device || isVirtualPrinterRecord({ name: device.deviceName, spoolerName: device.spoolerName,
       protocol: device.protocol, connectionType: device.transport,
       capabilities: device.capabilities ?? device.rawMetadata, config: device.rawMetadata })) {
       return { kind: "not_found" as const };
@@ -169,7 +169,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       tx,
       claims.tenantId,
       "max_printers",
-      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`,
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND shared_with_gateway = true AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`,
     );
 
     const ippAddress = device.uri

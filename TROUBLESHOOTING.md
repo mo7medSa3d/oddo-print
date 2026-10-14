@@ -59,9 +59,9 @@ large inventory. This is distinct from a printer being offline.
 - The gateway's stale-claim sweep runs every 30 seconds. Claims older than 90 seconds without delivery evidence are automatically requeued.
 - If a job is stuck longer, check agent logs for the job ID to see if printing is blocking.
 
-### "spooler_rpc_unresponsive" printer status
+### Windows queue status is unavailable after a spooler probe timeout
 
-**Cause**: The Windows Spooler RPC did not respond within the 2-second probe timeout.
+**Cause**: The Windows Spooler RPC did not respond within the bounded probe timeout. The current printer status remains `unknown`; a timeout diagnostic such as `spooler_rpc_unresponsive` is not evidence that the physical printer is offline.
 
 **Resolution**:
 1. Check if the Windows Print Spooler service is running
@@ -96,6 +96,14 @@ large inventory. This is distinct from a printer being offline.
 3. Check both counters: `delivery_attempts` may have reached the delivery ceiling, while `retries` may have reached the safe requeue ceiling
 4. Check agent logs for the specific job ID
 5. Verify the printer protocol matches the payload type (e.g., PDF cannot go to ESC/POS)
+
+### Local printer is missing from Gateway or reports `PRINTER_NOT_SHARED`
+
+Check the printer's Gateway-sharing control in the Agent. The local Administrator chooses whether that queue is published; Windows readiness and Windows network sharing are separate. Saving works offline, but cloud lists and tests update after the Agent reconnects and a newer inventory snapshot is accepted. A local-only printer remains available to Windows and visible locally. Sharing a per-user setup candidate does not make it accessible to the Windows service.
+
+If the protected sharing policy cannot be read, publication and new cloud execution fail closed. Restore a valid backed-up `printer-sharing.json` or repair its permissions as Administrator; removing the file deliberately restores legacy sharing defaults. Already admitted jobs and terminal/UNKNOWN outcomes continue to reconcile. The desktop refuses oversized local list responses above its bounded512KiB transport limit without truncating or claiming a successful refresh.
+
+When any printer has been made private, a new cloud-only Windows queue name must first be accepted locally on the selected Agent. Install that queue for its Windows account or register its exact destination with the existing local `printers add` command, then refresh and choose sharing in the Agent. A Gateway-provided UNC hostname alone cannot authorize an unknown destination. Remote queues already accepted locally remain supported; do not register a queue on a different computer merely because its Agent was selected in the Gateway.
 
 ## Odoo Integration Issues
 
@@ -167,7 +175,7 @@ reverse proxy. The error alone does not prove either cause.
 
 **Cause**: Status probes to offline printers may take up to 2 seconds each.
 
-**Impact**: The heartbeat payload may report "spooler_rpc_unresponsive" for unresponsive printers. This is correct behavior — the probe timed out and the status honestly reflects the device state.
+**Impact**: Running, deferred or timed-out probes report `unknown` current health instead of refreshing cached ready/offline/fault evidence. The interface shows that the status is unavailable until a completed fresh read succeeds; inspect probe diagnostics separately. A timeout does not establish a physical printer fault.
 
 ### IPP endpoint configuration or capability probe errors
 

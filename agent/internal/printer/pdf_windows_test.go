@@ -125,6 +125,18 @@ func TestRGBAConversionCompositesTransparency(t *testing.T) {
 	}
 }
 
+func TestRGBAConversionRejectsTruncatedOrPaddedBitmap(t *testing.T) {
+	for _, img := range []*image.RGBA{
+		{Pix: make([]byte, 7), Stride: 8, Rect: image.Rect(0, 0, 2, 1)},
+		{Pix: make([]byte, 12), Stride: 8, Rect: image.Rect(0, 0, 2, 1)},
+		{Pix: make([]byte, 12), Stride: 12, Rect: image.Rect(0, 0, 2, 1)},
+	} {
+		if err := rgbaToBGRAInPlace(img); err == nil {
+			t.Fatalf("non-contiguous bitmap admitted to GDI: %+v", img)
+		}
+	}
+}
+
 func TestRenderBoundsNeverExceedConfiguredCap(t *testing.T) {
 	w, h, err := renderBounds(4960, 7016)
 	if err != nil {

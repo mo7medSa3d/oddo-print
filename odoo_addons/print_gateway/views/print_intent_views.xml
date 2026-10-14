@@ -4,7 +4,7 @@
         <field name="name">print_gateway.intent.list</field>
         <field name="model">print_gateway.intent</field>
         <field name="arch" type="xml">
-            <list string="Automation Activity" create="0" edit="0" delete="0">
+            <list string="Automation Activity" create="0" edit="0" delete="0" class="o_pg_list">
                 <field name="create_date" string="Created"/>
                 <field name="company_id" optional="show"/>
                 <field name="policy_id"/>

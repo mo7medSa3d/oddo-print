@@ -153,7 +153,8 @@ export async function GET(req: Request) {
         .from(printers)
         // Retain the tenant-scoped ownership join as a security/consistency
         // tripwire, but do not turn Agent reachability into physical status.
-        .leftJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId))),
+        .leftJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId)))
+        .where(eq(printers.sharedWithGateway, true)),
 
       db.execute(sql<PlatformHourlyJobStatsRow>`
         WITH hours AS (

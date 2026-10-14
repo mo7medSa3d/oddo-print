@@ -41,8 +41,8 @@ export function CaptureHistory({
               </div>
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h4 className="text-sm font-semibold text-ink sm:text-base">{title}</h4>
-                  <span className={`inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${meta.className}`}>
+                  <h4 className="break-words text-base font-semibold text-ink">{title}</h4>
+                  <span className={`inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-normal ${meta.className}`}>
                     <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
                     {t(meta.key)}
                   </span>
@@ -51,7 +51,7 @@ export function CaptureHistory({
                   <time dateTime={run.createdAt}>
                     {new Date(run.createdAt).toLocaleString(locale === "ar" ? "ar-EG" : "en-US", { dateStyle: "medium", timeStyle: "short" })}
                   </time>
-                  <span dir="ltr" className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-[11px]">{run.runId.slice(-8)}</span>
+                  <span dir="ltr" className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-xs">{run.runId.slice(-8)}</span>
                   {run.pages ? <span>{t("desktop.testCenter.inboxPageCount", { count: run.pages })}</span> : null}
                   {run.pdfBytes ? <span>{(run.pdfBytes / 1024).toFixed(1)} KB</span> : null}
                 </div>
@@ -124,7 +124,7 @@ export function CapturePreviewDialog({
             </div>
             <Dialog.Close asChild>
               <button type="button" aria-label={t("desktop.testCenter.remoteClose")}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-edge text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge text-ink-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
                 <X aria-hidden className="h-5 w-5" />
               </button>
             </Dialog.Close>
@@ -139,7 +139,7 @@ export function CapturePreviewDialog({
                 <div className="flex items-center gap-1" role="group" aria-label={t("desktop.testCenter.previewZoom")}>
                   <button type="button" onClick={() => setZoom(-1)} disabled={!fit && zoomIndex === 0}
                     aria-label={t("desktop.testCenter.previewZoomOut")}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-surface focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40">
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-2 hover:bg-surface focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40">
                     <ZoomOut aria-hidden className="h-4 w-4" />
                   </button>
                   <span className="w-12 text-center font-mono text-xs tabular-nums text-ink-2">
@@ -147,12 +147,12 @@ export function CapturePreviewDialog({
                   </span>
                   <button type="button" onClick={() => setZoom(1)} disabled={!fit && zoomIndex === zoomFactors.length - 1}
                     aria-label={t("desktop.testCenter.previewZoomIn")}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-surface focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40">
+                    className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-2 hover:bg-surface focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40">
                     <ZoomIn aria-hidden className="h-4 w-4" />
                   </button>
                   <button type="button" onClick={() => setFit(true)}
                     aria-label={t("desktop.testCenter.previewFit")}
-                    className="ms-1 flex h-9 items-center gap-1 rounded-lg border border-edge bg-surface px-3 text-xs font-medium text-ink-2 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand">
+                    className="ms-1 flex min-h-11 items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-2 text-sm font-medium text-ink-2 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand">
                     <Maximize2 aria-hidden className="h-3.5 w-3.5" />{t("desktop.testCenter.previewFitShort")}
                   </button>
                 </div>
@@ -181,7 +181,7 @@ export function CapturePreviewDialog({
               </div>
             </div>
 
-            <aside className="shrink-0 border-t border-edge bg-surface px-5 py-5 lg:w-[235px] lg:overflow-y-auto lg:border-s lg:border-t-0">
+            <aside className="shrink-0 border-t border-edge bg-surface px-5 py-5 lg:w-64 lg:overflow-y-auto lg:border-s lg:border-t-0">
               <h3 className="mb-4 text-sm font-semibold text-ink">{t("desktop.testCenter.previewDetails")}</h3>
               <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm lg:grid-cols-1">
                 <div className="min-w-0">

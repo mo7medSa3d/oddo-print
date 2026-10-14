@@ -52,7 +52,7 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 	}
 	buf := make([]byte, 1)
 	if _, err := io.ReadFull(rw, buf); err != nil {
-		return nil, fmt.Errorf("%w: failed to read printer status: %w", ErrPrinterOffline, err)
+		return nil, fmt.Errorf("%w: failed to read printer status: %w", ErrPrinterStatusUnsupported, err)
 	}
 	// Check standard ESC/POS DLE EOT response framing: bit 1=1, bit 4=1, bit 0=0, bit 7=0
 	if (buf[0] & 0x93) != 0x12 {
@@ -69,7 +69,7 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 		return nil, fmt.Errorf("%w: failed to write offline status inquiry: %w", ErrPrinterOffline, err)
 	}
 	if _, err := io.ReadFull(rw, buf); err != nil {
-		return nil, fmt.Errorf("%w: failed to read offline status: %w", ErrPrinterOffline, err)
+		return nil, fmt.Errorf("%w: failed to read offline status: %w", ErrPrinterStatusUnsupported, err)
 	}
 	if (buf[0] & 0x93) != 0x12 {
 		return nil, fmt.Errorf("%w: invalid ESC/POS offline status response byte 0x%02x (expected framing mask 0x93 == 0x12)", ErrPrinterStatusUnsupported, buf[0])
@@ -95,7 +95,7 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 		return nil, fmt.Errorf("%w: failed to write paper status inquiry: %w", ErrPrinterOffline, err)
 	}
 	if _, err := io.ReadFull(rw, buf); err != nil {
-		return nil, fmt.Errorf("%w: failed to read paper status: %w", ErrPrinterOffline, err)
+		return nil, fmt.Errorf("%w: failed to read paper status: %w", ErrPrinterStatusUnsupported, err)
 	}
 	if (buf[0] & 0x93) != 0x12 {
 		return nil, fmt.Errorf("%w: invalid ESC/POS paper status response byte 0x%02x (expected framing mask 0x93 == 0x12)", ErrPrinterStatusUnsupported, buf[0])

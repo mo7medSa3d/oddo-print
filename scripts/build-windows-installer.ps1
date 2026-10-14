@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-  # Rust target triple for the desktop app.
+  # Windows MSVC target triple; non-default architectures need a matching C compiler.
   [string]$Target = "x86_64-pc-windows-msvc",
   # Only NSIS has the required Agent service installer/upgrade/removal hooks.
   # Reject unsupported MSI requests before running any build steps.
@@ -71,6 +71,47 @@ function Assert-MinVersion([string]$Name, [version]$Required, [string]$ActualTex
   Write-Host ("  {0,-8} {1} (minimum {2})" -f $Name, $actual, $Required)
 }
 
+function Get-GoArchitectureForTarget([string]$RustTarget) {
+  # Tauri's documented Windows architectures; CI validates the default x64 target.
+  switch -CaseSensitive ($RustTarget) {
+    "x86_64-pc-windows-msvc" { return "amd64" }
+    "i686-pc-windows-msvc" { return "386" }
+    "aarch64-pc-windows-msvc" { return "arm64" }
+    default { throw "Unsupported Windows release target '$RustTarget'; supported: x86_64-pc-windows-msvc, i686-pc-windows-msvc, aarch64-pc-windows-msvc." }
+  }
+}
+
+function Assert-CodeSigningCertificate($Certificate, [string]$RequestedThumbprint) {
+  if (-not $Certificate -or [string]::IsNullOrWhiteSpace($RequestedThumbprint) -or
+      $Certificate.Thumbprint -ne $RequestedThumbprint) {
+    throw "Requested Windows code-signing certificate '$RequestedThumbprint' was not found."
+  }
+}
+
+function Assert-AuthenticodeSigningResult($Signature, [string]$ExpectedThumbprint, [string]$FilePath) {
+  # A self-signed publisher can be untrusted on the build host; this is distinct
+  # from a missing/invalid signature. Never accept signing errors as success.
+  if (-not $Signature -or [string]::IsNullOrWhiteSpace($ExpectedThumbprint) -or
+      [string]$Signature.Status -notin @("Valid", "NotTrusted") -or
+      -not $Signature.SignerCertificate -or
+      $Signature.SignerCertificate.Thumbprint -ne $ExpectedThumbprint) {
+    throw "Authenticode signing failed or returned an unexpected signer for '$FilePath'."
+  }
+  return [string]$Signature.Status
+}
+
+# Validate target and explicitly requested signing identity before any build.
+$goArchitecture = Get-GoArchitectureForTarget $Target
+$signingCert = $null
+$thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
+if (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
+  $thumbprint = $thumbprint.Trim()
+  $signingCert = Get-ChildItem -Path Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+    Where-Object { $_.Thumbprint -eq $thumbprint } |
+    Select-Object -First 1
+  Assert-CodeSigningCertificate $signingCert $thumbprint
+}
+
 # ── 1. Prerequisites ─────────────────────────────────────────────────────────
 Write-Step "Prerequisite check"
 Assert-Command node   "Install Node.js >= 24.15.0 (the repository baseline is pinned by .nvmrc)."
@@ -111,6 +152,9 @@ npm --prefix $repoRoot run desktop:vite:build
 if ($LASTEXITCODE -ne 0) { throw "vite build failed with exit code $LASTEXITCODE" }
 
 # ── 5. Go agent (release flags) ──────────────────────────────────────────────
+$savedGoOS = $env:GOOS
+$savedGoArch = $env:GOARCH
+$savedCGOEnabled = $env:CGO_ENABLED
 Push-Location $agentDir
 try {
   if (-not $SkipGoTests) {
@@ -123,7 +167,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "go tests failed with exit code $LASTEXITCODE" }
   }
 
-  Write-Step "Building YaseirAgent.exe (release)"
+  # SQLite requires CGO; never package the non-CGO stub or a host-architecture
+  # executable beside a different Rust target. Native tests above stay native.
+  $env:GOOS = "windows"
+  $env:GOARCH = $goArchitecture
+  $env:CGO_ENABLED = "1"
+  Write-Step "Building YaseirAgent.exe (release, windows/$goArchitecture, CGO enabled)"
   go build -trimpath -ldflags "-s -w" -o YaseirAgent.exe .\cmd\agent
   if ($LASTEXITCODE -ne 0) { throw "agent build failed with exit code $LASTEXITCODE" }
 
@@ -131,6 +180,9 @@ try {
   go build -trimpath -ldflags "-s -w" -o yaseir-agent-cli.exe .\cmd\cli
   if ($LASTEXITCODE -ne 0) { throw "cli build failed with exit code $LASTEXITCODE" }
 } finally {
+  $env:GOOS = $savedGoOS
+  $env:GOARCH = $savedGoArch
+  $env:CGO_ENABLED = $savedCGOEnabled
   Pop-Location
 }
 
@@ -144,8 +196,6 @@ foreach ($exe in @("YaseirAgent.exe", "yaseir-agent-cli.exe")) {
   Write-Host "  $exe -> $([math]::Round($size / 1MB, 1)) MB"
 }
 
-$signingCert = $null
-$thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
 if ($GenerateSelfSignedCert -and [string]::IsNullOrWhiteSpace($thumbprint)) {
   Write-Step "Preparing free self-signed Code Signing certificate"
   $existingCert = Get-ChildItem -Path Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue |
@@ -167,10 +217,6 @@ if ($GenerateSelfSignedCert -and [string]::IsNullOrWhiteSpace($thumbprint)) {
     Write-Host "  Created new Yaseir self-signed certificate: $($signingCert.Thumbprint)"
   }
   $thumbprint = $signingCert.Thumbprint
-} elseif (-not [string]::IsNullOrWhiteSpace($thumbprint)) {
-  $signingCert = Get-ChildItem -Path Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
-    Where-Object { $_.Thumbprint -eq $thumbprint } |
-    Select-Object -First 1
 }
 
 if ($signingCert) {
@@ -193,12 +239,10 @@ if ($signingCert) {
   Write-Step "Signing Go Agent executables (Authenticode SHA-256)"
   foreach ($exe in @("YaseirAgent.exe", "yaseir-agent-cli.exe")) {
     $exePath = Join-Path $agentDir $exe
-    $sigResult = Set-AuthenticodeSignature -FilePath $exePath -Certificate $signingCert -HashAlgorithm SHA256
-    if ($sigResult.Status -ne "Valid" -and $sigResult.Status -ne "UnknownError") {
-      Write-Host "  Signed $exe (status: $($sigResult.Status))"
-    } else {
-      Write-Host "  Signed $exe (thumbprint: $($signingCert.Thumbprint))"
-    }
+    $sigResult = Set-AuthenticodeSignature -FilePath $exePath -Certificate $signingCert -HashAlgorithm SHA256 -ErrorAction Stop
+    $signatureStatus = Assert-AuthenticodeSigningResult $sigResult $signingCert.Thumbprint $exePath
+    Write-Host "  Signed $exe (thumbprint: $($signingCert.Thumbprint); status: $signatureStatus)"
+    if ($signatureStatus -eq "NotTrusted") { Write-Host "  Publisher trust is not established on this build host." }
   }
 }
 
@@ -233,8 +277,10 @@ if ($Bundles -match "nsis") {
   if ($unexpectedNsis.Count -ne 0) { throw "Unexpected extra NSIS executable(s) detected: $($unexpectedNsis.Name -join ', ')" }
   if ($signingCert) {
     Write-Step "Signing final NSIS installer executable"
-    Set-AuthenticodeSignature -FilePath $nsis[0].FullName -Certificate $signingCert -HashAlgorithm SHA256 | Out-Null
-    Write-Host "  Signed installer: $($nsis[0].Name)"
+    $sigResult = Set-AuthenticodeSignature -FilePath $nsis[0].FullName -Certificate $signingCert -HashAlgorithm SHA256 -ErrorAction Stop
+    $signatureStatus = Assert-AuthenticodeSigningResult $sigResult $signingCert.Thumbprint $nsis[0].FullName
+    Write-Host "  Signed installer: $($nsis[0].Name) (status: $signatureStatus)"
+    if ($signatureStatus -eq "NotTrusted") { Write-Host "  Publisher trust is not established on this build host." }
   }
   $artifacts += $nsis
 }
