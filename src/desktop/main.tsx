@@ -341,6 +341,11 @@ export default function App() {
       const list = await getPrinters();
       if (generation !== localPrintersGeneration.current) return false;
       const completedAt = Date.now();
+      // The display clock may still hold its pre-read value from the last
+      // 15-second tick. Advance it with native observation evidence; otherwise
+      // a just-confirmed local printer looks stale (and sharing stays disabled)
+      // until the next tick because its observation time is in the future.
+      setNowMs((previous) => Math.max(previous, completedAt));
       setLocalPrinters(list.filter(isProductionPrinter).map((p) => ({ ...p, localObservedAt: completedAt, sharedWithGateway: p.sharedWithGateway ?? true })));
       localInventoryReadyRef.current = true;
       setLocalInventoryReady(true);
