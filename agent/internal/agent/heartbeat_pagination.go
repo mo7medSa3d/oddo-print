@@ -60,10 +60,6 @@ const (
 	maxHeartbeatEnvelopeBytes   = 512 * 1024
 )
 
-func splitHeartbeatPrinterPages(printers []map[string]interface{}) [][]map[string]interface{} {
-	return splitHeartbeatPrinterPagesWithBudget(printers, maxHeartbeatPrinterBytes)
-}
-
 func splitHeartbeatPrinterPagesWithBudget(printers []map[string]interface{}, byteBudget int) [][]map[string]interface{} {
 	if len(printers) == 0 {
 		return [][]map[string]interface{}{{}}
