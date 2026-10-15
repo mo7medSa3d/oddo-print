@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -38,6 +39,9 @@ type USBPrinter struct {
 	// closeHandle releases the Windows device handle; injected in tests so
 	// ownership transfer on abandoned writes can be asserted without races.
 	closeHandle func(h windows.Handle) error
+	// Native interface enumeration and handle access have narrow test seams.
+	usbInterfaces func() ([]usbPrintInterface, error)
+	openDevice    func(path *uint16, access uint32) (windows.Handle, error)
 	// wedged latches once a chunk write had to be abandoned mid-syscall.
 	// Only pointer receivers ever exist (see factory.go), so atomic access
 	// is race-safe.
@@ -69,6 +73,74 @@ func (p *USBPrinter) closeDeviceHandle(h windows.Handle) {
 	if err := closeFn(h); err != nil {
 		log.Printf("WARNING: CloseHandle failed for USB device %s: %v", p.Identify(), err)
 	}
+}
+
+func (p *USBPrinter) openDeviceHandle(path *uint16, access uint32) (windows.Handle, error) {
+	if p.openDevice != nil {
+		return p.openDevice(path, access)
+	}
+	return windows.CreateFile(path, access, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+}
+
+// A native open can outlive its caller, but an abandoned open never owns a
+// print continuation; its eventual handle is closed without sending bytes.
+func (p *USBPrinter) openDeviceBounded(ctx context.Context, path *uint16, access uint32) (windows.Handle, error) {
+	var mu sync.Mutex
+	abandoned := false
+	opened := windows.InvalidHandle
+	err := runPreflightBounded("USBPRINT "+p.DevicePath, preflightTimeout, ctx, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		handle, err := p.openDeviceHandle(path, access)
+		mu.Lock()
+		if abandoned {
+			mu.Unlock()
+			if err == nil {
+				p.closeDeviceHandle(handle)
+			}
+			return err
+		}
+		if err == nil {
+			opened = handle
+		}
+		mu.Unlock()
+		return err
+	})
+	mu.Lock()
+	if err != nil {
+		abandoned = true
+		completedHandle := opened
+		mu.Unlock()
+		if completedHandle != windows.InvalidHandle {
+			p.closeDeviceHandle(completedHandle)
+		}
+		return windows.InvalidHandle, err
+	}
+	handle := opened
+	mu.Unlock()
+	if handle == windows.InvalidHandle {
+		return handle, fmt.Errorf("USB device open returned no valid handle")
+	}
+	return handle, nil
+}
+
+func (p *USBPrinter) validateNativeBinding(ctx context.Context) error {
+	path, vid, pid, serial := p.DevicePath, p.VID, p.PID, p.SerialNumber
+	enumerate := p.usbInterfaces
+	if enumerate == nil {
+		enumerate = enumerateUSBPrintInterfaces
+	}
+	return runPreflightBounded("USBPRINT "+path, preflightTimeout, ctx, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		interfaces, enumErr := enumerate()
+		if err := validateUSBPrintBinding(ctx, path, vid, pid, serial, interfaces, usbParentDevInst, usbDevInstID); err != nil {
+			return errors.Join(err, enumErr)
+		}
+		return nil
+	})
 }
 
 // writeChunkBounded executes one chunk write on a helper goroutine so the
@@ -158,7 +230,13 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid device path %q: %w", p.DevicePath, err)
 	}
-	h, err := windows.CreateFile(pathPtr, windows.GENERIC_WRITE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+	if err := p.validateNativeBinding(ctx); err != nil {
+		return fmt.Errorf("USB printer binding refused before opening the device (no bytes sent): %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	h, err := p.openDeviceBounded(ctx, pathPtr, windows.GENERIC_WRITE)
 	if err != nil {
 		return fmt.Errorf("CreateFile(%q) failed for %s: %w (try installing as Windows spooler queue)", p.DevicePath, p.Identify(), err)
 	}
@@ -232,18 +310,6 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// Printer-language diagnostic tickets interpolate operator-controlled display
-// names. Strip command delimiters rather than escaping them ambiguously:
-// diagnostic labels do not need those characters, and a crafted queue name
-// must never terminate a field or inject another command.
-func sanitizeZPLTestText(s string) string {
-	return strings.NewReplacer("^", " ", "~", " ").Replace(sanitizeTestText(s))
-}
-
-func sanitizeTSPLTestText(s string) string {
-	return strings.NewReplacer("\"", "'", "\\", "/").Replace(sanitizeTestText(s))
-}
-
 // SessionMayBeLive implements LiveSessionReporter: a wedged latch means an
 // abandoned kernel write may still complete and emit bytes. A replacement
 // backend starts with a fresh latch, so swapping while wedged would permit a
@@ -261,11 +327,11 @@ func (p *USBPrinter) testPayload() []byte {
 		// a separate capability and cannot be inferred from USB/thermal class.
 		return []byte("\x1b\x40USB Direct Test Print for Yaseir Agent\nPrinter: " + name + "\nVID:" + fmt.Sprintf("%04x", p.VID) + " PID:" + fmt.Sprintf("%04x", p.PID) + "\n\n")
 	case "zpl":
-		zplName := sanitizeZPLTestText(name)
-		return []byte("^XA\n^FO40,40^A0N,30,30^FDYASEIR USB TEST^FS\n^FO40,80^A0N,24,24^FDPrinter: " + zplName + "^FS\n^XZ\n")
+		payload, _ := localByteDiagnosticPayload("zpl")
+		return payload
 	case "tspl":
-		tsplName := sanitizeTSPLTestText(name)
-		return []byte("SIZE 75 mm, 40 mm\nGAP 2 mm, 0 mm\nCLS\nTEXT 30,30,\"3\",0,1,1,\"YASEIR USB TEST\"\nTEXT 30,70,\"2\",0,1,1,\"Printer: " + tsplName + "\"\nPRINT 1,1\n")
+		payload, _ := localByteDiagnosticPayload("tspl")
+		return payload
 	default:
 		// Generic raw USB diagnostics use printable ASCII only. A raw byte
 		// stream is not evidence that the device understands ESC/POS commands.
@@ -286,7 +352,12 @@ func (p *USBPrinter) Status() string {
 	if err != nil {
 		return "error"
 	}
-	h, err := windows.CreateFile(pathPtr, 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), preflightTimeout)
+	defer cancel()
+	if err := p.validateNativeBinding(ctx); err != nil {
+		return "unknown"
+	}
+	h, err := p.openDeviceBounded(ctx, pathPtr, 0)
 	if err != nil {
 		// Access/sharing/service-context failures do not prove physical absence.
 		return "unknown"
@@ -315,7 +386,7 @@ const (
 )
 
 var (
-	modSetupAPI                           = syscall.NewLazyDLL("setupapi.dll")
+	modSetupAPI                           = windows.NewLazySystemDLL("setupapi.dll")
 	procSetupDiGetClassDevsW              = modSetupAPI.NewProc("SetupDiGetClassDevsW")
 	procSetupDiEnumDeviceInfo             = modSetupAPI.NewProc("SetupDiEnumDeviceInfo")
 	procSetupDiGetDeviceInstanceIdW       = modSetupAPI.NewProc("SetupDiGetDeviceInstanceIdW")
@@ -323,7 +394,28 @@ var (
 	procSetupDiDestroyDeviceInfoList      = modSetupAPI.NewProc("SetupDiDestroyDeviceInfoList")
 	procSetupDiEnumDeviceInterfaces       = modSetupAPI.NewProc("SetupDiEnumDeviceInterfaces")
 	procSetupDiGetDeviceInterfaceDetailW  = modSetupAPI.NewProc("SetupDiGetDeviceInterfaceDetailW")
+	modUSBConfigManager                   = windows.NewLazySystemDLL("cfgmgr32.dll")
+	procCMGetUSBParent                    = modUSBConfigManager.NewProc("CM_Get_Parent")
+	procCMGetUSBDeviceIDW                 = modUSBConfigManager.NewProc("CM_Get_Device_IDW")
 )
+
+func usbParentDevInst(devInst uint32) (uint32, error) {
+	var parent uint32
+	ret, _, _ := procCMGetUSBParent.Call(uintptr(unsafe.Pointer(&parent)), uintptr(devInst), 0)
+	if windows.CONFIGRET(ret) != windows.CR_SUCCESS {
+		return 0, fmt.Errorf("CM_Get_Parent returned CONFIGRET %#x", ret)
+	}
+	return parent, nil
+}
+
+func usbDevInstID(devInst uint32) (string, error) {
+	var id [windows.MAX_DEVICE_ID_LEN]uint16
+	ret, _, _ := procCMGetUSBDeviceIDW.Call(uintptr(devInst), uintptr(unsafe.Pointer(&id[0])), uintptr(len(id)), 0)
+	if windows.CONFIGRET(ret) != windows.CR_SUCCESS {
+		return "", fmt.Errorf("CM_Get_Device_IDW returned CONFIGRET %#x", ret)
+	}
+	return windows.UTF16ToString(id[:]), nil
+}
 
 type spDevInfoData struct {
 	cbSize    uint32
@@ -348,6 +440,8 @@ var guidDevInterfaceUSBPrint = windows.GUID{Data1: 0x28d78fad, Data2: 0x5a12, Da
 
 func discoverUSBPrinters() ([]DeviceInfo, error) {
 	log.Printf("[discovery] starting USB discovery (SetupDi)")
+	identityCtx, cancelIdentity := context.WithTimeout(context.Background(), preflightTimeout)
+	defer cancelIdentity()
 	pathMap, pathErr := buildUSBDevicePathMap()
 	var diagnostics []error
 	if pathErr != nil {
@@ -429,11 +523,12 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		}
 		seenIDs[id] = true
 
-		devicePath := pathMap[instanceID]
+		deviceInterface := pathMap[instanceID]
+		devicePath := deviceInterface.path
 		if devicePath == "" {
 			for k, v := range pathMap {
 				if strings.EqualFold(k, instanceID) {
-					devicePath = v
+					deviceInterface, devicePath = v, v.path
 					break
 				}
 			}
@@ -488,6 +583,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 		}
 		if devicePath == "" {
 			diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
+		} else if enriched, err := enrichNativeUSBDiscovery(identityCtx, di, deviceInterface); err != nil {
+			diagnostics = append(diagnostics, err)
+			di = enriched
+		} else {
+			di = enriched
 		}
 		lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
 		if strings.Contains(lowerName, "thermal") || strings.Contains(lowerName, "receipt") || strings.Contains(lowerName, "pos") {
@@ -561,11 +661,12 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 					continue
 				}
 				seenIDs[id] = true
-				devicePath := pathMap[instanceID]
+				deviceInterface := pathMap[instanceID]
+				devicePath := deviceInterface.path
 				if devicePath == "" {
 					for k, v := range pathMap {
 						if strings.EqualFold(k, instanceID) {
-							devicePath = v
+							deviceInterface, devicePath = v, v.path
 							break
 						}
 					}
@@ -612,6 +713,11 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 				if devicePath == "" {
 					di.Status = "unknown"
 					diagnostics = append(diagnostics, fmt.Errorf("USB printer %q has no direct path; install its Windows spooler queue", friendlyName))
+				} else if enriched, err := enrichNativeUSBDiscovery(identityCtx, di, deviceInterface); err != nil {
+					diagnostics = append(diagnostics, err)
+					di = enriched
+				} else {
+					di = enriched
 				}
 				lowerName := strings.ToLower(friendlyName + " " + desc + " " + mfg)
 				if strings.Contains(lowerName, "thermal") || strings.Contains(lowerName, "receipt") || strings.Contains(lowerName, "pos") {
@@ -634,8 +740,38 @@ func discoverUSBPrinters() ([]DeviceInfo, error) {
 	return infos, errors.Join(diagnostics...)
 }
 
-func buildUSBDevicePathMap() (map[string]string, error) {
-	out := make(map[string]string)
+func enrichNativeUSBDiscovery(ctx context.Context, info DeviceInfo, iface usbPrintInterface) (DeviceInfo, error) {
+	var enriched DeviceInfo
+	err := runPreflightBounded("USBPRINT "+iface.path, preflightTimeout, ctx, func() error {
+		var err error
+		enriched, err = enrichUSBDiscoveryIdentity(ctx, info, iface, usbParentDevInst, usbDevInstID)
+		return err
+	})
+	if err != nil {
+		info.Capabilities["usb_identity_verified"] = false
+		info.Capabilities["direct_usb_available"] = false
+		info.Capabilities["requires_spooler"] = true
+		info.Capabilities["verification"] = "candidate_only"
+		info.Capabilities["diagnostic"] = "Native USB printer identity could not be verified; use its installed Windows spooler queue: " + err.Error()
+		return info, fmt.Errorf("USB printer %q native identity unavailable: %w", info.Name, err)
+	}
+	enriched.Capabilities["usb_identity_verified"] = true
+	return enriched, nil
+}
+
+func buildUSBDevicePathMap() (map[string]usbPrintInterface, error) {
+	out := make(map[string]usbPrintInterface)
+	interfaces, err := enumerateUSBPrintInterfaces()
+	for _, iface := range interfaces {
+		if _, exists := out[iface.instanceID]; !exists {
+			out[iface.instanceID] = iface
+		}
+	}
+	return out, err
+}
+
+func enumerateUSBPrintInterfaces() ([]usbPrintInterface, error) {
+	var out []usbPrintInterface
 	var diagnostics []error
 	// Generic USB interfaces do not promise a printer WriteFile transport.
 	// Keep those devices as fallback candidates requiring a spooler queue.
@@ -689,9 +825,7 @@ func buildUSBDevicePathMap() (map[string]string, error) {
 				diagnostics = append(diagnostics, fmt.Errorf("USB path device instance: %v", err))
 				continue
 			}
-			if _, exists := out[instanceID]; !exists {
-				out[instanceID] = path
-			}
+			out = append(out, usbPrintInterface{path: path, instanceID: instanceID, devInst: devInfo.DevInst})
 		}
 		procSetupDiDestroyDeviceInfoList.Call(handle)
 	}

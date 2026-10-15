@@ -23,7 +23,8 @@ import {
   StatusBadge,
   type Tone,
 } from "../../components/ui";
-import { getTenantPrintUsage } from "../../lib/entitlements";
+import { getTenantPrintUsage, isBillingAccessStatus, isSubscriptionPeriodLive } from "../../lib/entitlements";
+import { refreshClockSkew } from "../../lib/database-clock";
 import { logWarn } from "../../lib/log";
 import type { Translator } from "../../i18n/translate";
 
@@ -158,13 +159,16 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const selectedPlan = selectedPlanId ? availablePlans.find((item) => item.id === selectedPlanId) ?? null : null;
-  const activeStatuses = new Set(["trialing", "active", "past_due"]);
-  const hasActivePlan = !!sub && activeStatuses.has(sub.status);
+  await refreshClockSkew();
+  const hasActivePlan = !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
+    && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub.stripeSubscriptionId;
   // The stored plan row is history, not state: a cancelled/expired
   // subscription must not present its plan as current (C055).
   const effectivePlan = hasActivePlan ? currentPlan : null;
-  const status = sub ? planStatus(sub, t, formatDate) : null;
+  const status = sub && (sub.entitlementBlocked || (isBillingAccessStatus(sub.status) && !hasActivePlan))
+    ? { tone: "warn" as const, label: t("billing.paymentAttention"), message: t("errors.billingBlocked") }
+    : sub ? planStatus(sub, t, formatDate) : null;
   const entitlements = effectivePlan?.entitlements
     ? Object.entries(effectivePlan.entitlements)
         .filter(([, value]) => value !== false)

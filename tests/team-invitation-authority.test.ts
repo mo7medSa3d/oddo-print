@@ -38,9 +38,12 @@ describe("invitation actor authority and lifecycle lock ordering", () => {
     const response = await POST(request());
     expect(response.status).toBe(200);
     expect(state.statements[0]).toContain("FROM tenants");
-    expect(state.statements[1]).toContain("FROM users");
-    expect(state.statements[2]).toContain("pg_advisory_xact_lock");
-    expect(state.statements[3]).toContain("FROM refresh_tokens");
+    expect(state.statements[0]).toContain("FOR UPDATE");
+    expect(state.statements[1]).toContain("FROM tenants");
+    expect(state.statements[1]).toContain("FOR SHARE");
+    expect(state.statements[2]).toContain("FROM users");
+    expect(state.statements[3]).toContain("pg_advisory_xact_lock");
+    expect(state.statements[4]).toContain("FROM refresh_tokens");
     expect(state.inserts).toBe(1);
     expect(state.emails).toBe(1);
   });

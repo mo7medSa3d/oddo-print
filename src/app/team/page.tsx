@@ -119,10 +119,12 @@ export default function TeamPage() {
     // onClick (event handlers may set state freely).
     try {
       const session = await ensureCustomerSession();
+      if (!current()) return;
       if (!session.authenticated) { router.replace("/login?next=%2Fteam"); return; }
       const probe = await fetchWithTimeout("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (!probe.ok) throw new Error("Session unavailable");
       const principal = await probe.json();
+      if (!current()) return;
       if (!principal.userId || !principal.permissions?.includes("users.read")) {
         if (!current()) return;
         setLoadError(t("errors.forbidden"));
@@ -143,6 +145,7 @@ export default function TeamPage() {
       }
       const membersPayload = await membersRes.json();
       const invitationsPayload = await invitationsRes.json();
+      if (!current()) return;
       setMembers(membersPayload.members ?? []);
       setMemberHasMore(membersPayload.hasMore === true);
       setMemberTotal(Number.isSafeInteger(membersPayload.total) ? membersPayload.total : 0);
@@ -172,6 +175,7 @@ export default function TeamPage() {
     });
     return () => {
       active = false;
+      loadGeneration.current += 1;
     };
   }, [load, memberOffset, invitationOffset]);
 

@@ -1,12 +1,14 @@
 # Odoo Integration Guide
 
-> Module: `print_gateway` | Version: 19.0.2.14.0 | Odoo: 19 Community Edition
+> Module: `print_gateway` | Version: 19.0.2.15.0 | Odoo: 19 Community Edition
 
 ## Overview
 
 The Yaseir Print Gateway Odoo addon enables silent, hardware-level printing from Odoo ERP to physical printers through the central Gateway. Odoo owns all business context (what to print, where to print); the Gateway owns runtime infrastructure (agents, printers, job queue).
 
-Document test pages use the selected runtime printer's bounded optional `capabilities.paper_width_mm` (58 or 80) to generate a matching 100mm-long thermal ticket. The Gateway inventory and Odoo picker retain this physical-media field separately from `printableWidthDots`. Missing or ambiguous dimensions retain the existing office format; no printer-name or raster-dot inference is made. Driver form acceptance is checked by the Agent before submission. A completed submission remains informational until the operator verifies paper output.
+Document test pages use the selected runtime printer's optional `capabilities.paper_width_mm` (58 or 80) to generate a matching 100mm-long source ticket. The Gateway inventory and Odoo picker retain this physical-media field separately from `printableWidthDots`. Windows spooler tests can use the selected driver's validated paper when roll metadata is unavailable: the Agent tries the document form, then fits the complete page proportionally inside that same driver's printable area before submission. A direct IPP POS/kitchen binding (`pos`/`pos_printer`) with exact `deviceClass=thermal` still requires declared integer58/80mm; no Windows driver is available on that direct path. Other source formats remain: ASCII uses Letter with bounded wrapped metadata, Unicode uses the Odoo report/company paperformat. Names and `document_type` do not establish media. Actual report files retain their layout, while their Windows output uses the same complete-page fit. No global paperformat or installed-printer defaults are modified; submission remains informational until paper is observed.
+
+TSPL Test Print sends the firmware's documented `SELFTEST` command rather than imposing75×50mm stock or a2mm gap. ZPL Test Print sends one compact buffered `TEST` label without changing stock, gap or calibration. Actual application label programs are unchanged and still require the printer's real language and configured media. Check Setup/Test Connection remain control-plane checks, and E2E Capture remains rendering-only; Test Print uses the exact binding and durable physical-job outbox.
 
 ## Architecture
 
@@ -100,7 +102,7 @@ Root Company
 - POS Receipt bindings are rendered by the POS client and do not require a PDF report
 - POS Kitchen / Preparation bindings use the native Odoo 19 Preparation Printer as the logical category-aware destination and the Gateway Runtime Printer as the physical target
 - An Odoo 19 `pos.printer` is required when using category-aware Gateway Kitchen / Preparation routing; a POS Shop binding remains available only as a compatibility fallback when no native Preparation Printer binding exists
-- POS receipts and kitchen tickets cannot target laser/inkjet printers
+- POS receipts and kitchen tickets require a rendered-image transport: a real Windows spooler queue (including installed laser/inkjet queues) or a supported ESC/POS network raster path. Direct IPP/USB byte transports and conflicting explicit capabilities are excluded from this JPEG route.
 
 ## Print Policy Automation
 
@@ -176,3 +178,27 @@ policy may match a branch and cannot establish which company owned an event.
 Rows without a provable company block the upgrade with sample IDs; restore
 their source record or set the verified company before retrying. Back up and
 exercise upgrade/rollback on an Odoo 19 database in staging.
+
+### Scheduled automation review (19.0.2.15.0)
+
+The addon defines five native scheduled actions: submit queued jobs, reconcile
+Gateway status, recover committed business-event intents, synchronize activation,
+and remove retained terminal jobs. Invoice posting, completed inventory moves,
+and POS events stage intents inside the business transaction; external dispatch
+runs only after commit, with cron recovery for missed callbacks. A rollback must
+not print. An intent being dispatched means its durable print job exists; it does
+not establish paper output.
+
+Status reconciliation and activation synchronization yield when Odoo 19's
+`_commit_progress()` time budget is exhausted. Failed batch-status requests cannot
+start a long sequence of individual HTTP requests without another budget check.
+Existing retry delays, exact company/binding ownership, and ambiguous physical
+outcomes remain authoritative. See the [official Odoo 19 scheduler implementation](https://github.com/odoo/odoo/blob/19.0/odoo/addons/base/models/ir_cron.py).
+
+Upgrade with `-u print_gateway` and rebuild/reload the normal Odoo asset bundles
+to apply the menu and POS changes. This release changes no schema or dependency;
+the 19.0.2.14.0 ownership migration still applies when upgrading older databases.
+Validate the scheduled actions through `ir.cron.method_direct_trigger()` in an
+Odoo registry test environment, then exercise actual invoice, stock, POS,
+multi-company, rollback, outage and recovery flows in staging. Offline source
+tests cannot establish native ORM, scheduler, asset or physical-printer acceptance.

@@ -64,7 +64,17 @@ export function startRpcWithDeadline(rpcFn, route, params, {
             reject(new GatewayTimeoutError(timeoutMessage));
         }, timeoutMs);
 
-        Promise.resolve(rpcFn(route, params, { xhr, silent })).then(
+        let request;
+        try {
+            request = rpcFn(route, params, { xhr, silent });
+        } catch (error) {
+            settled = true;
+            clearTimeout(timer);
+            try { xhr.abort(); } catch { /* Best-effort release after a synchronous RPC failure. */ }
+            reject(error);
+            return;
+        }
+        Promise.resolve(request).then(
             (value) => {
                 if (settled) return;
                 settled = true;

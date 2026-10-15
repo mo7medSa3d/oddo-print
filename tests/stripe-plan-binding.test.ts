@@ -25,7 +25,7 @@ describe("Stripe plan binding contract", () => {
         type: "recurring",
         currency: "usd",
         product: "prod_business",
-        recurring: { interval: "month", interval_count: 1 },
+        recurring: { interval: "month", interval_count: 1, usage_type: "licensed" },
       }), { status: 200 }),
     );
 
@@ -172,5 +172,19 @@ describe("Stripe plan binding contract", () => {
       code: "STRIPE_UNAVAILABLE",
       status: 502,
     });
+  });
+
+  it.each([
+    { interval_count: 3, usage_type: "licensed" },
+    { interval_count: 1, usage_type: "metered" },
+    { interval_count: undefined, usage_type: "licensed" },
+  ])("rejects recurring Prices the fixed-quantity catalog cannot represent: %j", async (recurring) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "price_unsupported", active: true, type: "recurring", currency: "usd",
+      product: "prod_business", recurring: { interval: "month", ...recurring },
+    }), { status: 200 }));
+    await expect(validateStripePriceBinding({
+      priceId: "price_unsupported", currency: "usd", interval: "month",
+    })).rejects.toMatchObject({ code: "STRIPE_PRICE_INVALID", status: 400 });
   });
 });

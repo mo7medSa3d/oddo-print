@@ -459,7 +459,7 @@ class PrintGatewayBinding(models.Model):
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError(_("Gateway runtime agent discovery is unavailable.")) from exc
         agents = body.get("agents") if isinstance(body, dict) else None
-        agent_match = next((agent for agent in agents or [] if isinstance(agent, dict) and agent.get("id") == self.runtime_agent_id), None)
+        agent_match = next((agent for agent in (agents if isinstance(agents, list) else []) if isinstance(agent, dict) and agent.get("id") == self.runtime_agent_id), None)
         if not isinstance(agents, list) or not agent_match:
             raise ValidationError(_("The selected Gateway Runtime Agent is not found."))
         if agent_match.get("lifecycle") != "active":
@@ -477,7 +477,7 @@ class PrintGatewayBinding(models.Model):
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError(_("Gateway runtime printer discovery is unavailable.")) from exc
         printers = body.get("printers") if isinstance(body, dict) else None
-        printer_match = next((printer for printer in printers or [] if isinstance(printer, dict) and printer.get("id") == self.printer_id), None)
+        printer_match = next((printer for printer in (printers if isinstance(printers, list) else []) if isinstance(printer, dict) and printer.get("id") == self.printer_id), None)
         if not isinstance(printers, list) or not printer_match:
             raise ValidationError(_("The selected Gateway Runtime Printer is not found."))
         if not is_gateway_shared_printer(printer_match):

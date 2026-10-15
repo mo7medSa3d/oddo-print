@@ -159,6 +159,10 @@ reverse proxy. The error alone does not prove either cause.
 
 ### Diagnostic ticket format or printer transport is unsupported
 
+For a known thermal POS/kitchen binding, configure58mm or80mm on the exact selected Agent/Gateway printer and synchronize it before the Odoo document test. Missing or malformed selected media now fails before either PDF renderer or the outbox; do not infer paper from a POS80 name or printable dot width. Other generic/office diagnostics keep their existing document format.
+
+Windows document printing first requests the document form and otherwise uses the same selected driver's validated current paper, fitting the complete page inside printable bounds before `StartDocW`. If media is still rejected, compare `requested`, `driver physical`, `printable`, `DPI` and `offset`: an unusable driver/default or invalid geometry cannot be repaired by claiming success. A physical72.1mm width is the driver's reported sheet width, not proof of an80mm roll. Correct the supported Windows form/driver and retry only a proven pre-submission rejection. If pages may have been submitted, inspect the printer and retain `UNKNOWN` rather than blindly retrying. Direct printer-language/IPP jobs do not acquire Windows driver fitting; use an explicitly selected installed Windows queue when that rendering path is needed.
+
 **Cause**: The test-page producer emits byte tickets for `escpos`, `zpl`, `tspl`, and `raw`. For Windows Spooler and IPP/IPPS document transports, it instead builds a generated PDF test ticket (`type: pdf`, base64) to be rendered by the Agent/driver. A transport with neither supported bytes nor a document-print path cannot be automatically tested.
 
 **Resolution**: Verify the spooler queue's installed driver, PDF rendering support, Agent service-account access and IPP document-format capabilities, then send the generated PDF test ticket. Distinguish Gateway admission from confirmed driver acceptance and physical paper output. A Real document/report (for example, an Odoo invoice) and an observed physical print are still required for end-to-end acceptance, including Arabic fonts and page dimensions.
@@ -180,6 +184,8 @@ reverse proxy. The error alone does not prove either cause.
 ### IPP endpoint configuration or capability probe errors
 
 An invalid IPP URI produces a sanitized error; the Agent does not echo a malformed URI that may contain credentials. IPP addresses configured through the Agent must use an allowed private/link-local IP, an approved port and **no embedded user credentials**. Confirm the printer URI through the authorized console rather than pasting credentials into logs. Large or malformed IPP capability responses fail explicitly instead of being interpreted as a valid truncated response. These checks validate configuration/protocol evidence, **not** physical paper output.
+
+If `document-format-supported` cannot be verified (including denied authentication, a malformed response or absent formats), no document is submitted. Use the exact advertised queue URI or the installed Windows spooler queue; the Agent does not send PDF speculatively. A non200 or nonIPP response **after** Print-Job remains an unknown physical outcome and must not be retried blindly. See [IPP compatibility](docs/IPP_PRINT_COMPATIBILITY.md).
 
 ## Windows deployment: IPP timeout and headless PDFium failures
 

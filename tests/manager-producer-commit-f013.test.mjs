@@ -40,6 +40,8 @@ const tx={
 const schema=stub({tenantUsers:{userId:'userId',tenantId:'tenantId'},users:{id:'id'},tenants:{id:'id',name:'name'},apiKeys:{id:'id',tenantId:'tenantId',hashedKey:'hashed_key',revokedAt:'revokedAt',odooEnabledRevision:'odooEnabledRevision'},plans:{id:'id',isActive:'isActive',isPublic:'isPublic'},tenantSubscriptions:{tenantId:'tenantId'}});
 const auth=new vm.SourceTextModule(from('lib/authorization.ts'),{context:ctx});await auth.link(()=>{throw Error('unexpected authorization import')});await auth.evaluate();
 const guard=new vm.SourceTextModule(from('lib/manager-mutation-authorization.ts'),{context:ctx});await guard.link((name)=>name==='drizzle-orm'?dr:name.endsWith('db/schema')?schema:auth);await guard.evaluate();
+class TenantSuspendedError extends Error {}
+class TenantDeletedError extends Error {}
 const deps={
  'next/server':stub({NextResponse:{json:(data,{status=200}={})=>Response.json(data,{status})}}),
  'drizzle-orm':dr,
@@ -50,9 +52,9 @@ const lib={
  '/lib/manager-auth':stub({validateWorkspaceManager:async()=>{
   state.preflight?.();return {tenantId:'tenant',jti:'jti',exp:1900000000,role:state.role,userId:'actor',kind:'manager',familyId:state.legacy?undefined:'family'};
  }}),
- '/lib/tenant-guard':stub({requireActiveTenantInTransaction:async(t,tid)=>{
+ '/lib/tenant-guard':stub({TenantSuspendedError,TenantDeletedError,requireActiveTenantInTransaction:async(t,tid)=>{
    const v=await t.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tid} FOR SHARE`);
-   if(v.rows[0]?.lifecycle!=='active')throw Error('TENANT_SUSPENDED');return 'active';
+   if(v.rows[0]?.lifecycle!=='active')throw new TenantSuspendedError('TENANT_SUSPENDED');return 'active';
  }}),
  '/lib/entitlements':stub({requireTenantBillingAccess:async(t,id)=>{state.events.push('billing entitlement '+id)},isTenantBillingError:()=>false}),
  '/lib/odoo-auth':stub({generateOdooApiKey:()=>({raw:'secret',hashed:'hash',id:'key1'})}),

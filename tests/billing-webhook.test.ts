@@ -628,6 +628,10 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
       "active",
       new Date(created * 1000),
     );
+    await db.update(tenantSubscriptions).set({
+      billingOperationId: "billop_terminal", billingOperationType: "cancel",
+      billingOperationIdempotencyKey: "billing-terminal", billingOperationSubscriptionId: subscriptionId,
+    }).where(eq(tenantSubscriptions.tenantId, tenantId));
 
     const payload = JSON.stringify({
       id: `evt_deleted_${nanoid(8)}`,
@@ -650,6 +654,8 @@ suite("Billing Webhook Route (POST /api/billing/webhook)", () => {
     });
     expect(sub?.status).toBe("cancelled");
     expect(sub?.stripeLastEventCreatedAt?.getTime()).toBe(created * 1000);
+    expect(sub?.billingOperationId).toBeNull();
+    expect(sub?.billingOperationIdempotencyKey).toBeNull();
   });
 
   it("5e. ignores trial_will_end instead of changing subscription lifecycle state", async () => {

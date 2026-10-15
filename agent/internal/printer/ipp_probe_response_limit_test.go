@@ -14,12 +14,16 @@ import (
 // Otherwise an untrusted printer can append data that is silently discarded
 // and the Agent may incorrectly accept the apparent capability evidence.
 func TestIPPAttributesRejectOversizedResponseWithCompletePrefix(t *testing.T) {
+	base := ippAttrResponse(ippFormatPDF)
 	var prefix bytes.Buffer
-	prefix.Write([]byte{0x02, 0x00, 0x00, 0x00, 0, 0, 0, 1, 0x04})
+	prefix.Write(base[:len(base)-1])
 	const maxBytes = 64 * 1024
-	const attributeName = "padding"
-	const attributeEnvelope = 1 + 2 + len(attributeName) + 2
-	writeIPPAttribute(&prefix, 0x42, attributeName, strings.Repeat("x", maxBytes-9-attributeEnvelope-1))
+	writeIPPAttribute(&prefix, 0x30, "padding", strings.Repeat("x", 32767))
+	padding := maxBytes - prefix.Len() - 5 - 1
+	if padding < 0 || padding > 32767 {
+		t.Fatalf("invalid fixture padding size=%d", padding)
+	}
+	writeIPPAttribute(&prefix, 0x30, "", strings.Repeat("x", padding))
 	prefix.WriteByte(0x03)
 	if got := prefix.Len(); got != maxBytes {
 		t.Fatalf("invalid fixture prefix size=%d, want %d", got, maxBytes)

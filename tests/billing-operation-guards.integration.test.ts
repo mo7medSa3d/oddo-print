@@ -5,6 +5,7 @@ import { tenants, users, tenantUsers, managerSessions, plans, tenantSubscription
 import { runBillingOperation } from "../src/lib/billing-operation";
 import { applyMigrations, closePool, hasTestDatabase, truncateAll } from "./helpers/pg";
 import type { ManagerClaims } from "../src/lib/manager-auth";
+import { TenantSuspendedError } from "../src/lib/tenant-guard";
 
 vi.mock("../src/lib/stripe", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/stripe")>();
@@ -90,5 +91,16 @@ suite("billing operation status matrix (D-7)", () => {
     expect(res.status).toBe(200);
     const row = await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, "tenant_billop") });
     expect(row?.cancelAtPeriodEnd).toBe(true);
+  });
+
+  it("rechecks tenant lifecycle before claiming an admitted billing mutation", async () => {
+    await seedStatus("active");
+    const { stripeRequest } = await import("../src/lib/stripe");
+    vi.mocked(stripeRequest).mockClear();
+    await db.update(tenants).set({ lifecycle: "suspended" }).where(eq(tenants.id, "tenant_billop"));
+    await expect(runBillingOperation(claims, CANCEL)).rejects.toBeInstanceOf(TenantSuspendedError);
+    expect(stripeRequest).not.toHaveBeenCalled();
+    const row = await db.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, "tenant_billop") });
+    expect(row?.billingOperationId).toBeNull();
   });
 });

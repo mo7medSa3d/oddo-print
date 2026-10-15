@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const userFindFirst = vi.fn();
 const reserveAuthAttempt = vi.fn();
+const sendEmail = vi.fn();
+const insertValues = vi.fn();
 
 vi.mock("../src/db", () => ({
   db: {
@@ -10,6 +12,7 @@ vi.mock("../src/db", () => ({
         findFirst: (...args: unknown[]) => userFindFirst(...args),
       },
     },
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({ insert: () => ({ values: insertValues }) }),
   },
 }));
 
@@ -17,8 +20,13 @@ vi.mock("../src/lib/password", () => ({
   normalizeEmail: (value: string) => value.trim().toLowerCase(),
   validEmail: () => true,
   generateOpaqueToken: () => "token",
-  hashPassword: vi.fn(),
-  hashToken: vi.fn(),
+  hashPassword: vi.fn(async () => "argon2id$fixture"),
+  hashToken: vi.fn(async () => "fixture-token-hash"),
+}));
+
+vi.mock("../src/lib/email", () => ({
+  appBaseUrl: () => "https://gateway.test",
+  sendTransactionalEmail: (...args: unknown[]) => sendEmail(...args),
 }));
 
 vi.mock("../src/lib/auth-rate-limit", () => ({
@@ -49,5 +57,24 @@ describe("Register API existing-account handling", () => {
       ok: true,
       message: "If the account can be created, a verification email will be sent.",
     });
+  });
+
+  it("preserves plan and invitation continuation in the mailbox proof without exposing the signup password", async () => {
+    userFindFirst.mockResolvedValue(undefined);
+    insertValues.mockResolvedValue(undefined);
+    sendEmail.mockResolvedValue(undefined);
+    const response = await POST(new Request("https://gateway.test/api/auth/register", {
+      method: "POST", body: JSON.stringify({ email: "new@example.test", password: "correct-horse-battery-staple", planId: "selected-plan", inviteToken: "invitation-proof-token" }),
+    }));
+    expect(response.status).toBe(202);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(insertValues).toHaveBeenCalledTimes(2);
+    const message = sendEmail.mock.calls[0][0];
+    const link = new URL(message.html.match(/href="([^"]+)"/)[1]);
+    expect(link.pathname).toBe("/verify-email");
+    expect(link.searchParams.get("token")).toBe("token");
+    expect(link.searchParams.get("plan")).toBe("selected-plan");
+    expect(link.searchParams.get("invite")).toBe("invitation-proof-token");
+    expect(JSON.stringify(message)).not.toContain("correct-horse-battery-staple");
   });
 });

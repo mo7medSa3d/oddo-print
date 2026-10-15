@@ -3,7 +3,7 @@ import { db } from "../../../../db";
 import { queryWithTimeout } from "../../../../db/client";
 import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
-import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError, requirePlatformActorInTransaction, PlatformMutationAuthorityChangedError } from "../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../lib/entitlements";
 import { validateStripePriceBinding, StripePriceBindingError, lockStripePlanCatalog } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
@@ -125,6 +125,7 @@ export async function POST(req: Request) {
   try {
     await db.transaction(async (tx) => {
       await lockStripePlanCatalog(tx, parsed.id, parsed.stripePriceId);
+      await requirePlatformActorInTransaction(tx, claims);
       const existing = await tx.query.plans.findFirst({ where: eq(plans.id, parsed.id), columns: { id: true } });
       if (existing) throw new Error("PLAN_EXISTS");
 
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, planId: parsed.id }, { status: 201 });
   } catch (error) {
+    if (error instanceof PlatformMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof Error && error.message === "STRIPE_PRICE_CONFLICT") return NextResponse.json({ error: "This Stripe Price belongs to another plan, including its historical catalog", code: "PLAN_CONFLICT" }, { status: 409 });
     if (error instanceof Error && error.message === "PLAN_EXISTS") {
       return NextResponse.json({ error: "A plan with this ID already exists.", code: "PLAN_EXISTS" }, { status: 409 });

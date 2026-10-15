@@ -13,12 +13,12 @@ import { fetchWithTimeout } from "../../lib/fetch-timeout";
 // A token represents one mutation, even through StrictMode remounts/locale changes.
 // Failures are NOT retained: a rejected or 5xx outcome must not poison the
 // cache, or a later successful retry in the same browser is impossible (C063).
-const verificationRequests = new Map<string, Promise<{ ok: boolean; code?: string }>>();
+const verificationRequests = new Map<string, Promise<{ ok: boolean; code?: string; next?: string }>>();
 function verifyOnce(token: string) {
   const existing = verificationRequests.get(token);
   if (existing) return existing;
   const request = fetchWithTimeout("/api/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }, 15_000)
-    .then(async response => { const body = await response.json().catch(() => ({})); return { ok: response.ok, code: typeof body?.code === "string" ? body.code : undefined }; })
+    .then(async response => { const body = await response.json().catch(() => ({})); return { ok: response.ok, code: typeof body?.code === "string" ? body.code : undefined, next: typeof body?.next === "string" ? body.next : undefined }; })
     .then(
       (result) => {
         if (!result.ok) verificationRequests.delete(token);
@@ -74,16 +74,23 @@ function VerifyEmailContent() {
           setState("error");
           return;
         }
+        const destination = new URL(result.next ?? "/login", window.location.origin);
+        if (destination.origin !== window.location.origin || !["/reset-password", "/login"].includes(destination.pathname)) {
+          setVerifyError({ kind: "code" });
+          setState("error");
+          return;
+        }
+        // Carry optional onboarding/invitation context through password setup;
+        // neither query parameter grants a workspace or a session.
+        if (destination.pathname === "/reset-password") {
+          if (planId) destination.searchParams.set("plan", planId);
+          if (inviteToken) destination.searchParams.set("invite", inviteToken);
+        }
         setVerifyError(null);
         setState("ok");
         redirectTimer = setTimeout(() => {
           if (cancelled) return;
-          // A pending team invitation survives signup: return to it so the
-          // operator can accept with the now-existing account.
-          const next = inviteToken
-            ? `/invite?token=${encodeURIComponent(inviteToken)}`
-            : planId ? `/onboarding?plan=${encodeURIComponent(planId)}` : "/onboarding";
-          router.replace(next);
+          router.replace(destination.pathname + destination.search);
         }, 500);
       } catch (error) {
         if (cancelled) return;
@@ -111,7 +118,7 @@ function VerifyEmailContent() {
       const response = await fetchWithTimeout("/api/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resendEmail, planId }),
+        body: JSON.stringify({ email: resendEmail, planId, inviteToken }),
       });
       const data = await response.json();
       if (!response.ok) {

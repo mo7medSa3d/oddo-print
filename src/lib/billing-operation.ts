@@ -7,6 +7,7 @@ import { tenantSubscriptions } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { isDefinitiveStripeMutationError, stripeRequest } from "./stripe";
 import { logError } from "./log";
+import { requireActiveTenantInTransaction } from "./tenant-guard";
 
 /**
  * Shared persistent billing-operation protocol for the two symmetric
@@ -61,11 +62,7 @@ export async function runBillingOperation(
   operation: BillingOperation,
 ): Promise<NextResponse> {
   const tenantId = manager.tenantId;
-  // Claim (transaction). An absent tenant simply yields no subscription row
-  // and surfaces as the shared "missing" outcome below; nothing in this
-  // transaction raises TENANT_NOT_FOUND (the earlier 404 mapping here was
-  // dead code — that error name is only produced by checkout/onboarding/team
-  // routes, which have their own handlers).
+  // Claim under the same tenant/actor fences as the other billing mutations.
   const state: BillingOperationState = await db.transaction(async (tx) => {
     await tx.execute(sql`
       SELECT id
@@ -73,6 +70,7 @@ export async function runBillingOperation(
       WHERE id = ${tenantId}
       FOR UPDATE
     `);
+    await requireActiveTenantInTransaction(tx, tenantId);
     // The durable billing claim is the authorization linearization point.
     await requireManagerActorInTransaction(tx, manager, "billing.manage");
     const result = await tx.execute(sql`

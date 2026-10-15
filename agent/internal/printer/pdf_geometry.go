@@ -2,6 +2,7 @@ package printer
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 )
@@ -69,6 +70,30 @@ func configurePDFDevMode(buf []byte, paper pdfPaper) error {
 	return nil
 }
 
+func configurePDFCurrentMedia(buf []byte) error {
+	if err := validatePDFDevModeBuffer(buf); err != nil {
+		return err
+	}
+	// Keep the selected driver's form, orientation and private settings.
+	fields := binary.LittleEndian.Uint32(buf[72:76])
+	binary.LittleEndian.PutUint32(buf[72:76], fields|0x10|0x100)
+	binary.LittleEndian.PutUint16(buf[84:86], 100)
+	binary.LittleEndian.PutUint16(buf[86:88], 1)
+	return nil
+}
+
+func selectPDFPaperMode(requested, current func() ([]byte, error)) ([]byte, bool, error) {
+	mode, requestedErr := requested()
+	if requestedErr == nil {
+		return mode, false, nil
+	}
+	mode, currentErr := current()
+	if currentErr != nil {
+		return nil, false, fmt.Errorf("document media and current printer media are unavailable: %w", errors.Join(requestedErr, currentErr))
+	}
+	return mode, true, nil
+}
+
 func validatePDFDevModeResult(buf []byte) error {
 	// DocumentProperties merges the requested settings with driver policy.
 	// Check its output before passing the buffer to CreateDC: sheet geometry
@@ -88,8 +113,8 @@ func validatePDFDevModeResult(buf []byte) error {
 	return nil
 }
 
-// Validate the driver's actual sheet, not just its returned DEVMODE. Drivers
-// may silently substitute a default form. Allow <=1mm rounding, never scaling.
+// Report exact media matches for diagnostics. A mismatch now uses the separate
+// proportional printable-area policy instead of refusing usable driver media.
 func validatePDFSheet(widthPoints, heightPoints float64, pixelsW, pixelsH, dpiX, dpiY int) error {
 	if _, err := pdfPaperForPoints(widthPoints, heightPoints); err != nil {
 		return err
@@ -100,9 +125,26 @@ func validatePDFSheet(widthPoints, heightPoints float64, pixelsW, pixelsH, dpiX,
 	actualW, actualH := float64(pixelsW)*25.4/float64(dpiX), float64(pixelsH)*25.4/float64(dpiY)
 	wantW, wantH := widthPoints*25.4/72, heightPoints*25.4/72
 	if math.Abs(actualW-wantW) > 1 || math.Abs(actualH-wantH) > 1 {
-		return fmt.Errorf("printer substituted %.1fx%.1fmm for PDF %.1fx%.1fmm; configure a supported paper form instead of resizing the document", actualW, actualH, wantW, wantH)
+		return fmt.Errorf("printer physical media %.1fx%.1fmm differs from PDF %.1fx%.1fmm; proportional fitting is required", actualW, actualH, wantW, wantH)
 	}
 	return nil
+}
+
+func pdfSheetDiagnostic(cause error, page int, beforeStartDoc bool, widthPoints, heightPoints float64, physicalW, physicalH, printableW, printableH, dpiX, dpiY, offsetX, offsetY int) error {
+	phase := "after StartDocW; earlier pages may have been submitted"
+	if beforeStartDoc {
+		phase = "before StartDocW; no document submitted"
+	}
+	mediaMM := func(width, height int) string {
+		if width <= 0 || height <= 0 || dpiX <= 0 || dpiY <= 0 {
+			return "unknown"
+		}
+		return fmt.Sprintf("%.1fx%.1fmm", float64(width)*25.4/float64(dpiX), float64(height)*25.4/float64(dpiY))
+	}
+	return fmt.Errorf("PDF page %d media rejection (%s): requested=%.1fx%.1fmm; driver physical=%s (%dx%dpx); printable=%s (%dx%dpx); DPI=%dx%d; offset=%d,%dpx: %w",
+		page, phase, widthPoints*25.4/72, heightPoints*25.4/72,
+		mediaMM(physicalW, physicalH), physicalW, physicalH, mediaMM(printableW, printableH), printableW, printableH,
+		dpiX, dpiY, offsetX, offsetY, cause)
 }
 
 func pdfBitmapDestination(pageWidth, pageHeight, offsetX, offsetY int) (int, int, int, int, error) {
@@ -112,4 +154,23 @@ func pdfBitmapDestination(pageWidth, pageHeight, offsetX, offsetY int) (int, int
 	// GDI's origin is the printable rectangle. Negative hardware offsets put
 	// the PDF's origin at the physical sheet edge, retaining its own margins.
 	return -offsetX, -offsetY, pageWidth, pageHeight, nil
+}
+
+func pdfPrintableDestination(widthPoints, heightPoints float64, physicalW, physicalH, printableW, printableH, dpiX, dpiY, offsetX, offsetY int) (int, int, int, int, error) {
+	if _, err := pdfPaperForPoints(widthPoints, heightPoints); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if _, _, _, _, err := pdfBitmapDestination(physicalW, physicalH, offsetX, offsetY); err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if dpiX <= 0 || dpiY <= 0 || printableW <= 0 || printableH <= 0 || printableW > physicalW-offsetX || printableH > physicalH-offsetY {
+		return 0, 0, 0, 0, fmt.Errorf("printer returned invalid printable page or DPI")
+	}
+	wantW, wantH := widthPoints*float64(dpiX)/72, heightPoints*float64(dpiY)/72
+	scale := math.Min(1, math.Min(float64(printableW)/wantW, float64(printableH)/wantH))
+	w := min(printableW, max(1, int(math.Floor(wantW*scale))))
+	h := min(printableH, max(1, int(math.Floor(wantH*scale))))
+	// GDI starts at the printable origin. One proportional, shrink-only fit
+	// keeps all content inside hardware margins without changing physical aspect.
+	return (printableW - w) / 2, (printableH - h) / 2, w, h, nil
 }

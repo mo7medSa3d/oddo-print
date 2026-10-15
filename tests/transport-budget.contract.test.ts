@@ -16,6 +16,15 @@ function literalInt(source: string, pattern: RegExp, what: string): number {
 // base64-inflated frames): if anyone changes a batch size, payload ceiling,
 // or frame limit on one side without the other, these fail before CI does.
 describe("agent/gateway transport budget parity", () => {
+  it("legacy local desktop test outlives the Agent document budget", () => {
+    const cliTest = read("src-tauri/src/commands.rs").split("pub async fn test_printer(")[1]
+      .split("#[derive")[0];
+    const nativeSeconds = literalInt(cliTest, /Duration::from_secs\((\d+)\)/, "local test command budget");
+    const agentSeconds = literalInt(read("agent/internal/printer/pdf.go"),
+      /defaultPDFPrintTimeout\s*=\s*(\d+)\s*\*\s*time.Second/, "Agent PDF execution budget");
+    expect(nativeSeconds).toBeGreaterThanOrEqual(agentSeconds + 30);
+  });
+
   it("poll batch count matches on both sides", () => {
     const route = read("src/app/api/agent/jobs/route.ts");
     const agent = read("agent/internal/agent/agent.go");

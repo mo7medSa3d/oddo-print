@@ -367,7 +367,7 @@ func TestFactoryUSBWithoutSpoolerUsesDirectDevicePath(t *testing.T) {
 }
 
 func TestFactoryUSBDoesNotInferESCPOSFromRawTransport(t *testing.T) {
-	pc := config.PrinterConfig{ID: "usb-raw", Name: "USB Raw", Type: "usb", Protocol: "raw", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
+	pc := config.PrinterConfig{ID: "usb-raw", Name: "USB Raw", Type: "usb", Protocol: "raw", USBVID: "1234", USBPID: "5678", Endpoint: `\\?\usb#vid_1234&pid_5678#A`}
 	p, err := New(pc)
 	if err != nil {
 		t.Fatalf("New: %v", err)

@@ -44,4 +44,18 @@ describe("cross-layer health freshness contracts", () => {
     expect(result.status).toBe("UNKNOWN");
     expect(result.freshness.fresh).toBe(false);
   });
+
+  it("honors the configured Agent window without extending printer observation freshness", () => {
+    const previous = process.env.STALE_AGENT_THRESHOLD_SECONDS;
+    process.env.STALE_AGENT_THRESHOLD_SECONDS = "300";
+    try {
+      const evidence = { lastSeenAt: new Date(now.getTime() - 10_000),
+        agentLastSeenAt: new Date(now.getTime() - 200_000), agentStatus: "online", now };
+      expect(normalizePrinterStatus("online", evidence).status).toBe("ONLINE");
+      expect(normalizePrinterStatus("online", { ...evidence, lastSeenAt: new Date(now.getTime() - 200_000) }).status).toBe("UNKNOWN");
+    } finally {
+      if (previous === undefined) delete process.env.STALE_AGENT_THRESHOLD_SECONDS;
+      else process.env.STALE_AGENT_THRESHOLD_SECONDS = previous;
+    }
+  });
 });

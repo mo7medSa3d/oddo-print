@@ -72,6 +72,12 @@ func TestIPPBuildPrintJob(t *testing.T) {
 func TestIPPPrintDoesNotFollowRedirects(t *testing.T) {
 	var redirectedHits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := readAll(r.Body)
+		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+			w.Header().Set("Content-Type", "application/ipp")
+			_, _ = w.Write(ippEvidenceTestProbe())
+			return
+		}
 		if r.URL.Path == "/capture" {
 			redirectedHits++
 			w.WriteHeader(http.StatusOK)
@@ -102,6 +108,11 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contentType = r.Header.Get("Content-Type")
 		body := readAll(r.Body)
+		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+			w.Header().Set("Content-Type", "application/ipp")
+			_, _ = w.Write(ippEvidenceTestProbe())
+			return
+		}
 		received = body
 		resp := ippAcceptedJobResponse(0, 3)
 		w.Header().Set("Content-Type", "application/ipp")
@@ -129,6 +140,11 @@ func TestIPPPrintWithMockServer(t *testing.T) {
 func TestIPPPrintAcceptsSuccessStatusClass(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/ipp")
+		body := readAll(r.Body)
+		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+			_, _ = w.Write(ippEvidenceTestProbe())
+			return
+		}
 		_, _ = w.Write(ippAcceptedJobResponse(1, 3))
 	}))
 	defer server.Close()
@@ -144,7 +160,15 @@ func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
 		"truncated": {0x02, 0x00, 0x00},
 	} {
 		t.Run(name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(response) }))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/ipp")
+				body := readAll(r.Body)
+				if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+					_, _ = w.Write(ippEvidenceTestProbe())
+					return
+				}
+				_, _ = w.Write(response)
+			}))
 			defer server.Close()
 			p, _ := NewIPPPrinter(server.URL, "Test")
 			err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
@@ -160,6 +184,12 @@ func TestIPPPrintClassifiesServerAndTruncatedResponses(t *testing.T) {
 
 func TestIPPPrintErrorOnBadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := readAll(r.Body)
+		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+			w.Header().Set("Content-Type", "application/ipp")
+			_, _ = w.Write(ippEvidenceTestProbe())
+			return
+		}
 		resp := ippRejectedJobResponse(0x0404)
 		w.Header().Set("Content-Type", "application/ipp")
 		w.Write(resp)
@@ -343,6 +373,9 @@ func TestIPPStatusSeparatesAdministrativeAndPhysicalEvidence(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var buf bytes.Buffer
 				buf.Write([]byte{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01})
+				buf.WriteByte(0x01)
+				writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
+				writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
 				buf.WriteByte(0x04)
 				writeIPPIntAttr(&buf, 0x23, "printer-state", tc.state)
 				writeIPPAttribute(&buf, 0x44, "printer-state-reasons", tc.reason)

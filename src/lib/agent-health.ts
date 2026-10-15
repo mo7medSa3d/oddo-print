@@ -15,6 +15,7 @@ import { eq, and, count, sql, asc, inArray } from "drizzle-orm";
 import { logWarn } from "./log";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
+import { nonVirtualPrinterPredicate } from "./printer-virtual-sql";
 
 export type AgentHealthStatus = "ONLINE" | "DEGRADED" | "OFFLINE" | "STARTING" | "UNKNOWN";
 export type HealthCheckResult = {
@@ -227,7 +228,7 @@ export async function getAgentHealth(tenantId: string, agentId: string): Promise
   let printerDataAvailable = true;
   try {
     printerRows = await queryWithTimeout(
-      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId), eq(printers.sharedWithGateway, true))),
+      () => db.select({ id: printers.id, status: printers.status, lifecycle: printers.lifecycle, lastSeenAt: printers.lastSeenAt }).from(printers).where(and(eq(printers.tenantId, tenantId), eq(printers.agentId, agentId), eq(printers.sharedWithGateway, true), eq(printers.inventoryPresent, true), eq(printers.lifecycle, "active"), nonVirtualPrinterPredicate())),
       3000,
       "agentPrinters"
     );
@@ -321,7 +322,7 @@ export async function getAllAgentsHealth(tenantId: string, limit = 100, offset =
         ) AS INTEGER)`,
       })
         .from(printers)
-        .where(and(eq(printers.tenantId, tenantId), inArray(printers.agentId, ids), eq(printers.sharedWithGateway, true)))
+        .where(and(eq(printers.tenantId, tenantId), inArray(printers.agentId, ids), eq(printers.sharedWithGateway, true), eq(printers.inventoryPresent, true), eq(printers.lifecycle, "active"), nonVirtualPrinterPredicate()))
         .groupBy(printers.agentId),
       3000,
       "allAgentsPrinters",

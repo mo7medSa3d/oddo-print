@@ -154,13 +154,13 @@ export async function POST(req: Request) {
     const id = data.id ?? `printer_${nanoid(8)}`;
     try {
       const row = await db.transaction(async (tx) => {
+        await requireActiveTenantInTransaction(tx, tenantId);
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printers:' || ${tenantId}))`);
         const lockedAgent = await tx.execute(sql`SELECT lifecycle FROM agents WHERE id = ${data.agentId} AND tenant_id = ${tenantId} FOR UPDATE`);
         const agentLifecycle = (lockedAgent.rows[0] as { lifecycle?: string } | undefined)?.lifecycle;
         if (!agentLifecycle) throw new Error("agentId not found");
         if (agentLifecycle !== "active") throw new Error(`agent is ${agentLifecycle}`);
         if (auth.kind === "manager") {
-          await requireActiveTenantInTransaction(tx, tenantId);
           await requireManagerActorInTransaction(tx, auth.claims, "printers.manage");
         }
         await enforceTenantResourceEntitlement(tx, tenantId, "max_printers",
@@ -198,6 +198,7 @@ export async function POST(req: Request) {
       if (error instanceof TenantEntitlementError) return NextResponse.json({ error: error.message, code: "MAX_PRINTERS_EXCEEDED", entitlement: error.entitlement, limit: error.limit, used: error.used, upgradeRequired: true }, { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
       if (isTenantBillingError(error)) return NextResponse.json({ error: error.message, code: error.code }, { status: 403 });
       if (error instanceof Error && error.message === "agentId not found") return NextResponse.json({ error: "Agent is not paired with this Gateway workspace", code: "AGENT_NOT_FOUND" }, { status: 404 });
+      if (error instanceof Error && /^agent is (disabled|retired)$/.test(error.message)) return NextResponse.json({ error: error.message, code: "AGENT_UNAVAILABLE" }, { status: 409 });
       if (error instanceof Error && /already exists|duplicate/i.test(error.message)) return NextResponse.json({ error: "printer id already exists" }, { status: 409 });
       throw error;
     }

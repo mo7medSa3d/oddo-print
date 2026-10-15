@@ -25,9 +25,13 @@ export async function POST(req: Request) {
   // has no account identity pre-token, so scope by endpoint + IP. Every
   // guess consumes budget; only a completed reset clears it.
   const ip = clientIpFrom(req);
+  const tokenHash = await hashToken(token);
+  // Known clients share an endpoint/source bucket; unattributed clients
+  // share only the presented token's bucket, never a global lockout key.
+  const rateIdentity = `reset-password-token:${ip === "unknown" ? tokenHash : ip}`;
   let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
   try {
-    rate = await reserveAuthAttempt(ip, "reset-password-token");
+    rate = await reserveAuthAttempt(ip, rateIdentity);
   } catch (error) {
     logError("auth.rate_limit.store_unavailable", { endpoint: "reset_password", error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
@@ -40,7 +44,7 @@ export async function POST(req: Request) {
 
   const row = await db.query.passwordResetTokens.findFirst({
     where: and(
-      eq(passwordResetTokens.tokenHash, await hashToken(token)),
+      eq(passwordResetTokens.tokenHash, tokenHash),
       isNull(passwordResetTokens.consumedAt),
       gt(passwordResetTokens.expiresAt, sql`clock_timestamp()`)
     ),
@@ -48,9 +52,21 @@ export async function POST(req: Request) {
   if (!row) return NextResponse.json({ error: "Reset link expired or invalid" }, { status: 400 });
 
   const nextHash = await hashPassword(password);
+  const auditMembership = await db.query.tenantUsers.findFirst({
+    where: eq(tenantUsers.userId, row.userId),
+    columns: { tenantId: true },
+  });
 
   try {
     await db.transaction(async (tx) => {
+      // Recovery works for suspended workspaces too. Lock only the audit
+      // association before the user, in the same order as tenant lifecycle
+      // writers; never acquire a new tenant FK lock after the user lock.
+      let auditTenantId: string | null = null;
+      if (auditMembership?.tenantId) {
+        const tenant = await tx.execute(sql`SELECT id FROM tenants WHERE id = ${auditMembership.tenantId} FOR SHARE`);
+        if (tenant.rows[0]) auditTenantId = auditMembership.tenantId;
+      }
       // Same user -> token lock order as forgot-password issuance.
       await tx.execute(sql`SELECT id FROM users WHERE id = ${row.userId} FOR UPDATE`);
       const consumed = await tx
@@ -80,15 +96,10 @@ export async function POST(req: Request) {
       // cannot mint a new access token after the password changes.
       await revokeUserRefreshFamiliesInTransaction(tx, row.userId, "password_reset");
 
-      const membership = await tx.query.tenantUsers.findFirst({
-        where: eq(tenantUsers.userId, row.userId),
-        columns: { tenantId: true },
-      });
-
       await writeAuditEvent(
         {
-          tenantId: membership?.tenantId ?? null,
-          actorType: membership ? "user" : "platform",
+          tenantId: auditTenantId,
+          actorType: "user",
           actorId: row.userId,
           action: "user.password_reset_completed",
         },
@@ -103,6 +114,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password reset failed" }, { status: 500 });
   }
 
-  await recordAuthSuccess(ip, "reset-password-token").catch((error) => logWarn("auth.reset_password.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  await recordAuthSuccess(ip, rateIdentity).catch((error) => logWarn("auth.reset_password.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
   return setRateLimitHeaders(NextResponse.json({ ok: true }), rate);
 }

@@ -1,6 +1,7 @@
 import payloadContract from "../../contracts/print-payload-contract.json";
 import { z } from "zod";
 import { receiptPaperWidthMM } from "./receipt-width";
+import { validatePayloadForPrinter } from "./printer-capability";
 
 const MAX_PAYLOAD_BYTES = payloadContract.maxPayloadBytes;
 const PAYLOAD_TYPES = payloadContract.wireTypes as ["raw", "escpos", "pdf", "image"];
@@ -102,8 +103,6 @@ export function buildTestPrintPayload(printerName: string, agentName: string): P
   return { type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from(lines, "binary").toString("base64") };
 }
 
-const TEST_PAGE_BYTES = 4096;
-
 function safeTestText(value: string): string {
   return value.replace(/[^\x20-\x7e]/g, "").slice(0, 60);
 }
@@ -112,24 +111,14 @@ function escapePdfText(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
-function safeZplField(value: string): string {
-  return safeTestText(value).replace(/[\^~]/g, "_");
-}
-
-function safeTsplQuotedText(value: string): string {
-  return safeTestText(value).replace(/["\\]/g, "_");
-}
-
 export function buildTestPdfPayload(printerName: string, agentName: string, operationId?: string, paperWidthMM?: 58 | 80): string {
-  const safeName = escapePdfText(safeTestText(printerName));
-  const safeAgent = escapePdfText(safeTestText(agentName));
   const stamp = operationId ? `Operation ${safeTestText(operationId)}` : new Date().toISOString().replace("T", " ").slice(0, 19);
 
   const width = paperWidthMM ? Number((paperWidthMM * 72 / 25.4).toFixed(3)) : 612;
   const height = paperWidthMM ? Number((payloadContract.diagnosticPage.rollLengthMM * 72 / 25.4).toFixed(3)) : 792;
-  const ticketLines = paperWidthMM ? [
+  const ticketLines = [
     `Printer: ${safeTestText(printerName)}`, `Agent: ${safeTestText(agentName)}`, `Status: OK | ${stamp}`,
-  ].flatMap((line) => line.match(new RegExp(`.{1,${Math.floor((width - 24) / 8)}}`, "g")) ?? []) : [];
+  ].flatMap((line) => line.match(new RegExp(`.{1,${Math.floor((width - (paperWidthMM ? 24 : 100)) / (paperWidthMM ? 8 : 12))}}`, "g")) ?? []);
   const streamContent = (paperWidthMM ? [
     "BT", "/F1 12 Tf", `12 ${height - 24} Td`, "(YASEIR TEST PAGE) Tj", "/F1 8 Tf", "0 -22 Td",
     ...ticketLines.flatMap((line, index) => [...(index ? ["0 -12 Td"] : []), `(${escapePdfText(line)}) Tj`]), "ET",
@@ -140,11 +129,7 @@ export function buildTestPdfPayload(printerName: string, agentName: string, oper
     "(YASEIR TEST PAGE) Tj",
     "/F1 12 Tf",
     "0 -30 Td",
-    `(Printer: ${safeName}) Tj`,
-    "0 -20 Td",
-    `(Agent: ${safeAgent}) Tj`,
-    "0 -20 Td",
-    `(Status: OK | ${escapePdfText(stamp)}) Tj`,
+    ...ticketLines.flatMap((line, index) => [...(index ? ["0 -20 Td"] : []), `(${escapePdfText(line)}) Tj`]),
     "ET",
   ]).join("\n");
 
@@ -203,22 +188,18 @@ export function buildTestPrintPayloadForPrinter(
   const rawConn = (printer.connectionType ?? "").toLowerCase().trim();
   const conn = rawConn === "windows_spooler" ? "spooler" : rawConn === "tcp" ? "network" : rawConn;
   const capabilities = printer.capabilities ?? null;
-  const hasExplicitCaps = capabilities !== null && Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols");
-  const supported = Array.isArray(capabilities?.supported_protocols)
-    ? capabilities.supported_protocols.map((p) => String(p).toLowerCase().trim())
-    : [];
+  const physicalPrinter = { protocol: declared, connectionType: conn, capabilities };
   const byteCandidates = RAW_PROTOCOLS;
   const declaredByteProtocol = byteCandidates.includes(declared as (typeof byteCandidates)[number])
     ? declared as (typeof byteCandidates)[number]
     : null;
-  const allows = (candidate: string) => !hasExplicitCaps || supported.includes(candidate);
   // For a declared byte protocol, explicit capabilities can only confirm
   // that protocol; they cannot replace it with another language. The Gateway
   // routing contract fences physical byte transports to the declared protocol.
   // Unknown byte transports remain dark until a protocol is explicitly declared.
-  const byteProto =
-    (declaredByteProtocol && allows(declaredByteProtocol) ? declaredByteProtocol : null) ??
-    "";
+  const byteProto = declaredByteProtocol && validatePayloadForPrinter({
+    type: declaredByteProtocol === "escpos" ? "escpos" : "raw", protocol: declaredByteProtocol,
+  }, physicalPrinter).ok ? declaredByteProtocol : "";
   const plainName = safeTestText(printerName);
   const plainAgent = safeTestText(agentName);
   const stamp = operationId ? `Operation ${safeTestText(operationId)}` : new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -227,35 +208,15 @@ export function buildTestPrintPayloadForPrinter(
     return buildTestPrintPayload(printerName, agentName);
   }
   if (byteProto === "zpl") {
-    const name = safeZplField(printerName);
-    const agent = safeZplField(agentName);
-    const zpl = [
-      "^XA",
-      "^FO50,50^A0N,36,36^FDYASEIR TEST PAGE^FS",
-      "^FO50,100^GB700,2,2^FS",
-      `^FO50,120^A0N,28,28^FDPrinter : ${name}^FS`,
-      `^FO50,160^A0N,28,28^FDAgent   : ${agent}^FS`,
-      `^FO50,200^A0N,28,28^FDStatus  : OK | ${safeZplField(stamp)}^FS`,
-      "^XZ",
-    ].join("\n");
-    if (Buffer.byteLength(zpl, "utf-8") > TEST_PAGE_BYTES) throw new Error("test page exceeds limit");
+    // A small buffered format also works while the printer is busy. Keep
+    // calibrated media and avoid a fixed wide border or unbounded names.
+    const zpl = "^XA\n^FO4,4^A0N,12,12^FDTEST^FS\n^XZ\n";
     return { type: "raw", protocol: "zpl", encoding: "base64", data: Buffer.from(zpl, "utf-8").toString("base64") };
   }
   if (byteProto === "tspl") {
-    const name = safeTsplQuotedText(printerName);
-    const agent = safeTsplQuotedText(agentName);
-    const tspl = [
-      "SIZE 75 mm, 50 mm",
-      "GAP 2 mm, 0 mm",
-      "DIRECTION 1",
-      "CLS",
-      'TEXT 50,40,"3",0,1,1,"YASEIR TEST PAGE"',
-      `TEXT 50,80,"2",0,1,1,"Printer : ${name}"`,
-      `TEXT 50,110,"2",0,1,1,"Agent   : ${agent}"`,
-      `TEXT 50,140,"2",0,1,1,"Status  : OK | ${safeTsplQuotedText(stamp)}"`,
-      "PRINT 1,1",
-    ].join("\n");
-    if (Buffer.byteLength(tspl, "utf-8") > TEST_PAGE_BYTES) throw new Error("test page exceeds limit");
+    // The firmware prints its own diagnostic using its calibrated stock.
+    // Width-only inventory cannot safely supply label length or gap mode.
+    const tspl = "SELFTEST\r\n";
     return { type: "raw", protocol: "tspl", encoding: "base64", data: Buffer.from(tspl, "utf-8").toString("base64") };
   }
   if (byteProto === "raw") {
@@ -284,7 +245,7 @@ export function buildTestPrintPayloadForPrinter(
   // Document transports keep their intrinsic document-rendering baseline.
   // supported_protocols may opt a spooler into byte passthrough, but it must
   // never make an otherwise valid spooler/IPP test page stop being printable.
-  if (physicalDocumentTransport) {
+  if (physicalDocumentTransport && validatePayloadForPrinter({ type: "pdf" }, physicalPrinter).ok) {
     const roll = receiptPaperWidthMM(capabilities) ?? receiptPaperWidthMM(printer.config);
     const pdf = buildTestPdfPayload(plainName, plainAgent, operationId, roll ?? undefined);
     return {

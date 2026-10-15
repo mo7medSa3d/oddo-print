@@ -29,10 +29,9 @@ export function runtimeSecret(name: string): string | undefined {
     try {
       value = readFileSync(file, "utf8").trim() || undefined;
     } catch {
-      // A transient read failure must not poison the cache with undefined
-      // when a recent value exists; fall back to the last known value if
-      // fresh, otherwise report unavailable (callers fail closed).
-      if (cached && cached.file === file) return cached.value;
+      // A fresh cached value was already returned above. After its TTL,
+      // an unreadable secret must fail closed rather than retain rotated
+      // authority indefinitely. Keep the expired entry only for read retry.
       return undefined;
     }
     secretCache.set(name, { file, value, expiresAt: now + SECRET_CACHE_TTL_MS });

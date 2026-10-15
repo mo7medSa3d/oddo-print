@@ -2802,6 +2802,12 @@ msgid "Diagnostic paper width must be 58 or 80 mm."
 msgstr "يجب أن يكون عرض ورق الاختبار 58 أو 80 مم."
 
 #. module: print_gateway
+#. odoo-python
+#: code:addons/print_gateway/models/print_router.py:0
+msgid "Set the selected thermal receipt printer's paper width to 58 or 80 mm in the Agent or Gateway and sync it before sending a test page."
+msgstr "اضبط عرض ورق طابعة الإيصالات الحرارية المحددة على 58 أو 80 مم في Agent أو Gateway، ثم زامن الإعدادات قبل إرسال صفحة اختبار."
+
+#. module: print_gateway
 #: model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_runtime_assignment_form
 msgid "Summary"
 msgstr "الملخص"

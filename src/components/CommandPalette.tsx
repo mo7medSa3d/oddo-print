@@ -43,7 +43,7 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const results = useMemo(() => {
+  const { results, groups } = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const pool = needle
       ? items.filter((item) =>
@@ -52,7 +52,15 @@ export function CommandPalette({
             .includes(needle),
         )
       : items;
-    return pool.slice(0, 24);
+    // Keyboard selection must follow the grouped visual order, including when
+    // callers interleave groups. A Map also keeps group names as plain keys.
+    const grouped = new Map<string, CommandItem[]>();
+    for (const item of pool.slice(0, 24)) {
+      const group = grouped.get(item.group) ?? [];
+      group.push(item);
+      grouped.set(item.group, group);
+    }
+    return { results: [...grouped.values()].flat(), groups: [...grouped.entries()] };
   }, [items, query]);
 
   // Every opening is a new session: clear the previous search and highlight.
@@ -64,6 +72,9 @@ export function CommandPalette({
       setCursor(0);
     }
   }
+
+  // Permissions/locale can replace the item list while the palette is open.
+  const activeCursor = Math.min(cursor, Math.max(0, results.length - 1));
 
   const focusInput = useCallback(() => {
     const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 10);
@@ -80,17 +91,17 @@ export function CommandPalette({
   useEffect(() => {
     if (!open) return;
     const list = listRef.current;
-    const active = list?.querySelector<HTMLElement>('[data-option-index="' + cursor + '"]');
+    const active = list?.querySelector<HTMLElement>('[data-option-index="' + activeCursor + '"]');
     if (!list || !active) return;
     const optionTop = active.offsetTop;
     const optionBottom = optionTop + active.offsetHeight;
     if (optionTop < list.scrollTop) list.scrollTop = optionTop;
     else if (optionBottom > list.scrollTop + list.clientHeight) list.scrollTop = optionBottom - list.clientHeight;
-  }, [open, cursor, results.length]);
+  }, [open, activeCursor, results.length]);
 
   // Options are not focusable (focus stays in the search field for typing), so
   // the active option is exposed through aria-activedescendant instead.
-  const activeOptionId = results.length > 0 ? `command-option-${cursor}` : undefined;
+  const activeOptionId = results.length > 0 ? `command-option-${activeCursor}` : undefined;
 
 
   if (!open) return null;
@@ -101,11 +112,6 @@ export function CommandPalette({
     if (item.onSelect) item.onSelect();
     else if (item.href) router.push(item.href);
   };
-
-  const grouped = results.reduce<Record<string, CommandItem[]>>((acc, item) => {
-    (acc[item.group] ??= []).push(item);
-    return acc;
-  }, {});
 
   let flatIndex = -1;
 
@@ -141,13 +147,13 @@ export function CommandPalette({
             onKeyDown={(event) => {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
-                setCursor((value) => (value + 1) % Math.max(1, results.length));
+                setCursor((activeCursor + 1) % Math.max(1, results.length));
               } else if (event.key === "ArrowUp") {
                 event.preventDefault();
-                setCursor((value) => (value - 1 + results.length) % Math.max(1, results.length));
+                setCursor((activeCursor - 1 + results.length) % Math.max(1, results.length));
               } else if (event.key === "Enter") {
                 event.preventDefault();
-                run(results[cursor]);
+                run(results[activeCursor]);
               }
             }}
             placeholder={t("command.placeholder")}
@@ -168,19 +174,20 @@ export function CommandPalette({
               {t("command.empty")}
             </p>
           ) : (
-            Object.entries(grouped).map(([group, groupItems]) => (
+            groups.map(([group, groupItems]) => (
               <div key={group} className="mb-1">
                 <div className="label-caps px-3 pb-1 pt-2">{group}</div>
                 {groupItems.map((item) => {
                   flatIndex += 1;
                   const index = flatIndex;
-                  const selected = index === cursor;
+                  const selected = index === activeCursor;
                   return (
                     <button
                       key={item.id}
                       id={`command-option-${index}`}
                       data-option-index={index}
                       type="button"
+                      tabIndex={-1}
                       role="option"
                       aria-selected={selected}
                       onMouseEnter={() => setCursor(index)}

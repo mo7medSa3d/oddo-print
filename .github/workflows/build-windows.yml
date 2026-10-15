@@ -60,7 +60,12 @@ jobs:
               fi
 
               if git cat-file -e "$base^{commit}" 2>/dev/null; then
-                files="$(git diff --name-only "$base" "$GITHUB_SHA" || true)"
+                if ! files="$(git diff --name-only "$base" "$GITHUB_SHA")"; then
+                  echo "Could not compute changed paths; running the full Windows validation."
+                  windows=true
+                  agent=true
+                  rust=true
+                fi
                 printf 'Changed files:\n%s\n' "$files"
                 while IFS= read -r file; do
                   [ -z "$file" ] && continue

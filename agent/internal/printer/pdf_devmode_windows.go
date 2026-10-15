@@ -13,6 +13,14 @@ var procDocumentPropertiesW = modWinspool.NewProc("DocumentPropertiesW")
 var procResetDCW = modGDI32.NewProc("ResetDCW")
 
 func pdfPrinterDevMode(printerName string, paper pdfPaper) ([]byte, error) {
+	return readPDFPrinterDevMode(printerName, &paper)
+}
+
+func pdfPrinterCurrentDevMode(printerName string) ([]byte, error) {
+	return readPDFPrinterDevMode(printerName, nil)
+}
+
+func readPDFPrinterDevMode(printerName string, paper *pdfPaper) ([]byte, error) {
 	name, err := windows.UTF16PtrFromString(printerName)
 	if err != nil {
 		return nil, err
@@ -32,7 +40,12 @@ func pdfPrinterDevMode(printerName string, paper pdfPaper) ([]byte, error) {
 	if int32(ret) != 1 {
 		return nil, fmt.Errorf("read printer DEVMODEW: %v", callErr)
 	}
-	if err := configurePDFDevMode(buf, paper); err != nil {
+	if paper == nil {
+		err = configurePDFCurrentMedia(buf)
+	} else {
+		err = configurePDFDevMode(buf, *paper)
+	}
+	if err != nil {
 		return nil, err
 	}
 	ret, _, callErr = procDocumentPropertiesW.Call(0, uintptr(handle), uintptr(unsafe.Pointer(name)), ptr, ptr, 2|8) // OUT|IN_BUFFER

@@ -173,6 +173,9 @@ func TestManualPrinterTypes(t *testing.T) {
 			Endpoint:    tc.Endpoint,
 			Protocol:    tc.Protocol,
 			SpoolerName: tc.SpoolerName,
+			USBVID:      tc.USBVID,
+			USBPID:      tc.USBPID,
+			USBSerial:   tc.USBSerial,
 		}
 		if tc.ConnectionType == "spooler" && pc.SpoolerName == "" {
 			pc.SpoolerName = tc.SpoolerName

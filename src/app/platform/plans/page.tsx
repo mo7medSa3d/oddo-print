@@ -36,6 +36,7 @@ import {
 import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
 import { fetchWithTimeout } from "../../../lib/fetch-timeout";
+import { billingIntervalLabel } from "../../../lib/billing-labels";
 
 type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
@@ -268,7 +269,7 @@ export default function PlatformPlansPage() {
                       <Mono className="mt-1 block break-all text-xs">{plan.stripePriceId || t("platform.plans.notLinked")}</Mono>
                       <div className="mt-0.5 text-xs text-ink-4">
                         {(plan.currency ?? "usd").toUpperCase()}
-                        {plan.interval ? ` ${t("platform.plans.perInterval", { interval: plan.interval })}` : ""}
+                        {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
                       </div>
                     </div>
                   </div>
@@ -352,7 +353,7 @@ export default function PlatformPlansPage() {
                     <Mono className="block">{plan.stripePriceId || t("platform.plans.notLinked")}</Mono>
                     <div className="mt-0.5 text-xs text-ink-4">
                       {(plan.currency ?? "usd").toUpperCase()}
-                      {plan.interval ? ` ${t("platform.plans.perInterval", { interval: plan.interval })}` : ""}
+                      {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
                     </div>
                   </td>
                   <td className="text-end">

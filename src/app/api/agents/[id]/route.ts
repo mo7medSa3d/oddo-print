@@ -12,6 +12,7 @@ import { logError } from "../../../../lib/log";
 import { agentStaleThresholdSeconds, getAgentHeartbeatFreshness, getEffectiveAgentStatus, getEffectivePrinterStatus } from "../../../../lib/agent-availability";
 import { gatewayNow, refreshClockSkew } from "../../../../lib/database-clock";
 import { isTenantBillingError } from "../../../../lib/entitlements";
+import { isVirtualPrinterRecord } from "../../../../lib/printer-virtual";
 
 export const dynamic = "force-dynamic";
 const patchSchema = z.object({ lifecycle: z.enum(["active", "disabled", "retired"]) }).strict();
@@ -37,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     status: getEffectiveAgentStatus(agent, now),
     staleThresholdSeconds: agentStaleThresholdSeconds(),
   };
-  const effectivePrinters = agentPrinters.map((printer) => ({ ...printer, status: getEffectivePrinterStatus(printer, agent, now) }));
+  const effectivePrinters = agentPrinters.filter((printer) => !isVirtualPrinterRecord(printer)).map((printer) => ({ ...printer, status: getEffectivePrinterStatus(printer, agent, now) }));
   return NextResponse.json({ agent: safeAgent, printers: effectivePrinters, jobCount: jobs?.c ?? 0 });
 }
 

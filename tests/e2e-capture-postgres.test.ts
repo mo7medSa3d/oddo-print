@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { hasTestDatabase, applyMigrations, seedFixture, closePool, pool, type Fixture } from "./helpers/pg";
 import { POST as start, GET as read } from "../src/app/api/odoo/test-captures/route";
@@ -163,6 +163,41 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     await pool().query("DELETE FROM e2e_capture_runs WHERE id=$1", [waitingId]);
   }, 30_000);
 
+  it("rechecks suspension under the tenant lock before handing off or completing a capture", async () => {
+    const fixture = await seedFixture();
+    const submitted = await start(odoo(fixture, "POST", request(fixture)));
+    expect(submitted.status).toBe(202);
+    const id = (await submitted.json()).runId;
+    const holder = await pool().connect();
+    try {
+      for (const mode of ["claim", "finish"] as const) {
+        await pool().query("UPDATE tenants SET lifecycle='active' WHERE id=$1", [fixture.tenantId]);
+        const claimed = mode === "finish" ? await claim(agent(fixture, "GET")) : null;
+        if (claimed) expect(claimed.status).toBe(200);
+        const envelope = claimed ? await claimed.json() : null;
+        await holder.query("BEGIN");
+        const pid = Number((await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+        await holder.query("SELECT id FROM tenants WHERE id=$1 FOR UPDATE", [fixture.tenantId]);
+        const pending = mode === "claim" ? claim(agent(fixture, "GET")) : finish(agent(fixture, "PATCH", {
+          runId: id, claimToken: envelope.claimToken, status: "rendered_locally",
+          pages: 1, pdfSha256: "a".repeat(64), pdfBytes: 240,
+        }));
+        await vi.waitFor(async () => {
+          const blocked = await pool().query("SELECT 1 FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))", [pid]);
+          expect(blocked.rows.length).toBeGreaterThan(0);
+        }, { timeout: 5000, interval: 20 });
+        await holder.query("UPDATE tenants SET lifecycle='suspended' WHERE id=$1", [fixture.tenantId]);
+        await holder.query("COMMIT");
+        expect((await pending).status).toBe(mode === "claim" ? 204 : 409);
+        expect((await pool().query("SELECT status FROM e2e_capture_runs WHERE id=$1", [id])).rows[0].status)
+          .toBe(mode === "claim" ? "queued" : "claimed");
+      }
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
+  }, 30_000);
+
   it("fails closed for another tenant and after installation-key revocation", async () => {
     expect((await start(odoo(owner, "POST", {
       ...request(owner), agentId: outsider.agentId,
@@ -174,5 +209,33 @@ run("E2E PDFium capture queue PostgreSQL tenant and claim fences", () => {
     expect((await start(odoo(owner, "POST", request(owner)))).status).toBe(401);
     expect((await claim(agent(owner, "GET"))).status).toBe(204);
     expect((await pool().query("SELECT status FROM e2e_capture_runs WHERE id=$1", [id])).rows[0].status).toBe("queued");
+  }, 30_000);
+
+  it("key deletion cannot deadlock capture expiry and must prevent document handoff", async () => {
+    const fixture = await seedFixture();
+    const first = await start(odoo(fixture, "POST", request(fixture)));
+    const second = await start(odoo(fixture, "POST", request(fixture)));
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    const expiredId = (await first.json()).runId;
+    await pool().query("UPDATE e2e_capture_runs SET expires_at=now()-interval '1 second' WHERE id=$1", [expiredId]);
+    const holder = await pool().connect();
+    try {
+      await holder.query("BEGIN");
+      const pid = Number((await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      await holder.query("SELECT id FROM api_keys WHERE tenant_id=$1 FOR UPDATE", [fixture.tenantId]);
+      const pending = claim(agent(fixture, "GET"));
+      await vi.waitFor(async () => {
+        const blocked = await pool().query("SELECT 1 FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))", [pid]);
+        expect(blocked.rows.length).toBeGreaterThan(0);
+      }, { timeout: 5000, interval: 20 });
+      await holder.query("DELETE FROM api_keys WHERE tenant_id=$1", [fixture.tenantId]);
+      await holder.query("COMMIT");
+      expect((await pending).status).toBe(204);
+      expect((await pool().query("SELECT id FROM e2e_capture_runs WHERE tenant_id=$1", [fixture.tenantId])).rows).toHaveLength(0);
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
   }, 30_000);
 });

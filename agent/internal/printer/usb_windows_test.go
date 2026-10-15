@@ -20,8 +20,17 @@ import (
 // using an injected write function. Behavior against real wedged hardware
 // additionally requires a physical device stall, which CI cannot provide.
 
+func nativeUSBPrintFixture(id, name, path string) *USBPrinter {
+	return &USBPrinter{
+		ID: id, Name: name, DevicePath: path, VID: 0x1234, PID: 0x5678,
+		usbInterfaces: func() ([]usbPrintInterface, error) {
+			return []usbPrintInterface{{path: path, instanceID: `USB\VID_1234&PID_5678\fixture`, devInst: 1}}, nil
+		},
+	}
+}
+
 func TestUSBWriteCancelledBeforeDispatchIsPlain(t *testing.T) {
-	p := &USBPrinter{ID: "u1", Name: "U1", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u1", "U1", "NUL")
 	called := &atomic.Int32{}
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		called.Add(1)
@@ -42,7 +51,7 @@ func TestUSBWriteCancelledBeforeDispatchIsPlain(t *testing.T) {
 }
 
 func TestUSBWritePartialBytesThenErrorIsUnknown(t *testing.T) {
-	p := &USBPrinter{ID: "u2b", Name: "U2B", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u2b", "U2B", "NUL")
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		return 3, errors.New("write completed partially then reported an error")
 	}
@@ -56,7 +65,7 @@ func TestUSBWritePartialBytesThenErrorIsUnknown(t *testing.T) {
 }
 
 func TestUSBWritePartialThenErrorIsUnknown(t *testing.T) {
-	p := &USBPrinter{ID: "u2", Name: "U2", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u2", "U2", "NUL")
 	calls := &atomic.Int32{}
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		if calls.Add(1) == 1 {
@@ -74,7 +83,7 @@ func TestUSBWritePartialThenErrorIsUnknown(t *testing.T) {
 }
 
 func TestUSBWriteZeroByteFailureIsUnknown(t *testing.T) {
-	p := &USBPrinter{ID: "u3", Name: "U3", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u3", "U3", "NUL")
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		return 0, errors.New("device rejected transfer")
 	}
@@ -94,7 +103,7 @@ func TestUSBWriteExceedingBoundaryIsUnknownAndWedges(t *testing.T) {
 	usbChunkTimeout = 150 * time.Millisecond
 	defer func() { usbChunkTimeout = old }()
 
-	p := &USBPrinter{ID: "u4", Name: "U4", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u4", "U4", "NUL")
 	release := make(chan struct{})
 	calls := &atomic.Int32{}
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
@@ -137,7 +146,7 @@ func TestUSBWriteExceedingBoundaryIsUnknownAndWedges(t *testing.T) {
 }
 
 func TestUSBWriteCancelledInFlightIsUnknown(t *testing.T) {
-	p := &USBPrinter{ID: "u5", Name: "U5", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u5", "U5", "NUL")
 	release := make(chan struct{})
 	defer close(release)
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
@@ -176,7 +185,7 @@ func TestUSBWriteCancelledInFlightIsUnknown(t *testing.T) {
 }
 
 func TestUSBCancelledPrintClosesHandleOnlyAfterAbandonedWriteReturns(t *testing.T) {
-	p := &USBPrinter{ID: "u6", Name: "U6", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u6", "U6", "NUL")
 	started := make(chan struct{})
 	release := make(chan struct{})
 	closed := make(chan struct{}, 1)
@@ -226,7 +235,7 @@ func TestUSBCancelledPrintClosesHandleOnlyAfterAbandonedWriteReturns(t *testing.
 }
 
 func TestUSBCompletedPrintClosesCallerOwnedHandleExactlyOnce(t *testing.T) {
-	p := &USBPrinter{ID: "u7", Name: "U7", DevicePath: "NUL"}
+	p := nativeUSBPrintFixture("u7", "U7", "NUL")
 	closed := &atomic.Int32{}
 	p.writeChunk = func(h windows.Handle, chunk []byte) (uint32, error) {
 		return uint32(len(chunk)), nil
@@ -276,17 +285,17 @@ func TestUSBTestPayloadDoesNotInjectESCPOSWithoutCapability(t *testing.T) {
 func TestUSBLabelProtocolTestPayloadsUseTheirDeclaredLanguage(t *testing.T) {
 	zpl := &USBPrinter{ID: "zpl", Name: "Label ^XZ ~JA", Protocol: "zpl"}
 	zplPayload := string(zpl.testPayload())
-	if !strings.HasPrefix(zplPayload, "^XA") || strings.Count(zplPayload, "^XZ") != 1 || strings.Contains(zplPayload, "~JA") {
+	if zplPayload != "^XA\n^FO4,4^A0N,12,12^FDTEST^FS\n^XZ\n" || !strings.HasPrefix(zplPayload, "^XA") || strings.Count(zplPayload, "^XZ") != 1 || strings.Contains(zplPayload, "~JA") {
 		t.Fatalf("ZPL test payload must be framed once and sanitize command delimiters, got %q", zplPayload)
 	}
 
 	tspl := &USBPrinter{ID: "tspl", Name: "Label \"\nPRINT 9,9", Protocol: "tspl"}
 	tsplPayload := string(tspl.testPayload())
-	if !strings.Contains(tsplPayload, "CLS\n") ||
-		strings.Count(tsplPayload, "PRINT 1,1") != 1 ||
+	if tsplPayload != "SELFTEST\r\n" ||
+		strings.Contains(tsplPayload, "SIZE ") || strings.Contains(tsplPayload, "GAP ") ||
 		strings.Contains(tsplPayload, "\"\nPRINT 9,9") ||
 		strings.Contains(tsplPayload, "\nPRINT 9,9\n") {
-		t.Fatalf("TSPL test payload must keep attacker text inside the field and emit one fixed print command, got %q", tsplPayload)
+		t.Fatalf("TSPL test payload must emit one native diagnostic without stock guesses or attacker commands, got %q", tsplPayload)
 	}
 }
 

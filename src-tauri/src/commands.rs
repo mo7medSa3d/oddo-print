@@ -1917,10 +1917,12 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
         }
         let out = agent::run_bounded_command(
             test_cmd,
-            std::time::Duration::from_secs(30),
+            // Allow the Agent's 120s document budget plus startup/cleanup.
+            std::time::Duration::from_secs(150),
             64 * 1024,
             64 * 1024,
-        )?;
+        )
+        .map_err(|error| format!("Local print test did not return a confirmed result; check the printer before repeating: {error}"))?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {

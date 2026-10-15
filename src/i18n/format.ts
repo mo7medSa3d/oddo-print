@@ -23,6 +23,12 @@ function toDate(value: Date | string | number | null | undefined): Date | null {
   }
   const text = value.trim();
   if (!text) return null;
+  // ISO date-only forms already mean midnight UTC. Their trailing -DD is
+  // part of the calendar date, never a short PostgreSQL timezone offset.
+  if (/^(?:\d{4}|[+-]\d{6})(?:-\d{2}){0,2}$/.test(text)) {
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
   // node-postgres emits naive "YYYY-MM-DD HH:MM:SS" in UTC; `new Date(str)`
   // would read those as host-local time.
   let iso = text.replace(" ", "T");

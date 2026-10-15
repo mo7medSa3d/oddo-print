@@ -87,14 +87,7 @@ export async function queueOdooCapture(auth: AuthenticatedIntegration, input: Ca
   if (!captureEnabled()) throw new CaptureError("CAPTURE_NOT_ENABLED", 404);
   if (auth.readOnly) throw new CaptureError("API_KEY_READ_ONLY", 409);
   return db.transaction(async (tx) => {
-    // Lock in credential -> tenant -> agent order, matching key rotation.
-    const key = await tx.execute(sql`
-      SELECT id FROM api_keys
-      WHERE id = ${auth.id} AND tenant_id = ${auth.tenantId}
-        AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = true
-      FOR UPDATE
-    `);
-    if (key.rows.length !== 1) throw new CaptureError("UNAUTHORIZED", 401);
+    // Fence tenant before credential/advisory/runtime locks, matching rotation.
     const tenant = await tx.execute(sql`
       SELECT id FROM tenants WHERE id = ${auth.tenantId} AND lifecycle = 'active' FOR SHARE
     `);
@@ -106,6 +99,13 @@ export async function queueOdooCapture(auth: AuthenticatedIntegration, input: Ca
         AND tenant_id = ${auth.tenantId} AND lifecycle = 'active' FOR UPDATE
     `);
     if (agent.rows.length !== 1) throw new CaptureError("AGENT_NOT_FOUND", 404);
+    const key = await tx.execute(sql`
+      SELECT id FROM api_keys
+      WHERE id = ${auth.id} AND tenant_id = ${auth.tenantId}
+        AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = true
+      FOR UPDATE
+    `);
+    if (key.rows.length !== 1) throw new CaptureError("UNAUTHORIZED", 401);
     // Retention is per tenant, not a global deletion during a customer request.
     await tx.execute(sql`DELETE FROM e2e_capture_runs
       WHERE tenant_id = ${auth.tenantId} AND created_at < now() - interval '48 hours'`);

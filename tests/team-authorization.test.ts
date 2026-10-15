@@ -4,12 +4,13 @@ import type { DbTx } from "../src/db";
 import { requireTeamActorInTransaction, TeamAuthorizationChangedError } from "../src/lib/team-authorization";
 
 const dialect = new PgDialect();
-function database(role: string | null, active: boolean) {
+function database(role: string | null, active: boolean, lifecycle = "active") {
   const statements: string[] = [];
   const tx = {
     execute: async (query: Parameters<typeof dialect.sqlToQuery>[0]) => {
       const sql = dialect.sqlToQuery(query).sql;
       statements.push(sql);
+      if (/FROM tenants/.test(sql)) return { rows: [{ lifecycle }] };
       return { rows: /FROM (refresh_tokens|manager_sessions)/.test(sql) && active ? [{ id: "session" }] : [] };
     },
     query: { tenantUsers: { findFirst: async () => role ? { role } : undefined } },
@@ -32,8 +33,16 @@ describe("transactional team authority", () => {
   it("allows a current administrator with a live family and orders shared user locks", async () => {
     const { tx, statements } = database("admin", true);
     await expect(requireTeamActorInTransaction(tx, actor, ["target", "admin"])).resolves.toBeUndefined();
-    expect(statements[0]).toContain("ORDER BY id FOR UPDATE");
+    expect(statements[0]).toContain("FROM tenants");
+    expect(statements[0]).toContain("FOR SHARE");
+    expect(statements[1]).toContain("ORDER BY id FOR UPDATE");
     expect(statements.at(-1)).toContain("FOR SHARE");
+  });
+  it.each(["suspended", "deleted", "unexpected"])("denies %s tenant before user/session locks", async lifecycle => {
+    const { tx, statements } = database("admin", true, lifecycle);
+    await expect(requireTeamActorInTransaction(tx, actor)).rejects.toBeInstanceOf(TeamAuthorizationChangedError);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain("FROM tenants");
   });
   it("preserves live legacy sessions and denies revoked legacy sessions", async () => {
     const legacy = { ...actor, familyId: undefined };

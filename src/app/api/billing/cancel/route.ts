@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { hasManagerPermission } from "../../../../lib/authorization";
 import { runBillingOperation } from "../../../../lib/billing-operation";
+import { TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 
 export async function POST(req: Request) {
   const claims = await validateWorkspaceManager(req);
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     cancelAtPeriodEnd: true,
     logLabel: "cancel",
   }); } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) return NextResponse.json({ error: error.message }, { status: 403 });
     throw error;
   }
 }

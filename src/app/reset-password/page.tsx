@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,13 +11,26 @@ import { codeMessageKey } from "../../lib/api-error-keys";
 import { fetchWithTimeout } from "../../lib/fetch-timeout";
 
 function ResetPasswordContent() {
-  const token = useSearchParams().get("token") ?? "";
+  const params = useSearchParams();
+  const token = params.get("token") ?? "";
+  const setup = params.get("setup") === "1";
+  const invite = params.get("invite") ?? "";
+  const plan = params.get("plan") ?? "";
+  const continuation = invite ? `/invite?token=${encodeURIComponent(invite)}`
+    : plan ? `/onboarding?plan=${encodeURIComponent(plan)}` : "/onboarding";
+  const signInDestination = setup ? `/login?next=${encodeURIComponent(continuation)}` : "/login";
   const router = useRouter();
   const [pw, setPw] = useState("");
   const { t } = useI18n();
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!done) return;
+    const timer = setTimeout(() => router.replace(signInDestination), 700);
+    return () => clearTimeout(timer);
+  }, [done, router, signInDestination]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -41,7 +54,6 @@ function ResetPasswordContent() {
         return;
       }
       setDone(true);
-      setTimeout(() => router.replace("/login"), 700);
     } catch {
       setErr(t("auth.reset.failedBody"));
     } finally {
@@ -53,13 +65,13 @@ function ResetPasswordContent() {
     <AuthShell
       subtitle={t("auth.forgot.eyebrow")}
       eyebrow={t("auth.forgot.eyebrow")}
-      title={t("auth.reset.title")}
-      description={t("auth.reset.description")}
+      title={t(setup ? "auth.setup.title" : "auth.reset.title")}
+      description={t(setup ? "auth.setup.description" : "auth.reset.description")}
     >
       {done ? (
         <Callout tone="ok" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />} title={t("auth.reset.updatedTitle")}>
           {t("auth.reset.takingYou")}{" "}
-          <Link href="/login" className="font-[600] underline">
+          <Link href={signInDestination} className="font-[600] underline">
             {t("auth.reset.continueNow")}
           </Link>
           .
@@ -94,7 +106,7 @@ function ResetPasswordContent() {
             loading={loading}
             icon={loading ? undefined : <ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}
           >
-            {loading ? t("auth.reset.submitting") : t("auth.reset.submit")}
+            {loading ? t("auth.reset.submitting") : t(setup ? "auth.setup.submit" : "auth.reset.submit")}
           </Button>
         </form>
       )}

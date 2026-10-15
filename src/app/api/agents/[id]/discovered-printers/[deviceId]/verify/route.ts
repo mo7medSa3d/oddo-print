@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let result;
   try {
     result = await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
       // Agent lifecycle and discovery row are locked in the same order as the
       // provisioning route. Discovery upsert takes a row lock on the device;
       // it cannot replace the reviewed observation while we authorize it.
@@ -50,7 +51,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         FOR UPDATE
       `);
       if (locked.rows.length !== 1) return { kind: "not_found" as const };
-      await requireActiveTenantInTransaction(tx, claims.tenantId);
       await requireManagerActorInTransaction(tx, claims, "printers.manage");
 
       const device = await tx.query.discoveredDevices.findFirst({

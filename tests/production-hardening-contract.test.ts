@@ -21,7 +21,24 @@ describe("production hardening contracts", () => {
     expect(read("src/lib/tenant-guard.ts")).toContain("FOR SHARE");
     expect(read("src/lib/agent-lifecycle.ts")).toContain("requireActiveTenantInTransaction(tx, tenantId)");
     expect(read("src/app/actions.ts")).toContain("requireActiveTenantInTransaction(tx, manager.tenantId)");
-    expect(read("src/app/api/agent/register/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
+    const register = read("src/app/api/agent/register/route.ts");
+    const candidate = register.indexOf("const candidate = await tx.execute");
+    const tenantIdentity = register.indexOf("const tenantId = (candidate.rows[0]");
+    const tenantFence = register.indexOf("requireActiveTenantInTransaction(tx, tenantId)");
+    const agentLock = register.indexOf("const agentResult = await tx.execute");
+    expect(candidate).toBeGreaterThanOrEqual(0);
+    expect(tenantIdentity).toBeGreaterThan(candidate);
+    expect(tenantFence).toBeGreaterThan(tenantIdentity);
+    expect(agentLock).toBeGreaterThan(tenantFence);
+    const candidateQuery = register.slice(candidate, tenantIdentity);
+    expect(candidateQuery).toContain("SELECT id FROM tenants");
+    expect(candidateQuery).toContain("SELECT tenant_id FROM agents");
+    expect(candidateQuery).toContain("pairing_code_hash = ${hashedCode}");
+    expect(candidateQuery).toContain("pairing_code_expires_at > clock_timestamp()");
+    expect(candidateQuery).toContain("FOR SHARE");
+    const lockedAgentQuery = register.slice(agentLock, register.indexOf("const agent = agentResult.rows[0]", agentLock));
+    expect(lockedAgentQuery).toContain("AND tenant_id = ${tenantId}");
+    expect(lockedAgentQuery).toContain("FOR UPDATE");
     expect(read("src/app/api/agent/heartbeat/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
     expect(read("src/app/api/agent/discovery/route.ts")).toContain("requireActiveTenantInTransaction(tx, agent.tenantId)");
     expect(read("src/app/api/agents/[id]/discovered-printers/[deviceId]/provision/route.ts")).toContain("requireActiveTenantInTransaction(tx, claims.tenantId)");
@@ -411,4 +428,3 @@ it("agent crash reprint is a fenced printing->queued transition, separate from p
   expect(source).toContain('retries: sql`${printJobs.retries} + 1`');
   expect(source).not.toMatch(/agent_reprint_after_crash[\s\S]{0,500}deliveryAttempts: sql`GREATEST/);
 });
-

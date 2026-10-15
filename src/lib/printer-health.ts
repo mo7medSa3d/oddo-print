@@ -19,8 +19,10 @@ import { agents, printers } from "../db/schema";
 import { eq, and, asc, gt } from "drizzle-orm";
 import { clampListLimit } from "./request-limits";
 import { gatewayNow, parseDbTimeMs } from "./database-clock";
-import { printerStaleThresholdSeconds } from "./stale-threshold";
+import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
 import { getSupportedDocumentTypes, type ProtocolType, type TransportType } from "./printer-capability";
+import { isVirtualPrinterRecord } from "./printer-virtual";
+import { nonVirtualPrinterPredicate } from "./printer-virtual-sql";
 
 // String-valued capability-bag readers: agent-reported JSON is untyped, so
 // narrow at the boundary instead of erasing rows to `any`.
@@ -73,14 +75,14 @@ export interface PrinterCapabilityMatrix {
 // printerStaleThresholdSeconds() so enforcement and display cannot diverge.
 
 
-function isFresh(lastSeenAt?: Date | string | null, now = gatewayNow()): { fresh: boolean; ageMs?: number } {
+function isFresh(lastSeenAt?: Date | string | null, now = gatewayNow(), thresholdSeconds = printerStaleThresholdSeconds()): { fresh: boolean; ageMs?: number } {
   if (!lastSeenAt) return { fresh: false };
   // parseDbTimeMs: naive DB strings are UTC; new Date(str) is host-local.
   const seenMs = parseDbTimeMs(lastSeenAt);
   const ageMs = seenMs === null ? Number.POSITIVE_INFINITY : now.getTime() - seenMs;
   // Future-dated observations are clock-invalid and must never be treated as
   // fresh. Execution gates use the same rule, so health and delivery converge.
-  return { fresh: ageMs >= 0 && ageMs <= printerStaleThresholdSeconds() * 1000, ageMs };
+  return { fresh: ageMs >= 0 && ageMs <= thresholdSeconds * 1000, ageMs };
 }
 
 /**
@@ -94,7 +96,7 @@ export function normalizePrinterStatus(
 ): { status: PrinterHealthStatus; evidence: string; freshness: { lastSeenAt?: Date; ageMs?: number; fresh: boolean; source: string } } {
   const now = evidence?.now ?? gatewayNow();
   const printerFreshness = isFresh(evidence?.lastSeenAt ?? null, now);
-  const agentFreshness = isFresh(evidence?.agentLastSeenAt ?? null, now);
+  const agentFreshness = isFresh(evidence?.agentLastSeenAt ?? null, now, agentStaleThresholdSeconds());
   const freshness = {
     lastSeenAt: evidence?.lastSeenAt ?? undefined,
     ageMs: Math.max(printerFreshness.ageMs ?? Number.POSITIVE_INFINITY, agentFreshness.ageMs ?? Number.POSITIVE_INFINITY),
@@ -153,7 +155,7 @@ export async function getPrinterCapabilityMatrix(tenantId: string, printerId: st
   );
   if (rows.length === 0) return null;
   const row = rows[0];
-  return row ? buildPrinterCapabilityMatrix(row.printer, row.agent) : null;
+  return row && !isVirtualPrinterRecord(row.printer) ? buildPrinterCapabilityMatrix(row.printer, row.agent) : null;
 }
 
 export function buildPrinterCapabilityMatrix(p: typeof printers.$inferSelect, agent: typeof agents.$inferSelect | null, now = gatewayNow()): PrinterCapabilityMatrix {
@@ -271,7 +273,7 @@ export async function getPrinterCapabilityPage(
   const rows = await queryWithTimeout(
     () => db.select({ printer: printers, agent: agents }).from(printers)
       .leftJoin(agents, and(eq(agents.id, printers.agentId), eq(agents.tenantId, tenantId)))
-      .where(and(eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true), options.afterId ? gt(printers.id, options.afterId) : undefined))
+      .where(and(eq(printers.tenantId, tenantId), eq(printers.sharedWithGateway, true), nonVirtualPrinterPredicate(), options.afterId ? gt(printers.id, options.afterId) : undefined))
       .orderBy(asc(printers.id))
       .limit(limit + 1),
     3000,

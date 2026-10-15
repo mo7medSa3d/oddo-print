@@ -105,6 +105,11 @@ export async function claimJobForDelivery(
     ? sql`${DELIVERY_EVIDENCE_PENDING}`
     : sql`${printJobs.error}`;
   return db.transaction(async (tx) => {
+    const tenant = await tx.execute(sql`SELECT id FROM tenants
+      WHERE id = (SELECT tenant_id FROM agents WHERE id = ${agentId}) AND lifecycle = 'active'
+      FOR SHARE`);
+    const tenantId = (tenant.rows[0] as { id?: string } | undefined)?.id;
+    if (!tenantId) return null;
     // Same advisory lock the poll claim path and the creation admission
     // check take: concurrent WS pushes and polls for one agent serialize
     // here, so the in-flight ceiling below is a true invariant, not a
@@ -151,6 +156,7 @@ export async function claimJobForDelivery(
       JOIN printers pr ON pr.id = p.printer_id AND pr.tenant_id = p.tenant_id
       JOIN tenants t ON t.id = p.tenant_id
       WHERE p.id = ${jobId}
+        AND p.tenant_id = ${tenantId}
         AND p.tenant_id = a.tenant_id
         AND p.agent_id = ${agentId}
         AND p.status = 'queued'
@@ -176,7 +182,7 @@ export async function claimJobForDelivery(
         AND pr.last_seen_at >= now() - make_interval(secs => ${printerStaleThresholdSeconds()})
         AND t.lifecycle = 'active'
         AND ${liveTenantSubscriptionPredicate(sql`p.tenant_id`)}
-      FOR UPDATE OF p, a, pr, t SKIP LOCKED
+      FOR UPDATE OF p, a, pr SKIP LOCKED
     `);
     if (locked.rows.length === 0) return null;
 
@@ -192,7 +198,7 @@ export async function claimJobForDelivery(
           error = ${claimError},
           delivery_attempts = print_jobs.delivery_attempts + 1
       WHERE id = ${jobId}
-        AND tenant_id = (SELECT tenant_id FROM agents WHERE id = ${agentId})
+        AND tenant_id = ${tenantId}
         AND agent_id = ${agentId}
         AND status = 'queued'
         AND expires_at > now()

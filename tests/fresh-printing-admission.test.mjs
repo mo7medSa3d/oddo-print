@@ -30,6 +30,9 @@ async function harness({ status = "claimed", lifecycle = {}, updatedRows = 1, to
   const db = { query: { printJobs: { findFirst: async () => job } }, update,
     transaction: async (fn) => fn({ update, execute: async (statement) => {
       statements.push(statement);
+      if (statement.includes("SELECT id FROM tenants")) {
+        return { rows: active.tenant_lifecycle === "active" ? [{ id: "tenant-1" }] : [] };
+      }
       return { rows: statement.includes("FROM print_jobs") ? [{ id: job.id }] : [active] };
     } }) };
   const mocks = {
@@ -92,14 +95,17 @@ for (const status of ["claimed", "printing"]) {
     const response = await h.patch();
     assert.equal(response.status, 200);
     assert.equal((await response.json()).status, "printing");
-    assert.equal(h.statements.length, 2);
-    assert.match(h.statements[0], /FOR UPDATE/);
+    assert.equal(h.statements.length, 3);
+    assert.match(h.statements[0], /SELECT id FROM tenants[\s\S]*WHERE id = tenant-1 AND lifecycle = 'active' FOR SHARE/);
     assert.match(h.statements[1], /pr\.id = printer-1/);
     assert.match(h.statements[1], /pr\.status = 'online'/);
     assert.match(h.statements[1], /pr\.last_seen_at <= now\(\)/);
     assert.match(h.statements[1], /pr\.management_source = 'agent'/);
     assert.match(h.statements[1], /LIVE_SUBSCRIPTION/);
     assert.match(h.statements[1], /FOR SHARE OF a, t, pr/);
+    assert.match(h.statements[2], /SELECT id FROM print_jobs/);
+    assert.match(h.statements[2], /tenant_id = tenant-1 AND agent_id = agt-1/);
+    assert.match(h.statements[2], /FOR UPDATE/);
     assert.match(h.writes[0].fence, /jobs\.expiresAt > now\(\)/);
     assert.equal(h.events.length, status === "printing" ? 0 : 1);
   });

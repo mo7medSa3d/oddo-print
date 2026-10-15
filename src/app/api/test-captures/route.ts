@@ -6,7 +6,7 @@ import { db } from "../../../db";
 import { agents, auditEvents, e2eCaptureRuns } from "../../../db/schema";
 import { validateWorkspaceManager } from "../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../lib/authorization";
-import { requireActiveTenantInTransaction } from "../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../lib/tenant-guard";
 import {
   ManagerMutationAuthorityChangedError,
   requireManagerActorInTransaction,
@@ -36,7 +36,7 @@ function jsonError(code: string, status: number) {
 
 function consoleError(error: unknown, action: "list" | "clear") {
   if (error instanceof CaptureConsoleError) return jsonError(error.code, error.status);
-  if (error instanceof ManagerMutationAuthorityChangedError) {
+  if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) {
     return jsonError("FORBIDDEN", 403);
   }
   logError("e2e.capture.console_" + action + "_failed", {

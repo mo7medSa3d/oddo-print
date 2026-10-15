@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiMessageKey } from "../../lib/api-error-keys";
 import { fetchWithTimeout } from "../../lib/fetch-timeout";
 import { roleLabel } from "../../lib/roles";
@@ -35,6 +35,7 @@ type SettingsPayload = {
 };
 
 export default function SettingsPage() {
+  const nameEdited = useRef(false);
   const [name, setName] = useState("");
   const { t, formatDate } = useI18n();
   const [email, setEmail] = useState("");
@@ -54,7 +55,7 @@ export default function SettingsPage() {
         if (!r.ok) throw new Error(t("settings.loadFailed"));
         const d = (await r.json()) as SettingsPayload;
         if (cancelled) return;
-        setName((current) => (current === "" ? (d.tenant?.name ?? "") : current));
+        if (!nameEdited.current) setName(d.tenant?.name ?? "");
         setEmail(d.email ?? "");
         setRole(d.role ?? "");
         setTenantCreatedAt(d.tenant?.createdAt ?? null);
@@ -122,7 +123,7 @@ export default function SettingsPage() {
                   <Input
                     id="workspace-name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { nameEdited.current = true; setName(e.target.value); }}
                     minLength={2}
                     maxLength={120}
                     required

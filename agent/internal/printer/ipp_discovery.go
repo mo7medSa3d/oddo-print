@@ -241,7 +241,18 @@ func appendMDNSDiscoveryResult(out *[]DeviceInfo, seen map[string]bool, di Devic
 
 // discoverMDNSPrinters performs mDNS query for _ipp._tcp, _ipps._tcp, and _printer._tcp.
 func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
+	return discoverMDNSPrintersWithBrowse(ctx, func(ctx context.Context, family zeroconf.IPType, service string, entries chan<- *zeroconf.ServiceEntry) error {
+		// Separate families avoid losing IPv4 and leaking its socket if IPv6 setup fails.
+		resolver, err := zeroconf.NewResolver(zeroconf.SelectIPTraffic(family))
+		if err != nil {
+			close(entries)
+			return err
+		}
+		return resolver.Browse(ctx, service, "local.", entries)
+	})
+}
 
+func discoverMDNSPrintersWithBrowse(ctx context.Context, browse func(context.Context, zeroconf.IPType, string, chan<- *zeroconf.ServiceEntry) error) ([]DeviceInfo, error) {
 	browseCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 	defer cancel()
 
@@ -253,51 +264,46 @@ func discoverMDNSPrinters(ctx context.Context) ([]DeviceInfo, error) {
 	seen := make(map[string]bool)
 	truncated := false
 
-	for _, svc := range services {
-		wg.Add(1)
-		go func(s string) {
-			defer wg.Done()
-			// Each Browse owns and closes its resolver's sockets.
-			resolver, err := zeroconf.NewResolver(nil)
-			if err != nil {
-				mu.Lock()
-				diagnostics = append(diagnostics, fmt.Errorf("mDNS %s resolver: %w", s, err))
-				mu.Unlock()
-				return
-			}
-			ch := make(chan *zeroconf.ServiceEntry, 32)
-			doneCh := make(chan struct{})
-			go func() {
-				defer close(doneCh)
-				for entry := range ch {
+	for _, family := range []zeroconf.IPType{zeroconf.IPv4, zeroconf.IPv6} {
+		for _, svc := range services {
+			wg.Add(1)
+			go func(family zeroconf.IPType, s string) {
+				defer wg.Done()
+				// Each family/service Browse owns its channel and sockets.
+				ch := make(chan *zeroconf.ServiceEntry, 32)
+				doneCh := make(chan struct{})
+				go func() {
+					defer close(doneCh)
+					for entry := range ch {
+						mu.Lock()
+						full := len(out) >= maxMDNSDiscoveryResults
+						if full {
+							truncated = true
+						}
+						mu.Unlock()
+						if full {
+							// Keep draining the resolver's channel without allocating
+							// more parsed metadata or retaining another endpoint.
+							continue
+						}
+						di, ok := parseMDNSServiceEntry(entry)
+						if !ok {
+							continue
+						}
+						mu.Lock()
+						appendMDNSDiscoveryResult(&out, seen, di, maxMDNSDiscoveryResults)
+						mu.Unlock()
+					}
+				}()
+
+				if err := browse(browseCtx, family, s, ch); err != nil {
 					mu.Lock()
-					full := len(out) >= maxMDNSDiscoveryResults
-					if full {
-						truncated = true
-					}
-					mu.Unlock()
-					if full {
-						// Keep draining the resolver's channel without allocating
-						// more parsed metadata or retaining another endpoint.
-						continue
-					}
-					di, ok := parseMDNSServiceEntry(entry)
-					if !ok {
-						continue
-					}
-					mu.Lock()
-					appendMDNSDiscoveryResult(&out, seen, di, maxMDNSDiscoveryResults)
+					diagnostics = append(diagnostics, fmt.Errorf("mDNS %s family %d Browse: %w", s, family, err))
 					mu.Unlock()
 				}
-			}()
-
-			if err := resolver.Browse(browseCtx, s, "local.", ch); err != nil {
-				mu.Lock()
-				diagnostics = append(diagnostics, fmt.Errorf("mDNS %s Browse: %w", s, err))
-				mu.Unlock()
-			}
-			<-doneCh
-		}(svc)
+				<-doneCh
+			}(family, svc)
+		}
 	}
 
 	wg.Wait()

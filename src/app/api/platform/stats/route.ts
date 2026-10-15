@@ -5,6 +5,7 @@ import { queryWithTimeout } from "../../../../db/client";
 import { tenants, tenantSubscriptions, users, agents, printers, printJobs } from "../../../../db/schema";
 import { sql, eq, and } from "drizzle-orm";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "../../../../lib/agent-availability";
+import { nonVirtualPrinterPredicate } from "../../../../lib/printer-virtual-sql";
 
 import { getCachedPlatformStats, setCachedPlatformStats } from "../../../../lib/platform-stats-cache";
 
@@ -154,7 +155,7 @@ export async function GET(req: Request) {
         // Retain the tenant-scoped ownership join as a security/consistency
         // tripwire, but do not turn Agent reachability into physical status.
         .leftJoin(agents, and(eq(printers.agentId, agents.id), eq(printers.tenantId, agents.tenantId)))
-        .where(eq(printers.sharedWithGateway, true)),
+        .where(and(eq(printers.sharedWithGateway, true), nonVirtualPrinterPredicate())),
 
       db.execute(sql<PlatformHourlyJobStatsRow>`
         WITH hours AS (

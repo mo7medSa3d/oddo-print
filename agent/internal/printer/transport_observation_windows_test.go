@@ -13,7 +13,7 @@ func TestUSBHandleProbePreservesUnknownHealthAndClearsLostAccess(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	p := &USBPrinter{DevicePath: path}
+	p := nativeUSBPrintFixture("probe", "Probe", path)
 	if status := p.Status(); status != "unknown" || !p.TransportObserved() {
 		t.Fatalf("accessible handle: status=%q observed=%v", status, p.TransportObserved())
 	}

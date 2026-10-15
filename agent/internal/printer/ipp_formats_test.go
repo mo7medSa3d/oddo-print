@@ -13,6 +13,9 @@ import (
 func ippAttrResponse(formats ...string) []byte {
 	var buf bytes.Buffer
 	buf.Write([]byte{0x02, 0x00, 0, 0, 0, 0, 0, 1})
+	buf.WriteByte(0x01)
+	writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
+	writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
 	buf.WriteByte(0x04)
 	for i, format := range formats {
 		name := ""
@@ -102,6 +105,7 @@ func TestIPPRasterOnlyDeviceRejectsPDFBeforeNetworkPrintJob(t *testing.T) {
 func TestIPPRejectingJobsDoesNotTransmitDocument(t *testing.T) {
 	var printCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/ipp")
 		body := readAll(r.Body)
 		if len(body) < 4 {
 			t.Error("short IPP request")
@@ -109,7 +113,10 @@ func TestIPPRejectingJobsDoesNotTransmitDocument(t *testing.T) {
 		}
 		if binary.BigEndian.Uint16(body[2:4]) == 0x000B {
 			var attrs bytes.Buffer
-			attrs.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+			attrs.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 1})
+			writeIPPAttribute(&attrs, 0x47, "attributes-charset", "utf-8")
+			writeIPPAttribute(&attrs, 0x48, "attributes-natural-language", "en")
+			attrs.WriteByte(4)
 			writeIPPAttribute(&attrs, 0x49, "document-format-supported", "application/pdf")
 			writeIPPBoolAttr(&attrs, "printer-is-accepting-jobs", false)
 			attrs.WriteByte(3)
@@ -131,10 +138,11 @@ func TestIPPRejectingJobsDoesNotTransmitDocument(t *testing.T) {
 func TestIPPRejectedDocumentFormatReturnsActionableErrorWithoutRetry(t *testing.T) {
 	var count int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/ipp")
 		data := readAll(r.Body)
 		if len(data) >= 4 && binary.BigEndian.Uint16(data[2:4]) == 0x000B {
-			// Legacy printer does not report format list.
-			_, _ = w.Write(ippAttrResponse())
+			// Even an advertised format can be rejected at submission time.
+			_, _ = w.Write(ippAttrResponse(ippFormatPDF))
 			return
 		}
 		count++
@@ -154,6 +162,7 @@ func TestIPPRejectedDocumentFormatReturnsActionableErrorWithoutRetry(t *testing.
 func TestIPPUnknownAdvertisedMimeMustNeverTriggerPDF(t *testing.T) {
 	var count int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/ipp")
 		body := readAll(r.Body)
 		if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000B {
 			_, _ = w.Write(ippAttrResponse("application/x-unknown-printer-language"))

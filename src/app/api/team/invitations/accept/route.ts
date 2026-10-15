@@ -20,9 +20,13 @@ export async function POST(req: Request) {
   // identity is known pre-token, so scope by endpoint + IP. Accepting an
   // invitation mints no session, so the budget is never cleared on success.
   const ip = clientIpFrom(req);
+  const tokenHash = await hashToken(token);
+  // Known clients share an endpoint/source bucket; unattributed clients
+  // share only the presented token's bucket, never a global lockout key.
+  const rateIdentity = `invitation-token:${ip === "unknown" ? tokenHash : ip}`;
   let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
   try {
-    rate = await reserveAuthAttempt(ip, "invitation-token");
+    rate = await reserveAuthAttempt(ip, rateIdentity);
   } catch (error) {
     logError("auth.rate_limit.store_unavailable", { endpoint: "invitation_accept", error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
@@ -34,7 +38,7 @@ export async function POST(req: Request) {
   }
 
   const row = await db.query.tenantInvitations.findFirst({
-    where: and(eq(tenantInvitations.tokenHash, await hashToken(token)), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)),
+    where: and(eq(tenantInvitations.tokenHash, tokenHash), isNull(tenantInvitations.acceptedAt), isNull(tenantInvitations.revokedAt), gt(tenantInvitations.expiresAt, sql`clock_timestamp()`)),
   });
   if (!row || row.email !== email) return NextResponse.json({ error: "Invitation is invalid or expired" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.email, email), columns: { id: true } });

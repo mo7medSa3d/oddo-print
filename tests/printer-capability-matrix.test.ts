@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getSupportedDocumentTypes, isIppTransport, isSpoolerTransport, isRawTransport } from "../src/lib/printer-capability";
+import { getSupportedDocumentTypes, isIppTransport, isSpoolerTransport, isRawTransport, validatePayloadForPrinter, hasDeclaredProtocol } from "../src/lib/printer-capability";
+import { buildTestPrintPayloadForPrinter } from "../src/lib/payload";
 import { buildPrinterCapabilityMatrix, normalizePrinterStatus } from "../src/lib/printer-health";
 import * as fs from "fs";
 
@@ -180,4 +181,29 @@ describe("physical IPP transport must not be inferred from a bare protocol label
     expect(isIppTransport("network", "ipps")).toBe(true);
     expect(isSpoolerTransport("usb", "spooler")).toBe(true);
   });
+});
+
+it("uses the same declared capability tokens for binding, matrix and admission", () => {
+  const capabilities = { supported_protocols: [" ESCPOS "] };
+  expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { connectionType: "network", protocol: "escpos", capabilities }).ok).toBe(true);
+  expect(getSupportedDocumentTypes("escpos", "network", capabilities)).toEqual(["escpos", "raw", "image"]);
+  expect(getSupportedDocumentTypes("spooler", "spooler", capabilities)).toEqual(["pdf", "image", "raw", "escpos"]);
+  expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { connectionType: "network", protocol: "raw", capabilities }).ok).toBe(false);
+});
+
+it("does not create a byte transport from a language label alone", () => {
+  for (const connectionType of ["", "unknown", "ipp", "ipps", "lpr", "serial", "bluetooth"]) {
+    for (const protocol of ["raw", "escpos", "zpl", "tspl"]) {
+      expect(validatePayloadForPrinter({ type: "raw", protocol }, { connectionType, protocol }).ok).toBe(false);
+    }
+  }
+});
+
+it("never coerces malformed capability values into printer language permissions", () => {
+  const capabilities = { supported_protocols: [["escpos"], { protocol: "escpos" }] } as unknown as { supported_protocols: string[] };
+  expect(hasDeclaredProtocol(capabilities, "escpos")).toBe(false);
+  expect(validatePayloadForPrinter({ type: "escpos", protocol: "escpos" }, { connectionType: "network", protocol: "escpos", capabilities }).ok).toBe(false);
+  expect(getSupportedDocumentTypes("escpos", "network", capabilities)).toEqual([]);
+  expect(() => buildTestPrintPayloadForPrinter("Receipt", "Agent", { connectionType: "network", protocol: "escpos", capabilities })).toThrow(/no supported test ticket/);
+  expect(getSupportedDocumentTypes("spooler", "spooler", capabilities)).toEqual(["pdf", "image"]);
 });

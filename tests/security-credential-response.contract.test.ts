@@ -28,15 +28,19 @@ describe("Agent credential response security", () => {
 });
 
 
-describe("session-bearing response cache policy", () => {
-  it("marks tenant selection and email verification session responses as non-cacheable", () => {
-    for (const relative of [
-      "src/app/api/auth/select-tenant/route.ts",
-      "src/app/api/auth/verify-email/route.ts",
-    ]) {
-      const source = fs.readFileSync(path.join(root, relative), "utf8");
-      expect(source).toContain('Set-Cookie');
-      expect(source).toContain('"Cache-Control", "no-store"');
-    }
+describe("authentication capability response cache policy", () => {
+  it("marks tenant selection session responses as non-cacheable", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/api/auth/select-tenant/route.ts"), "utf8");
+    expect(source).toContain('Set-Cookie');
+    expect(source).toContain('"Cache-Control", "no-store"');
+  });
+
+  it("keeps email-proof password setup non-cacheable without issuing a session", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/api/auth/verify-email/route.ts"), "utf8");
+    expect(source).toContain('"Cache-Control", "no-store"');
+    expect(source).toContain("requiresPasswordSetup: !alreadyVerified");
+    expect(source).toContain("/reset-password?token=");
+    expect(source).not.toContain("Set-Cookie");
+    expect(source).not.toContain("issueCustomerSession");
   });
 });

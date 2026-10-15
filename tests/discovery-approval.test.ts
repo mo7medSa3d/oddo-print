@@ -314,6 +314,37 @@ suite("discovery trust and approval flow", () => {
     expect(printer.rows[0].config).toMatchObject({ spooler_name: "HP LaserJet Enterprise", address: "HP LaserJet Enterprise" });
   });
 
+  it("reuses a reviewed Windows queue at capacity while still denying a new queue", async () => {
+    const discoveryId = await createDiscoverySession("disc-spooler-at-capacity");
+    await pool().query(`UPDATE printers SET config = $2::jsonb WHERE id = $1`,
+      [f.printerId, JSON.stringify({ spooler_name: "Existing Queue", address: "Existing Queue" })]);
+    await pool().query(`UPDATE plans SET entitlements = jsonb_set(entitlements, '{max_printers}', '1'::jsonb)
+      WHERE id = (SELECT plan_id FROM tenant_subscriptions WHERE tenant_id = $1)`, [f.tenantId]);
+    const reported = await agentRequest(discoveryId, [
+      { id: "spooler-existing-at-cap", source: ["windows_spooler"], transport: "spooler", protocol: "spooler", spoolerName: "Existing Queue", deviceName: "Existing Queue" },
+      { id: "spooler-new-at-cap", source: ["windows_spooler"], transport: "spooler", protocol: "spooler", spoolerName: "New Queue", deviceName: "New Queue" },
+    ]);
+    expect(reported.status).toBe(200);
+    const manager = await createManagerSession(f.tenantId);
+    for (const deviceId of ["spooler-existing-at-cap", "spooler-new-at-cap"]) {
+      const approved = await verifyPOST(await observationApprovalRequest(manager.token, discoveryId, deviceId),
+        { params: Promise.resolve({ id: f.agentId, deviceId }) });
+      expect(approved.status).toBe(200);
+    }
+    const existing = await provisionPOST(await managerRequest(manager.token, "/api/provision"),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "spooler-existing-at-cap" }) });
+    expect(existing.status).toBe(200);
+    expect(await existing.json()).toEqual({ printerId: f.printerId, already: true });
+    const fresh = await provisionPOST(await managerRequest(manager.token, "/api/provision"),
+      { params: Promise.resolve({ id: f.agentId, deviceId: "spooler-new-at-cap" }) });
+    expect(fresh.status).toBe(429);
+    expect((await fresh.json()).code).toBe("MAX_PRINTERS_EXCEEDED");
+    const printers = await pool().query("SELECT id FROM printers WHERE tenant_id = $1", [f.tenantId]);
+    expect(printers.rows).toEqual([{ id: f.printerId }]);
+    const unprovisioned = await pool().query("SELECT candidate_status FROM discovered_devices WHERE id = $1", ["spooler-new-at-cap"]);
+    expect(unprovisioned.rows[0].candidate_status).toBe("verified");
+  });
+
   it("refuses to provision an LPR-only candidate as raw (LAW: no heuristic protocol inference)", async () => {
 
     // An LPR probe only proves TCP 515 accepts connections. The LPD daemon

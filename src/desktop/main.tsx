@@ -645,7 +645,8 @@ export default function App() {
         const status = (e as { status?: unknown } | null)?.status;
         const code = (e as { code?: unknown } | null)?.code;
         setMsg({
-          text: code === "PRINTER_NOT_SHARED" ? t("printer.presentation.notSharedReason") : status === 401 ? t("diagnostic.authRequired") :
+          text: code === "CAPABILITY_MISMATCH" ? t("errors.capabilityMismatch") :
+                code === "PRINTER_NOT_SHARED" ? t("printer.presentation.notSharedReason") : status === 401 ? t("diagnostic.authRequired") :
                 status === 403 ? t("diagnostic.permissionDenied") :
                 status === 429 ? friendlyPrinterError(errMsg(e), locale) :
                 t("diagnostic.admissionUnknown"),

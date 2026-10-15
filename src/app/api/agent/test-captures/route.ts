@@ -45,6 +45,9 @@ export async function GET(req: Request) {
     const claimToken = randomBytes(32).toString("hex");
     const claimHash = createHash("sha256").update(claimToken).digest("hex");
     const row = await db.transaction(async (tx) => {
+      const tenant = await tx.execute(sql`SELECT id FROM tenants
+        WHERE id=${agent.tenantId} AND lifecycle='active' FOR SHARE`);
+      if (tenant.rows.length !== 1) return null;
       // Serialize per Agent and re-check both lifecycles under the same lock.
       const live = await tx.execute(sql`
         SELECT a.id FROM agents a JOIN tenants t ON t.id=a.tenant_id
@@ -54,6 +57,13 @@ export async function GET(req: Request) {
         FOR UPDATE OF a
       `);
       if (live.rows.length !== 1) return null;
+      // Key deletion cascades captures: lock keys before expiring any rows.
+      await tx.execute(sql`SELECT k.id FROM api_keys k
+        WHERE k.tenant_id=${agent.tenantId} AND EXISTS (
+          SELECT 1 FROM e2e_capture_runs c
+          WHERE c.api_key_id=k.id AND c.tenant_id=${agent.tenantId}
+            AND c.agent_id=${agent.id}
+        ) ORDER BY k.id FOR UPDATE`);
       await tx.execute(sql`UPDATE e2e_capture_runs SET
         status='expired', payload_json=NULL, claim_token_hash=NULL,
         error_code='CAPTURE_TIMED_OUT', finished_at=now(), updated_at=now()
@@ -87,7 +97,7 @@ export async function GET(req: Request) {
             AND (c.status='queued' OR
               (c.status='claimed' AND c.claimed_at < now() - interval '75 seconds'))
           ORDER BY c.created_at, c.id
-          FOR UPDATE SKIP LOCKED LIMIT 1
+          FOR UPDATE OF k SKIP LOCKED LIMIT 1
         )
         RETURNING id, payload_json, paper_mm
       `);
@@ -117,7 +127,15 @@ export async function PATCH(req: Request) {
   const body = parsed.data;
   const hash = createHash("sha256").update(body.claimToken).digest("hex");
   try {
-    const accepted = await db.execute(sql`
+    const accepted = await db.transaction(async (tx) => {
+      const tenant = await tx.execute(sql`SELECT id FROM tenants
+        WHERE id=${agent.tenantId} AND lifecycle='active' FOR SHARE`);
+      if (tenant.rows.length !== 1) return { rows: [] };
+      const runtime = await tx.execute(sql`SELECT id FROM agents
+        WHERE id=${agent.id} AND tenant_id=${agent.tenantId}
+          AND lifecycle='active' FOR SHARE`);
+      if (runtime.rows.length !== 1) return { rows: [] };
+      return tx.execute(sql`
       UPDATE e2e_capture_runs c SET
         status=${body.status}, payload_json=NULL, claim_token_hash=NULL,
         pages=${body.status === "rendered_locally" ? body.pages ?? null : null},
@@ -134,7 +152,8 @@ export async function PATCH(req: Request) {
           WHERE a.id=c.agent_id AND a.tenant_id=c.tenant_id
             AND a.lifecycle='active' AND t.lifecycle='active')
       RETURNING id
-    `);
+      `);
+    });
     if (accepted.rows.length !== 1) {
       return NextResponse.json({ code: "STALE_CLAIM" }, { status: 409, headers: NO_STORE });
     }

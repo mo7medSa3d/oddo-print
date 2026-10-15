@@ -57,17 +57,25 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 		return fmt.Errorf("%w: dial %s: %w", ErrPrinterOffline, p.Address, err)
 	}
 	defer conn.Close()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancellation()
 	log.Printf("print.trace network_connect address=%s latency_ms=%d", p.Address, time.Since(dialStart).Milliseconds())
 
 	// Active preflight on the OPEN connection before normal ESC/POS document
 	// streaming. Test pages deliberately skip this optional status inquiry.
 	if preflight && strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
-		if err := conn.SetDeadline(time.Now().Add(1500 * time.Millisecond)); err != nil {
+		deadline := time.Now().Add(1500 * time.Millisecond)
+		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+			deadline = contextDeadline
+		}
+		if err := conn.SetDeadline(deadline); err != nil {
 			return fmt.Errorf("set printer health deadline: %w", err)
 		}
 		if _, err := QueryHealthStatus(conn); err != nil {
-			var netErr net.Error
-			if errors.Is(err, ErrPrinterStatusUnsupported) || (errors.As(err, &netErr) && netErr.Timeout()) {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, ErrPrinterStatusUnsupported) {
 				log.Printf("printer %s: ESC/POS status channel unavailable (%v); proceeding without health proof", p.Address, err)
 			} else {
 				return fmt.Errorf("pre-flight health check failed: %w", err)
@@ -85,17 +93,6 @@ func (p *NetworkPrinter) printBytes(ctx context.Context, data []byte, preflight 
 		return err
 	}
 
-	// Graceful shutdown: signal EOF after all application bytes have been
-	// accepted by the socket. TCP close semantics provide delivery ordering;
-	// an arbitrary sleep is not a correctness mechanism.
-	// A CloseWrite failure after all bytes were accepted by the kernel does
-	// NOT make the physical outcome unknown — the bytes were already in the
-	// TCP send buffer. Log and treat as success.
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		if err := tcpConn.CloseWrite(); err != nil {
-			log.Printf("print.trace network_closewrite address=%s bytes=%d error=%v (bytes already accepted by kernel)", p.Address, written, err)
-		}
-	}
 	log.Printf("print.trace network_write address=%s bytes=%d latency_ms=%d", p.Address, written, time.Since(writeStart).Milliseconds())
 
 	return nil
@@ -169,6 +166,13 @@ func writePrintPayload(ctx context.Context, conn net.Conn, data []byte, address 
 			return written, fmt.Errorf("short write 0 bytes to %s", address)
 		}
 	}
+	// Complete the same owned TCP stream; buffered writes alone cannot make a
+	// failed EOF handoff a successful submission or justify a safe retry.
+	if writer, ok := conn.(interface{ CloseWrite() error }); ok {
+		if err := writer.CloseWrite(); err != nil {
+			return written, MarkUnknown("TCP half-close to %s failed after %d/%d bytes: %v", address, written, len(data), err)
+		}
+	}
 	return written, nil
 }
 
@@ -200,12 +204,13 @@ func localESCPOSDiagnosticPayload() []byte {
 }
 
 func (p *NetworkPrinter) Test(ctx context.Context) error {
-	if !strings.EqualFold(strings.TrimSpace(p.Protocol), "escpos") {
-		return CapabilityMismatchf("local test pages are only supported for ESC/POS TCP devices (device protocol %q); send a protocol-matched test page from the Gateway console", p.Protocol)
+	payload, err := localByteDiagnosticPayload(strings.ToLower(strings.TrimSpace(p.Protocol)))
+	if err != nil {
+		return err
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testPrintDialTimeout)
 	defer cancel()
-	return p.printBytes(testCtx, localESCPOSDiagnosticPayload(), false, testPrintDialTimeout)
+	return p.printBytes(testCtx, payload, false, testPrintDialTimeout)
 }
 
 // Status differentiates transport reachability from device health:

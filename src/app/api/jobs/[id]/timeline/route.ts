@@ -11,7 +11,6 @@ import { requestIdFrom, logWarn, redactClaimToken } from "../../../../../lib/log
 
 export const dynamic = "force-dynamic";
 
-type JobRow = typeof printJobs.$inferSelect;
 type JobEventRow = typeof jobEvents.$inferSelect;
 type TimelineEntry = {
   id: string;
@@ -46,7 +45,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const correlation = { requestId, tenantId, jobId: id };
 
   return runWithCorrelation(correlation, async () => {
-    const rows = await db.select().from(printJobs).where(and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id))).limit(1);
+    const rows = await db.query.printJobs.findMany({
+      where: and(eq(printJobs.tenantId, tenantId), eq(printJobs.id, id)),
+      columns: { payload: false }, limit: 1,
+    });
     if (rows.length === 0) {
       const receipt = await db.query.printJobReceipts.findFirst({ where: and(eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.id, id)) });
       if (receipt) return NextResponse.json({ jobId: id, tenantId, status: receipt.status, archived: true,
@@ -66,7 +68,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       }, { headers: { "x-request-id": requestId } });
       return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });
     }
-    const job: JobRow = rows[0];
+    const job = rows[0];
 
     let events: JobEventRow[] = [];
     try {

@@ -16,9 +16,19 @@ describe("billing confirmation evidence and localization", () => {
   it("scopes the displayed current plan to a live subscription", () => {
     const page = readFileSync("src/app/billing/page.tsx", "utf8");
     const pricing = readFileSync("src/app/pricing/page.tsx", "utf8");
+    const home = readFileSync("src/app/page.tsx", "utf8");
     expect(page).toContain("const effectivePlan = hasActivePlan ? currentPlan : null");
     expect(page).toContain("effectivePlan?.name");
-    expect(pricing).toContain("trialing");
+    expect(pricing).toContain("isBillingAccessStatus(subscription.status)");
+    expect(home).toContain("const hasPlan = !!planName && hasActiveSubscription");
+    expect(home).toContain('cancelled: "billing.canceled"');
+    expect(home).toContain('requiresBillingAttention ? t("billing.paymentAttention")');
+    for (const source of [page, pricing, home]) {
+      expect(source).toContain("isBillingAccessStatus(");
+      expect(source).toContain("isSubscriptionPeriodLive(");
+      expect(source).toContain(".entitlementBlocked");
+      expect(source).toContain("await refreshClockSkew()");
+    }
   });
 
   it("translates intervals instead of rendering raw enums", () => {
@@ -33,6 +43,7 @@ describe("billing confirmation evidence and localization", () => {
     const billing = readFileSync("src/app/billing/page.tsx", "utf8");
     expect(billing).toContain("billingIntervalLabel(");
     expect(billing).not.toContain("currentPlan?.interval ?? ");
+    expect(readFileSync("src/app/platform/plans/page.tsx", "utf8")).toContain("billingIntervalLabel(plan.interval, t)");
   });
 
   it("describes quotas as finite instead of promising no surprise stops", () => {

@@ -5,6 +5,7 @@ import { apiKeys } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../lib/authorization";
 import { validateOdooKey } from "../../../../lib/odoo-auth";
+import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../../../../lib/tenant-guard";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { isTenantBillingError, requireTenantBillingAccess } from "../../../../lib/entitlements";
 
@@ -81,6 +82,7 @@ export async function PATCH(req: Request) {
 
   try {
     const updated = await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, apiKey.tenantId);
       // Print admission locks api_keys before the subscription row. Follow
       // that SAME order when toggling activation: billing -> api_keys here
       // could otherwise deadlock against print admission's key -> billing.
@@ -190,6 +192,7 @@ export async function PATCH(req: Request) {
       },
     }, { status: 409 });
   } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: error.message, code: error.code }, { status: 403, headers: { "Cache-Control": "no-store" } });
     if (isTenantBillingError(error)) {
       return NextResponse.json(
         { error: error.message, code: error.code },

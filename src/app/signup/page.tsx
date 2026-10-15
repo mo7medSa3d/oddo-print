@@ -32,6 +32,7 @@ export default function Signup() {
           email,
           password,
           planId: new URLSearchParams(window.location.search).get("plan") ?? "",
+          inviteToken: new URLSearchParams(window.location.search).get("invite") ?? "",
         }),
       });
       const data = await response.json().catch(() => ({}));

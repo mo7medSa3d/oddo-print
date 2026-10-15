@@ -105,10 +105,19 @@ export async function POST(req: Request) {
       const targetAgentPredicate = targetAgentId
         ? sql`AND id = ${targetAgentId}`
         : sql``;
+      const candidate = await tx.execute(sql`SELECT id FROM tenants WHERE id = (
+        SELECT tenant_id FROM agents
+        WHERE pairing_code_hash = ${hashedCode} AND lifecycle = 'active'
+          AND pairing_code_expires_at > clock_timestamp() ${targetAgentPredicate}
+      ) FOR SHARE`);
+      const tenantId = (candidate.rows[0] as { id?: string } | undefined)?.id;
+      if (!tenantId) return { kind: "not_found" as const };
+      await requireActiveTenantInTransaction(tx, tenantId);
       const agentResult = await tx.execute(sql`
         SELECT id, tenant_id AS "tenantId", metadata
         FROM agents
         WHERE pairing_code_hash = ${hashedCode}
+          AND tenant_id = ${tenantId}
           AND pairing_code_hash IS NOT NULL
           AND pairing_code_expires_at > clock_timestamp()
           AND lifecycle = 'active'
@@ -124,10 +133,6 @@ export async function POST(req: Request) {
       if (!agent) {
         return { kind: "not_found" as const };
       }
-
-      // The agent row is already locked. Fence tenant lifecycle before
-      // consuming the one-time pairing code or minting a new secret.
-      await requireActiveTenantInTransaction(tx, agent.tenantId);
 
       // Pairing grants a fresh runtime credential, so subscription entitlement
       // must be checked at the same database boundary as consuming the

@@ -15,6 +15,7 @@ const execute = async (query: any) => {
     return { rows: [] };
   }
   if (/SELECT id FROM refresh_tokens/i.test(compiled.sql)) return { rows: state.sessions.filter(row => !row.revokedAt) };
+  if (/FROM tenants/i.test(compiled.sql)) return { rows: [{ id: "tenant_repro", lifecycle: "active" }] };
   if (/FROM users/i.test(compiled.sql)) return { rows: [{ ...state.user }] };
   return clock();
 };

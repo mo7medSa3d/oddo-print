@@ -172,7 +172,7 @@ export function BillingActions({
             </Button>
           )}
 
-          {hasSubscription && (cancelAtPeriodEnd || subscriptionStatus === "paused") && (
+          {((hasSubscription && cancelAtPeriodEnd) || (canOpenPortal && subscriptionStatus === "paused")) && (
             <Button
               variant="primary"
               disabled={busy !== ""}

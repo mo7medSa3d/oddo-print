@@ -88,6 +88,13 @@ export function PlatformSidebar({
   const panelRef = useRef<HTMLDivElement>(null);
   useDialog(mobileOpen, () => setMobileOpen(false), panelRef);
 
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setMobileOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
+
   // Keep navigation transitions from leaving the prior mobile drawer visible.
   if (renderedPath !== pathname) {
     setRenderedPath(pathname);

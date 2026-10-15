@@ -63,12 +63,12 @@ export async function deleteAgent(id: string) {
   const agentId = id.trim();
 
   await db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     // Same admission lock order as enqueue: tenant, Agent, then resource rows.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agentId}`}))`);
     const locked = await tx.execute(sql`SELECT id FROM agents WHERE id = ${agentId} AND tenant_id = ${manager.tenantId} FOR UPDATE`);
     if (!locked.rows[0]) throw new ActionError(t("errors.agentNotFound"), 404);
-    await requireActiveTenantInTransaction(tx, manager.tenantId);
     await requireManagerActorInTransaction(tx, manager, "agents.retire");
     const agentPrinters = await tx.select({ id: printers.id }).from(printers)
       .where(and(eq(printers.agentId, agentId), eq(printers.tenantId, manager.tenantId))).for("update");
@@ -89,7 +89,7 @@ export async function deleteAgent(id: string) {
         const jobs = await tx.select().from(printJobs).where(and(eq(printJobs.tenantId, manager.tenantId), inArray(printJobs.id, batchIds))).for("update");
         for (const row of jobs) {
           const terminal = isTerminal(row.status as JobStatus);
-          const uncertain = row.status === "printing" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;
+          const uncertain = row.status === "printing" || row.error === "DELIVERY_EVIDENCE_PENDING" || !!row.deliveredAt || !!row.ackedAt || !!row.spoolerJobId || !!row.attemptId;
           await tx.insert(printJobReceipts).values({
             id: row.id, tenantId: row.tenantId, idempotencyKey: row.idempotencyKey,
             fingerprint: idempotencyDigest({ printerId: row.printerId, documentType: row.documentType, destination: row.destination, payload: row.payload }),
@@ -193,6 +193,7 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
   requireManagerPermission(manager, "printers.manage");
 
   await db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${manager.tenantId} || ':' || ${id}))`);
 
     // Use the same lock ordering as agent heartbeats: agent row first,
@@ -223,10 +224,6 @@ export async function setPrinterLifecycle(id: string, lifecycle: "active" | "dis
       }
     }
 
-    // Tenant lifecycle write fence — the same linearization point the HTTP
-    // twin (api/printers/[id]) applies at the equivalent point: after the
-    // optional owner-agent lock, before the printer row is locked/updated.
-    await requireActiveTenantInTransaction(tx, manager.tenantId);
     await requireManagerActorInTransaction(tx, manager, "printers.manage");
 
     const locked = await tx.execute(sql`
@@ -301,6 +298,12 @@ export async function getDashboardState(options: DashboardFleetOptions = {}) {
   requireManagerPermission(manager, "printers.read");
   requireManagerPermission(manager, "jobs.read");
 
+  if (!options || typeof options !== "object" || Array.isArray(options)
+      || (options.printerSearch !== undefined && typeof options.printerSearch !== "string")
+      || (options.printerStatus !== undefined && typeof options.printerStatus !== "string")) {
+    throw new ActionError(t("errors.requestRejected"), 400, "INVALID_REQUEST");
+  }
+
   for (const offset of [options.agentOffset, options.printerOffset]) {
     if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) {
       throw new ActionError(t("errors.invalidPaginationOffset"), 400);
@@ -335,6 +338,11 @@ export async function getDashboardJobs(options?: {
   const t = makeT(await getServerLocale());
   const manager = await requireManager();
   requireManagerPermission(manager, "jobs.read");
+  if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options)
+      || (options.status !== undefined && typeof options.status !== "string")
+      || (options.search !== undefined && typeof options.search !== "string"))) {
+    throw new ActionError(t("errors.requestRejected"), 400, "INVALID_REQUEST");
+  }
   const statusParam = options?.status?.trim().toLowerCase();
   const searchParam = options?.search?.trim();
   const requestedLimit = options?.limit ?? 50;

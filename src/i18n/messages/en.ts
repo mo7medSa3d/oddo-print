@@ -260,7 +260,7 @@ export const en = {
   "auth.verify.verifying": "Verifying your email…",
   "auth.verify.checkEmail": "Check your email",
   "auth.verify.verified": "Email verified",
-  "auth.verify.verifiedBody": "Email verified. Taking you to workspace setup…",
+  "auth.verify.verifiedBody": "Your email is confirmed. Continuing to the next account step…",
   "auth.verify.failed": "Verification failed",
   "auth.verify.missingLink": "This verification link is missing or invalid.",
   "auth.verify.linkUnusable": "This link can’t be used",
@@ -294,6 +294,10 @@ export const en = {
   "auth.reset.linkMissing": "This password-reset link is missing or invalid. Request a new one from the sign-in page.",
   "auth.reset.success": "Password updated. Taking you to sign in…",
   "auth.reset.backToSignIn": "Back to sign in",
+
+  "auth.setup.title": "Set your account password",
+  "auth.setup.description": "Your email is verified. Choose a password now to secure your account before signing in.",
+  "auth.setup.submit": "Save account password",
 
   // ── Onboarding ───────────────────────────────────────────────────────────
   "onboarding.title": "Set up your workspace",
@@ -2433,10 +2437,10 @@ export const en = {
   "desktop.settings.languageBody": "Changes the app language and direction.",
   "desktop.settings.languageAria": "Select interface language",
   "mail.verify.subject": "Verify your Yaseir account",
-  "mail.verify.body": "Verify your Yaseir account.",
+  "mail.verify.body": "Confirm your email, then choose a password to secure your Yaseir account.",
   "mail.verify.cta": "Verify email",
   "mail.verify.expires": "This link expires in 30 minutes.",
-  "mail.verify.text": "Verify your Yaseir account: {url}\nThis link expires in 30 minutes.",
+  "mail.verify.text": "Confirm your email and choose your Yaseir account password: {url}\nThis link expires in 30 minutes.",
   "mail.reset.subject": "Reset your Yaseir password",
   "mail.reset.cta": "Reset password",
   "mail.reset.text": "Reset your password: {url}",

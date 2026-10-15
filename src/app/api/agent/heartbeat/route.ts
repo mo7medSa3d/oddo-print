@@ -267,6 +267,7 @@ export async function POST(req: Request) {
     const tokened = pairs.filter((p): p is { jobId: string; claimToken: string } => p.claimToken !== null);
 
     const result = await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, agent.tenantId);
       // Printer admission and inventory snapshots share the same tenant lock as
       // explicit printer registration. Lock it BEFORE the Agent row to keep the
       // lock order consistent and prevent count/insert races or deadlocks.
@@ -308,8 +309,6 @@ export async function POST(req: Request) {
           return { kind: "inventory_conflict" as const, expectedPage, minimumSnapshotVersion: retainedVersion };
         }
       }
-
-      await requireActiveTenantInTransaction(tx, agent.tenantId);
 
       await tx.update(agents)
         .set({ status, lastSeenAt: sql`now()` })

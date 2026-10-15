@@ -3,7 +3,6 @@ package printer
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -42,10 +41,8 @@ func containsIPPFormat(formats []string, target string) bool {
 }
 
 // printPDFWithFormatNegotiation probes the specific IPP destination before
-// submitting a single document. A PDF-rejecting but JPEG-capable printer can
-// print a ONE-page PDF by rendering to JPEG locally; unsupported PWG/URF
-// raster devices require a dedicated raster encoder or installed Windows
-// driver and must never receive unconverted bytes under a false MIME type.
+// submitting one document, converting to advertised PWG Raster or single-page
+// JPEG when needed. Unsupported formats never receive disguised PDF bytes.
 func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -69,20 +66,16 @@ func (p *IPPPrinter) printPDFWithFormatNegotiation(ctx context.Context, data []b
 		if preDispatchIRErr(probeErr) {
 			return fmt.Errorf("IPP printer %s unreachable (request not sent): capability probe could not connect; verify the IPP address, TCP port and protocol from the Windows Agent: %w", p.URL, probeErr)
 		}
-		// Legacy IPP servers can implement Print-Job but reject the probe.
-		// An unknown capability list is not proof that PDF is unsupported.
-		// Attempt native PDF, report any explicit 0x040A rejection clearly.
-		log.Printf("IPP document-format probe unavailable for %s: %v; trying native PDF", p.URL, probeErr)
-		return p.printDocument(ctx, data, ippFormatPDF)
+		return fmt.Errorf("IPP printer %s could not verify document-format-supported before submission; verify the IPP address, authentication and Get-Printer-Attributes support, or configure the installed Windows spooler driver: %w", p.URL, probeErr)
 	}
 	if strings.EqualFold(attrs["printer-is-accepting-jobs"], "false") {
 		return fmt.Errorf("IPP printer %s is rejecting new jobs; resume the printer before attempting submission", p.URL)
 	}
 	formats := parseIPPSupportedFormats(attrs)
-	// An absent format attribute is ambiguous on legacy printers; a PRESENT
-	// attribute with unfamiliar MIME names is explicit evidence that none of
-	// our formats match and must never silently restore a PDF fallback.
-	if strings.TrimSpace(attrs["document-format-supported"]) == "" || containsIPPFormat(formats, ippFormatPDF) {
+	if strings.TrimSpace(attrs["document-format-supported"]) == "" {
+		return fmt.Errorf("IPP printer %s did not advertise document-format-supported; no document was submitted. Verify the IPP endpoint and printer capabilities, or configure the installed Windows spooler driver", p.URL)
+	}
+	if containsIPPFormat(formats, ippFormatPDF) {
 		return p.printDocument(ctx, data, ippFormatPDF)
 	}
 	if containsIPPFormat(formats, "image/pwg-raster") {

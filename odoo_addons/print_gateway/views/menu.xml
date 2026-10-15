@@ -3,7 +3,7 @@
     <menuitem id="menu_print_gateway_main"
               name="Yaseir Print Gateway"
               sequence="90"
-              action="action_print_gateway_config"
+              action="action_print_gateway_jobs"
               web_icon="print_gateway,static/description/icon.png"
               groups="base.group_user"/>
     <menuitem id="menu_print_gateway_config"

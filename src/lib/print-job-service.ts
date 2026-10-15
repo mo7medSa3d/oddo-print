@@ -134,6 +134,10 @@ async function insertQueuedJobAtomically({
   if (!tenantId || tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
   return await db.transaction(async (tx) => {
+    const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE`);
+    if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
+      throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
+    }
     // PostgreSQL is the authoritative clock for print-job lifetime.
     const clockResult = await tx.execute(sql`SELECT clock_timestamp() AS now`);
     const clockRows = (clockResult as unknown as { rows?: Array<{ now?: Date | string }> }).rows ?? [];
@@ -164,7 +168,7 @@ async function insertQueuedJobAtomically({
     if (managerAuthority) {
       // Identity reuse can disclose a job ID and requestedBy even without a
       // new insert. Fence the live principal BEFORE all idempotency/reprint
-      // reuse paths. Preserve Agent -> Tenant -> Actor -> session lock order.
+      // reuse paths. Preserve Tenant -> Agent -> Actor -> session lock order.
       if (managerAuthority.claims.tenantId !== tenantId) {
         throw new PrintJobInputError("Workspace session does not own this job", "MANAGER_TENANT_MISMATCH", 403);
       }
@@ -172,12 +176,6 @@ async function insertQueuedJobAtomically({
         SELECT id FROM agents WHERE id = ${agentId} AND tenant_id = ${tenantId} FOR UPDATE
       `);
       if (!guardedAgent.rows.length) throw new PrintJobInputError("Agent no longer exists", "AGENT_NOT_FOUND", 404);
-      const guardedTenant = await tx.execute(sql`
-        SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR UPDATE
-      `);
-      if ((guardedTenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
-        throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
-      }
       try {
         await requireManagerActorInTransaction(tx, managerAuthority.claims, managerAuthority.permission);
       } catch (error) {
@@ -193,22 +191,14 @@ async function insertQueuedJobAtomically({
     // this transaction BEFORE any idempotency receipt/job lookup can return
     // an identifier. The revocation/rotation paths lock the same api_keys
     // row, so a key revoked after HTTP authentication cannot obtain an
-    // apparently accepted operation by racing this check. Locking the key
-    // before runtime tenant rows also matches rotation's key -> tenant order.
+    // apparently accepted operation by racing this check. The tenant fence
+    // above precedes key/advisory locks, matching rotation and revocation.
     if (rateLimitKeyId) {
       const credential = await tx.execute(sql`SELECT id FROM api_keys
         WHERE id = ${rateLimitKeyId} AND tenant_id = ${tenantId}
           AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
         FOR UPDATE`);
       if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
-      // A tenant may be suspended after the initial HTTP authentication.
-      // Receipts are also observable operation identities, so check tenant
-      // lifecycle before returning a historical receipt or active job.
-      const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants
-        WHERE id = ${tenantId} FOR SHARE`);
-      if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
-        throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
-      }
     }
 
     // Reprint coordination happens only after the tenant enqueue lock is
@@ -333,8 +323,8 @@ async function insertQueuedJobAtomically({
     // claimed. Lock order (agent -> printer) matches the manager printer PATCH
     // path's row-lock order to avoid an enqueue-vs-reconfigure deadlock.
     //
-    // NOTE: The tenants table is also joined here (not in the original query)
-    // and its row is locked with the Agent and Printer. This closes the TOCTOU
+    // NOTE: The tenant row is already fenced before advisory/resource locks.
+    // Keep its current lifecycle in this owner query as well to close the TOCTOU
     // window against a concurrent tenant suspend/delete: the lifecycle read and
     // the INSERT are now linearized with the authoritative tenant transition.
     // The poll-claim path already guards on t.lifecycle; this makes enqueue
@@ -370,7 +360,7 @@ async function insertQueuedJobAtomically({
         AND a.tenant_id = ${tenantId}
         AND p.id = ${printerId}
         AND p.tenant_id = ${tenantId}
-      FOR UPDATE OF a, p, te
+      FOR UPDATE OF a, p
     `);
     const owner = runtimeOwner.rows[0] as {
       printer_name?: string;
@@ -551,16 +541,16 @@ async function recoverReceiptForMissingOwner(
   if (tenantId.length > 128) throw new PrintJobInputError("tenantId is invalid", "INVALID_TENANT", 400);
 
   return db.transaction(async (tx) => {
+    const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE`);
+    if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
+      throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
+    }
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${tenantId}`}))`);
     const credential = await tx.execute(sql`SELECT id FROM api_keys
       WHERE id = ${apiKeyId} AND tenant_id = ${tenantId}
         AND revoked_at IS NULL AND read_only_until IS NULL AND odoo_enabled = TRUE
       FOR UPDATE`);
     if (!credential.rows.length) throw new PrintJobInputError("Integration credential is no longer active", "UNAUTHORIZED", 401);
-    const tenant = await tx.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE`);
-    if ((tenant.rows[0] as { lifecycle?: string } | undefined)?.lifecycle !== "active") {
-      throw new PrintJobInputError("Workspace is no longer active", "TENANT_UNAVAILABLE", 403);
-    }
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:idempotency:${tenantId}:${idempotencyKey}`}))`);
     const receipt = await tx.query.printJobReceipts.findFirst({ where: and(
       eq(printJobReceipts.tenantId, tenantId), eq(printJobReceipts.idempotencyKey, idempotencyKey),

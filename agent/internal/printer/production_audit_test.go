@@ -3,6 +3,7 @@ package printer
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"net/http"
@@ -26,8 +27,12 @@ func TestIPPAuthenticatedStatusAndAdmission(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
+			w.Header().Set("Content-Type", "application/ipp")
 			var buf bytes.Buffer
-			buf.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+			buf.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 1})
+			writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
+			writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
+			buf.WriteByte(4)
 			writeIPPIntAttr(&buf, 0x23, "printer-state", tc.state)
 			writeIPPBoolAttr(&buf, "printer-is-accepting-jobs", tc.accepting)
 			buf.WriteByte(3)
@@ -51,7 +56,15 @@ func TestIPPIncompleteSuccessRemainsUnknown(t *testing.T) {
 		{2, 0, 0, 0, 0, 0, 0, 2, 3},  // wrong request ID
 		{99, 0, 0, 0, 0, 0, 0, 1, 3}, // invalid protocol version
 	} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(response) }))
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/ipp")
+			body := readAll(r.Body)
+			if len(body) >= 4 && binary.BigEndian.Uint16(body[2:4]) == 0x000b {
+				_, _ = w.Write(ippEvidenceTestProbe())
+				return
+			}
+			_, _ = w.Write(response)
+		}))
 		p, _ := NewIPPPrinter(server.URL, "truncated")
 		err := p.PrintDocument(context.Background(), Document{Kind: KindPDF, Data: validTestPDFBytes()})
 		if err == nil || !OutcomeUnknown(err) {

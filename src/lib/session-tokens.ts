@@ -3,6 +3,7 @@ import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { requiredRuntimeSecret } from "./runtime-secret";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
 import { sessionCookieSecure } from "./session-config";
 import { sendTransactionalEmail } from "./email";
 import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
@@ -300,6 +301,9 @@ async function insertInitialPair(
   context?: SessionRequestContext,
 ): Promise<SessionPair> {
   validatePrincipal(principal);
+  if (principal.kind !== "platform") {
+    await requireActiveTenantInTransaction(tx, principal.tenantId!);
+  }
   if (principal.credentialVersion) {
     if (!principal.userId) throw new AuthenticationChangedError();
     await assertSessionCredentialInTransaction(tx, principal.userId, principal.credentialVersion);
@@ -577,7 +581,7 @@ export async function rotateRefreshToken(
 
   const outcome = await db.transaction(async (tx) => {
     const result = await tx.execute(sql`
-      SELECT id, family_id AS "familyId", user_id AS "userId", kind
+      SELECT id, family_id AS "familyId", user_id AS "userId", tenant_id AS "tenantId", kind
       FROM refresh_tokens
       WHERE token_hash = ${tokenHash}
     `);
@@ -586,10 +590,26 @@ export async function rotateRefreshToken(
       id: string;
       familyId: string;
       userId: string | null;
+      tenantId: string | null;
       kind: SessionKind;
     } | undefined;
 
     if (!initial || initial.kind !== kind) return { status: "invalid" as const };
+
+    // Tenant -> principal -> family -> token matches lifecycle writers.
+    // Hold the shared lifecycle fence through insertion so suspension cannot
+    // revoke an older snapshot and miss this newly rotated token.
+    if (kind !== "platform") {
+      if (!initial.tenantId) return { status: "invalid" as const };
+      try {
+        await requireActiveTenantInTransaction(tx, initial.tenantId);
+      } catch (error) {
+        if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
+          return { status: "invalid" as const };
+        }
+        throw error;
+      }
+    }
 
     // Principal -> family -> token order matches reset and membership revocation.
     if (initial.userId) await tx.execute(sql`SELECT id FROM users WHERE id = ${initial.userId} FOR UPDATE`);

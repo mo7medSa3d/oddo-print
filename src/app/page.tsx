@@ -30,6 +30,8 @@ import {
   verifyWorkspaceTokenFromCookieValues,
 } from "../lib/manager-auth";
 import { hasManagerPermission } from "../lib/authorization";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../lib/entitlements";
+import { refreshClockSkew } from "../lib/database-clock";
 import { Button, StatusBadge, type Tone } from "../components/ui";
 import { getServerLocale, makeT } from "../i18n/server";
 import type { MessageKey } from "../i18n/messages/en";
@@ -57,7 +59,7 @@ export default async function Home() {
       }),
       db.query.tenantSubscriptions.findFirst({
         where: eq(tenantSubscriptions.tenantId, claims.tenantId),
-        columns: { planId: true, status: true, currentPeriodEnd: true },
+        columns: { planId: true, status: true, currentPeriodEnd: true, entitlementBlocked: true },
       }),
     ]);
 
@@ -68,6 +70,13 @@ export default async function Home() {
         })
       : null;
 
+    await refreshClockSkew();
+    const hasActiveSubscription = !!subscription && !subscription.entitlementBlocked
+      && isBillingAccessStatus(subscription.status)
+      && (subscription.status === "past_due" || isSubscriptionPeriodLive(subscription.currentPeriodEnd));
+    const requiresBillingAttention = !!subscription && (subscription.entitlementBlocked
+      || (isBillingAccessStatus(subscription.status) && !hasActiveSubscription));
+
     return (
       <AuthenticatedHome
         t={t}
@@ -77,6 +86,8 @@ export default async function Home() {
         planName={plan?.name ?? null}
         subscriptionStatus={subscription?.status ?? null}
         periodEnd={subscription?.currentPeriodEnd ?? null}
+        hasActiveSubscription={hasActiveSubscription}
+        requiresBillingAttention={requiresBillingAttention}
         canBilling={hasManagerPermission(claims, "billing.read")}
         canTeam={hasManagerPermission(claims, "users.read")}
       />
@@ -234,7 +245,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                 title={t("home.reliabilityTitle")}
                 text={t("home.reliabilityText")}
               />
-              <dl className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <ReliabilityCell
                   title={t("home.reliability1Title")}
                   text={t("home.reliability1Text")}
@@ -251,7 +262,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                   title={t("home.reliability4Title")}
                   text={t("home.reliability4Text")}
                 />
-              </dl>
+              </div>
             </div>
           </div>
         </section>
@@ -568,6 +579,8 @@ function AuthenticatedHome({
   planName,
   subscriptionStatus,
   periodEnd,
+  hasActiveSubscription,
+  requiresBillingAttention,
   canBilling,
   canTeam,
 }: {
@@ -578,19 +591,23 @@ function AuthenticatedHome({
   planName: string | null;
   subscriptionStatus: string | null;
   periodEnd: Date | null;
+  hasActiveSubscription: boolean;
+  requiresBillingAttention: boolean;
   canBilling: boolean;
   canTeam: boolean;
 }) {
-  const hasPlan = !!planName && !!subscriptionStatus && subscriptionStatus !== "cancelled";
-  const statusTone: Tone = !subscriptionStatus
-    ? "neutral"
-    : subscriptionStatus === "active"
-      ? "ok"
-      : subscriptionStatus === "trialing"
-        ? "brand"
-        : subscriptionStatus === "past_due" || subscriptionStatus === "paused"
-          ? "warn"
-          : "bad";
+  const hasPlan = !!planName && hasActiveSubscription;
+  const statusTone: Tone = requiresBillingAttention
+    ? "warn"
+    : !subscriptionStatus
+      ? "neutral"
+      : subscriptionStatus === "active"
+        ? "ok"
+        : subscriptionStatus === "trialing"
+          ? "brand"
+          : subscriptionStatus === "past_due" || subscriptionStatus === "paused"
+            ? "warn"
+            : "bad";
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-6 py-9 sm:px-8">
@@ -625,7 +642,8 @@ function AuthenticatedHome({
             <dd className="mt-1.5">
               <StatusBadge
                 tone={statusTone}
-                label={subscriptionStatus ? formatStatus(subscriptionStatus, t) : t("billing.notConfigured")}
+                label={requiresBillingAttention ? t("billing.paymentAttention")
+                  : subscriptionStatus ? formatStatus(subscriptionStatus, t) : t("billing.notConfigured")}
               />
             </dd>
           </div>
@@ -725,7 +743,7 @@ function formatStatus(status: string, t: Translator) {
     paused: "billing.paused",
     incomplete: "billing.paymentRequired",
     incomplete_expired: "billing.checkoutExpired",
-    canceled: "billing.canceled",
+    cancelled: "billing.canceled",
   };
   if (known[status]) return t(known[status]);
   return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());

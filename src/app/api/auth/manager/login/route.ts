@@ -11,6 +11,7 @@ import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { logWarn, logInfo, logError, requestIdFrom } from "../../../../../lib/log";
 import { writeAuditEvent } from "../../../../../lib/audit";
 import { runtimeSecret } from "../../../../../lib/runtime-secret";
+import { TenantDeletedError, TenantSuspendedError } from "../../../../../lib/tenant-guard";
 
 const INVALID = "Invalid credentials";
 
@@ -105,6 +106,7 @@ export async function POST(req: Request) {
       },
     );
   } catch (e) {
+    if (e instanceof TenantSuspendedError || e instanceof TenantDeletedError) return setRateLimitHeaders(NextResponse.json({ error: "Workspace is unavailable", code: e.code }, { status: 403 }), pre);
     if (e instanceof AuthenticationChangedError) return setRateLimitHeaders(NextResponse.json({ error: INVALID }, { status: 401 }), pre);
     logError("auth.login.session_failed", { requestId, error: e instanceof Error ? e.message : "unknown" });
     return setRateLimitHeaders(NextResponse.json({ error: "Sign-in is temporarily unavailable. Try again in a moment." }, { status: 500 }), pre);

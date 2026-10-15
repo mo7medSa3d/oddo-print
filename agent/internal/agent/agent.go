@@ -2705,13 +2705,13 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 		cfgMap["address"] = spoolerName
 		// Include underlying USB info if spooler is USB-backed
 		if pc.USBVID != "" {
-			if vid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBVID, "0x"), "0X"), 16, 16); err == nil {
+			if vid, err := config.ParseUSBID(pc.USBVID); err == nil {
 				cfgMap["vid"] = int(vid)
 			}
 			cfgMap["usb_vid"] = pc.USBVID
 		}
 		if pc.USBPID != "" {
-			if pid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBPID, "0x"), "0X"), 16, 16); err == nil {
+			if pid, err := config.ParseUSBID(pc.USBPID); err == nil {
 				cfgMap["pid"] = int(pid)
 			}
 			cfgMap["usb_pid"] = pc.USBPID
@@ -2721,18 +2721,18 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 			cfgMap["usb_serial"] = pc.USBSerial
 		}
 	case "usb":
-		cfgMap["address"] = pc.Endpoint
+		cfgMap["address"] = strings.TrimSpace(pc.Endpoint)
 		if pc.SpoolerName != "" {
 			cfgMap["spooler_name"] = pc.SpoolerName
 		}
 		if pc.USBVID != "" {
-			if vid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBVID, "0x"), "0X"), 16, 16); err == nil {
+			if vid, err := config.ParseUSBID(pc.USBVID); err == nil {
 				cfgMap["vid"] = int(vid)
 			}
 			cfgMap["usb_vid"] = pc.USBVID
 		}
 		if pc.USBPID != "" {
-			if pid, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(pc.USBPID, "0x"), "0X"), 16, 16); err == nil {
+			if pid, err := config.ParseUSBID(pc.USBPID); err == nil {
 				cfgMap["pid"] = int(pid)
 			}
 			cfgMap["usb_pid"] = pc.USBPID
@@ -2779,7 +2779,7 @@ func endpointToConfig(pc config.PrinterConfig) map[string]interface{} {
 	if pc.Capabilities != nil {
 		for k, v := range pc.Capabilities {
 			switch k {
-			case "protocol", "address", "ip", "port", "printer_type", "_raw":
+			case "protocol", "address", "ip", "port", "spooler_name", "vid", "pid", "serial", "usb_vid", "usb_pid", "usb_serial", "ipp_url", "host", "printer_type", "_raw":
 				continue
 			}
 			cfgMap[k] = v

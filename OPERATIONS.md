@@ -3,6 +3,8 @@
 ## Tenant configuration
 For multi-tenant Manager login, add a verified `tenant_domains` row for each customer hostname. During single-tenant bootstrap, `MANAGER_TENANT_ID` may be used.
 
+`npm run platform:bootstrap` creates the first Platform Owner. Promoting an existing account or replacing its password with `--force` atomically revokes that account's earlier sessions and outstanding password-reset/email-verification links. Sign in again with the bootstrap password; other accounts remain unchanged.
+
 Resolution order for a login request: `Host` header → `tenant_domains`
 (verified rows only) → `MANAGER_TENANT_ID` fallback. When both a matching
 domain row and `MANAGER_TENANT_ID` are set, the domain row wins; `MANAGER_TENANT_ID`

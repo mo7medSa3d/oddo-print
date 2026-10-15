@@ -118,7 +118,7 @@ describe("Resend Email Verification API", () => {
     const req = new Request("http://localhost/api/auth/resend-verification", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "user@example.com" }),
+      body: JSON.stringify({ email: "user@example.com", planId: "selected-plan", inviteToken: "mailbox-invitation-token" }),
     });
     const res = await POST(req);
     expect(res.status).toBe(202);
@@ -130,5 +130,11 @@ describe("Resend Email Verification API", () => {
         subject: "Verify your Yaseir account",
       })
     );
+    const message = sendEmailMock.mock.calls[0][0];
+    const link = new URL(message.html.match(/href="([^"]+)"/)[1]);
+    expect(link.pathname).toBe("/verify-email");
+    expect(link.searchParams.get("plan")).toBe("selected-plan");
+    expect(link.searchParams.get("invite")).toBe("mailbox-invitation-token");
+    expect(link.searchParams.get("token")).toBeTruthy();
   });
 });

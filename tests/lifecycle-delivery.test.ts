@@ -56,12 +56,8 @@ suite("delivery lifecycle enforcement", () => {
   });
 
   it("refuses printing admission for an agent disabled after authentication", async () => {
-    // C023: authentication already passed when the disable lands, so only
-    // the statement-bound lifecycle fence can refuse admission. Hold the job
-    // row lock so the PATCH handler blocks inside its UPDATE; commit the
-    // disable while it waits. Either interleaving must yield 409 with the
-    // claim intact (the disable is committed before the UPDATE executes, or
-    // the UPDATE waits for it).
+    // Hold the authoritative runtime row so authentication can read the old
+    // active state, but admission must wait and observe the committed disable.
     await insertQueuedJob(f, "job_admission_race");
     const claim = await claimJobForDelivery("job_admission_race", f.agentId);
     expect(claim?.claimToken).toBeTruthy();
@@ -69,7 +65,7 @@ suite("delivery lifecycle enforcement", () => {
     const holder = await pool().connect();
     try {
       await holder.query("BEGIN");
-      await holder.query(`SELECT id FROM print_jobs WHERE id = $1 FOR UPDATE`, ["job_admission_race"]);
+      await holder.query(`SELECT id FROM agents WHERE id = $1 FOR UPDATE`, [f.agentId]);
 
       const patching = agentJobsPATCH(
         new Request("http://gateway.test/api/agent/jobs", {
@@ -79,7 +75,7 @@ suite("delivery lifecycle enforcement", () => {
         }),
       );
       await new Promise((resolve) => setTimeout(resolve, 100));
-      await pool().query(`UPDATE agents SET lifecycle = 'disabled' WHERE id = $1`, [f.agentId]);
+      await holder.query(`UPDATE agents SET lifecycle = 'disabled' WHERE id = $1`, [f.agentId]);
       await holder.query("COMMIT");
 
       const res = await patching;
@@ -101,7 +97,7 @@ suite("delivery lifecycle enforcement", () => {
     const holder = await pool().connect();
     try {
       await holder.query("BEGIN");
-      await holder.query(`SELECT id FROM print_jobs WHERE id = $1 FOR UPDATE`, ["job_tenant_race"]);
+      await holder.query(`SELECT id FROM tenants WHERE id = $1 FOR UPDATE`, [f.tenantId]);
 
       const patching = agentJobsPATCH(
         new Request("http://gateway.test/api/agent/jobs", {
@@ -111,7 +107,7 @@ suite("delivery lifecycle enforcement", () => {
         }),
       );
       await new Promise((resolve) => setTimeout(resolve, 100));
-      await pool().query(`UPDATE tenants SET lifecycle = 'suspended' WHERE id = $1`, [f.tenantId]);
+      await holder.query(`UPDATE tenants SET lifecycle = 'suspended' WHERE id = $1`, [f.tenantId]);
       await holder.query("COMMIT");
 
       const res = await patching;

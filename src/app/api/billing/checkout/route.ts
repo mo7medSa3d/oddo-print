@@ -11,6 +11,7 @@ import { isDefinitiveStripeMutationError, stripeList, stripeRequest, stripeRetri
 import { gatewayNowMs, refreshClockSkew, parseDbTimeMs } from "../../../../lib/database-clock";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { logError } from "../../../../lib/log";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 const CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = new Set(["paused", "unpaid", "incomplete"]);
@@ -119,7 +120,9 @@ async function planForStripeSubscription(subscription: Record<string, unknown>) 
   return matches.length === 1 ? matches[0] : null;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: Request) { return handleCheckout(req); }
+
+async function handleCheckout(req: Request, subscriptionVerified = false): Promise<NextResponse> {
   if (hasBodyOverLimit(req, 16 * 1024)) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
@@ -173,7 +176,8 @@ export async function POST(req: Request) {
     | { kind: "plan_conflict"; openPlanId: string }
     | { kind: "recovery_wait"; retryAfterSeconds: number }
     | { kind: "recovery_blocked"; reason: string }
-    | { kind: "reconcile_stale"; priorPlanId: string | null; priorIdempotencyKey: string | null; customerId: string | null; intentCreatedAt: Date | string | null; lastAttemptAt: Date | string | null }
+    | { kind: "verify_subscription"; subscriptionId: string; customerId: string | null; revision: number; idempotencyKey: string | null }
+    | { kind: "reconcile_stale"; priorPlanId: string | null; priorIdempotencyKey: string | null; customerId: string | null; intentCreatedAt: Date | string | null; lastAttemptAt: Date | string | null; revision: number }
     | { kind: "proceed"; intentId: string; idempotencyKey: string; customerId: string | null; requestParams: Record<string, string> };
 
   let state: CheckoutState;
@@ -195,11 +199,8 @@ export async function POST(req: Request) {
       });
 
       if (sub?.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(sub.status)) {
-        // A stale status alone must not block renewal: verify the
-        // subscription is still live (unexpired period, or past_due grace)
-        // and not entitlement-blocked. Expired/blocked rows fall through to
-        // the normal proceed path so a paying tenant is never stranded with
-        // `hasSubscription:false` on status but `already_subscribed` here.
+        // A local access gate does not prove that Stripe ended billing.
+        // Expired/blocked rows need provider verification before replacement.
         const live = await tx.execute(sql`
           SELECT 1 AS ok
           FROM tenant_subscriptions ts
@@ -216,6 +217,12 @@ export async function POST(req: Request) {
         if (live.rows.length > 0) {
           return { kind: "already_subscribed" as const };
         }
+        // Local expiry or a catalog block does not prove that Stripe stopped
+        // billing this subscription. Verify it before opening another one.
+        if (subscriptionVerified) return { kind: "already_subscribed" as const };
+        return { kind: "verify_subscription" as const, subscriptionId: sub.stripeSubscriptionId,
+          customerId: sub.stripeCustomerId, revision: sub.stripeStateRevision,
+          idempotencyKey: sub.checkoutIdempotencyKey };
       }
       if (sub?.billingOperationId) {
         return { kind: "in_progress" as const };
@@ -249,6 +256,7 @@ export async function POST(req: Request) {
           customerId: sub.stripeCustomerId ?? null,
           intentCreatedAt: sub.checkoutIntentCreatedAt ?? null,
           lastAttemptAt: sub.updatedAt ?? null,
+          revision: sub.stripeStateRevision,
         };
       }
 
@@ -406,6 +414,54 @@ export async function POST(req: Request) {
   }
 
 
+  if (state.kind === "verify_subscription") {
+    const stale = state;
+    try {
+      const subscription = await stripeRetrieve(`subscriptions/${encodeURIComponent(stale.subscriptionId)}`);
+      const status = localSubscriptionStatus(subscription.status);
+      const metadata = stripeSubscriptionMetadata(subscription);
+      if (subscription.id !== stale.subscriptionId || !status
+        || (stale.customerId && subscription.customer !== stale.customerId)
+        || (metadata.tenant_id !== undefined && metadata.tenant_id !== claims.tenantId)) {
+        return NextResponse.json({ error: "Stripe subscription identity could not be verified.", code: "CHECKOUT_RECONCILIATION_BLOCKED" }, { status: 409 });
+      }
+      const terminal = status === "cancelled" || status === "incomplete_expired";
+      const applied = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT id FROM tenants WHERE id = ${claims.tenantId} FOR UPDATE`);
+        await requireActiveTenantInTransaction(tx, claims.tenantId);
+        await requireManagerActorInTransaction(tx, claims, "billing.manage");
+        const current = await tx.query.tenantSubscriptions.findFirst({ where: eq(tenantSubscriptions.tenantId, claims.tenantId) });
+        if (!current || current.stripeSubscriptionId !== stale.subscriptionId
+          || current.stripeStateRevision !== stale.revision
+          || current.checkoutIdempotencyKey !== stale.idempotencyKey) return false;
+        if (!terminal) return true;
+        await tx.update(tenantSubscriptions).set({
+          status,
+          ...(current.checkoutStatus === "completed" ? {
+            checkoutStatus: "none" as const, checkoutPlanId: null, checkoutIdempotencyKey: null,
+            checkoutRequestParams: null, checkoutIntentCreatedAt: null,
+            checkoutSessionId: null, checkoutSessionUrl: null, checkoutSessionExpiresAt: null,
+          } : {}),
+          billingOperationId: null, billingOperationType: null,
+          billingOperationIdempotencyKey: null, billingOperationSubscriptionId: null,
+          stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
+          updatedAt: sql`clock_timestamp()`,
+        }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
+        return true;
+      });
+      if (!applied) return NextResponse.json({ error: "Subscription changed while verifying Stripe state. Retry safely.", code: "CHECKOUT_STATE_CHANGED" }, { status: 409 });
+      if (!terminal) {
+        return NextResponse.json({ error: "This workspace already has a Stripe subscription. Use the Customer Portal to manage it.", code: "SUBSCRIPTION_NEEDS_ATTENTION", status }, { status: 409 });
+      }
+      return handleCheckout(new Request(req.url, { method: "POST", headers: req.headers, body: JSON.stringify(body) }), true);
+    } catch (error) {
+      if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) return NextResponse.json({ error: error.message }, { status: 403 });
+      logError("billing.checkout_subscription_verification_failed", { tenantId: claims.tenantId, error: error instanceof Error ? error.message : "unknown" });
+      return NextResponse.json({ error: "Unable to verify the existing Stripe subscription. Retry safely.", code: "CHECKOUT_RECONCILIATION_BLOCKED" }, { status: 502 });
+    }
+  }
+
+  try {
   if (state.kind === "reconcile_stale") {
     const stale = state;
     let recoveredSubscription: Record<string, unknown> | null = null;
@@ -488,11 +544,17 @@ export async function POST(req: Request) {
             WHERE id = ${claims.tenantId}
             FOR UPDATE
           `);
+          await requireActiveTenantInTransaction(tx, claims.tenantId);
+          await requireManagerActorInTransaction(tx, claims, "billing.manage");
           const current = await tx.query.tenantSubscriptions.findFirst({
             where: eq(tenantSubscriptions.tenantId, claims.tenantId),
           });
           if (!current) return { kind: "recovery_blocked", reason: "Local subscription state disappeared during reconciliation." };
-          if (current.stripeSubscriptionId && current.stripeSubscriptionId !== recoveredSubscriptionId && current.status !== "cancelled") {
+          if (current.checkoutStatus !== "creating" || current.checkoutIdempotencyKey !== stale.priorIdempotencyKey
+            || current.stripeStateRevision !== stale.revision || current.stripeCustomerId !== stale.customerId) {
+            return { kind: "recovery_blocked", reason: "Local billing state changed during reconciliation. Retry safely." };
+          }
+          if (current.stripeSubscriptionId && current.stripeSubscriptionId !== recoveredSubscriptionId && current.status !== "cancelled" && current.status !== "incomplete_expired") {
             return { kind: "recovery_blocked", reason: "A different Stripe subscription is already bound to this workspace." };
           }
 
@@ -515,6 +577,7 @@ export async function POST(req: Request) {
             entitlementBlocked: false,
             entitlementBlockedReason: null,
             stripeStateRevision: sql`${tenantSubscriptions.stripeStateRevision} + 1`,
+            stripeLastEventCreatedAt: current.stripeSubscriptionId !== recoveredSubscriptionId ? null : current.stripeLastEventCreatedAt,
             updatedAt: sql`clock_timestamp()`,
           }).where(eq(tenantSubscriptions.tenantId, claims.tenantId));
 
@@ -538,10 +601,15 @@ export async function POST(req: Request) {
           WHERE id = ${claims.tenantId}
           FOR UPDATE
         `);
+        await requireActiveTenantInTransaction(tx, claims.tenantId);
+        await requireManagerActorInTransaction(tx, claims, "billing.manage");
         const current = await tx.query.tenantSubscriptions.findFirst({
           where: eq(tenantSubscriptions.tenantId, claims.tenantId),
         });
         if (!current) return { kind: "recovery_blocked", reason: "Local subscription state disappeared during reconciliation." };
+        if (current.stripeStateRevision !== stale.revision || current.stripeCustomerId !== stale.customerId) {
+          return { kind: "recovery_blocked", reason: "Local billing state changed during reconciliation. Retry safely." };
+        }
         if (current.stripeSubscriptionId && ACTIVE_SUBSCRIPTION_STATUSES.has(current.status)) {
           return { kind: "already_subscribed" };
         }
@@ -588,6 +656,11 @@ export async function POST(req: Request) {
         };
       });
     }
+  }
+  } catch (error) {
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    logError("billing.checkout_reconciliation_failed", { tenantId: claims.tenantId, error: error instanceof Error ? error.message : "unknown" });
+    return NextResponse.json({ error: "Checkout reconciliation is temporarily unavailable.", code: "CHECKOUT_RECONCILIATION_BLOCKED" }, { status: 502 });
   }
 
   if (state.kind === "already_subscribed") {
@@ -724,6 +797,7 @@ export async function POST(req: Request) {
         FOR UPDATE
       `);
 
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
       await requireManagerActorInTransaction(tx, claims, "billing.manage");
       const touched = await tx.update(tenantSubscriptions)
         .set({ updatedAt: sql`clock_timestamp()` })
@@ -784,6 +858,8 @@ export async function POST(req: Request) {
         WHERE id = ${claims.tenantId}
         FOR UPDATE
       `);
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
+      await requireManagerActorInTransaction(tx, claims, "billing.manage");
       const current = await tx.execute(sql`
         SELECT status,
                checkout_status AS "checkoutStatus",
@@ -860,7 +936,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) return NextResponse.json({ error: error.message }, { status: 403 });
     // Preserve the creating intent for ambiguous/retryable Stripe failures: if
     // Stripe accepted the request but the response or local finalization was
     // lost, the next retry must replay the same idempotency key rather than

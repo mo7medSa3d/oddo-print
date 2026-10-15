@@ -1678,137 +1678,181 @@ class PrintGatewayConfig(models.Model):
     @api.private
     def cron_sync_enabled_state(self):
         """Retry activation replication, including pending old-endpoint shutdowns."""
-        # Include pending migrations even when the CURRENT Gateway API
-        # key has already been cleared. The old encrypted credential is enough
-        # to finish disabling the previous endpoint safely.
+        # Old credentials can finish pending shutdowns after key removal.
+        # Bound each run and move healthy/failed probes to the end via their
+        # persisted write_date, so every configured endpoint gets a turn.
         configs = self.sudo().search([
-            "|",
+            "|", "|", "|", "&",
             ("gateway_url", "!=", False),
+            ("gateway_api_key", "!=", False),
             ("pending_disable_gateway_url", "!=", False),
-        ])
+            ("pending_disable_gateway_api_key", "!=", False),
+            ("pending_disable_revision", ">=", 0),
+        ], limit=50, order="write_date asc, id asc")
+        remaining = len(configs)
+        progress = self.env["ir.cron"]
+        seconds_left = progress._commit_progress(remaining=remaining)
         for config in configs:
-            skipped_same_endpoint_revision = None
-            if (
-                config.pending_disable_gateway_url
-                and config.pending_disable_gateway_api_key
-                and int(config.pending_disable_revision) >= 0
-            ):
-                try:
-                    pending_disable = config._pending_disable_credentials()
-                    if not pending_disable:
+            if not seconds_left:
+                return True
+            yielded = False
+            try:
+                skipped_same_endpoint_revision = None
+                if (
+                    config.pending_disable_gateway_url
+                    or config.pending_disable_gateway_api_key
+                    or int(config.pending_disable_revision) >= 0
+                ):
+                    try:
+                        pending_disable = config._pending_disable_credentials()
+                        if not pending_disable:
+                            continue
+                        old_url, old_api_key, old_revision = pending_disable
+                        current_api_key = None
+                        if config.gateway_api_key:
+                            try:
+                                current_api_key = config._gateway_api_key_plaintext()
+                            except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError):
+                                current_api_key = None
+                        if (
+                            config.gateway_api_key
+                            and current_api_key
+                            and _same_gateway_endpoint(old_url, config.gateway_url)
+                            and _same_credential(old_api_key, current_api_key)
+                        ):
+                            # Same endpoint AND same credential identity: the
+                            # activation PATCH below converges this endpoint and a
+                            # separate disable round-trip is redundant. A replaced
+                            # credential (rotation) must still shut down the old
+                            # key, which is scoped to its own integration row.
+                            skipped_same_endpoint_revision = old_revision
+                            pass
+                        else:
+                            # Credential healing can write this row. Release it
+                            # before the separate-cursor shutdown acknowledgment.
+                            seconds_left = progress._commit_progress(remaining=remaining)
+                            if not seconds_left:
+                                yielded = True
+                                return True
+                            try:
+                                shutdown_ok = config._sync_pending_gateway_disable(
+                                    gateway_url=old_url,
+                                    api_key=old_api_key,
+                                    revision=old_revision,
+                                )
+                            except _OldEndpointUnauthorized as unauth:
+                                _logger.warning(
+                                    "Previous Gateway credential for config %s is already unauthorized; no live key remains to disable: %s",
+                                    config.id,
+                                    unauth,
+                                )
+                                shutdown_ok = True
+                            if not shutdown_ok:
+                                continue
+                            if not config.gateway_api_key:
+                                config._persist_enabled_sync_result(
+                                    self.env.cr.dbname,
+                                    success=True,
+                                    revision=old_revision,
+                                    error=False,
+                                    expected_revision=old_revision,
+                                )
+                                config._complete_gateway_migration(old_revision)
+                                continue
+                    except (ValidationError, requests.RequestException, ValueError) as exc:
+                        # A legacy credential reader may have healed the row
+                        # before failing; independent-cursor errors must not
+                        # wait on this transaction's own settings-row lock.
+                        progress._commit_progress(remaining=remaining)
+                        config._persist_gateway_migration_result(success=False, error=str(exc))
+                        _logger.warning(
+                            "Gateway endpoint shutdown retry failed for config %s: %s",
+                            config.id,
+                            exc,
+                        )
                         continue
-                    old_url, old_api_key, old_revision = pending_disable
-                    current_api_key = None
-                    if config.gateway_api_key:
-                        try:
-                            current_api_key = config._gateway_api_key_plaintext()
-                        except (ValidationError, ValueError, CredentialKeyUnavailable, CredentialDecryptError):
-                            current_api_key = None
-                    if (
-                        config.gateway_api_key
-                        and current_api_key
-                        and _same_gateway_endpoint(old_url, config.gateway_url)
-                        and _same_credential(old_api_key, current_api_key)
-                    ):
-                        # Same endpoint AND same credential identity: the
-                        # activation PATCH below converges this endpoint and a
-                        # separate disable round-trip is redundant. A replaced
-                        # credential (rotation) must still shut down the old
-                        # key, which is scoped to its own integration row.
-                        skipped_same_endpoint_revision = old_revision
-                        pass
-                    else:
-                        try:
-                            shutdown_ok = config._sync_pending_gateway_disable(
-                                gateway_url=old_url,
-                                api_key=old_api_key,
-                                revision=old_revision,
-                            )
-                        except _OldEndpointUnauthorized as unauth:
-                            _logger.warning(
-                                "Previous Gateway credential for config %s is already unauthorized; no live key remains to disable: %s",
-                                config.id,
-                                unauth,
-                            )
-                            shutdown_ok = True
-                        if not shutdown_ok:
-                            continue
-                        if not config.gateway_api_key:
-                            config._complete_gateway_migration(old_revision)
-                            continue
-                except (ValidationError, requests.RequestException, ValueError) as exc:
-                    config._persist_gateway_migration_result(success=False, error=str(exc))
-                    _logger.warning(
-                        "Gateway endpoint shutdown retry failed for config %s: %s",
-                        config.id,
-                        exc,
-                    )
-                    continue
-                except Exception:  # noqa: BLE001 - a crashing config must surface, never hang pending silently
-                    config._persist_gateway_migration_result(
-                        success=False,
-                        error="CRON_ERROR: unexpected shutdown reconciliation failure (see Odoo server log)",
-                    )
-                    _logger.exception(
-                        "Gateway shutdown cron crashed for config %s", config.id
-                    )
-                    continue
+                    except Exception:  # noqa: BLE001 - a crashing config must surface, never hang pending silently
+                        progress._commit_progress(remaining=remaining)
+                        config._persist_gateway_migration_result(
+                            success=False,
+                            error="CRON_ERROR: unexpected shutdown reconciliation failure (see Odoo server log)",
+                        )
+                        _logger.exception(
+                            "Gateway shutdown cron crashed for config %s", config.id
+                        )
+                        continue
 
-            # Probe the current credential only after any pending old-endpoint
-            # shutdown. URL migration therefore keeps its existing old-first
-            # safety ordering while ordinary key revocation is detected here.
-            if config.gateway_url and config.gateway_api_key:
-                if not config._probe_gateway_connection():
-                    continue
+                # Probe the current credential only after any pending old-endpoint
+                # shutdown. URL migration therefore keeps its existing old-first
+                # safety ordering while ordinary key revocation is detected here.
+                if config.gateway_url and config.gateway_api_key:
+                    seconds_left = progress._commit_progress(remaining=remaining)
+                    if not seconds_left:
+                        yielded = True
+                        return True
+                    if not config._probe_gateway_connection():
+                        continue
 
-            if (
-                config.gateway_url
-                and config.gateway_api_key
-                and (
-                    int(config.last_enabled_sync_revision) != int(config.enabled_sync_revision or 0)
-                    or bool(config.last_enabled_sync_error)
-                )
-            ):
-                try:
-                    gateway_url = config._gateway_base(for_request=True)
-                    api_key = config._gateway_api_key_plaintext()
+                if (
+                    config.gateway_url
+                    and config.gateway_api_key
+                    and (
+                        int(config.last_enabled_sync_revision) != int(config.enabled_sync_revision or 0)
+                        or bool(config.last_enabled_sync_error)
+                    )
+                ):
                     revision = int(config.enabled_sync_revision or 0)
-                    if config._sync_enabled_state_to_gateway(
-                        gateway_url,
-                        api_key,
-                        self.env.cr.dbname,
-                        revision,
-                        bool(config.enabled),
-                    ):
-                        if config.pending_disable_gateway_url:
-                            config._complete_gateway_migration(revision)
-                        if skipped_same_endpoint_revision is not None:
-                            config._complete_gateway_migration(skipped_same_endpoint_revision)
-                except (ValidationError, requests.RequestException, ValueError) as exc:
-                    message = str(exc)[:4000]
-                    config._persist_enabled_sync_result(
-                        self.env.cr.dbname,
-                        success=False,
-                        revision=None,
-                        error=message,
-                        expected_revision=revision,
-                    )
-                    _logger.warning(
-                        "Gateway activation reconciliation failed for config %s: %s",
-                        config.id,
-                        exc,
-                    )
-                except Exception:  # noqa: BLE001 - a crashing config must surface as "attention", never spin forever
-                    config._persist_enabled_sync_result(
-                        self.env.cr.dbname,
-                        success=False,
-                        revision=None,
-                        error="CRON_ERROR: unexpected activation reconciliation failure (see Odoo server log)",
-                        expected_revision=revision,
-                    )
-                    _logger.exception(
-                        "Gateway activation cron crashed for config %s", config.id
-                    )
+                    try:
+                        gateway_url = config._gateway_base(for_request=True)
+                        api_key = config._gateway_api_key_plaintext()
+                        seconds_left = progress._commit_progress(remaining=remaining)
+                        if not seconds_left:
+                            yielded = True
+                            return True
+                        if config._sync_enabled_state_to_gateway(
+                            gateway_url,
+                            api_key,
+                            self.env.cr.dbname,
+                            revision,
+                            bool(config.enabled),
+                        ):
+                            if config.pending_disable_gateway_url:
+                                config._complete_gateway_migration(revision)
+                            if skipped_same_endpoint_revision is not None:
+                                config._complete_gateway_migration(skipped_same_endpoint_revision)
+                    except (ValidationError, requests.RequestException, ValueError) as exc:
+                        message = str(exc)[:4000]
+                        progress._commit_progress(remaining=remaining)
+                        config._persist_enabled_sync_result(
+                            self.env.cr.dbname,
+                            success=False,
+                            revision=None,
+                            error=message,
+                            expected_revision=revision,
+                        )
+                        _logger.warning(
+                            "Gateway activation reconciliation failed for config %s: %s",
+                            config.id,
+                            exc,
+                        )
+                    except Exception:  # noqa: BLE001 - a crashing config must surface as "attention", never spin forever
+                        progress._commit_progress(remaining=remaining)
+                        config._persist_enabled_sync_result(
+                            self.env.cr.dbname,
+                            success=False,
+                            revision=None,
+                            error="CRON_ERROR: unexpected activation reconciliation failure (see Odoo server log)",
+                            expected_revision=revision,
+                        )
+                        _logger.exception(
+                            "Gateway activation cron crashed for config %s", config.id
+                        )
+            finally:
+                if not yielded:
+                    remaining -= 1
+                seconds_left = progress._commit_progress(
+                    0 if yielded else 1, remaining=remaining,
+                )
         return True
 
     def action_retry_enabled_sync(self):

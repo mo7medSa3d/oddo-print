@@ -15,6 +15,8 @@ import { getServerLocale, makeT } from "../../i18n/server";
 import type { MessageKey } from "../../i18n/messages/en";
 import { formatNumber as formatNumberFor } from "../../i18n/format";
 import type { Translator } from "../../i18n/translate";
+import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../lib/entitlements";
+import { refreshClockSkew } from "../../lib/database-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +98,9 @@ export default async function Pricing() {
     });
     // Only a live subscription marks a plan current: a cancelled/expired row
     // is history and must not badge its plan as "current" (C055).
-    if (subscription && (subscription.status === "trialing" || subscription.status === "active" || subscription.status === "past_due")) {
+    await refreshClockSkew();
+    if (subscription && !subscription.entitlementBlocked && isBillingAccessStatus(subscription.status)
+      && (subscription.status === "past_due" || isSubscriptionPeriodLive(subscription.currentPeriodEnd))) {
       currentPlanId = subscription.planId;
     }
   }

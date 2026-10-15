@@ -130,8 +130,16 @@ export class RuntimePrinterField extends Component {
             return this.state.printers.filter((p) => {
                 const connectionType = String(p.connectionType || "").trim().toLowerCase();
                 const protocol = String(p.protocol || "").trim().toLowerCase();
-                return connectionType === "spooler" || protocol === "spooler"
-                    || (connectionType === "network" && protocol === "escpos");
+                if (connectionType === "spooler" || connectionType === "windows_spooler"
+                    || (connectionType === "usb" && ["spooler", "windows_spooler"].includes(protocol))) {
+                    return true;
+                }
+                if (connectionType !== "network" || protocol !== "escpos") return false;
+                const capabilities = p.capabilities;
+                if (!capabilities || !Object.prototype.hasOwnProperty.call(capabilities, "supported_protocols")) return true;
+                const supported = capabilities.supported_protocols;
+                return Array.isArray(supported) && supported.some((value) =>
+                    typeof value === "string" && ["image", "jpeg", "escpos"].includes(value.trim().toLowerCase()));
             });
         }
         if (dest === "picking_type" && !this.reportId && !["delivery", "invoice", "order", "purchase_order"].includes(this.documentType)) {

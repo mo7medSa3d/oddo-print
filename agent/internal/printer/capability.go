@@ -87,26 +87,18 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 	capabilityListed := func(names ...string) bool {
 		for _, name := range names {
 			for _, c := range d.SupportedProtocol {
-				if strings.EqualFold(c, name) {
+				if strings.EqualFold(strings.TrimSpace(c), name) {
 					return true
 				}
 			}
 		}
 		return false
 	}
-	transportIs := func(names ...string) bool {
-		for _, name := range names {
-			if family == name {
-				return true
-			}
-		}
-		return false
-	}
-	declared := func(name string, transports ...string) bool {
+	declared := func(name string) bool {
 		if hasCaps {
 			return capabilityListed(name) && physicalByteProtocol(name)
 		}
-		return physicalByteProtocol(name) || transportIs(transports...)
+		return physicalByteProtocol(name)
 	}
 
 	switch pt {
@@ -150,7 +142,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 			}
 			return false, "This printer is configured for Windows document spooling and has not been declared as ESC/POS-capable."
 		}
-		if declared("escpos", "escpos") {
+		if declared("escpos") {
 			return true, ""
 		}
 		return false, "printer does not explicitly support ESC/POS (protocol=" + familyOrUnknown(family) + ")"
@@ -174,7 +166,7 @@ func PayloadCompatibleForDevice(plType, plProtocol string, d TransportFacts) (bo
 			}
 			return false, "This printer is configured for Windows document spooling and has not been declared as " + label + "-capable."
 		}
-		if declared(pp, pp) {
+		if declared(pp) {
 			return true, ""
 		}
 		return false, "printer does not explicitly support " + strings.ToUpper(pp) + " (protocol=" + familyOrUnknown(family) + ")"
@@ -204,6 +196,9 @@ func SupportedProtocolsForDevice(d TransportFacts) []string {
 	}
 	if family == "" || family == "unknown" {
 		family = conn
+	}
+	if (family == "raw" || family == "escpos" || family == "zpl" || family == "tspl") && conn != "network" && conn != "usb" {
+		return []string{}
 	}
 	switch family {
 	case "escpos":

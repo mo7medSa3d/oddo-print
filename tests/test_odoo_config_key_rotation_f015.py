@@ -52,7 +52,7 @@ Config=namespace['Config']
 Config.__iter__=lambda self:iter([self])
 Config.flush_recordset=Config.invalidate_recordset=Config.modified=lambda *args,**kwargs:None
 Config.ensure_one=Config._check_admin=lambda *args:None
-Config.search=lambda self,domain:[self]
+Config.search=lambda self,domain,**kwargs:[self]
 Config._probe_gateway_connection=lambda self:True
 Config.sudo=Config.with_context=lambda self,**_:self
 Config._protected_gateway_api_key=lambda self,key:'enc:'+key
@@ -67,8 +67,16 @@ Config._sync_pending_gateway_disable=lambda self,**kwargs:self.record_disable(kw
 Config._sync_enabled_state_to_gateway=lambda self,*args,**kwargs:self.record_enable(args)
 Config._queue_enabled_state_sync=lambda self,pre:self.queued.append({'revision':self.enabled_sync_revision,'pending':self.pending_disable_gateway_api_key,'url':self.pending_disable_gateway_url,'pending_revision':self.pending_disable_revision})
 
+class Environment(NS):
+    def __getitem__(self, name):
+        if name != 'ir.cron':
+            raise KeyError(name)
+        return self.cron
+
 def config(enabled=True,revoked=False,last_sync_error=False):
-    c=Config();c.id=1;c.ids=[1];c._table='print_gateway_gateway_config';c.env=NS(context={},cr=Cursor())
+    c=Config();c.id=1;c.ids=[1];c._table='print_gateway_gateway_config'
+    c.cron_progress=[]
+    c.env=Environment(context={},cr=Cursor(),cron=NS(_commit_progress=lambda processed=0,remaining=None:c.cron_progress.append((processed,remaining)) or 1))
     c.enabled=enabled;c.gateway_url='https://gateway.fixture.invalid';c.gateway_api_key='enc:OLD-FIXTURE'
     c.enabled_sync_revision=5;c.last_enabled_sync_revision=5;c.last_enabled_sync_error=last_sync_error
     c.pending_disable_gateway_url=c.pending_disable_gateway_api_key=False;c.pending_disable_revision=-1

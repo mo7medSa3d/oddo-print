@@ -32,6 +32,7 @@ export async function transitionAgentLifecycle(
   manager: ManagerClaims,
 ): Promise<AgentLifecycleResult | null> {
   return db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, tenantId);
     const locked = await tx.execute(sql`
       SELECT id, lifecycle, lifecycle_revision
       FROM agents
@@ -61,9 +62,6 @@ export async function transitionAgentLifecycle(
     const reenable = current === "disabled" && next === "active";
     let pairingCode: string | null = null;
 
-    // The agent row is already locked. Fence tenant lifecycle before any
-    // credential or lifecycle mutation.
-    await requireActiveTenantInTransaction(tx, tenantId);
     if (manager.tenantId !== tenantId) throw new Error("Manager tenant identity changed");
     await requireManagerActorInTransaction(tx, manager, next === "retired" ? "agents.retire" : "agents.disable");
 
