@@ -8,7 +8,7 @@ import { transitionTenantLifecycle, TenantLifecycleError } from "../src/lib/tena
 import { requireActiveTenant, requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../src/lib/tenant-guard";
 import { nanoid } from "../src/lib/nanoid";
 import { verifyPlatformTokenSignature, PlatformMutationAuthorityChangedError } from "../src/lib/platform-auth";
-import { generateOpaqueToken, hashPassword, hashToken, verifyPassword } from "../src/lib/password";
+import { generateOpaqueToken, hashPassword, hashToken, normalizeEmail, verifyPassword } from "../src/lib/password";
 import { POST as verifyEmail } from "../src/app/api/auth/verify-email/route";
 import { POST as resetPassword } from "../src/app/api/auth/reset-password/route";
 import { authenticateForTenant } from "../src/lib/customer-auth";
@@ -37,7 +37,7 @@ suite("Tenant Lifecycle", () => {
   describe("mailbox-owner password setup", () => {
     it("invalidates a preregistrant password before email proof becomes usable, then completes owner setup", async () => {
       const userId = `usr_setup_${nanoid(12)}`;
-      const email = `setup_${nanoid(10)}@example.test`;
+      const email = normalizeEmail(`setup_${nanoid(10)}@example.test`);
       const oldPassword = "attacker_preset_password_123";
       const ownerPassword = "mailbox_owner_password_456";
       const proof = generateOpaqueToken();
@@ -223,16 +223,20 @@ suite("Tenant Lifecycle", () => {
       const email = `platform_${nanoid(8)}@example.test`;
       await createTestTenant(id);
       await db.insert(users).values({ id: userId, email, passwordHash: "unused", emailVerifiedAt: new Date(), isPlatformOwner: true });
-      const pair = await issueSessionPair({ kind: "platform", userId, email });
-      const claims = verifyPlatformTokenSignature(pair.accessToken);
-      expect(claims).not.toBeNull();
-      if (!claims) throw new Error("Expected admitted platform claims");
-      if (change === "owner_changed") await pool().query("UPDATE users SET is_platform_owner = false WHERE id = $1", [userId]);
-      if (change === "email_changed") await pool().query("UPDATE users SET email = $2 WHERE id = $1", [userId, `changed_${nanoid(8)}@example.test`]);
-      if (change === "session_revoked") await pool().query("UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE family_id = $1", [pair.familyId]);
-      await expect(transitionTenantLifecycle(id, "suspended", "Delayed platform mutation", { type: "platform", id: userId, claims }))
-        .rejects.toBeInstanceOf(PlatformMutationAuthorityChangedError);
+      try {
+        const pair = await issueSessionPair({ kind: "platform", userId, email });
+        const claims = verifyPlatformTokenSignature(pair.accessToken);
+        expect(claims).not.toBeNull();
+        if (!claims) throw new Error("Expected admitted platform claims");
+        if (change === "owner_changed") await pool().query("UPDATE users SET is_platform_owner = false WHERE id = $1", [userId]);
+        if (change === "email_changed") await pool().query("UPDATE users SET email = $2 WHERE id = $1", [userId, `changed_${nanoid(8)}@example.test`]);
+        if (change === "session_revoked") await pool().query("UPDATE refresh_tokens SET revoked_at = clock_timestamp() WHERE family_id = $1", [pair.familyId]);
+        await expect(transitionTenantLifecycle(id, "suspended", "Delayed platform mutation", { type: "platform", id: userId, claims }))
+          .rejects.toBeInstanceOf(PlatformMutationAuthorityChangedError);
       expect((await db.query.tenants.findFirst({ where: eq(tenants.id, id) }))?.lifecycle).toBe("active");
+      } finally {
+        await db.update(users).set({ isPlatformOwner: false }).where(eq(users.id, userId));
+      }
     });
   });
 
