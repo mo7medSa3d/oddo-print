@@ -50,10 +50,13 @@ func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
 	default:
 	}
 	if simulatedTransportAllowed() && p.DevicePath != "" && filepath.IsAbs(p.DevicePath) {
+		if err := runDispatchAdmission(ctx); err != nil {
+			return err
+		}
 		if err := os.WriteFile(p.DevicePath, data, 0600); err != nil {
 			return fmt.Errorf("SIMULATED_TRANSPORT: USB write to %s failed: %w", p.DevicePath, err)
 		}
-		return nil
+		return fmt.Errorf("SIMULATED_TRANSPORT: USB diagnostic file written; no physical printer submission occurred")
 	}
 	return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: direct USB printing is only available on Windows with a valid device path; install %s as a Windows spooler queue and route the job there; nothing was sent", p.Identify())
 }
@@ -63,9 +66,6 @@ func (p *USBPrinter) Test(ctx context.Context) error {
 }
 
 func (p *USBPrinter) Status() string {
-	if simulatedTransportAllowed() {
-		return "online"
-	}
 	// Unprovable from this platform.
 	return "unknown"
 }

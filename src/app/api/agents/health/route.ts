@@ -12,11 +12,11 @@ export async function GET(req: Request) {
   if (!claims) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try { requireManagerPermission(claims, "agents.read"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
 
-  const requestId = requestIdFrom(req as any) || generateRequestId();
+  const requestId = requestIdFrom(req) || generateRequestId();
   const url = new URL(req.url);
   const agentId = url.searchParams.get("agentId");
 
-  return runWithCorrelation({ requestId, tenantId: claims.tenantId, agentId: agentId ?? undefined } as any, async () => {
+  return runWithCorrelation({ requestId, tenantId: claims.tenantId, agentId: agentId ?? undefined }, async () => {
     if (agentId) {
       const health = await getAgentHealth(claims.tenantId, agentId);
       if (!health) return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "x-request-id": requestId } });

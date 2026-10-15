@@ -1,8 +1,13 @@
 import { db, pool } from "../src/db";
-import { users, auditEvents } from "../src/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { users, auditEvents, emailVerificationTokens, passwordResetTokens } from "../src/db/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { hashPassword, normalizeEmail } from "../src/lib/password";
 import { nanoid } from "../src/lib/nanoid";
+import { revokeLegacyManagerSessionsForUserInTransaction } from "../src/lib/manager-auth";
+import { revokeLegacyPlatformSessionsForUserInTransaction } from "../src/lib/platform-auth";
+import { revokeUserRefreshFamiliesInTransaction } from "../src/lib/session-tokens";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "fs";
 import readline from "readline";
 
@@ -27,7 +32,7 @@ async function promptPasswordInteractive(promptText: string): Promise<string> {
   });
 }
 
-async function main() {
+export async function main() {
   const args = process.argv.slice(2);
   let email = process.env.PLATFORM_OWNER_EMAIL?.trim() ?? "";
   let password = process.env.PLATFORM_OWNER_PASSWORD?.trim() ?? "";
@@ -126,6 +131,16 @@ async function main() {
           updatedAt: sql`clock_timestamp()`,
         })
         .where(eq(users.id, uId));
+      // Promotion/password replacement must close every earlier login and recovery proof.
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, uId);
+      await revokeLegacyPlatformSessionsForUserInTransaction(tx, uId);
+      await revokeUserRefreshFamiliesInTransaction(tx, uId, "platform_bootstrap");
+      await tx.update(passwordResetTokens)
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(eq(passwordResetTokens.userId, uId), isNull(passwordResetTokens.consumedAt)));
+      await tx.update(emailVerificationTokens)
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(eq(emailVerificationTokens.userId, uId), isNull(emailVerificationTokens.consumedAt)));
       console.log(`Successfully promoted existing user (${normalized}) to Platform Owner.`);
     } else {
       uId = `usr_${nanoid(18)}`;
@@ -159,7 +174,7 @@ async function main() {
   }
 }
 
-main()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()
   .catch((err) => {
     console.error("Platform Owner bootstrap failed:", err);
     process.exitCode = 1;

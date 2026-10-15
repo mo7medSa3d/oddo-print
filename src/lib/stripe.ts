@@ -208,6 +208,8 @@ export async function validateStripePriceBinding(input: {
   if (input.requireActive !== false && !binding.active) throw new StripePriceBindingError("Stripe Price is inactive.", "STRIPE_PRICE_INVALID", 400);
   if (binding.currency !== input.currency.toLowerCase()) throw new StripePriceBindingError("Plan currency does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
   if (binding.interval !== input.interval) throw new StripePriceBindingError("Plan billing interval does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
+  if (recurring?.interval_count !== 1) throw new StripePriceBindingError("Stripe Price must bill once per selected plan interval.", "STRIPE_PRICE_INVALID", 400);
+  if (recurring?.usage_type !== "licensed") throw new StripePriceBindingError("Stripe Price must use fixed subscription quantities, not metered usage.", "STRIPE_PRICE_INVALID", 400);
   if (input.productId && binding.productId !== input.productId) throw new StripePriceBindingError("Stripe Product ID does not match the Stripe Price.", "STRIPE_PRICE_INVALID", 400);
 
   return binding;

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
-  let body: { email?: unknown; planId?: unknown };
+  let body: { email?: unknown; planId?: unknown; inviteToken?: unknown };
   try {
     const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody;
   } catch {
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
 
   const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
   const planId = typeof body.planId === "string" && body.planId.length <= 128 ? body.planId : "";
+  const inviteToken = typeof body.inviteToken === "string" && body.inviteToken.length <= 256 ? body.inviteToken : "";
   if (!validEmail(email)) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
@@ -95,7 +96,8 @@ export async function POST(req: Request) {
 
   try {
     const planQuery = planId ? `&plan=${encodeURIComponent(planId)}` : "";
-    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}`;
+    const inviteQuery = inviteToken ? `&invite=${encodeURIComponent(inviteToken)}` : "";
+    const url = `${appBaseUrl(req)}/verify-email?token=${encodeURIComponent(rawToken)}${planQuery}${inviteQuery}`;
     await sendTransactionalEmail({
       to: email,
       subject: t("mail.verify.subject"),

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError, PlatformMutationAuthorityChangedError } from "../../../../../../lib/platform-auth";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
 import { runtimeSecret } from "../../../../../../lib/runtime-secret";
@@ -48,9 +48,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     await transitionTenantLifecycle(id, "suspended", reason, {
       type: "platform",
       id: claims.userId,
+      claims,
     });
     return NextResponse.json({ ok: true, tenantId: id, lifecycle: "suspended", reason });
   } catch (err) {
+    if (err instanceof PlatformMutationAuthorityChangedError) return NextResponse.json({ error: err.message }, { status: 403 });
     if (err instanceof TenantLifecycleError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
     }

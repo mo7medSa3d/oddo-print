@@ -9,7 +9,7 @@ import { nanoid } from "../../../../../../../lib/nanoid";
 import { canonicalize } from "../../../../../../../lib/canonicalize";
 import { discoveryIppUriMatchesEndpoint, validateConnectionConfig } from "../../../../../../../lib/printer-model";
 import { enforceTenantResourceEntitlement, TenantEntitlementError, isTenantBillingError } from "../../../../../../../lib/entitlements";
-import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../../../../../../../lib/tenant-guard";
 import { logError } from "../../../../../../../lib/log";
 
 import { isVirtualPrinterRecord } from "../../../../../../../lib/printer-virtual";
@@ -40,6 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let result: ProvisionResult;
   try {
     result = await db.transaction(async (tx): Promise<ProvisionResult> => {
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
     // Tenant resource admission must serialize with direct printer creation;
     // otherwise two different Agents could both observe capacity and insert
     // simultaneously past max_printers.
@@ -68,7 +69,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const row = rows[0];
     if (!row) return { kind: "not_found" as const };
 
-    await requireActiveTenantInTransaction(tx, claims.tenantId);
     await requireManagerActorInTransaction(tx, claims, "printers.manage");
 
     if (row.candidate_status === "provisioned" && row.provisioned_printer_id) {
@@ -165,13 +165,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
-    await enforceTenantResourceEntitlement(
-      tx,
-      claims.tenantId,
-      "max_printers",
-      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND shared_with_gateway = true AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`,
-    );
-
     const ippAddress = device.uri
       ?? (device.ipAddress && device.port
         ? transport.protocol + "://" + (device.ipAddress.includes(":") ? `[${device.ipAddress}]` : device.ipAddress) + ":" + String(device.port) + "/ipp/print"
@@ -196,6 +189,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         .where(and(eq(discoveredDevices.id, deviceId), eq(discoveredDevices.tenantId, claims.tenantId), eq(discoveredDevices.agentId, agentId), eq(discoveredDevices.candidateStatus, "verified")));
       return { kind: "already" as const, printerId: existing.id };
     }
+
+    // Existing reviewed targets consume no new resource. Resolve every
+    // transport's dedupe before admitting only a genuinely new printer.
+    await enforceTenantResourceEntitlement(
+      tx,
+      claims.tenantId,
+      "max_printers",
+      sql`SELECT COUNT(*)::int AS count FROM printers WHERE tenant_id = ${claims.tenantId} AND shared_with_gateway = true AND lifecycle <> 'retired' AND (management_source <> 'agent' OR inventory_present = true)`,
+    );
 
     const printerId = `printer_${nanoid(10)}`;
     await tx.insert(printers).values({
@@ -223,7 +225,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return { kind: "created" as const, printerId };
     });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (error instanceof TenantEntitlementError) {
       const headers = new Headers({ "Retry-After": "60", "Cache-Control": "no-store" });
       return NextResponse.json({

@@ -57,6 +57,7 @@ function rotationMeta(key: ApiKey, t: Translator): { label: string; tone: Tone }
 
 export default function ApiKeysPage() {
   const refreshEpoch = useRef(0);
+  const mutationInFlight = useRef(false);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const { t, tc, formatDate, formatDateTime, formatNumber } = useI18n();
   const [name, setName] = useState(t("apiKeys.defaultName"));
@@ -111,6 +112,8 @@ export default function ApiKeysPage() {
   }, []);
 
   async function generate() {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
     ++refreshEpoch.current;
     setBusy(true); setError(null); setRawKey(null); setRawKeyId(null); setCopied(false);
     try {
@@ -128,11 +131,12 @@ export default function ApiKeysPage() {
       setRawKey(b.apiKey);
       setRawKeyId(b.id);
       setKeys(await loadKeys());
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   async function confirm() {
-    if (!pending) return;
+    if (!pending || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     ++refreshEpoch.current;
     const cur = pending; setBusy(true); setError(null);
     try {
@@ -144,7 +148,7 @@ export default function ApiKeysPage() {
       if (rawKeyId === cur.id) { setRawKey(null); setRawKeyId(null); setCopied(false); }
       setKeys(current => cur.kind === "remove" ? current.filter(key => key.id !== cur.id) : current.map(key => key.id === cur.id ? { ...key, revokedAt: b.revokedAt, rotationState: "revoked", odooEnabled: false } : key));
       try { setKeys(await loadKeys()); } catch { setError(t("apiKeys.loadFailed")); }
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { mutationInFlight.current = false; setBusy(false); }
   }
 
   const active = keys.filter(k => !k.revokedAt).length;

@@ -39,9 +39,11 @@ const database={
  query:{agents:{findFirst:async()=>{state.preflight?.();return {id:'agent',lifecycle:'active'};}}},
  transaction:async(callback)=>callback(tx),
 };
-const tenant=mk({requireActiveTenantInTransaction:async(t,tid)=>{
+class TenantSuspendedError extends Error {}
+class TenantDeletedError extends Error {}
+const tenant=mk({TenantSuspendedError,TenantDeletedError,requireActiveTenantInTransaction:async(t,tid)=>{
   const v=await t.execute(frag`SELECT lifecycle FROM tenants WHERE id=${tid} FOR SHARE`);
-  if(v.rows[0].lifecycle!=='active')throw new Error('TENANT_SUSPENDED');
+  if(v.rows[0].lifecycle!=='active')throw new TenantSuspendedError('TENANT_SUSPENDED');
   return 'active';
 }});
 const supports={
@@ -63,7 +65,7 @@ const call=(body)=>route.namespace.POST(new Request('http://localhost/api/agents
 test('unchanged admin gets a running session and NOTIFY after tenant/session guard',async()=>{
  reset();const r=await call({cidr:'192.168.10.0/24'});assert.equal(r.status,201);
  assert.equal(state.inserted.length,1);assert.equal(state.notifies,1);assert.equal(state.expiries,1);
- const steps=state.events;assert.ok(steps.findIndex(t=>/FROM agents/i.test(t))<steps.findIndex(t=>/FROM tenants/i.test(t)));
+ const steps=state.events;assert.ok(steps.findIndex(t=>/FROM tenants/i.test(t))<steps.findIndex(t=>/FROM agents/i.test(t)));
  assert.ok(steps.findIndex(t=>/FROM tenants/i.test(t))<steps.findIndex(t=>/refresh_tokens/i.test(t)));
 });
 test('demotion after preflight, before body arrives rejects without write or NOTIFY',async()=>{
@@ -82,3 +84,8 @@ test('operator forbidden before insertion',async()=>{reset({role:'operator',memb
 test('malformed request does not insert even for admin',async()=>{reset();const r=await call({bad:true});assert.equal(r.status,400);assert.equal(state.inserted.length,0);});
 test('userless bootstrap session is admitted for supported agent pairing operation',async()=>{reset({userless:true});const r=await call({cidr:'192.168.10.0/24'});assert.equal(r.status,201);});
 test('legacy session revocation rejects when token lacks family',async()=>{reset({legacy:true,legacySessionActive:false});const r=await call({cidr:'192.168.10.0/24'});assert.equal(r.status,403);assert.equal(state.inserted.length,0);});
+test('suspension rejects before Agent lock, discovery insert or NOTIFY',async()=>{
+ reset({activeTenant:false});const r=await call({cidr:'192.168.10.0/24'});assert.equal(r.status,403);
+ assert.equal(state.events.length,1);assert.match(state.events[0],/FROM tenants.*FOR SHARE/s);
+ assert.equal(state.inserted.length,0);assert.equal(state.notifies,0);
+});

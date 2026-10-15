@@ -208,11 +208,6 @@ async function currentAgentLifecycleState(agentId: string): Promise<AgentLifecyc
   };
 }
 
-async function currentAgentLifecycleRevision(agentId: string): Promise<number | null> {
-  const snapshot = await currentAgentLifecycleState(agentId);
-  return snapshot?.lifecycleRevision ?? null;
-}
-
 /**
  * Establish the in-memory delivery registration while holding a shared lock
  * on the durable Agent lifecycle row.  This closes the upgrade/lifecycle
@@ -237,9 +232,18 @@ async function verifyAndTrackAgentSocket(
   try {
     await client.query("BEGIN");
     transactionOpen = true;
+    const tenant = await client.query<{ lifecycle: string }>(
+      "SELECT lifecycle FROM tenants WHERE id = $1 FOR SHARE",
+      [ws.tenantId],
+    );
+    if (tenant.rows[0]?.lifecycle !== "active") {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return false;
+    }
     const result = await client.query<{ lifecycle: string; lifecycle_revision: number | string }>(
-      "SELECT lifecycle, lifecycle_revision FROM agents WHERE id = $1 FOR SHARE",
-      [agentId],
+      "SELECT lifecycle, lifecycle_revision FROM agents WHERE id = $1 AND tenant_id = $2 FOR SHARE",
+      [agentId, ws.tenantId],
     );
     const row = result.rows[0];
     const revision = row ? Number(row.lifecycle_revision) : undefined;
@@ -274,14 +278,14 @@ async function verifyAndTrackAgentSocket(
   }
 }
 
-export function closeAgentSockets(agentId: string, lifecycleRevision: number): void {
+export function closeAgentSockets(agentId: string, lifecycleRevision: number | null): void {
   const set = agentSockets.get(agentId);
   if (!set || set.size === 0) return;
   for (const ws of set) {
     // A lifecycle notification invalidates sessions authenticated BEFORE the
     // transition that produced this revision. A newer session must survive,
     // even if the notification itself was delayed in the PG LISTEN queue.
-    if (!shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
+    if (lifecycleRevision !== null && !shouldCloseAgentSocketForLifecycleRevision(ws.lifecycleRevision, lifecycleRevision)) {
       continue;
     }
     try {
@@ -793,12 +797,18 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
           // of closing every socket blindly. This keeps rolling deployments
           // safe against the same stale-notification race.
           void (async () => {
-            const effectiveRevision = revision ?? await currentAgentLifecycleRevision(message.agentId as string);
-            if (effectiveRevision === null) {
-              logWarn("[ws] ignored agent-session notification: lifecycle revision unavailable");
+            const current = await currentAgentLifecycleState(message.agentId as string);
+            // A missing identity is durably deleted. A supplied revision must
+            // never manufacture a newer lifecycle than PostgreSQL records.
+            if (!current) {
+              closeAgentSockets(message.agentId as string, null);
               return;
             }
-            closeAgentSockets(message.agentId as string, effectiveRevision);
+            if (revision !== undefined && revision > current.lifecycleRevision) {
+              logWarn("[ws] ignored agent-session notification ahead of durable revision");
+              return;
+            }
+            closeAgentSockets(message.agentId as string, revision ?? current.lifecycleRevision);
           })().catch((error) => {
             logWarn("[ws] failed to fence agent sockets from lifecycle notification:", { error: error });
           });
@@ -853,11 +863,6 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       // for another tenant's job/agent pair is ignored before claiming.
       // Both DB triggers and callers must send the tenantId. Legacy notices
       // without it are rejected; HTTP polling remains the durable backstop.
-      const socketTenant = agentSockets.get(message.agentId)?.values().next().value?.tenantId;
-      if (!jobNoticeTenantAllowed(message.tenantId, socketTenant)) {
-        logWarn("[ws] ignored job notification with mismatched tenant", { agentId: message.agentId });
-        return;
-      }
       // PostgreSQL may notify us after the WebSocket HTTP upgrade but
       // before asynchronous Agent lifecycle verification finishes. Dropping
       // that notification here strands a queued job even though the client
@@ -865,11 +870,21 @@ async function startJobNotificationListener(): Promise<() => Promise<void>> {
       // readiness wait for exactly this pending-registration window.
       if (!hasOpenAgentSocket(message.agentId)
           && (pendingAgentSocketRegistrations.get(message.agentId) ?? 0) === 0) return;
-      pushNotifiedJob({
-        jobId: message.jobId,
-        agentId: message.agentId,
-        requestId: typeof message.requestId === "string" ? message.requestId : null,
-      });
+      const agentId = message.agentId;
+      const jobId = message.jobId;
+      void (async () => {
+        if (!hasOpenAgentSocket(agentId)) await waitForAgentSocketReady(agentId);
+        const socketTenant = agentSockets.get(agentId)?.values().next().value?.tenantId;
+        if (!jobNoticeTenantAllowed(message.tenantId, socketTenant)) {
+          logWarn("[ws] ignored job notification with mismatched tenant", { agentId });
+          return;
+        }
+        pushNotifiedJob({
+          jobId,
+          agentId,
+          requestId: typeof message.requestId === "string" ? message.requestId : null,
+        });
+      })().catch((error) => logWarn("[ws] job notification admission failed", { agentId, error }));
     } catch {
       logWarn("[ws] ignored malformed PostgreSQL job notification");
     }

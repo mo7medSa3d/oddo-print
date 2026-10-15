@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -42,6 +43,7 @@ type IPPPrinter struct {
 	URL              string // normalized http(s) transport URL, always credential-free
 	PrinterURI       string // credential-free URI carried in the IPP printer-uri attribute
 	Name             string
+	testPaperMM      int           // explicitly selected 58/80mm diagnostic stock only
 	creds            *url.Userinfo // optional basic-auth from the configured URL
 	statusMu         sync.RWMutex
 	lastStatusDetail string
@@ -279,7 +281,7 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 	// Read one byte beyond the budget so a complete-looking prefix at the
 	// boundary cannot hide trailing/truncated response data.
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPPrintResponseBytes+1))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			// CheckRedirect deliberately stops a second print submission, but
 			// the original endpoint already received the request. An HTTP 3xx
@@ -287,10 +289,12 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 			// might already exist. Never classify it as safe to auto-retry.
 			return MarkUnknown("IPP printer %s redirected Print-Job with HTTP %d after submission; output may exist", p.URL, resp.StatusCode)
 		}
-		if resp.StatusCode >= 500 {
-			return fmt.Errorf("%s: IPP printer %s returned HTTP %d (submission may have been accepted)", ErrOutcomeUnknown, p.URL, resp.StatusCode)
-		}
-		return fmt.Errorf("IPP printer %s rejected the request with HTTP %d", p.URL, resp.StatusCode)
+		// RFC 8010 permits IPP response semantics only with HTTP 200.
+		return MarkUnknown("IPP printer %s returned HTTP %d after Print-Job; no correlated IPP result is available and output may exist", p.URL, resp.StatusCode)
+	}
+	mediaType, _, mediaErr := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if mediaErr != nil || mediaType != "application/ipp" {
+		return MarkUnknown("IPP response from %s has an invalid Content-Type after Print-Job; output may exist", p.URL)
 	}
 	if readErr != nil {
 		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %w", ErrOutcomeUnknown, p.URL, readErr)
@@ -328,10 +332,19 @@ func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFor
 }
 
 func (p *IPPPrinter) Test(ctx context.Context) error {
-	// A local diagnostic test page would need a real PDF document; the agent
-	// does not fabricate one. Use the operator-console "send test page"
-	// action, which routes a genuine ticket through the gateway.
-	return fmt.Errorf("IPP local test page is not supported; send a test print from the Gateway console instead")
+	return p.PrintTestPage(ctx)
+}
+
+func (p *IPPPrinter) PrintTestPage(ctx context.Context) error {
+	width, height := 612.0, 792.0
+	if p.testPaperMM == 58 || p.testPaperMM == 80 {
+		width, height = float64(p.testPaperMM)*72/25.4, 100*72/25.4
+	}
+	data, err := diagnosticTestPDF(width, height)
+	if err != nil {
+		return err
+	}
+	return p.PrintDocument(ctx, Document{Kind: KindPDF, Data: data, JobID: "local-test"})
 }
 
 // Status differentiates transport failure from unsupported status and from
@@ -423,6 +436,7 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/ipp")
+	req.Header.Set("Accept", "application/ipp")
 	if p.creds != nil {
 		if pass, ok := p.creds.Password(); ok {
 			req.SetBasicAuth(p.creds.Username(), pass)
@@ -444,12 +458,15 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		return nil, fmt.Errorf("HTTP %d: %w", resp.StatusCode, errIPPStatusUnsupported)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	mediaType, _, mediaErr := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if mediaErr != nil || mediaType != "application/ipp" {
+		return nil, fmt.Errorf("IPP printer attributes response has an invalid Content-Type")
 	}
 	// Read one byte beyond the limit: a valid-looking IPP prefix at exactly
 	// 64 KiB must not hide a trailing, untrusted attribute/data fragment.
-	const maxIPPAttributesBytes = 64 * 1024
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPAttributesBytes+1))
 	if readErr != nil {
 		return nil, readErr
@@ -457,14 +474,7 @@ func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (map[string]strin
 	if len(body) > maxIPPAttributesBytes {
 		return nil, fmt.Errorf("IPP printer attributes response exceeds %d-byte limit", maxIPPAttributesBytes)
 	}
-	status, msg := parseIPPStatus(body)
-	if status == 0xFFFF {
-		return nil, fmt.Errorf("truncated IPP response: %s", msg)
-	}
-	if status > 0x00ff {
-		return nil, fmt.Errorf("IPP status 0x%04x: %w", status, errIPPStatusUnsupported)
-	}
-	return parseIPPAttributes(body), nil
+	return parseIPPPrinterAttributes(body, binary.BigEndian.Uint32(ippReq[4:8]))
 }
 
 const (

@@ -1,6 +1,8 @@
 import { logWarn } from "./log";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./agent-availability";
-import { pool } from "../db";
+import { db, pool } from "../db";
+import { sql } from "drizzle-orm";
+import { nonVirtualPrinterPredicate } from "./printer-virtual-sql";
 
 type Counter = { value: number };
 
@@ -66,7 +68,7 @@ async function renderFleetGauges(): Promise<string> {
           FROM agents
         ) observations
       `, [staleSeconds]),
-      pool.query(`
+      db.execute(sql`
         SELECT
           COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'online' AND printer_fresh)::bigint AS online,
           COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status = 'busy' AND printer_fresh)::bigint AS busy,
@@ -85,14 +87,15 @@ async function renderFleetGauges(): Promise<string> {
               AND agent_fresh
           )::bigint AS routable
         FROM (
-          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $1) AND now(), false) AS printer_fresh
-          FROM printers WHERE shared_with_gateway = true
+          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND now(), false) AS printer_fresh
+          FROM printers WHERE shared_with_gateway = true AND inventory_present = true
+            AND ${nonVirtualPrinterPredicate()}
         ) p
         LEFT JOIN (
-          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => $2) AND now(), false) AS agent_fresh
+          SELECT *, COALESCE(last_seen_at BETWEEN now() - make_interval(secs => ${staleSeconds}) AND now(), false) AS agent_fresh
           FROM agents
         ) a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id
-      `, [printerStaleThresholdSeconds(), staleSeconds]),
+      `),
     ]);
 
     const j = jobs.rows[0] as Record<string, string>;

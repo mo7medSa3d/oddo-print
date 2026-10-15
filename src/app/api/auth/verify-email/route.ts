@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { db } from "../../../../db";
-import { emailVerificationTokens, tenantUsers, tenants, users } from "../../../../db/schema";
+import { emailVerificationTokens, passwordResetTokens, tenantUsers, tenants, users } from "../../../../db/schema";
 import { and, eq, isNull, gt, sql } from "drizzle-orm";
-import { hashToken } from "../../../../lib/password";
+import { generateOpaqueToken, hashPassword, hashToken } from "../../../../lib/password";
 import { nanoid } from "../../../../lib/nanoid";
-import { issueCustomerSession, customerSessionCookie, customerRefreshCookie } from "../../../../lib/customer-auth";
+import { revokeLegacyManagerSessionsForUserInTransaction } from "../../../../lib/manager-auth";
+import { revokeLegacyPlatformSessionsForUserInTransaction } from "../../../../lib/platform-auth";
+import { revokeUserRefreshFamiliesInTransaction } from "../../../../lib/session-tokens";
 import { clientIpFrom, recordAuthSuccess, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { logError, logWarn } from "../../../../lib/log";
 import { writeAuditEvent } from "../../../../lib/audit";
@@ -17,12 +19,16 @@ export async function POST(req: Request) {
   const token = typeof body.token === "string" ? body.token : "";
   if (!token || token.length > 256) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   // Token-guessing throttle (mirrors login): no account identity is known
-  // pre-token, so scope by endpoint + IP. Success mints a session, so only
-  // a completed verification clears the budget.
+  // pre-token, so scope by endpoint + IP. Only a completed email proof
+  // clears the budget; password setup is a separate authentication step.
   const ip = clientIpFrom(req);
+  const tokenHash = await hashToken(token);
+  // Known clients share an endpoint/source bucket; unattributed clients
+  // share only the presented token's bucket, never a global lockout key.
+  const rateIdentity = `verify-email-token:${ip === "unknown" ? tokenHash : ip}`;
   let rate: Awaited<ReturnType<typeof reserveAuthAttempt>>;
   try {
-    rate = await reserveAuthAttempt(ip, "verify-email-token");
+    rate = await reserveAuthAttempt(ip, rateIdentity);
   } catch (error) {
     logError("auth.rate_limit.store_unavailable", { endpoint: "verify_email", error: error instanceof Error ? error.message : "unknown" });
     return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
@@ -32,7 +38,6 @@ export async function POST(req: Request) {
     limited.headers.set("Retry-After", String(rate.retryAfterSec));
     return setRateLimitHeaders(limited, rate);
   }
-  const tokenHash = await hashToken(token);
   const row = await db.query.emailVerificationTokens.findFirst({
     where: and(
       eq(emailVerificationTokens.tokenHash, tokenHash),
@@ -43,8 +48,23 @@ export async function POST(req: Request) {
   if (!row) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
   const user = await db.query.users.findFirst({ where: eq(users.id, row.userId), columns: { id: true, emailVerifiedAt: true, email: true } });
   if (!user) return NextResponse.json({ error: "Invalid or expired verification link" }, { status: 400 });
+  const resetToken = generateOpaqueToken();
+  // The submitted signup password may belong to an earlier unverified
+  // registrant. Email proof must invalidate it before marking the email
+  // usable for authentication; only the mailbox owner can choose the new one.
+  let pendingPasswordHash: string;
+  try {
+    pendingPasswordHash = await hashPassword(generateOpaqueToken());
+  } catch (error) {
+    logError("auth.verify_email.password_setup_unavailable", { error: error instanceof Error ? error.message : "unknown" });
+    return setRateLimitHeaders(NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 }), rate);
+  }
+  const auditMembership = await db.query.tenantUsers.findFirst({
+    where: eq(tenantUsers.userId, user.id),
+    columns: { tenantId: true },
+  });
+  let alreadyVerified = false;
   let tenantId: string;
-  let role: ManagerRole = "owner";
   const isManagerRole = (value: string): value is ManagerRole =>
     value === "owner" ||
     value === "admin" ||
@@ -54,6 +74,11 @@ export async function POST(req: Request) {
     value === "billing_admin";
   try {
     await db.transaction(async (tx) => {
+      let auditTenantId: string | null = null;
+      if (auditMembership?.tenantId) {
+        const tenant = await tx.execute(sql`SELECT id FROM tenants WHERE id = ${auditMembership.tenantId} FOR SHARE`);
+        if (tenant.rows[0]) auditTenantId = auditMembership.tenantId;
+      }
       // Serialize all verification flows for this user before deciding whether
       // an initial workspace already exists.
       const lockedUser = await tx.execute(sql`
@@ -74,10 +99,23 @@ export async function POST(req: Request) {
         ))
         .returning({ id: emailVerificationTokens.id });
       if (consumed.length !== 1) throw new Error("Verification token already consumed");
+      if (currentUser.emailVerifiedAt) { alreadyVerified = true; return; }
 
       await tx.update(users)
-        .set({ emailVerifiedAt: sql`COALESCE(email_verified_at, clock_timestamp())`, updatedAt: sql`now()` })
+        .set({ passwordHash: pendingPasswordHash, emailVerifiedAt: sql`COALESCE(email_verified_at, clock_timestamp())`, updatedAt: sql`now()` })
         .where(eq(users.id, currentUser.id));
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, currentUser.id);
+      await revokeLegacyPlatformSessionsForUserInTransaction(tx, currentUser.id);
+      await revokeUserRefreshFamiliesInTransaction(tx, currentUser.id, "email_verified_password_setup");
+      await tx.update(passwordResetTokens)
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(eq(passwordResetTokens.userId, currentUser.id), isNull(passwordResetTokens.consumedAt)));
+      await tx.insert(passwordResetTokens).values({
+        id: `prt_${nanoid(18)}`,
+        userId: currentUser.id,
+        tokenHash: await hashToken(resetToken),
+        expiresAt: sql`clock_timestamp() + interval '20 minutes'`,
+      });
 
       const existing = await tx.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })
         .from(tenantUsers)
@@ -86,15 +124,17 @@ export async function POST(req: Request) {
       if (existing[0]) {
         tenantId = existing[0].tenantId;
         if (!isManagerRole(existing[0].role)) throw new Error("INVALID_TENANT_ROLE");
-        role = existing[0].role;
       } else {
         tenantId = `ten_${nanoid(18)}`;
         await tx.insert(tenants).values({ id: tenantId, name: `${currentUser.email.split("@")[0]}'s Workspace` });
         await tx.insert(tenantUsers).values({ userId: currentUser.id, tenantId, role: "owner" });
+        auditTenantId = tenantId;
       }
 
       await writeAuditEvent({
-        tenantId,
+        // A membership created after the snapshot must not introduce an
+        // inverted tenant FK lock while this transaction owns the user.
+        tenantId: tenantId === auditTenantId ? auditTenantId : null,
         actorType: "user",
         actorId: currentUser.id,
         action: "user.email_verified",
@@ -106,23 +146,12 @@ export async function POST(req: Request) {
     if (error instanceof Error && error.message === "INVALID_TENANT_ROLE") return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
     throw error;
   }
-  const session = await issueCustomerSession(
-    user.id,
-    tenantId!,
-    role,
-    {
-      ipAddress: clientIpFrom(req),
-      userAgent: req.headers.get("user-agent"),
-    },
-    user.email,
-  );
-  if (!session) {
-    return NextResponse.json({ error: "Workspace is unavailable" }, { status: 403 });
-  }
-  const response = NextResponse.json({ ok: true, next: "/onboarding" });
-  response.headers.set("Set-Cookie", customerSessionCookie(session));
-  response.headers.append("Set-Cookie", customerRefreshCookie(session));
+  const response = NextResponse.json({
+    ok: true,
+    next: alreadyVerified ? "/login" : `/reset-password?token=${encodeURIComponent(resetToken)}&setup=1`,
+    requiresPasswordSetup: !alreadyVerified,
+  });
   response.headers.set("Cache-Control", "no-store");
-  await recordAuthSuccess(ip, "verify-email-token").catch((error) => logWarn("auth.verify_email.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
+  await recordAuthSuccess(ip, rateIdentity).catch((error) => logWarn("auth.verify_email.rate_limit_clear_failed", { ip, error: error instanceof Error ? error.message : "unknown" }));
   return setRateLimitHeaders(response, rate);
 }

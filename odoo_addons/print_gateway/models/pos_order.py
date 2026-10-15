@@ -142,7 +142,10 @@ class PosOrderGatewayPrinting(models.Model):
 
     def is_gateway_printing_enabled(self):
         self.ensure_one()
+        self.check_access("read")
         target_company = self.config_id.company_id or self.company_id
+        if target_company != self.env.company:
+            raise ValidationError(_("Gateway printing must use the active Odoo company."))
         return bool(self.env["print_gateway.print_router"]._gateway_config(target_company))
 
     def _action_trigger_print_policies(self):

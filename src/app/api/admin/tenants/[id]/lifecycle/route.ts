@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePlatformOwner, PlatformUnauthorizedError } from "../../../../../../lib/platform-auth";
+import { requirePlatformOwner, PlatformUnauthorizedError, PlatformMutationAuthorityChangedError } from "../../../../../../lib/platform-auth";
 import { transitionTenantLifecycle, TenantLifecycleError } from "../../../../../../lib/tenant-lifecycle";
 import { hasBodyOverLimit } from "../../../../../../lib/request-limits";
 import { runtimeSecret } from "../../../../../../lib/runtime-secret";
@@ -62,10 +62,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       tenantId,
       lifecycle as "active" | "suspended" | "deleted",
       reason,
-      { type: "platform", id: claims.userId },
+      { type: "platform", id: claims.userId, claims },
     );
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
+    if (e instanceof PlatformMutationAuthorityChangedError) return NextResponse.json({ error: e.message }, { status: 403 });
     if (e instanceof TenantLifecycleError) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
     }

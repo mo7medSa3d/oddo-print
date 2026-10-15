@@ -108,8 +108,8 @@ export function buildTimelineFromJobRow(job: Pick<typeof printJobs.$inferSelect,
   if (job.claimedAt) {
     timeline.push({ stage: "claimed", status: "ok", at: job.claimedAt, messageKey: "job.timeline.claimedAttempt", messageVars: { attempt: job.attemptId ?? job.deliveryAttempts ?? 1 } });
   }
-  if (job.status === "printing" || job.deliveredAt) {
-    timeline.push({ stage: "accepted", status: "ok", at: job.deliveredAt ?? job.claimedAt, messageKey: "job.timeline.accepted" });
+  if (job.status === "printing" || job.status === "success" || job.ackedAt) {
+    timeline.push({ stage: "accepted", status: "ok", at: job.ackedAt ?? job.deliveredAt ?? job.claimedAt, messageKey: "job.timeline.accepted" });
   }
   if (job.spoolerJobId) {
     timeline.push({ stage: "connection", status: "ok", messageKey: "job.timeline.spoolerLink", messageVars: { id: job.spoolerJobId } });

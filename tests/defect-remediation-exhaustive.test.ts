@@ -154,7 +154,9 @@ describe("DEFECT #4 — Odoo Agent Selection & Runtime Printer Field", () => {
     expect(widgetSource).toContain('const connectionType = String(found.connectionType || "").trim().toLowerCase()');
     expect(widgetSource).toContain('updateData.printer_protocol = declared');
     expect(widgetSource).toContain(': "unknown";');
-    expect(widgetSource).toContain('connectionType === "spooler" || protocol === "spooler"');
+    expect(widgetSource).toContain('connectionType === "spooler" || connectionType === "windows_spooler"');
+    expect(widgetSource).toContain('(connectionType === "usb" && ["spooler", "windows_spooler"].includes(protocol))');
+    expect(widgetSource).toContain('if (connectionType !== "network" || protocol !== "escpos") return false;');
     expect(widgetSource).not.toContain('!["laser", "inkjet"].includes');
   });
 });
@@ -223,8 +225,10 @@ describe("DEFECT #6 — Odoo PDF Download vs Gateway Silent Printing", () => {
 describe("DEFECT #7 — Local Agent Test Print Latency Optimization", () => {
   it("TestPrinter checks registry and config first to avoid network scans", () => {
     const discoverySource = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/discovery.go"), "utf-8");
-    expect(discoverySource).toContain("if infos, err := LoadRegistryPrinters(registryPath)");
-    expect(discoverySource).toContain("for _, p := range discoverFromConfig(cfg)");
+    expect(discoverySource).toContain("registered, err := LoadRegistryPrinters(registryPath)");
+    expect(discoverySource).toContain("if err != nil && !os.IsNotExist(err)");
+    expect(discoverySource).toContain("configured = discoverFromConfig(cfg)");
+    expect(discoverySource).toContain("selectLocalTestTarget(registered, configured, printerID)");
     expect(discoverySource).toContain("Never invoke network discovery here");
   });
 });
@@ -265,7 +269,10 @@ describe("DEFECT #6 — Agent test-print fast path", () => {
     expect(testPrinter).toContain("LoadRegistryPrinters(registryPath)");
     expect(testPrinter).not.toContain("DiscoverQuick(cfg, registryPath)");
     expect(network).toContain("localESCPOSDiagnosticPayload()");
-    expect(network).toContain("return p.printBytes(testCtx, localESCPOSDiagnosticPayload(), false, testPrintDialTimeout)");
+    expect(network).toContain("payload, err := localByteDiagnosticPayload(strings.ToLower(strings.TrimSpace(p.Protocol)))");
+    expect(network).toContain("return p.printBytes(testCtx, payload, false, testPrintDialTimeout)");
+    const page = fs.readFileSync(path.resolve(__dirname, "../agent/internal/printer/test_page.go"), "utf-8");
+    expect(page).toContain('case "escpos":\n\t\treturn localESCPOSDiagnosticPayload(), nil');
     expect(network).toContain("Cutter support is a separate capability");
     expect(network).toContain("testPrintDialTimeout  = 3 * time.Second");
     expect(testSource).toContain("healthy test print took");

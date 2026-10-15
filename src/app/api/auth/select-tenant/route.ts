@@ -9,6 +9,7 @@ import { issueSessionPairInTransaction, revokeSessionFamilyInTransaction, Authen
 import { writeAuditEvent } from "../../../../lib/audit";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom } from "../../../../lib/auth-rate-limit";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 
 export async function POST(req: Request) {
   if (hasBodyOverLimit(req, 16 * 1024)) return NextResponse.json({ error: "Request body too large" }, { status: 413 });
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
 
   try {
     const result = await db.transaction(async (tx) => {
+      // Pair insertion holds this same lifecycle fence; take it before the
+      // user/family locks to preserve tenant -> principal -> session order.
+      await requireActiveTenantInTransaction(tx, tenantId);
       await tx.execute(sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`);
       if (!isSelectionToken && claims) {
         // User lock serializes reset; family lock serializes logout/rotation.
@@ -124,6 +128,7 @@ export async function POST(req: Request) {
     res.headers.set("Cache-Control", "no-store");
     return res;
   } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: "Workspace is suspended or unavailable" }, { status: 403 });
     if (error instanceof AuthenticationChangedError) return NextResponse.json({ error: "Invalid or expired workspace selection token" }, { status: 401 });
     const message = error instanceof Error ? error.message : "Workspace selection failed";
     // Single-use-token replay is a client-state conflict, not an

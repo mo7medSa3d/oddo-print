@@ -185,8 +185,9 @@ export async function POST(req: Request) {
     ? createHash("sha256").update(JSON.stringify(bodyRecord)).digest("hex")
     : null;
   const result = await db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, agent.tenantId);
     // Acquire resources in the same order as discovery-start and Agent
-    // lifecycle writers: Agent -> Tenant -> Session -> Device. Otherwise a
+    // lifecycle writers: Tenant -> Agent -> Session -> Device. Otherwise a
     // report could hold the session while waiting for an Agent FK key-share
     // lock, as a manager holds that Agent while expiring this session.
     const lockedAgent = await tx.execute(sql`
@@ -198,7 +199,6 @@ export async function POST(req: Request) {
     if (!agentRow?.id || agentRow.lifecycle !== "active") {
       return { kind: "agent_inactive" as const };
     }
-    await requireActiveTenantInTransaction(tx, agent.tenantId);
     // Serialize reporting against manager cancellation on the discovery session row.
     // Once this lock is held, the running-state check and all device/status writes
     // form one lifecycle decision: either the report lands before cancellation,

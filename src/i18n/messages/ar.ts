@@ -267,7 +267,7 @@ export const ar: Catalog = {
   "auth.verify.verifying": "جارٍ التحقّق من بريدك الإلكتروني…",
   "auth.verify.checkEmail": "تحقّق من بريدك",
   "auth.verify.verified": "تم التحقّق من البريد",
-  "auth.verify.verifiedBody": "تم التحقّق من البريد. جارٍ الانتقال إلى إعداد مساحة العمل…",
+  "auth.verify.verifiedBody": "تم تأكيد بريدك. جارٍ الانتقال إلى الخطوة التالية لتأمين الحساب…",
   "auth.verify.failed": "تعذّر التحقّق",
   "auth.verify.missingLink": "رابط التحقّق مفقود أو غير صالح.",
   "auth.verify.linkUnusable": "لا يمكن استخدام هذا الرابط",
@@ -300,6 +300,10 @@ export const ar: Catalog = {
   "auth.reset.linkMissing": "رابط إعادة تعيين كلمة المرور مفقود أو غير صالح. اطلب رابطًا جديدًا من صفحة تسجيل الدخول.",
   "auth.reset.success": "تم تحديث كلمة المرور. جارٍ الانتقال إلى تسجيل الدخول…",
   "auth.reset.backToSignIn": "العودة إلى تسجيل الدخول",
+
+  "auth.setup.title": "عيّن كلمة مرور حسابك",
+  "auth.setup.description": "تم التحقّق من بريدك. اختر كلمة مرور الآن لتأمين حسابك قبل تسجيل الدخول.",
+  "auth.setup.submit": "حفظ كلمة مرور الحساب",
 
   // ── Onboarding ───────────────────────────────────────────────────────────
   "onboarding.title": "إعداد مساحة العمل",
@@ -2439,10 +2443,10 @@ export const ar: Catalog = {
   "desktop.settings.languageBody": "يغيّر لغة التطبيق واتجاهه.",
   "desktop.settings.languageAria": "اختر لغة الواجهة",
   "mail.verify.subject": "تحقّق من حساب Yaseir",
-  "mail.verify.body": "تحقّق من حساب Yaseir.",
+  "mail.verify.body": "أكّد بريدك، ثم اختر كلمة مرور لتأمين حسابك في Yaseir.",
   "mail.verify.cta": "تحقّق من البريد",
   "mail.verify.expires": "تنتهي صلاحية هذا الرابط بعد 30 دقيقة.",
-  "mail.verify.text": "تحقّق من حساب Yaseir: {url}\nتنتهي صلاحية هذا الرابط بعد 30 دقيقة.",
+  "mail.verify.text": "أكّد بريدك واختر كلمة مرور حسابك في Yaseir: {url}\nتنتهي صلاحية هذا الرابط بعد 30 دقيقة.",
   "mail.reset.subject": "إعادة تعيين كلمة مرور Yaseir",
   "mail.reset.cta": "إعادة تعيين كلمة المرور",
   "mail.reset.text": "إعادة تعيين كلمة المرور: {url}",

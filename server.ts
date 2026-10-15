@@ -107,6 +107,17 @@ let httpServer: HttpServer | null = null;
 let agentWss: WebSocketServer | null = null;
 let shuttingDown = false;
 
+function maintenanceTask(operation: () => Promise<unknown>, failureEvent: string): () => void {
+  let running = false;
+  return () => {
+    if (running || shuttingDown) return;
+    running = true;
+    void Promise.resolve().then(operation)
+      .catch((error) => logError(failureEvent, { error }))
+      .finally(() => { running = false; });
+  };
+}
+
 function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -206,43 +217,31 @@ app.prepare().then(() => {
   httpServer = server;
   agentWss = attachAgentWSS(server);
 
-  const sweep = () => {
-    sweepPrintJobs().catch((error) => {
-      logError("[job-maintenance] sweep failed", { error: error });
-    });
-  };
+  const sweep = maintenanceTask(sweepPrintJobs, "[job-maintenance] sweep failed");
   sweep();
   const sweepTimer = setInterval(sweep, JOB_SWEEP_INTERVAL_MS);
   sweepTimer.unref();
 
-  const retentionSweep = () => {
-    cleanupTerminalPrintJobs().catch((error) => {
-      logError("[job-retention] cleanup failed", { error: error });
-    });
-  };
+  const retentionSweep = maintenanceTask(cleanupTerminalPrintJobs, "[job-retention] cleanup failed");
   retentionSweep();
   const retentionTimer = setInterval(retentionSweep, JOB_RETENTION_SWEEP_INTERVAL_MS);
   retentionTimer.unref();
 
-  const housekeeping = () => {
-    Promise.all([
+  const housekeeping = maintenanceTask(async () => {
+    const results = await Promise.allSettled([
       cleanupAuthRateLimits(),
       cleanupExpiredManagerSessions(),
       cleanupExpiredPlatformSessions(),
       cleanupExpiredRefreshTokens(),
-    ]).catch((error) => {
-      logError("[auth-maintenance] cleanup failed", { error: error });
-    });
-  };
+    ]);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }, "[auth-maintenance] cleanup failed");
   housekeeping();
   const housekeepingTimer = setInterval(housekeeping, HOUSEKEEPING_INTERVAL_MS);
   housekeepingTimer.unref();
 
-  const presenceSweep = () => {
-    sweepStaleAgentPresence().catch((error) => {
-      logError("[agent-presence] stale-agent sweep failed", { error: error });
-    });
-  };
+  const presenceSweep = maintenanceTask(sweepStaleAgentPresence, "[agent-presence] stale-agent sweep failed");
   presenceSweep();
   const presenceTimer = setInterval(presenceSweep, AGENT_PRESENCE_SWEEP_INTERVAL_MS);
   presenceTimer.unref();

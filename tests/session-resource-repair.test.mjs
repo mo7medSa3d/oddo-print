@@ -69,6 +69,8 @@ function fixture() {
     requireManager:async()=>{if(!claims)throw new ActionError('expired',401);return claims;},validateWorkspaceManager:async()=>claims,
     requireManagerPermission:()=>{if(claims?.role==='viewer')throw Object.assign(new Error('denied'),{status:403,code:'FORBIDDEN'});},
     requireActiveTenantInTransaction:async()=>{},
+    TenantSuspendedError:class TenantSuspendedError extends Error {},
+    TenantDeletedError:class TenantDeletedError extends Error {},
     // This older projection models the post-authorization resource mutation;
     // the actual guard and demotion are covered by manager-actor-commit-f013.
     requireManagerActorInTransaction:async(_tx,actor,permission)=>{
@@ -104,6 +106,16 @@ test('deletion batches history and forbids foreign-tenant resource deletion',asy
   const api=await deletion(f);await assert.rejects(api.deleteAgent('foreign'),e=>e.status===404);
   assert.equal(f.rows.printJobs.length,205);
   await api.deleteAgent('a');assert.equal(f.rows.printJobReceipts.length,205);assert.equal(f.rows.printJobs.length,0);
+});
+test('Agent deletion retains unknown outcome while delivery evidence is pending',async()=>{
+  const f=fixture();
+  f.rows.printJobs.push({...job('in-flight','claimed'),error:'DELIVERY_EVIDENCE_PENDING',claimToken:'attempt-fence'});
+  const api=await deletion(f);
+  await api.deleteAgent('a');
+  const receipt=f.rows.printJobReceipts.find(row=>row.id==='in-flight');
+  assert.match(receipt.error,/^UNKNOWN_PARTIAL_DELIVERY:/);
+  assert.equal(receipt.closedClaimTokenHash,createHash('sha256').update('attempt-fence').digest('hex'));
+  assert.equal(f.rows.printJobs.length,0);
 });
 test('Agent deletion rolls back runtime and receipt writes when audit fails',async()=>{
   const f=fixture();f.rows.printJobs.push(job('j'));f.globals.writeAuditEvent=async()=>{throw new Error('audit unavailable');};
@@ -188,6 +200,7 @@ test('Odoo print admission rechecks the live credential before consuming plan cr
   const calls=[];
   const tx={execute:async query=>{
     calls.push(query.text);
+    if(query.text.includes('FROM tenants'))return {rows:[{lifecycle:'active'}]};
     if(query.text.includes('clock_timestamp() AS now'))return {rows:[{now:new Date()}]};
     if(query.text.includes('FROM agents a'))return {rows:[{printer_agent_id:'a',tenant_lifecycle:'active',printer_lifecycle:'active',agent_lifecycle:'active'}]};
     return {rows:[]};
@@ -214,7 +227,8 @@ test('an activation request authenticated before key removal cannot revive that 
     db:{transaction:fn=>fn(tx),query:{apiKeys:{findFirst:async()=>undefined}}},
     sql:(strings,...values)=>{guards.push([strings.join('?'),values]);return {};},
     and:(...values)=>values,eq:(column,value)=>{guards.push([column.field,value]);return {};},lt:()=>({}),
-    isTenantBillingError:()=>false,requireTenantBillingAccess:async()=>{},
+    isTenantBillingError:()=>false,requireTenantBillingAccess:async()=>{},requireActiveTenantInTransaction:async()=>{},
+    TenantSuspendedError:class TenantSuspendedError extends Error {},TenantDeletedError:class TenantDeletedError extends Error {},
     NextResponse:{json:(body,opts)=>response(opts?.status??200,body)},
   },s=>s.slice(s.indexOf('export async function PATCH')));
   const result=await api.PATCH(new Request('https://gateway/api/odoo/configuration',{method:'PATCH',body:JSON.stringify({enabled:false,revision:1000})}));

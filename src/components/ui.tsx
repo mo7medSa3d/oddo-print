@@ -995,7 +995,7 @@ export function Checkbox({
         {/* Non-color checked indicator: the brand fill alone is not
             discernible without color vision (C048). */}
         <Check
-          className="pointer-events-none absolute inset-0 h-4 w-4 p-[3px] text-brand-contrast opacity-0 transition-opacity duration-[120ms] peer-checked:opacity-100 peer-disabled:opacity-0"
+          className="pointer-events-none absolute inset-0 h-4 w-4 p-[3px] text-brand-contrast opacity-0 transition-opacity duration-[120ms] peer-checked:opacity-100"
           aria-hidden
           strokeWidth={3.5}
         />
@@ -1414,6 +1414,14 @@ export function Menu({
   }, [open, floatingPosition]);
 
   const onMenuKeyDown = (event: React.KeyboardEvent) => {
+    // Handle the focused popup before a containing dialog sees Escape on
+    // document; dismissing a menu must not also dismiss its parent dialog.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
     const nodes = Array.from(
       menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])') ?? [],
     );
@@ -1759,8 +1767,9 @@ export function useDialog(
       const nodes = panel.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
-      const visible = [...nodes].filter((el) => el.offsetParent !== null);
-      return visible.length > 0 ? visible : [...nodes];
+      const tabbable = [...nodes].filter((el) => el.tabIndex >= 0 && !el.closest("[inert]"));
+      const visible = tabbable.filter((el) => el.offsetParent !== null);
+      return visible.length > 0 ? visible : tabbable;
     };
     const onKey = (e: KeyboardEvent) => {
       if (dialogStack[dialogStack.length - 1] !== panel) return;

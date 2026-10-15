@@ -111,6 +111,10 @@ function validatePrivatePrinterHost(value: string): string | null {
 function validateIPPPrinterAddress(value: string): string | null {
   const raw = value.trim();
   if (!raw) return "IPP printer requires config.address";
+  // The Agent only expands a scheme-less address when it is host:port.
+  if (!raw.includes("://") && !/^(?:\[[^\]]+\]|[^:/?#@\s]+):[0-9]+$/.test(raw)) {
+    return "IPP printer requires an absolute URL or an IP address with an explicit port";
+  }
   let parsed: URL;
   try {
     parsed = new URL(raw.includes("://") ? raw : `http://${raw}`);
@@ -180,7 +184,8 @@ export function validateConnectionConfig(connectionType: string, cfg: Record<str
     const addressErr = validateIPPPrinterAddress(cfg.address);
     if (addressErr) return addressErr;
     try {
-      const parsed = new URL(cfg.address.includes("://") ? cfg.address : `http://${cfg.address}`);
+      const address = cfg.address.trim();
+      const parsed = new URL(address.includes("://") ? address : `http://${address}`);
       const scheme = parsed.protocol.toLowerCase();
       if (connectionType === "ipps" && !["https:", "ipps:"].includes(scheme)) {
         return "IPPS printer requires an HTTPS/IPPS address";

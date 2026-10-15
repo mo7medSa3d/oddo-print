@@ -108,6 +108,9 @@ export async function GET(req: Request) {
   await refreshClockSkew();
 
   const claimJobs = async (tx: { execute: typeof db.execute }) => {
+    const tenant = await tx.execute(sql`SELECT id FROM tenants
+      WHERE id = ${agent.tenantId} AND lifecycle = 'active' FOR SHARE`);
+    if (tenant.rows.length !== 1) return [];
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:agent:${agent.id}`}))`);
 
     // Capacity accounting must include all unexpired claimed/printing jobs owned
@@ -218,7 +221,7 @@ export async function GET(req: Request) {
           AND t.lifecycle = 'active'
         ORDER BY c.priority ASC, c.created_at ASC
         LIMIT ${queuedLimit}
-        FOR UPDATE OF p, a, pr, t SKIP LOCKED
+        FOR UPDATE OF p, a, pr SKIP LOCKED
       ),
       ranked_claimable AS (
         SELECT c.id,
@@ -658,13 +661,9 @@ export async function PATCH(req: Request) {
   let updated: Array<{ status: string; error: string | null }>;
   if (requestedStatus === "printing") {
     updated = await db.transaction(async (tx) => {
-      const lockedJob = await tx.execute(sql`
-        SELECT id FROM print_jobs
-        WHERE id = ${jobId} AND tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
-        FOR UPDATE
-      `);
-      if (lockedJob.rows.length !== 1) return [];
-
+      const tenant = await tx.execute(sql`SELECT id FROM tenants
+        WHERE id = ${agent.tenantId} AND lifecycle = 'active' FOR SHARE`);
+      if (tenant.rows.length !== 1) return [];
       const lifecycle = await tx.execute(sql`
         SELECT a.lifecycle AS agent_lifecycle, t.lifecycle AS tenant_lifecycle,
                pr.lifecycle AS printer_lifecycle, pr.inventory_present,
@@ -691,6 +690,12 @@ export async function PATCH(req: Request) {
         || Number(row.observed_desired_revision) < Number(row.desired_revision)
       )) return [];
 
+      const lockedJob = await tx.execute(sql`
+        SELECT id FROM print_jobs
+        WHERE id = ${jobId} AND tenant_id = ${agent.tenantId} AND agent_id = ${agent.id}
+        FOR UPDATE
+      `);
+      if (lockedJob.rows.length !== 1) return [];
       return runStatusUpdate(tx);
     });
   } else {

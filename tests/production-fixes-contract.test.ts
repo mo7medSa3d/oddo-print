@@ -319,7 +319,7 @@ describe("2026-09-24 remediation contracts", () => {
     const block = source.slice(from, to);
     expect(from).toBeGreaterThanOrEqual(0);
     expect(to).toBeGreaterThan(from);
-    expect(block).toContain("if (!job || busy) return;");
+    expect(block).toContain("if (!job || busy || !canMutate.jobsRetry) return;");
     expect(block).toContain("setBusy(true);");
     expect(block).toContain("finally");
     expect(block).toContain("setBusy(false);");
@@ -376,7 +376,7 @@ describe("production fixes — authentication and observability", () => {
 });
 
 describe("onboarding session contract", () => {
-  it("accepts the same workspace session issued by email verification", () => {
+  it("accepts the normal workspace session after email proof and owner password setup", () => {
     const source = read("src/app/api/onboarding/route.ts");
     expect(source).toContain("const claims = await validateWorkspaceManager(req);");
     expect(source).not.toContain("const claims = await validateManager(req);");

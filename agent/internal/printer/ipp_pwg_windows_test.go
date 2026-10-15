@@ -28,7 +28,10 @@ func TestIPPWindowsPWGOnlyPrinterGetsRealRaster(t *testing.T) {
 		case 0x000B:
 			probes++
 			var response bytes.Buffer
-			response.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 4})
+			response.Write([]byte{2, 0, 0, 0, 0, 0, 0, 1, 1})
+			writeIPPAttribute(&response, 0x47, "attributes-charset", "utf-8")
+			writeIPPAttribute(&response, 0x48, "attributes-natural-language", "en")
+			response.WriteByte(4)
 			writeIPPAttribute(&response, 0x49, "document-format-supported", "image/pwg-raster")
 			writeIPPAttribute(&response, 0x44, "pwg-raster-document-type-supported", "sgray_8")
 			// IPP resolution type 0x32 = X(4) Y(4) units(1).

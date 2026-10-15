@@ -1,6 +1,6 @@
 import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { logError } from "../../../../lib/log";
-import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "../../../../lib/tenant-guard";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ ok: true, url: portal.url });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantDeletedError || error instanceof TenantSuspendedError) return NextResponse.json({ error: error.message }, { status: 403 });
     const message = error instanceof Error ? error.message : "unknown";
     logError("billing.portal_failed", { error: message.slice(0, 200) });
     if (message === "Stripe is not configured") {

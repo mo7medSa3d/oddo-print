@@ -118,7 +118,7 @@ export function validatePayloadForPrinter(
     return { ok: false, reason: "CAPABILITY_MISMATCH: supported_protocols must be an array" };
   }
   const supported = Array.isArray(rawSupported)
-    ? rawSupported.map((value) => String(value).toLowerCase())
+    ? rawSupported.filter((value): value is string => typeof value === "string").map((value) => value.toLowerCase().trim())
     : [];
   const hasExplicitCaps = hasSupportedProtocolsProperty;
   // AUTHORITATIVE RULE for "unknown" protocol (mirrored in
@@ -232,7 +232,7 @@ export function hasDeclaredProtocol(
   token: string,
 ): boolean {
   const raw = capabilities?.supported_protocols;
-  return Array.isArray(raw) && raw.some((value) => String(value).toLowerCase().trim() === token);
+  return Array.isArray(raw) && raw.some((value) => typeof value === "string" && value.toLowerCase().trim() === token);
 }
 
 export function getSupportedDocumentTypes(protocol: ProtocolType, transport: TransportType, capabilities?: { supported_protocols?: string[] } | null): DocumentType[] {

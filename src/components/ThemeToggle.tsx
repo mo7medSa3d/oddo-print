@@ -13,8 +13,17 @@ function emitThemeChange() {
 }
 
 function subscribe(onStoreChange: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== "theme") return;
+    const stored = event.key === "theme" ? event.newValue : null;
+    const next = stored === "light" || stored === "dark" ? stored
+      : typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    syncColorScheme();
+    onStoreChange();
+  };
   window.addEventListener(THEME_EVENT, onStoreChange);
-  window.addEventListener("storage", onStoreChange);
+  window.addEventListener("storage", onStorage);
 
   // Follow the OS until the user makes an explicit choice. Some test DOMs
   // (including jsdom) do not implement matchMedia, so theme syncing must
@@ -22,7 +31,7 @@ function subscribe(onStoreChange: () => void) {
   if (typeof window.matchMedia !== "function") {
     return () => {
       window.removeEventListener(THEME_EVENT, onStoreChange);
-      window.removeEventListener("storage", onStoreChange);
+      window.removeEventListener("storage", onStorage);
     };
   }
 
@@ -49,7 +58,7 @@ function subscribe(onStoreChange: () => void) {
   }
   return () => {
     window.removeEventListener(THEME_EVENT, onStoreChange);
-    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener("storage", onStorage);
     if (typeof mq.removeEventListener === "function") {
       mq.removeEventListener("change", onSchemeChange);
     } else if (typeof mqLegacy.removeListener === "function") {

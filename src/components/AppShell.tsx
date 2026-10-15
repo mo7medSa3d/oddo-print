@@ -2,7 +2,7 @@
 
 import { fetchWithTimeout } from "../lib/fetch-timeout";
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -24,7 +24,7 @@ import {
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { TopNavbar, type TopNavItem } from "./TopNavbar";
 import { MobileAppBar } from "./MobileAppBar";
-import { Avatar, Menu, type MenuItemSpec } from "./ui";
+import { Avatar, Button, Callout, Menu, type MenuItemSpec } from "./ui";
 import { CommandPalette, type CommandItem } from "./CommandPalette";
 import { ThemeToggle, toggleTheme } from "./ThemeToggle";
 import { ensureCustomerSession } from "../lib/session-config";
@@ -478,6 +478,7 @@ function ConsoleShell({
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useI18n();
   useEffect(() => {
     const refresh = () => router.refresh();
     window.addEventListener("yaseir:locale-navigation", refresh);
@@ -485,6 +486,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [router]);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutFailed, setLogoutFailed] = useState(false);
+  const logoutFlight = useRef(false);
 
   const isAuthScreen = ["/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/invite"].some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
@@ -521,25 +524,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname, isPlatformScreen, isAuthScreen, isPublicScreen, router]);
 
   async function handleLogout() {
-    if (loggingOut) return;
+    if (logoutFlight.current) return;
+    logoutFlight.current = true;
     setLoggingOut(true);
+    setLogoutFailed(false);
     // Revoke the manager family through its own cookie path FIRST: the
     // mgr_refresh cookie is scoped to /api/auth/manager and the generic
     // logout below cannot see it (nor revoke the family when the access
     // cookie already expired). Manager logout also clears the manager
     // cookies; generic logout then revokes the customer family and clears
-    // every remaining pair. Either request failing still ends in redirect;
-    // the server answers 503 so an outage stays visible instead of silent.
+    // every remaining pair. An outage cannot prove server-side revocation.
+    let failed = false;
     try {
-      await fetchWithTimeout("/api/auth/manager/logout", { method: "POST", credentials: "include", cache: "no-store" });
-    } catch {
-      // Fall through to generic logout, which still clears browser state.
-    }
-    try {
-      await fetchWithTimeout("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
-    } finally {
+      try {
+        const response = await fetchWithTimeout("/api/auth/manager/logout", { method: "POST", credentials: "include", cache: "no-store" });
+        failed = !response.ok;
+      } catch { failed = true; }
+      try {
+        const response = await fetchWithTimeout("/api/auth/logout", { method: "POST", credentials: "include", cache: "no-store" });
+        failed ||= !response.ok;
+      } catch { failed = true; }
+      if (failed) {
+        setLogoutFailed(true);
+        return;
+      }
       router.replace("/");
       router.refresh();
+    } finally {
+      logoutFlight.current = false;
       setLoggingOut(false);
     }
   }
@@ -565,6 +577,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (authenticated === true) {
     return (
       <ConsoleShell onLogout={handleLogout} loggingOut={loggingOut}>
+        {logoutFailed && <Callout tone="bad" title={t("nav.signOut")} action={<Button variant="secondary" size="sm" onClick={() => void handleLogout()}>{t("common.retry")}</Button>}>
+          {t("platform.session.logoutFailed")}
+        </Callout>}
         {children}
       </ConsoleShell>
     );

@@ -5,7 +5,7 @@ import { authenticateCustomer, validateManager, validateManagerClaims, type Mana
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
 import { nanoid } from "./nanoid";
-import { requireActiveTenantOrNull } from "./tenant-guard";
+import { requireActiveTenantOrNull, TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
 import {
   accessCookieHeader,
   clearAccessCookieHeader,
@@ -120,14 +120,19 @@ export async function issueCustomerSession(
 ) {
   const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
   if (!tenantLifecycle) return null;
-  return issueSessionPair({
-    kind: "customer",
-    userId,
-    tenantId,
-    role,
-    email: email ?? null,
-    credentialVersion,
-  }, context);
+  try {
+    return await issueSessionPair({
+      kind: "customer",
+      userId,
+      tenantId,
+      role,
+      email: email ?? null,
+      credentialVersion,
+    }, context);
+  } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return null;
+    throw error;
+  }
 }
 
 export function customerSessionCookie(session: { accessToken: string; accessExpiresAt: Date }) {

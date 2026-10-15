@@ -58,7 +58,7 @@ def test_real_cron_eventually_polls_101st_unresolved_job_after_bounded_page():
                            [(stamp, job.id) for job in self.jobs])
 
     class Cron:
-        def _commit_progress(self, processed):
+        def _commit_progress(self, processed=0, *, remaining=None):
             db.commit()
             return 100000
 

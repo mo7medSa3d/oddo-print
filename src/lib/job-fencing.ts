@@ -37,8 +37,8 @@ export function fencedJobWrite(
  * printing). Authentication checks agent/tenant lifecycle, but a disable or
  * suspension landing between authentication and the status UPDATE must not
  * grant printing admission. These EXISTS predicates are the final
- * in-statement guard. The claimed -> printing route also locks the job row
- * first, then reads and FOR SHARE-locks the current agent/tenant rows in a
+ * in-statement guard. The claimed -> printing route locks the tenant and
+ * runtime owner before locking the job, then checks their current state in a
  * fresh READ COMMITTED statement. That transaction is the serialization
  * boundary; these predicates remain defense in depth. Terminal reconciliation
  * paths must NOT use this gate: reporting an outcome is independent of liveness.

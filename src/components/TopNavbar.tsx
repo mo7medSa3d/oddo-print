@@ -123,7 +123,7 @@ export function TopNavbar({
           aria-label={t("nav.consoleNavigation")}
           className={[
             menuOpen ? "flex" : "hidden",
-            "tg-mobile-sheet pg-scale-in absolute inset-inline-3 top-[68px] z-50 flex-col gap-1 rounded-xl border border-edge-strong bg-surface p-2 shadow-xl",
+            "tg-mobile-sheet pg-scale-in absolute inset-x-3 top-[68px] z-50 flex-col gap-1 rounded-xl border border-edge-strong bg-surface p-2 shadow-xl",
             "lg:static lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:items-center lg:gap-1 lg:overflow-x-auto lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none",
           ].join(" ")}
         >

@@ -29,7 +29,7 @@ import { db, queryWithTimeout } from "../db/client";
 import { sql } from "drizzle-orm";
 import migrationJournal from "../../drizzle/meta/_journal.json";
 import { agentStaleThresholdSeconds, printerStaleThresholdSeconds } from "./stale-threshold";
-import { agents, printers } from "../db/schema";
+import { nonVirtualPrinterPredicate } from "./printer-virtual-sql";
 import { logWarn } from "./log";
 
 export type HealthState = "ok" | "warn" | "error" | "unknown";
@@ -149,10 +149,12 @@ export async function checkPrinters(tenantId?: string): Promise<HealthCheck> {
     }
     const result = await queryWithTimeout(
       () => db.execute(sql`SELECT
-        COUNT(*) FILTER (WHERE p.lifecycle = 'active')::int as total,
-        COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}))::int as ready,
-        COUNT(*) FILTER (WHERE p.lifecycle = 'active' AND p.status IN ('online','busy') AND p.last_seen_at IS NOT NULL AND p.last_seen_at <= NOW() AND p.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as routable
-        FROM printers p LEFT JOIN agents a ON a.id = p.agent_id AND a.tenant_id = p.tenant_id WHERE p.tenant_id=${tenantId} AND p.shared_with_gateway = true`),
+        COUNT(*) FILTER (WHERE printers.lifecycle = 'active')::int as total,
+        COUNT(*) FILTER (WHERE printers.lifecycle = 'active' AND printers.status IN ('online','busy') AND printers.last_seen_at IS NOT NULL AND printers.last_seen_at <= NOW() AND printers.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}))::int as ready,
+        COUNT(*) FILTER (WHERE printers.lifecycle = 'active' AND printers.status IN ('online','busy') AND printers.last_seen_at IS NOT NULL AND printers.last_seen_at <= NOW() AND printers.last_seen_at >= NOW() - make_interval(secs => ${printerStaleThresholdSeconds()}) AND a.lifecycle = 'active' AND a.status = 'online' AND a.last_seen_at IS NOT NULL AND a.last_seen_at <= NOW() AND a.last_seen_at >= NOW() - make_interval(secs => ${agentStaleThresholdSeconds()}))::int as routable
+        FROM printers LEFT JOIN agents a ON a.id = printers.agent_id AND a.tenant_id = printers.tenant_id
+        WHERE printers.tenant_id=${tenantId} AND printers.shared_with_gateway = true
+          AND printers.inventory_present = true AND ${nonVirtualPrinterPredicate()}`),
       2000,
       "systemHealthPrinters"
     );

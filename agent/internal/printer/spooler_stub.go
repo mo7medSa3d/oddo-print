@@ -53,12 +53,15 @@ func (p *SpoolerPrinter) Print(ctx context.Context, data []byte) error {
 	if !simulatedTransportAllowed() {
 		return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: the Windows spooler backend cannot run on this OS; nothing was printed to %q", p.SpoolerName)
 	}
+	if err := runDispatchAdmission(ctx); err != nil {
+		return err
+	}
 	dir := os.TempDir()
 	fpath := filepath.Join(dir, fmt.Sprintf("spooler_%s_%d.prn", sanitizeFilename(p.SpoolerName), time.Now().UnixNano()))
 	if err := os.WriteFile(fpath, data, 0600); err != nil {
 		return fmt.Errorf("simulated spooler write failed: %w", err)
 	}
-	return nil
+	return fmt.Errorf("SIMULATED_TRANSPORT: spooler diagnostic file written; no physical printer submission occurred")
 }
 
 func (p *SpoolerPrinter) SupportsKind(kind string) bool {
@@ -83,11 +86,14 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 		if err := ValidatePDF(doc.Data); err != nil {
 			return err
 		}
+		if err := runDispatchAdmission(ctx); err != nil {
+			return err
+		}
 		fpath := filepath.Join(os.TempDir(), fmt.Sprintf("spooler_%s_%d.pdf", sanitizeFilename(p.SpoolerName), time.Now().UnixNano()))
 		if err := os.WriteFile(fpath, doc.Data, 0600); err != nil {
 			return fmt.Errorf("simulated spooler PDF write failed: %w", err)
 		}
-		return nil
+		return fmt.Errorf("SIMULATED_TRANSPORT: spooler PDF diagnostic file written; no physical printer submission occurred")
 	case KindImage:
 		var pdf []byte
 		var err error
@@ -203,9 +209,6 @@ func (p *SpoolerPrinter) Status() string {
 			// physical device, so report "unknown" — never a fabricated error.
 			return "unknown"
 		}
-	}
-	if simulatedTransportAllowed() {
-		return "online"
 	}
 	return "unknown"
 }

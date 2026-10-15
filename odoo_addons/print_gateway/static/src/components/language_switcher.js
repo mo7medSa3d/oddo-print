@@ -101,6 +101,7 @@ export class PrintGatewayLanguageSwitcher extends Component {
             user.updateContext({ lang: code });
             browser.location.reload();
         } catch {
+            if (!this.alive) return;
             this.notification.add(
                 _t("Could not change language. Make sure the language is installed."),
                 { type: "danger" },

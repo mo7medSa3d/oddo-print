@@ -100,6 +100,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   let result;
   try {
     result = await db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, tenantId);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('printer:' || ${tenantId} || ':' || ${id}))`);
 
     const owner = await tx.query.printers.findFirst({
@@ -121,7 +122,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return { kind: "conflict" as const, message: `cannot activate printer while agent is ${ownerLifecycle}` };
     }
 
-    await requireActiveTenantInTransaction(tx, tenantId);
     await requireManagerActorInTransaction(tx, auth.claims, "printers.manage");
 
     let connectionType = parsed.data.connectionType ?? existing.connectionType;

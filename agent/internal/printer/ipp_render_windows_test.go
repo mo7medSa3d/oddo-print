@@ -38,6 +38,7 @@ func TestIPPWindowsOnePagePDFToJPEG(t *testing.T) {
 func TestIPPWindowsJPEGOnlyPrinterReceivesConvertedDocument(t *testing.T) {
 	var probes, prints int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/ipp")
 		body := readAll(r.Body)
 		if len(body) < 8 {
 			t.Error("empty IPP request")

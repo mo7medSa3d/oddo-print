@@ -38,6 +38,8 @@ const (
 	maxPDFDevModeBytes = 8 * 1024 * 1024
 
 	// GetDeviceCaps indices.
+	capHorzRes         = 8
+	capVertRes         = 10
 	capRasterCaps      = 38
 	capLogPixelsX      = 88
 	capLogPixelsY      = 90
@@ -238,12 +240,13 @@ func rgbaToBGRAInPlace(src *image.RGBA) error {
 	return nil
 }
 
-// GDI starts at the printable-area origin. Negative hardware offsets place
-// the PDF at the physical-sheet origin; capped raster pixels scale back to
-// sheet device units so a memory limit does not change document dimensions.
-func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, pageWidth, pageHeight, offsetX, offsetY int) error {
+// Destination bounds were fitted to the actual printable area before drawing.
+func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, destinationWidth, destinationHeight, x, y int) error {
 	if width <= 0 || height <= 0 || len(bitmap) != width*height*4 {
 		return fmt.Errorf("invalid rendered bitmap %dx%d (%d bytes)", width, height, len(bitmap))
+	}
+	if destinationWidth <= 0 || destinationHeight <= 0 || x < 0 || y < 0 {
+		return fmt.Errorf("invalid fitted bitmap destination %d,%d %dx%d", x, y, destinationWidth, destinationHeight)
 	}
 	info := winBITMAPINFO{
 		Header: winBITMAPINFOHEADER{
@@ -257,15 +260,10 @@ func drawBitmapToPrinter(hdc uintptr, bitmap []byte, width, height, pageWidth, p
 		},
 	}
 
-	x, y, destinationWidth, destinationHeight, err := pdfBitmapDestination(pageWidth, pageHeight, offsetX, offsetY)
-	if err != nil {
-		return err
-	}
-
 	// Direct copy requires driver support; select the existing stretch path
 	// before submission when that capability is absent. Never replay a page.
 	directSupported := deviceCaps(hdc, capRasterCaps)&rcDIBToDevice != 0
-	err = transferGDIBitmap(width != destinationWidth || height != destinationHeight, directSupported, func() (int32, error) {
+	err := transferGDIBitmap(width != destinationWidth || height != destinationHeight, directSupported, func() (int32, error) {
 		ret, _, _ := procSetDIBitsToDevice.Call(
 			hdc,
 			uintptr(x), uintptr(y), uintptr(width), uintptr(height),
@@ -459,6 +457,8 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 	}
 	plans := make([]pagePlan, pages.PageCount)
 	modes := make(map[pdfPaper][]byte)
+	var currentMode []byte
+	currentModeCounted := false
 	modeBytes := 0
 	for pageIndex := range plans {
 		if err := ctx.Err(); err != nil {
@@ -474,11 +474,27 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		}
 		mode, ok := modes[paper]
 		if !ok {
-			mode, err = pdfPrinterDevMode(printerName, paper)
+			var usedCurrent bool
+			mode, usedCurrent, err = selectPDFPaperMode(func() ([]byte, error) {
+				return pdfPrinterDevMode(printerName, paper)
+			}, func() ([]byte, error) {
+				if currentMode == nil {
+					var currentErr error
+					currentMode, currentErr = pdfPrinterCurrentDevMode(printerName)
+					return currentMode, currentErr
+				}
+				return currentMode, nil
+			})
 			if err != nil {
 				return fmt.Errorf("configure PDF page %d paper: %w", pageIndex+1, err)
 			}
-			modeBytes += len(mode)
+			if usedCurrent {
+				log.Printf("PDF page %d on %q will fit the selected driver's current paper before submission", pageIndex+1, printerName)
+			}
+			if !usedCurrent || !currentModeCounted {
+				modeBytes += len(mode)
+				currentModeCounted = currentModeCounted || usedCurrent
+			}
 			if modeBytes > maxPDFDevModeBytes {
 				return fmt.Errorf("PDF driver settings exceed the %d-byte document budget", maxPDFDevModeBytes)
 			}
@@ -492,11 +508,10 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 	}
 	defer func() { procDeleteDC.Call(hdc) }()
 
-	// Prove all distinct forms are supported before StartDoc. A later mixed
-	// page must not discover that the driver silently substituted default paper
-	// after earlier pages already crossed the submission boundary.
+	// Validate every actual printable form before StartDoc. Driver substitutions
+	// are fitted proportionally; invalid geometry still refuses all submission.
 	validated := make(map[pdfPaper]bool)
-	for _, plan := range plans {
+	for pageIndex, plan := range plans {
 		if validated[plan.paper] {
 			continue
 		}
@@ -510,7 +525,18 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 				return err
 			}
 		}
-		validationErr := validatePDFSheet(plan.width, plan.height, deviceCaps(checkDC, capPhysicalWidth), deviceCaps(checkDC, capPhysicalHeight), deviceCaps(checkDC, capLogPixelsX), deviceCaps(checkDC, capLogPixelsY))
+		physicalW, physicalH := deviceCaps(checkDC, capPhysicalWidth), deviceCaps(checkDC, capPhysicalHeight)
+		dpiX, dpiY := deviceCaps(checkDC, capLogPixelsX), deviceCaps(checkDC, capLogPixelsY)
+		_, _, _, _, validationErr := pdfPrintableDestination(plan.width, plan.height, physicalW, physicalH,
+			deviceCaps(checkDC, capHorzRes), deviceCaps(checkDC, capVertRes), dpiX, dpiY,
+			deviceCaps(checkDC, capPhysicalOffsetX), deviceCaps(checkDC, capPhysicalOffsetY))
+		if validationErr != nil {
+			validationErr = pdfSheetDiagnostic(validationErr, pageIndex+1, true, plan.width, plan.height,
+				physicalW, physicalH, deviceCaps(checkDC, capHorzRes), deviceCaps(checkDC, capVertRes),
+				dpiX, dpiY, deviceCaps(checkDC, capPhysicalOffsetX), deviceCaps(checkDC, capPhysicalOffsetY))
+		} else if mismatch := validatePDFSheet(plan.width, plan.height, physicalW, physicalH, dpiX, dpiY); mismatch != nil {
+			log.Printf("PDF page %d on %q will fit the actual driver printable area before submission: %v", pageIndex+1, printerName, mismatch)
+		}
 		if checkDC != hdc {
 			procDeleteDC.Call(checkDC)
 		}
@@ -521,23 +547,25 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 	}
 
 	pageWidth, pageHeight, offsetX, offsetY, maxW, maxH := 0, 0, 0, 0, 0, 0
+	destinationX, destinationY, destinationW, destinationH := 0, 0, 0, 0
 	pageBounds := func(index int) error {
 		pageWidth, pageHeight = deviceCaps(hdc, capPhysicalWidth), deviceCaps(hdc, capPhysicalHeight)
 		offsetX, offsetY = deviceCaps(hdc, capPhysicalOffsetX), deviceCaps(hdc, capPhysicalOffsetY)
-		if _, _, _, _, err := pdfBitmapDestination(pageWidth, pageHeight, offsetX, offsetY); err != nil {
-			return err
-		}
-		if err := validatePDFSheet(plans[index].width, plans[index].height, pageWidth, pageHeight, deviceCaps(hdc, capLogPixelsX), deviceCaps(hdc, capLogPixelsY)); err != nil {
-			return err
-		}
+		dpiX, dpiY := deviceCaps(hdc, capLogPixelsX), deviceCaps(hdc, capLogPixelsY)
 		var err error
-		maxW, maxH, err = renderBounds(pageWidth, pageHeight)
+		destinationX, destinationY, destinationW, destinationH, err = pdfPrintableDestination(plans[index].width, plans[index].height,
+			pageWidth, pageHeight, deviceCaps(hdc, capHorzRes), deviceCaps(hdc, capVertRes), dpiX, dpiY, offsetX, offsetY)
+		if err != nil {
+			return pdfSheetDiagnostic(err, index+1, index == 0, plans[index].width, plans[index].height,
+				pageWidth, pageHeight, deviceCaps(hdc, capHorzRes), deviceCaps(hdc, capVertRes), dpiX, dpiY, offsetX, offsetY)
+		}
+		maxW, maxH, err = renderBounds(destinationW, destinationH)
 		return err
 	}
 	if err := pageBounds(0); err != nil {
 		return err
 	}
-	log.Printf("Embedded PDF print on %q: physical=%dx%d offset=%d,%d render-cap=%dx%d pages=%d", printerName, pageWidth, pageHeight, offsetX, offsetY, maxW, maxH, pages.PageCount)
+	log.Printf("Embedded PDF print on %q: physical=%dx%d offset=%d,%d fitted=%d,%d %dx%d render-cap=%dx%d pages=%d", printerName, pageWidth, pageHeight, offsetX, offsetY, destinationX, destinationY, destinationW, destinationH, maxW, maxH, pages.PageCount)
 
 	// Render the first page before StartDocW. A renderer failure here is a
 	// deterministic pre-dispatch error, not an unknown physical outcome.
@@ -603,7 +631,7 @@ func renderAndPrintPDFWithPDFiumResultObserved(ctx context.Context, printerName 
 		if err := startGDIPage(hdc); err != nil {
 			return markPDFDispatchUnknown(printerName, fmt.Sprintf("could not start page %d", pageNumber), err)
 		}
-		if err := drawBitmapToPrinter(hdc, img.Pix, img.Rect.Dx(), img.Rect.Dy(), pageWidth, pageHeight, offsetX, offsetY); err != nil {
+		if err := drawBitmapToPrinter(hdc, img.Pix, img.Rect.Dx(), img.Rect.Dy(), destinationW, destinationH, destinationX, destinationY); err != nil {
 			_ = endGDIPage(hdc)
 			return markPDFDispatchUnknown(printerName, fmt.Sprintf("could not render page %d to the printer", pageNumber), err)
 		}

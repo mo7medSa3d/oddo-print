@@ -69,6 +69,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
             return;
           }
           if (!refresh.ok) {
+            setCheckFailed(true);
             // Transient: keep the session, retry soon — never sign out on a
             // blip, and never leave observation to a fixed timer (C062).
             if (timer) clearTimeout(timer);
@@ -86,6 +87,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         } catch {
           // Transport failure: retry, don't redirect (C062).
           if (cancelled) return;
+          setCheckFailed(true);
           if (timer) clearTimeout(timer);
           timer = setTimeout(() => {
             void refreshSession();
@@ -103,6 +105,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         if (cancelled) return;
         if (res.ok) {
           const data = await res.json().catch(() => null) as { exp?: unknown } | null;
+          if (cancelled) return;
           setAuthenticated(true);
           const expMs = typeof data?.exp === "number" ? data.exp * 1000 : NaN;
           scheduleRefresh(Number.isFinite(expMs) ? expMs : undefined);

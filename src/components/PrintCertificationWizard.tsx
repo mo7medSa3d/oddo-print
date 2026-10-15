@@ -122,6 +122,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
   const [timelineUrl, setTimelineUrl] = useState<string | null>(null);
 
   const operationKey = useRef<string | null>(null);
+  const certificationInFlight = useRef(false);
   const [terminal, setTerminal] = useState(false);
   // Authoritative live outcome for the accepted operation, refreshed by the
   // poll below. Stages/steps describe acceptance-time diagnostics; this is
@@ -187,7 +188,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
   }
 
   async function runCertification() {
-    if (loading || (jobId && !terminal)) return;
+    if (certificationInFlight.current || loading || (jobId && !terminal)) return;
     const storageKey = `certification-operation:${printerId}`;
     if (jobId && terminal) {
       if (inspectBeforeRepeat && !window.confirm(t("job.reprintClearPrinter"))) return;
@@ -202,6 +203,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
     }
     const controller = new AbortController();
     controllerRef.current = controller;
+    certificationInFlight.current = true;
     setLoading(true);
     setError(null);
     setReconciliationError(null);
@@ -214,8 +216,9 @@ function CertificationSession({ printerId }: { printerId: string }) {
       });
       const data = await res.json();
       if (controller.signal.aborted) return;
+      if (Array.isArray(data.steps)) setSteps(data.steps);
       if (!res.ok) throw new Error(t("cert.failedBody"));
-      setSteps(data.steps);
+      if (!Array.isArray(data.steps)) throw new Error(t("cert.failedBody"));
       setJobId(data.jobId);
       setRequestId(data.requestId);
       setCertified(data.certified);
@@ -225,6 +228,7 @@ function CertificationSession({ printerId }: { printerId: string }) {
       if (controller.signal.aborted) return;
       setError(e instanceof Error ? e.message : t("cert.failedBody"));
     } finally {
+      certificationInFlight.current = false;
       if (!controller.signal.aborted) setLoading(false);
     }
   }
@@ -236,8 +240,9 @@ function CertificationSession({ printerId }: { printerId: string }) {
   // the poll). A terminal failure/unknown outcome overrides an accepted
   // "certified" — the stages below stay labeled as acceptance diagnostics.
   const liveFailed = terminal && (liveStatus === "failed" || liveStatus === "expired");
+  const hasFailure = liveFailed || failedCount > 0;
   const liveRunning = !!jobId && !terminal && !reconciliationError;
-  const overallTone: Tone = liveFailed ? "bad" : certified ? "ok" : blocked ? "warn" : "bad";
+  const overallTone: Tone = hasFailure ? "bad" : certified ? "ok" : blocked ? "warn" : "bad";
 
   return (
     <div className="space-y-4">
@@ -329,11 +334,13 @@ function CertificationSession({ printerId }: { printerId: string }) {
               <div className="mt-1.5 flex items-center gap-2">
                 <StatusBadge
                   tone={overallTone}
-                  label={liveFailed ? t("cert.result.review") : certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
+                  label={hasFailure ? t("cert.result.review") : certified ? t("cert.result.certified") : blocked ? t("cert.result.blocked") : t("cert.result.review")}
                 />
               </div>
               <div className="mt-1.5 text-sm text-ink-3">
-                {certified
+                {hasFailure
+                  ? liveFailed ? t("cert.liveFailed") : t("cert.failedSummary", { failed: formatNumber(failedCount), blocked: formatNumber(blockedCount) })
+                  : certified
                   ? t("cert.allStagesPassed")
                   : blocked
                     ? t("cert.blockedSummary", { blocked: formatNumber(blockedCount), failed: formatNumber(failedCount) })

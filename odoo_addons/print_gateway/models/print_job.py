@@ -2338,6 +2338,9 @@ class PrintGatewayJob(models.Model):
         job_ids = [row[0] for row in self.env.cr.fetchall()]
         if not job_ids:
             return 0
+        cron = self.env["ir.cron"]
+        if cron._commit_progress(remaining=len(job_ids)) <= 0:
+            return 0
         jobs = self.browse(job_ids)
 
         config_jobs = {}
@@ -2348,6 +2351,16 @@ class PrintGatewayJob(models.Model):
                 config_jobs[config] |= job
 
         total_synced = 0
+
+        def finish_poll(polled_jobs, processed=1):
+            # Rotate attempted polls only AFTER their HTTP call and commit
+            # outside its savepoint. Failed requests must rotate too, and no
+            # row lock may span the next network call.
+            self.sudo().browse([job.id for job in polled_jobs]).write({
+                "last_status_polled_at": db_now_utc(self.env.cr),
+            })
+            return cron._commit_progress(processed)
+
         for config, c_jobs in config_jobs.items():
             job_list = list(c_jobs)
             for i in range(0, len(job_list), 50):
@@ -2356,7 +2369,10 @@ class PrintGatewayJob(models.Model):
                 ambiguous_jobs = [j for j in chunk if not j.gateway_job_id]
 
                 if known_jobs:
+                    if cron._commit_progress() <= 0:
+                        return total_synced
                     job_ids = [j.gateway_job_id for j in known_jobs]
+                    returned = None
                     try:
                         response = requests.post(
                             "%s/api/print/jobs/batch-status" % config._gateway_base(for_request=True),
@@ -2372,7 +2388,19 @@ class PrintGatewayJob(models.Model):
                                 for item in body.get("jobs", [])
                                 if isinstance(item, dict) and "jobId" in item
                             }
-                            for job in known_jobs:
+                    except Exception as exc:
+                        _logger.warning("Batch status sync failed for config %s: %s; falling back to per-job sync", config.id, exc)
+
+                    # One bulk request has attempted every known job. Persist
+                    # that fairness even if it consumed the remaining time,
+                    # before considering any additional per-job HTTP request.
+                    if finish_poll(known_jobs, processed=0) <= 0:
+                        return total_synced
+
+                    for job in known_jobs:
+                        needs_fallback = returned is None
+                        if not needs_fallback:
+                            try:
                                 if job.gateway_job_id in returned:
                                     with self.env.cr.savepoint():
                                         self._apply_synced_status(job, returned[job.gateway_job_id])
@@ -2390,25 +2418,24 @@ class PrintGatewayJob(models.Model):
                                         if changed:
                                             job._post_source_audit(_("Print Job #%s is no longer known to the Gateway; outcome marked UNKNOWN for manual reconciliation.") % (job.gateway_job_id or job.id))
                                 total_synced += 1
-                        else:
-                            for job in known_jobs:
-                                try:
-                                    with self.env.cr.savepoint():
-                                        job.action_sync_status()
-                                    total_synced += 1
-                                except Exception as exc:
-                                    _logger.warning("Per-job status sync failed for Gateway job %s (Odoo job %s): %s", job.gateway_job_id, job.id, exc)
-                    except Exception as exc:
-                        _logger.warning("Batch status sync failed for config %s: %s; falling back to per-job sync", config.id, exc)
-                        for job in known_jobs:
+                            except Exception as exc:
+                                _logger.warning("Batch result application failed for Gateway job %s (Odoo job %s): %s; falling back to per-job sync", job.gateway_job_id, job.id, exc)
+                                needs_fallback = True
+                        if needs_fallback:
+                            if cron._commit_progress() <= 0:
+                                return total_synced
                             try:
                                 with self.env.cr.savepoint():
                                     job.action_sync_status()
                                 total_synced += 1
                             except Exception as exc:
                                 _logger.warning("Per-job status sync failed for Gateway job %s (Odoo job %s): %s", job.gateway_job_id, job.id, exc)
+                        if finish_poll([job]) <= 0:
+                            return total_synced
 
                 for job in ambiguous_jobs:
+                    if cron._commit_progress() <= 0:
+                        return total_synced
                     try:
                         with self.env.cr.savepoint():
                             body = self._lookup_gateway_job_for_ambiguous_submission(job)
@@ -2416,19 +2443,7 @@ class PrintGatewayJob(models.Model):
                                 total_synced += 1
                     except Exception as exc:
                         _logger.warning("Gateway ambiguous-submission lookup failed for Odoo job %s: %s", job.id, exc)
-
-                # Rotate the durable fairness marker AFTER network I/O, so
-                # no status row remains write-locked while HTTP is in flight.
-                # Mark all attempts (including failed HTTP), not just state
-                # changes, otherwise long-lived active jobs monopolize the
-                # first 100 slots indefinitely.
-                self.sudo().browse([j.id for j in chunk]).write({
-                    "last_status_polled_at": db_now_utc(self.env.cr),
-                })
-                # Odoo's scheduler commits the poll marker and status progress
-                # per bounded unit and enforces its remaining time budget.
-                remaining = self.env["ir.cron"]._commit_progress(len(chunk))
-                if remaining <= 0:
-                    return total_synced
+                    if finish_poll([job]) <= 0:
+                        return total_synced
 
         return total_synced

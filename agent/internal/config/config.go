@@ -465,6 +465,18 @@ func IsAllowedPrinterIP(ip net.IP) bool {
 	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
+func ParseUSBID(value string) (uint16, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "0x") || strings.HasPrefix(value, "0X") {
+		value = value[2:]
+	}
+	parsed, err := strconv.ParseUint(value, 16, 16)
+	if err != nil {
+		return 0, fmt.Errorf("USB identifier must be a hexadecimal 16-bit value")
+	}
+	return uint16(parsed), nil
+}
+
 func ValidatePrinterConfig(p PrinterConfig) error {
 	if p.ID == "" {
 		return fmt.Errorf("printer missing id")
@@ -527,6 +539,11 @@ func ValidatePrinterConfig(p PrinterConfig) error {
 		if strings.TrimSpace(p.SpoolerName) == "" {
 			if p.USBVID == "" || p.USBPID == "" {
 				return fmt.Errorf("printer %s: usb_vid and usb_pid are required for direct USB transport", p.ID)
+			}
+			for _, value := range []string{p.USBVID, p.USBPID} {
+				if _, err := ParseUSBID(value); err != nil {
+					return fmt.Errorf("printer %s: invalid usb_vid or usb_pid: %w", p.ID, err)
+				}
 			}
 			ep := strings.TrimSpace(p.Endpoint)
 			if !strings.HasPrefix(ep, `\\?\`) && !strings.HasPrefix(ep, `\\.\`) {

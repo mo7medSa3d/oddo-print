@@ -3,7 +3,7 @@ import { db } from "../../../../../../../db";
 import { discoverySessions } from "../../../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../../../lib/authorization";
-import { requireActiveTenantInTransaction } from "../../../../../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../../../../../../../lib/tenant-guard";
 import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../../../../lib/manager-mutation-authorization";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -19,8 +19,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id: agentId, discoveryId } = await params;
   let result;
   try { result = await db.transaction(async (tx) => {
-    // Follow Agent -> Tenant -> Actor -> Session consistently with discovery
-    // start. Reports also take the Agent and Tenant locks before Session;
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+    // Follow Tenant -> Agent -> Actor -> Session consistently with discovery
+    // start. Reports also take the Tenant and Agent locks before Session;
     // reversing this order can deadlock with a manager starting a new scan.
     const agentLock = await tx.execute(sql`
       SELECT id FROM agents
@@ -28,7 +29,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       FOR SHARE
     `);
     if (!agentLock.rows[0]) return { kind: "not_found" as const };
-    await requireActiveTenantInTransaction(tx, claims.tenantId);
     await requireManagerActorInTransaction(tx, claims, "agents.pair");
     // The session lock arbitrates between an accepted report and cancellation.
     const locked = await tx.execute(sql`
@@ -47,7 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .where(and(eq(discoverySessions.id, discoveryId), eq(discoverySessions.agentId, agentId), eq(discoverySessions.tenantId, claims.tenantId)));
     return { kind: "cancelled" as const };
   }); } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: error.message }, { status: 403 });
     throw error;
   }
   if (result.kind === "not_found") return NextResponse.json({ error: "Not found" }, { status: 404 });

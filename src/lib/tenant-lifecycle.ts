@@ -3,6 +3,7 @@ import { tenants } from "../db/schema";
 import { eq, sql } from "drizzle-orm";
 import { writeAuditEvent, type AuditActor } from "./audit";
 import { runtimeSecret } from "./runtime-secret";
+import { requirePlatformActorInTransaction, type PlatformOwnerClaims } from "./platform-auth";
 import { revokeLegacyManagerSessionsForTenantInTransaction } from "./manager-auth";
 import { revokeTenantRefreshFamiliesInTransaction } from "./session-tokens";
 
@@ -49,7 +50,7 @@ export async function transitionTenantLifecycle(
   tenantId: string,
   next: TenantLifecycleState,
   reason: string,
-  actor: { type: AuditActor; id: string | null },
+  actor: { type: AuditActor; id: string | null; claims?: PlatformOwnerClaims },
 ): Promise<TransitionTenantLifecycleResult> {
   if (!isTenantLifecycleState(next)) {
     throw new TenantLifecycleError(`Invalid lifecycle state: ${next}`, "INVALID_LIFECYCLE_STATE", 400);
@@ -70,6 +71,9 @@ export async function transitionTenantLifecycle(
     if (!tenant?.id) {
       throw new TenantLifecycleError("Tenant not found", "TENANT_NOT_FOUND", 404);
     }
+    // Public platform routes pass their admitted session; internal trusted
+    // lifecycle callers retain their existing service-authority contract.
+    if (actor.claims) await requirePlatformActorInTransaction(tx, actor.claims);
     const platformTenantId = runtimeSecret("PLATFORM_TENANT_ID")?.trim();
     // Layered protection: production startup (server.ts) refuses to boot when
     // PLATFORM_TENANT_ID is unset or the placeholder, so this guard's fail-open

@@ -64,6 +64,61 @@ export class PlatformForbiddenError extends Error {
   }
 }
 
+export class PlatformMutationAuthorityChangedError extends Error {
+  constructor() {
+    super("Your platform authorization changed. Sign in again.");
+    this.name = "PlatformMutationAuthorityChangedError";
+  }
+}
+
+/** Recheck admitted platform authority after resource locks and before mutation. */
+export async function requirePlatformActorInTransaction(
+  tx: DbTx,
+  claims: PlatformOwnerClaims,
+): Promise<void> {
+  // Reset and refresh also lock the user before session/family state. Keep
+  // this row locked through commit so owner/email changes cannot race writes.
+  const principal = await tx.execute(sql`
+    SELECT id, email, is_platform_owner AS "isPlatformOwner",
+      email_verified_at AS "emailVerifiedAt"
+    FROM users WHERE id = ${claims.userId} FOR UPDATE
+  `);
+  const user = principal.rows[0] as {
+    email?: string; isPlatformOwner?: boolean; emailVerifiedAt?: Date | string | null;
+  } | undefined;
+  if (!user || user.isPlatformOwner !== true || !user.emailVerifiedAt || user.email !== claims.email) {
+    throw new PlatformMutationAuthorityChangedError();
+  }
+
+  let active;
+  if (claims.ver === 2 && claims.kind === "platform" && claims.familyId) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${claims.familyId}, 0))`);
+    active = await tx.execute(sql`
+      SELECT id FROM refresh_tokens
+      WHERE family_id = ${claims.familyId} AND kind = 'platform'
+        AND user_id = ${claims.userId} AND tenant_id IS NULL
+        AND email = ${claims.email} AND revoked_at IS NULL
+        AND expires_at > clock_timestamp()
+        AND ${claims.exp} > EXTRACT(EPOCH FROM clock_timestamp())
+        AND ${claims.iat} <= EXTRACT(EPOCH FROM clock_timestamp()) + 60
+      FOR SHARE
+    `);
+  } else if (claims.ver === undefined && claims.kind === undefined && !claims.familyId && !claims.sid) {
+    active = await tx.execute(sql`
+      SELECT jti FROM platform_sessions
+      WHERE jti = ${claims.jti} AND user_id = ${claims.userId}
+        AND revoked_at IS NULL AND expires_at > clock_timestamp()
+        AND FLOOR(EXTRACT(EPOCH FROM expires_at)) = ${claims.exp}
+        AND ${claims.exp} > EXTRACT(EPOCH FROM clock_timestamp())
+        AND ${claims.iat} <= EXTRACT(EPOCH FROM clock_timestamp()) + 60
+      FOR SHARE
+    `);
+  } else {
+    throw new PlatformMutationAuthorityChangedError();
+  }
+  if (active.rows.length === 0) throw new PlatformMutationAuthorityChangedError();
+}
+
 function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
   if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
   const parts = token.split(".");

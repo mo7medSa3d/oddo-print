@@ -74,6 +74,9 @@ let cachedLocale: Locale | null = null;
 let sessionLocale: Locale | null = null;
 
 function readStoredLocale(): Locale | null {
+  // A failed write can leave an older preference readable. The explicit
+  // choice for this visit must win over both that value and an older cookie.
+  if (sessionLocale) return sessionLocale;
   let raw: string | null = null;
   try {
     raw = window.localStorage.getItem(LOCALE_STORAGE_KEY);
@@ -85,13 +88,12 @@ function readStoredLocale(): Locale | null {
     // from the locale cookie so a server-rendered Arabic session does not
     // stay LTR in the client tree.
     try {
-      const match = /(?:^|;\s*)yaseir_locale=(ar|en)/.exec(document.cookie || "");
+      const match = /(?:^|;\s*)yaseir_locale=(ar|en)(?:;|$)/.exec(document.cookie || "");
       if (match) raw = match[1];
     } catch {
       /* cookies unreadable — fall through */
     }
   }
-  if (raw === null && sessionLocale) return sessionLocale;
   if (raw === cachedRaw && cachedLocale) return cachedLocale;
   cachedRaw = raw;
   cachedLocale = raw === null ? null : resolveLocale(raw);
@@ -108,7 +110,10 @@ function subscribeToLocale(listener: () => void) {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
     // Another tab changed the preference; a null key means the store was cleared.
-    if (event.key === null || event.key === LOCALE_STORAGE_KEY) emitLocaleChange();
+    if (event.key === null || event.key === LOCALE_STORAGE_KEY) {
+      sessionLocale = null;
+      emitLocaleChange();
+    }
   };
   window.addEventListener("storage", onStorage);
   return () => {
@@ -153,13 +158,18 @@ export function I18nProvider({ children, initialLocale = DEFAULT_LOCALE }: { chi
   const setLocale = useCallback((next: Locale) => {
     try {
       window.localStorage.setItem(LOCALE_STORAGE_KEY, next);
+      sessionLocale = null;
+    } catch {
+      // Storage unavailable — keep the current choice for this visit even
+      // when an older stored preference can still be read.
+      sessionLocale = next;
+    }
+    try {
       // One year, Lax: the server can read it on the next navigation without
       // ever sending it cross-site.
       document.cookie = `${LOCALE_COOKIE_KEY}=${next}; path=/; max-age=31536000; samesite=lax`;
     } catch {
-      // Storage unavailable — remember it for this session so the choice still
-      // applies instead of snapping back on the next read.
-      sessionLocale = next;
+      /* Cookie availability is independent of localStorage availability. */
     }
     emitLocaleChange();
   }, []);

@@ -532,6 +532,40 @@ fn well_known_manager_trustee(sid: &[u8]) -> ManagerTrustee {
 }
 
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0x00;
+// Exact WinSDK ACE_HEADER types; only these entries can be ignored because
+// they restrict access. Other nonzero types may still GRANT access.
+const MANAGER_DENY_ACE_TYPES: [u8; 4] = [0x01, 0x06, 0x0a, 0x0c];
+
+/// Decode only the ordinary allow layout emitted by our ACL policy. Object
+/// and callback allow ACEs have different semantics/layouts and fail closed;
+/// known deny ACEs grant no rights and need no trustee/SID decoding.
+fn decode_manager_ace(bytes: &[u8]) -> Result<(ManagerTrustee, u32, u8), String> {
+    if bytes.len() < 4 {
+        return Err("Manager runtime path has a truncated ACE header".into());
+    }
+    let ace_type = bytes[0];
+    let ace_size = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
+    if ace_size != bytes.len() {
+        return Err("Manager runtime path has an invalid ACE size".into());
+    }
+    if MANAGER_DENY_ACE_TYPES.contains(&ace_type) {
+        return Ok((ManagerTrustee::Other, 0, ace_type));
+    }
+    if ace_type != ACCESS_ALLOWED_ACE_TYPE {
+        return Err(format!("unsupported granting or unknown ACE type {ace_type:#04x}"));
+    }
+    // ACCESS_ALLOWED_ACE: header4 + mask4 + SID header8 + subauthorities.
+    if bytes.len() < 20 {
+        return Err("Manager runtime path has a truncated allow ACE".into());
+    }
+    let count = bytes[9] as usize;
+    let sid_len = 8 + 4 * count;
+    if count == 0 || count > 15 || ace_size != 8 + sid_len {
+        return Err("Manager runtime path has an invalid allow ACE SID size".into());
+    }
+    let mask = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    Ok((well_known_manager_trustee(&bytes[8..]), mask, ace_type))
+}
 
 /// Write-class rights that must never be granted to anyone outside
 /// SYSTEM/Administrators on a Manager trust root, regardless of how the
@@ -558,8 +592,11 @@ fn verify_manager_dacl_entries(
     context: &str,
 ) -> Result<(), String> {
     for (trustee, mask, ace_type) in entries {
-        if *ace_type != ACCESS_ALLOWED_ACE_TYPE {
+        if MANAGER_DENY_ACE_TYPES.contains(ace_type) {
             continue;
+        }
+        if *ace_type != ACCESS_ALLOWED_ACE_TYPE {
+            return Err(format!("unsupported granting or unknown ACE type {ace_type:#04x} on {context}"));
         }
         match trustee {
             ManagerTrustee::System | ManagerTrustee::Administrators => {}
@@ -592,7 +629,7 @@ fn read_manager_dacl_entries(path: &Path) -> std::io::Result<Vec<(ManagerTrustee
     #[repr(C)]
     struct AclSizeInformation {
         ace_count: u32,
-        _acl_bytes_in_use: u32,
+        acl_bytes_in_use: u32,
         _acl_bytes_free: u32,
     }
 
@@ -648,7 +685,7 @@ fn read_manager_dacl_entries(path: &Path) -> std::io::Result<Vec<(ManagerTrustee
         }
         let mut size_info = AclSizeInformation {
             ace_count: 0,
-            _acl_bytes_in_use: 0,
+            acl_bytes_in_use: 0,
             _acl_bytes_free: 0,
         };
         let ok = unsafe {
@@ -668,30 +705,28 @@ fn read_manager_dacl_entries(path: &Path) -> std::io::Result<Vec<(ManagerTrustee
             if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            // ACCESS_ALLOWED_ACE layout: ACE_HEADER (type u8, flags u8,
-            // size u16), Mask u32, then the trustee SID.
-            let bytes = unsafe { std::slice::from_raw_parts(ace as *const u8, 8) };
-            let ace_type = bytes[0];
-            let mask = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-            // SID header: revision + sub-authority count at ACE offset 8.
-            // Cap the count at the architectural SID maximum (15) so a
-            // malformed ACE cannot drive an unbounded read.
-            let count = unsafe { *((ace as *const u8).add(9)) } as usize;
-            if count > 15 {
+            let used = size_info.acl_bytes_in_use as usize;
+            let offset = (ace as usize).checked_sub(dacl as usize);
+            if offset.is_none_or(|start| start < 8 || start.checked_add(4).is_none_or(|end| end > used)) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "Manager runtime path has a malformed ACE",
+                    "Manager runtime path has an ACE outside its ACL buffer",
                 ));
             }
-            let sid_len = 8 + 4 * count;
-            if sid_len < 12 {
+            // The common header is bounded before reading AceSize. Only the
+            // declared, ACL-contained ACE reaches the safe layout decoder.
+            let header = unsafe { std::slice::from_raw_parts(ace as *const u8, 4) };
+            let ace_size = u16::from_le_bytes([header[2], header[3]]) as usize;
+            if ace_size < 4 || offset.and_then(|start| start.checked_add(ace_size)).is_none_or(|end| end > used) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "Manager runtime path has a malformed ACE",
+                    "Manager runtime path has an ACE size outside its ACL buffer",
                 ));
             }
-            let sid_bytes = unsafe { std::slice::from_raw_parts((ace as *const u8).add(8), sid_len) };
-            entries.push((well_known_manager_trustee(sid_bytes), mask, ace_type));
+            let bytes = unsafe { std::slice::from_raw_parts(ace as *const u8, ace_size) };
+            entries.push(decode_manager_ace(bytes).map_err(|detail| {
+                std::io::Error::new(std::io::ErrorKind::PermissionDenied, detail)
+            })?);
         }
         Ok(entries)
     })();
@@ -827,7 +862,7 @@ pub fn ensure_runtime_dirs() -> std::io::Result<()> {
 
 #[cfg(test)]
 mod manager_dacl_tests {
-    use super::{well_known_manager_trustee, verify_manager_dacl_entries, ManagerTrustee};
+    use super::{decode_manager_ace, well_known_manager_trustee, verify_manager_dacl_entries, ManagerTrustee};
 
     fn sid(subauthorities: &[u32]) -> Vec<u8> {
         let mut out = vec![1u8, subauthorities.len() as u8, 0, 0, 0, 0, 0, 5];
@@ -906,8 +941,43 @@ mod manager_dacl_tests {
 
     #[test]
     fn deny_aces_grant_nothing_and_are_ignored() {
-        let entries = [(ManagerTrustee::Other, 0x001F_01FFu32, 0x01u8)];
-        assert!(verify_manager_dacl_entries(&entries, "file").is_ok());
+        for ace_type in super::MANAGER_DENY_ACE_TYPES {
+            let entries = [(ManagerTrustee::Other, 0x001F_01FFu32, ace_type)];
+            assert!(verify_manager_dacl_entries(&entries, "file").is_ok());
+            // The decoder does not assume object/callback-deny SID offsets.
+            assert!(decode_manager_ace(&[ace_type, 0, 4, 0]).is_ok());
+        }
+    }
+
+    #[test]
+    fn nonstandard_allow_aces_never_bypass_trustee_checks() {
+        for ace_type in [0x04, 0x05, 0x09, 0x0b, 0xff] {
+            let entries = [(ManagerTrustee::Other, 0x001F_01FF, ace_type)];
+            assert!(verify_manager_dacl_entries(&entries, "file").is_err());
+            assert!(decode_manager_ace(&[ace_type, 0, 4, 0]).is_err());
+        }
+    }
+
+    #[test]
+    fn allow_decoder_bounds_the_declared_ace_and_sid() {
+        let trustee = sid(&[32, 545]);
+        let mut ace = vec![0, 0, (8 + trustee.len()) as u8, 0];
+        ace.extend_from_slice(&0x0012_00a9u32.to_le_bytes());
+        ace.extend_from_slice(&trustee);
+        assert_eq!(decode_manager_ace(&ace).unwrap(), (ManagerTrustee::Users, 0x0012_00a9, 0));
+        assert!(verify_manager_dacl_entries(&[decode_manager_ace(&ace).unwrap()], "file").is_ok());
+        for end in 0..ace.len() {
+            assert!(decode_manager_ace(&ace[..end]).is_err(), "truncation {end}");
+        }
+        let mut invalid = ace.clone();
+        invalid[2] -= 4;
+        assert!(decode_manager_ace(&invalid).is_err());
+        let mut invalid = ace.clone();
+        invalid[9] = 15;
+        assert!(decode_manager_ace(&invalid).is_err());
+        let mut invalid = ace;
+        invalid[9] = 16;
+        assert!(decode_manager_ace(&invalid).is_err());
     }
 
     /// Pre-created explicit FullControl for an unrelated trustee (S-1-1-0

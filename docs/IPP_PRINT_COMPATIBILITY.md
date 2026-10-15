@@ -25,8 +25,20 @@ The Agent must query `document-format-supported` on the **specific printer
 URI** before submitting Print-Job. It must not infer format support from the
 port number, printer's online status, or brand. An explicit unsupported-format
 response is a **definite rejection**; do not retry the same bytes blindly.
-If no supported-format attribute can be fetched from a legacy printer, the
-Agent tries native PDF once and reports 0x040A with an actionable diagnosis.
+If the capability probe fails, is denied, returns malformed attributes, or
+omits supported formats, the Agent stops **before submitting any document**.
+Confirm the exact queue URI and access policy, or select its working installed
+Windows spooler driver. A failed probe is not permission to guess PDF support.
+Only correctly typed attributes from the IPP printer group establish format
+support or current printer state; DNS-SD advertisements remain candidates.
+
+Use an absolute `ipp://`, `ipps://`, `http://` or `https://` queue URL with an
+allowed private/link-local IP and port. Legacy plain `IP:port` (including
+`[IPv6]:port`) is also supported for IPP; a bare IP or a plain address with a
+path is refused by the Gateway because the Agent cannot apply it. IPPS needs
+an explicit secure URL. Discovery browses IPv4 and IPv6 independently so a
+failed multicast family does not discard another family's results; partial
+source failures remain visible.
 
 ## IPP rendering and practical limits
 
@@ -38,7 +50,9 @@ Agent tries native PDF once and reports 0x040A with an actionable diagnosis.
   label. Resolution and color mode are selected from the printer's
   `pwg-raster-document-resolution-supported` and
   `pwg-raster-document-type-supported` when available. Malformed or
-  unsupported capabilities fail before submission.
+  unsupported capabilities fail before submission. Explicit IPP unknown/no-value
+  raster settings also fail; the existing 300DPI/grayscale compatibility defaults
+  apply only when those lists are omitted, and still require device acceptance.
 - For devices that accept JPEG but not PWG, a **single-page** PDF may be
   rendered as JPEG before IPP submission. Multiple pages are not silently
   dropped.
@@ -47,10 +61,14 @@ Agent tries native PDF once and reports 0x040A with an actionable diagnosis.
   variants, Apple URF/PCLm-only firmware, long-edge feed / media rotation,
   custom ICC/color management and unusual layouts require their supported
   device driver / Windows spooler path rather than mislabeling bytes.
-- A `successful-ok` response means that the IPP server **accepted the job**;
-  physical paper output needs Get-Job-Attributes / printer-level completion
-  evidence or a human/operator test. Never turn network uncertainty into
-  automatic physical retries.
+- Acceptance requires HTTP200 with `application/ipp`, a correlated valid IPP
+  response and typed server-assigned Job evidence. Another HTTP status, wrong
+  content type or malformed response after transmission retains **UNKNOWN**;
+  it must not trigger an automatic physical retry.
+- Accepted submission does not prove paper output. The current Agent validates
+  and logs the returned Job identity but does not persist it for later
+  Get-Job-Attributes reconciliation. That operation can track the same Job;
+  physical output still needs device evidence or a human/operator test.
 
 ## Windows setup for printers that do not accept native PDF
 
@@ -75,7 +93,8 @@ resolution/color capabilities, `printer-state-reasons`, and
 ## Verification checklist
 
 - IPP fake-device tests: native PDF, raster-only, JPEG-only, rejecting-jobs,
-  spoofed malformed attributes, 0x040A and unknown-outcome no-blind-retry
+  spoofed attribute groups/types, failed/missing capability proof with zero
+  document submissions, 0x040A, HTTP/media envelope and unknown-outcome no-blind-retry
 - Raster unit tests: PWG header/color model, repeated rows, PackBits
   round-trip, multi-page boundaries, printer-advertised DPI
 - Windows CI: real embedded PDFium render + output MIME and NSIS installer
@@ -85,6 +104,8 @@ resolution/color capabilities, `printer-state-reasons`, and
 
 ## References
 
+- [RFC8010 IPP encoding and HTTP transport](https://www.rfc-editor.org/rfc/rfc8010.html#section-3.4.3)
+- [RFC8011 Get-Printer-Attributes](https://www.rfc-editor.org/rfc/rfc8011.html#section-4.2.5.2)
 - [PWG IPP Everywhere v1.1](https://ftp.pwg.org/pub/pwg/candidates/cs-ippeve11-20200515-5100.14.pdf) — document-format conformance
 - [PWG Raster Format 5102.4](https://ftp.pwg.org/pub/pwg/candidates/cs-ippraster10-20120420-5102.4.pdf) — header, compression and media rules
 - [How to Use IPP](https://www.pwg.org/ipp/ippguide.html) — Get-Printer-Attributes, Print-Job, media and status

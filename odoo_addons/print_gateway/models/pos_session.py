@@ -10,6 +10,7 @@ class PosSessionGatewayPrinting(models.Model):
 
     def is_gateway_printing_enabled(self):
         self.ensure_one()
+        self.check_access("read")
         if self.company_id != self.env.company:
             raise ValidationError(_("Gateway printing must use the active Odoo company."))
         return bool(self.env["print_gateway.print_router"]._gateway_config(self.env.company))

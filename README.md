@@ -50,13 +50,17 @@ The Platform Control Plane manages the commercial plan catalog at `/platform/pla
 A plan contains the Yaseir-side entitlements `max_agents`, `max_printers`, `max_jobs_per_minute`, `max_concurrent_jobs`, and `max_prints_per_period`.
 These limits are enforced server-side from the tenant's current subscription plan; they are not UI-only values.
 
-Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yaseir plan. Gateway validates that the Price is recurring and matches the plan currency/interval before a plan can become billable. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.
+Stripe remains the source of truth for money and recurring billing. Create the Stripe Product/Price in Stripe, then bind its `price_...` (and optional `prod_...`) ID to the Yaseir plan. Gateway validates a licensed recurring Price billed once per selected day/week/month/year, matching the plan currency/interval; metered and multi-interval Prices need catalog support before they can be offered. Existing subscriptions continue using their current Stripe subscription price even when the plan's current price reference is changed for future checkout.
 
-Plan `Active` controls whether new customer checkout can use the plan. `Public` controls whether it appears in the public pricing/onboarding catalog. Archiving or hiding a plan does not remove entitlements from existing subscriptions. During Stripe `past_due` recovery, printing remains available; `unpaid`, `paused`, and canceled states do not provision runtime entitlements. A paused subscription resumes through Stripe's subscription resume API after a valid payment method is available.
+Plan `Active` controls whether new customer checkout can use the plan. `Public` controls whether it appears in the public pricing/onboarding catalog. Archiving or hiding a plan does not remove entitlements from existing subscriptions, and archiving alone does not require a Stripe API call. During Stripe `past_due` recovery, printing remains available; `unpaid`, `paused`, and canceled states do not provision runtime entitlements. A paused subscription resumes through Stripe's subscription resume API after a valid payment method is available. A locally expired or entitlement-blocked active subscription must be verified as terminal at Stripe before checkout can replace it; provider outages preserve the existing identity and direct the customer to retry or manage billing, preventing duplicate charges.
 
 Customer Portal must be configured in Stripe with the Yaseir subscription Prices you intend to offer for upgrades/downgrades. Portal changes are synchronized back through `customer.subscription.updated` webhooks.
 
 The legacy `STRIPE_PLAN_CATALOG` / `npm run db:provision-plans` path remains available for first-boot/operator provisioning; Platform Admin changes to the managed catalog fields are preserved across subsequent provisioning runs.
+
+## Account activation
+
+Email verification establishes mailbox ownership before password setup. `POST /api/auth/verify-email` consumes the email proof, invalidates any password chosen before that proof, revokes existing sessions/reset links, and returns `{ ok: true, next, requiresPasswordSetup }` with `Cache-Control: no-store` and no session cookies. A new verification's `next` points to the existing single-use, 20-minute password reset page in setup mode; after choosing a password, the owner signs in and continues onboarding or an invitation. Already verified accounts return `/login` without changing their password. Registration and resend preserve optional plan/invitation context; those values grant no access. This prevents an earlier registrant from retaining a password for somebody else's email address.
 
 ## Development
 
@@ -76,4 +80,3 @@ PostgreSQL, Odoo 19, Windows, and physical-printer E2E are release gates and mus
 For a production server first deployment and end-to-end smoke test, follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md).
 
 See [API.md](API.md), [INSTALLATION.md](INSTALLATION.md), [DEPLOYMENT.md](DEPLOYMENT.md), [OPERATIONS.md](OPERATIONS.md), [SECURITY.md](SECURITY.md).
-

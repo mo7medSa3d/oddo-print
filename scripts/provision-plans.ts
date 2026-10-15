@@ -39,7 +39,7 @@ async function main() {
       displayOrder: 0,
       stripeProductId: stripePrice.productId,
     })
-      .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, stripePriceHistory: priceHistory, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: sql`clock_timestamp()` } });
+      .onConflictDoUpdate({ target: plans.id, set: { name: plan.name, stripePriceId: plan.priceId, stripeProductId: stripePrice.productId, stripePriceHistory: priceHistory, currency: plan.currency ?? "usd", interval: plan.interval ?? "month", entitlements, updatedAt: sql`clock_timestamp()` } });
     });
   }
   console.log(`Provisioned ${parsed.length} Stripe-backed plan(s).`);

@@ -119,10 +119,10 @@ describe("payload", () => {
     });
     expect(tspl.type).toBe("raw");
     expect(tspl.protocol).toBe("tspl");
-    expect(Buffer.from(tspl.data, "base64").toString("utf8")).toContain("SIZE 75 mm, 50 mm");
+    expect(Buffer.from(tspl.data, "base64").toString("utf8")).toBe("SELFTEST\r\n");
   });
 
-  it("sanitizes ZPL and TSPL language delimiters in test-page names", async () => {
+  it("keeps ZPL and TSPL diagnostic commands independent of untrusted names", async () => {
     const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
     const zpl = Buffer.from(buildTestPrintPayloadForPrinter("A^FS~JA", "B^XZ", { protocol: "zpl", connectionType: "network" }).data, "base64").toString("utf8");
     expect(zpl).not.toContain("A^FS~JA");
@@ -130,7 +130,8 @@ describe("payload", () => {
 
     const tspl = Buffer.from(buildTestPrintPayloadForPrinter('A"\nPRINT 9,9', 'B\\"', { protocol: "tspl", connectionType: "network" }).data, "base64").toString("utf8");
     expect(tspl).not.toContain('A"');
-    expect(tspl.match(/PRINT 1,1/g)).toHaveLength(1);
+    expect(tspl).toBe("SELFTEST\r\n");
+    expect(tspl).not.toMatch(/SIZE|GAP|CLS|PRINT|INITIALPRINTER/);
   });
 
   it("refuses a conflicting explicit protocol capability instead of inventing another byte language", async () => {

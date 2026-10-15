@@ -4,7 +4,7 @@ import { agents, discoverySessions } from "../../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../../lib/manager-auth";
 import { requireManagerPermission } from "../../../../../lib/authorization";
 import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../../lib/manager-mutation-authorization";
-import { requireActiveTenantInTransaction } from "../../../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../../../../../lib/tenant-guard";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "../../../../../lib/nanoid";
 import { validateDiscoveryRequest } from "../../../../../lib/discovery";
@@ -35,6 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const discoveryId = `dsc_${nanoid(12)}`;
   try {
     await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, claims.tenantId);
       // Serialize discovery starts per agent. The database unique partial
       // index remains the final invariant for every writer.
       const locked = await tx.execute(sql`
@@ -49,8 +50,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
       // A stale preflight session cannot start a new scan after an admin is
       // demoted or the session family is revoked while the body is in flight.
-      // Keep Agent -> Tenant -> Actor -> session ordering until commit.
-      await requireActiveTenantInTransaction(tx, claims.tenantId);
+      // Keep Tenant -> Agent -> Actor -> session ordering until commit.
       await requireManagerActorInTransaction(tx, claims, "agents.pair");
 
       // Reclaim an abandoned scan before enforcing the one-active-session
@@ -80,7 +80,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       await tx.execute(sql`SELECT pg_notify('print_gateway_discovery', ${JSON.stringify({ agentId, discoveryId })}::text)`);
     });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) {
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     if (error instanceof Error && error.message === "AGENT_NOT_FOUND") {

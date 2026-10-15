@@ -2,7 +2,6 @@ package printer
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/yaseir-agent/agent/internal/config"
@@ -51,7 +50,7 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 			return &NetworkPrinter{Address: cfg.Endpoint, Protocol: proto, RasterMaxWidth: rasterWidth}, nil
 		case "ipp", "ipps":
 			// Network printer explicitly using IPP protocol -> treat as IPP
-			return NewIPPPrinter(cfg.Endpoint, cfg.Name)
+			return newConfiguredIPPPrinter(cfg)
 		case "unknown":
 			return nil, fmt.Errorf("printer %s: protocol is not declared; the device is inventoried but NOT routable until an operator declares its protocol in agent.yaml", cfg.ID)
 		default:
@@ -86,21 +85,28 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		// A USB entry that reached this branch is direct USB transport. Any
 		// Windows spooler-backed USB printer is normalized to type=spooler by
 		// PrinterConfig.NormalizedType when spooler_name is present.
-		if !strings.HasPrefix(cfg.Endpoint, `\\?\`) && !strings.HasPrefix(cfg.Endpoint, `\\.\`) {
+		endpoint := strings.TrimSpace(cfg.Endpoint)
+		if !strings.HasPrefix(endpoint, `\\?\`) && !strings.HasPrefix(endpoint, `\\.\`) {
 			return nil, fmt.Errorf("printer %s: direct USB transport requires a Windows device path (\\?\\... or \\.\\...); configure type=spooler with spooler_name for a Windows print queue", cfg.ID)
 		}
 		if proto != "raw" && proto != "escpos" && proto != "zpl" && proto != "tspl" {
 			return nil, fmt.Errorf("printer %s: direct USB transport requires an explicit raw, escpos, zpl, or tspl protocol; refusing to infer a byte language", cfg.ID)
 		}
-		vid := parseHex16(cfg.USBVID)
-		pid := parseHex16(cfg.USBPID)
+		vid, err := config.ParseUSBID(cfg.USBVID)
+		if err != nil {
+			return nil, fmt.Errorf("printer %s: invalid usb_vid: %w", cfg.ID, err)
+		}
+		pid, err := config.ParseUSBID(cfg.USBPID)
+		if err != nil {
+			return nil, fmt.Errorf("printer %s: invalid usb_pid: %w", cfg.ID, err)
+		}
 		return &USBPrinter{
 			ID:             cfg.ID,
 			Name:           cfg.Name,
 			VID:            vid,
 			PID:            pid,
 			SerialNumber:   cfg.USBSerial,
-			DevicePath:     cfg.Endpoint,
+			DevicePath:     endpoint,
 			Protocol:       proto,
 			SupportsESCPOS: proto == "escpos" || capabilityProtocolListed(cfg.Capabilities, "escpos"),
 		}, nil
@@ -110,7 +116,7 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		if cfg.Endpoint == "" {
 			return nil, fmt.Errorf("printer %s: IPP printer requires endpoint URL (ipp://host/ipp/print or http://host:631/ipp/print)", cfg.ID)
 		}
-		return NewIPPPrinter(cfg.Endpoint, cfg.Name)
+		return newConfiguredIPPPrinter(cfg)
 
 	case "":
 		return nil, fmt.Errorf("printer %s: missing printer type", cfg.ID)
@@ -118,6 +124,15 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 	default:
 		return nil, fmt.Errorf("printer %s: unknown printer type %q (expected network/usb/spooler/ipp)", cfg.ID, cfg.Type)
 	}
+}
+
+func newConfiguredIPPPrinter(cfg config.PrinterConfig) (*IPPPrinter, error) {
+	p, err := NewIPPPrinter(cfg.Endpoint, cfg.Name)
+	if err != nil {
+		return nil, err
+	}
+	p.testPaperMM, _, _ = receiptPaperProfile(cfg)
+	return p, nil
 }
 
 // receiptPaperProfile returns a verified operator-defined 58/80mm roll.
@@ -178,17 +193,4 @@ func capabilityProtocolListed(capabilities map[string]interface{}, protocol stri
 		}
 	}
 	return false
-}
-
-func parseHex16(s string) uint16 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	s = strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
-	v, err := strconv.ParseUint(s, 16, 16)
-	if err != nil {
-		return 0
-	}
-	return uint16(v)
 }

@@ -121,4 +121,14 @@ describe("job-timeline", () => {
     const timeline = buildTimelineFromJobRow(job);
     expect(timeline.some(t => t.stage === "expired")).toBe(true);
   });
+
+  it("does not confuse transport handoff with Agent executor acceptance", () => {
+    const sentAt = new Date("2024-01-01T00:01:00Z");
+    const ackedAt = new Date("2024-01-01T00:02:00Z");
+    const handoff = makeJob({ status: "claimed", claimedAt: sentAt, deliveredAt: sentAt });
+    expect(buildTimelineFromJobRow(handoff).some((entry) => entry.stage === "accepted")).toBe(false);
+    const admitted = buildTimelineFromJobRow({ ...handoff, ackedAt }).find((entry) => entry.stage === "accepted");
+    expect(admitted?.at).toEqual(ackedAt);
+    expect(admitted?.messageKey).toBe("job.timeline.accepted");
+  });
 });

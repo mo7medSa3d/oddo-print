@@ -83,7 +83,7 @@ const send = (label, {chunkIndex = 0, chunkCount = 1, status = 'completed'} = {}
     totalCandidates: 0, devices: [], errors: [label] }),
 }));
 
-test('first report follows Agent -> Tenant -> Session lock order and persists a digest', async () => {
+test('first report follows Tenant -> Agent -> Session lock order and persists a digest', async () => {
   reset();
   const response = await send('initial');
   assert.equal(response.status, 200);
@@ -91,8 +91,8 @@ test('first report follows Agent -> Tenant -> Session lock order and persists a 
   assert.equal(state.status, 'partial'); // source diagnostic changes completed into partial
   assert.equal(state.stats.acceptedChunks[0], 0);
   assert.match(state.stats.chunkDigests[0], /^[0-9a-f]{64}$/);
-  assert.match(state.queries[0], /FROM agents[\s\S]+FOR SHARE/);
-  assert.match(state.queries[1], /FROM tenants[\s\S]+FOR SHARE/);
+  assert.match(state.queries[0], /FROM tenants[\s\S]+FOR SHARE/);
+  assert.match(state.queries[1], /FROM agents[\s\S]+FOR SHARE/);
   assert.match(state.queries[2], /FROM discovery_sessions[\s\S]+FOR UPDATE/);
 });
 

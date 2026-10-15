@@ -1,4 +1,4 @@
-import { requireActiveTenantInTransaction } from "../../../../lib/tenant-guard";
+import { requireActiveTenantInTransaction, TenantSuspendedError, TenantDeletedError } from "../../../../lib/tenant-guard";
 import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError } from "../../../../lib/manager-mutation-authorization";
 import { ActionError } from "../../../../lib/action-error";
 import { NextResponse } from "next/server";
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
       }, tx);
     });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: error.message }, { status: 403 });
     if (isTenantBillingError(error)) {
       return NextResponse.json(
         { error: error.message, code: error.code },
@@ -131,11 +131,11 @@ export async function DELETE(req: Request) {
   try {
   if (bodyRecord.remove === true) {
     const removed = await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
       const existing = await tx.select({ id: apiKeys.id }).from(apiKeys)
         .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`)).for("update");
       if (!existing.length) return null;
-      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await requireManagerActorInTransaction(tx, manager, "integrations.manage");
       // Saturate the control-plane int4 revision at its maximum so key
       // removal remains possible even if Odoo submitted revision 2147483647.
@@ -156,11 +156,11 @@ export async function DELETE(req: Request) {
   }
 
   const revoked = await db.transaction(async (tx) => {
+    await requireActiveTenantInTransaction(tx, manager.tenantId);
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`print_jobs:tenant:${manager.tenantId}`}))`);
     const existing = await tx.select({ id: apiKeys.id }).from(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, manager.tenantId), sql`${apiKeys.hashedKey} NOT LIKE 'deleted:%'`)).for("update");
     if (!existing.length) return null;
-    await requireActiveTenantInTransaction(tx, manager.tenantId);
     await requireManagerActorInTransaction(tx, manager, "integrations.manage");
     const result = await tx.update(apiKeys)
       .set({ revokedAt: sql`clock_timestamp()`, readOnlyUntil: null, odooEnabled: false, odooEnabledRevision: sql`LEAST(${apiKeys.odooEnabledRevision}, 2147483646) + 1`, odooEnabledUpdatedAt: sql`clock_timestamp()` })
@@ -180,7 +180,7 @@ export async function DELETE(req: Request) {
   if (!revoked) return NextResponse.json({ error: "API key not found" }, { status: 404 });
   return NextResponse.json(revoked, { status: 200 });
   } catch (error) {
-    if (error instanceof ManagerMutationAuthorityChangedError) return NextResponse.json({ error: error.message }, { status: 403 });
+    if (error instanceof ManagerMutationAuthorityChangedError || error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return NextResponse.json({ error: error.message }, { status: 403 });
     throw error;
   }
 }

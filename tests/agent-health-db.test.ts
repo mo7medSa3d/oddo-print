@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { hasTestDatabase, applyMigrations, truncateAll, seedFixture, pool, closePool } from "./helpers/pg";
 import { renderPrometheusMetrics } from "../src/lib/metrics";
 import { getAgentHealth, getAllAgentsHealth } from "../src/lib/agent-health";
+import { checkPrinters } from "../src/lib/system-health";
 import { BoundedQueryRunner } from "../src/lib/bounded-query";
 import { Pool as IsolatedPool } from "pg";
 
@@ -97,6 +98,30 @@ suite("agent health (database-backed)", () => {
   it("returns null for an unknown agent id", async () => {
     const f = await seedFixture();
     expect(await getAgentHealth(f.tenantId, "agt_does_not_exist")).toBeNull();
+  });
+
+  it("excludes saved, disabled and legacy virtual queues from current health capacity", async () => {
+    const f = await seedFixture();
+    await seedFixture();
+    for (const [present, lifecycle, capabilities, expected] of [
+      [true, "active", {}, 1],
+      [false, "active", {}, 0],
+      [true, "disabled", {}, 0],
+      [true, "active", { spoolerName: "Microsoft XPS Document Writer" }, 0],
+    ] as const) {
+      await pool().query("UPDATE printers SET inventory_present=$1, lifecycle=$2, capabilities=$3::jsonb WHERE id=$4",
+        [present, lifecycle, JSON.stringify(capabilities), f.printerId]);
+      const detail = await getAgentHealth(f.tenantId, f.agentId);
+      const fleet = await getAllAgentsHealth(f.tenantId);
+      expect(detail).toMatchObject({ printerCount: expected, onlinePrinterCount: expected });
+      expect(fleet).toHaveLength(1);
+      expect(fleet[0]).toMatchObject({ printerCount: expected, onlinePrinterCount: expected });
+      const system = await checkPrinters(f.tenantId);
+      expect(system.details).toMatchObject({ total: expected, routable: expected });
+      const metrics = await renderPrometheusMetrics();
+      // The other tenant's one physical queue remains part of global metrics.
+      expect(metrics.match(/^printers_online (\d+)$/m)?.[1]).toBe(String(expected + 1));
+    }
   });
 
   it("excludes stale and non-active printers from the online count (C018)", async () => {

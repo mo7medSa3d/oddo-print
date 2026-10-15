@@ -44,6 +44,7 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
   let expiresAt: Date | undefined;
   try {
     await db.transaction(async (tx) => {
+      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('agents:' || ${manager.tenantId}))`);
       const clock = await tx.execute(sql`SELECT clock_timestamp() + interval '10 minutes' AS expires_at`);
       const rawExpiresAt = clock.rows[0]?.expires_at;
@@ -51,7 +52,6 @@ export async function createAgentForManager(name: string, manager: ManagerClaims
       if (!rawExpiresAt || Number.isNaN(candidate.getTime())) throw new Error("Database clock is unavailable");
       expiresAt = candidate;
 
-      await requireActiveTenantInTransaction(tx, manager.tenantId);
       await requireManagerActorInTransaction(tx, manager, "agents.pair");
       await enforceTenantResourceEntitlement(
         tx,

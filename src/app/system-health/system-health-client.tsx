@@ -3,7 +3,7 @@
 import { fetchWithTimeout } from "../../lib/fetch-timeout";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n/react";
 import { statusMessageKey } from "../../lib/api-error-keys";
 import type { Translator } from "../../i18n/translate";
@@ -117,32 +117,45 @@ export default function SystemHealthClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
 
   const fetchHealth = useCallback(async (mode: "initial" | "refresh" = "refresh") => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     if (mode === "initial") setLoading(true);
     else setRefreshing(true);
     setError(null);
-    const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetchWithTimeout("/api/system/health", { cache: "no-store", signal: controller.signal });
       if (!res.ok) throw new Error(t(statusMessageKey(res.status) ?? "errors.gatewayUnavailable"));
       const data = (await res.json()) as SystemHealth;
+      if (request.current !== controller || controller.signal.aborted) return;
       setHealth(data);
     } catch (e) {
+      if (request.current !== controller) return;
       const detail = e instanceof Error ? e.message : String(e);
       // Operator sees a plain explanation; the raw detail stays in the console.
       console.warn("health_check_failed:", detail);
       setError(t("health.refreshFailedBody"));
     } finally {
       clearTimeout(timer);
-      setLoading(false);
-      setRefreshing(false);
+      if (request.current === controller) {
+        request.current = null;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [t]);
 
   useEffect(() => {
     void fetchHealth("initial");
+    const requestRef = request;
+    return () => {
+      requestRef.current?.abort();
+      requestRef.current = null;
+    };
   }, [fetchHealth]);
 
   if (loading) {

@@ -35,7 +35,7 @@ describe("debugging / robustness contracts", () => {
 
   it("keeps verification-email role handling fail-closed and typed", () => {
     const source = read("src/app/api/auth/verify-email/route.ts");
-    expect(source).toContain('let role: ManagerRole = "owner";');
+    expect(source).toContain('(value: string): value is ManagerRole');
     expect(source).toContain("isManagerRole(existing[0].role)");
     expect(source).toContain('throw new Error("INVALID_TENANT_ROLE")');
     expect(source).not.toMatch(/let role:\s*any/);
@@ -59,7 +59,7 @@ describe("debugging / robustness contracts", () => {
     expect(read("agent/internal/printer/discovery_extended.go")).toContain("conn.Write([]byte(\"\\x04raw\\n\"))");
     expect(read("agent/internal/agent/agent.go")).toContain("job rejection callback failed");
     expect(read("agent/internal/agent/discovery_manager.go")).toContain("gateway response drain failed");
-    expect(read("agent/internal/printer/ipp_discovery.go")).toContain("mDNS %s Browse: %w");
+    expect(read("agent/internal/printer/ipp_discovery.go")).toContain("mDNS %s family %d Browse: %w");
     // The queue close path must propagate the failure, not swallow it.
     expect(read("agent/cmd/agent/main.go")).toContain('return fmt.Errorf("close local queue: %w", err)');
     expect(read("agent/internal/agent/desired_state.go")).toContain("failed to persist desired-state error");

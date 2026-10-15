@@ -100,6 +100,10 @@ test('active credential may replay identical receipt in the transaction without 
   assert.equal(job.id, 'job-reused');
   const lockPosition = f.events.findIndex((entry) => String(entry).includes('FROM api_keys'));
   const lookupPosition = f.events.indexOf('transaction.receipt_lookup');
+  const tenantPosition = f.events.findIndex((entry) => String(entry).includes('FROM tenants'));
+  const advisoryPosition = f.events.findIndex((entry) => String(entry).includes('pg_advisory_xact_lock'));
+  assert.ok(tenantPosition >= 0 && tenantPosition < advisoryPosition, 'tenant fence precedes advisory locks');
+  assert.ok(tenantPosition < lockPosition, 'tenant fence precedes credential/resource locks');
   assert.ok(lockPosition >= 0 && lookupPosition > lockPosition);
   assert.ok(!f.events.includes('OUTSIDE_TRANSACTION_RECEIPT_LOOKUP'));
 });

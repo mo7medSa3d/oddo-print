@@ -3,6 +3,7 @@ import type { DbTx } from "../db";
 import { tenantUsers } from "../db/schema";
 import type { ManagerClaims } from "./manager-auth";
 import { hasManagerPermission } from "./authorization";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
 
 export class TeamAuthorizationChangedError extends Error {
   constructor() {
@@ -16,6 +17,16 @@ export async function requireTeamActorInTransaction(
   tx: DbTx, claims: ManagerClaims, relatedUserIds: string[] = [],
 ): Promise<void> {
   if (!claims.userId) throw new TeamAuthorizationChangedError();
+  // Lifecycle writers take the tenant before principal/session state. Hold
+  // the same fence through membership changes and their tenant audit insert.
+  try {
+    await requireActiveTenantInTransaction(tx, claims.tenantId);
+  } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) {
+      throw new TeamAuthorizationChangedError();
+    }
+    throw error;
+  }
   const ids = [...new Set([claims.userId, ...relatedUserIds])];
   // All team/reset/refresh mutations lock users before session rows. Ordering
   // both actor and target prevents opposite administrator requests deadlocking.

@@ -47,7 +47,10 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 	status := &HealthStatus{Online: true}
 
 	// 1. Printer Status (DLE EOT 1)
-	if _, err := rw.Write(cmdInquirePrinterStatus); err != nil {
+	if n, err := rw.Write(cmdInquirePrinterStatus); err != nil || n != len(cmdInquirePrinterStatus) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return nil, fmt.Errorf("%w: failed to write printer status inquiry: %w", ErrPrinterOffline, err)
 	}
 	buf := make([]byte, 1)
@@ -65,7 +68,10 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 	}
 
 	// 2. Offline Status (DLE EOT 2)
-	if _, err := rw.Write(cmdInquireOfflineStatus); err != nil {
+	if n, err := rw.Write(cmdInquireOfflineStatus); err != nil || n != len(cmdInquireOfflineStatus) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return nil, fmt.Errorf("%w: failed to write offline status inquiry: %w", ErrPrinterOffline, err)
 	}
 	if _, err := io.ReadFull(rw, buf); err != nil {
@@ -91,7 +97,10 @@ func QueryHealthStatus(rw io.ReadWriter) (*HealthStatus, error) {
 	}
 
 	// 3. Paper Status (DLE EOT 4)
-	if _, err := rw.Write(cmdInquirePaperStatus); err != nil {
+	if n, err := rw.Write(cmdInquirePaperStatus); err != nil || n != len(cmdInquirePaperStatus) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return nil, fmt.Errorf("%w: failed to write paper status inquiry: %w", ErrPrinterOffline, err)
 	}
 	if _, err := io.ReadFull(rw, buf); err != nil {
@@ -129,6 +138,8 @@ func PreFlightHealthCheck(ctx context.Context, address string) error {
 		return fmt.Errorf("%w: dial %s: %w", ErrPrinterOffline, address, err)
 	}
 	defer conn.Close()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancellation()
 
 	deadline := time.Now().Add(1500 * time.Millisecond)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -139,18 +150,8 @@ func PreFlightHealthCheck(ctx context.Context, address string) error {
 	}
 
 	_, err = QueryHealthStatus(conn)
-	if err != nil {
-		// The device answered TCP but not the status inquiry (timeout). This
-		// is NOT proof of health — it is reported honestly as
-		// status-unsupported. The caller may still choose to transmit (a
-		// hung device will then surface as a write failure classified with
-		// UNKNOWN_PARTIAL_DELIVERY), but it can never pretend the device was
-		// verified ready, and Status()/heartbeat report "unknown".
-		var netErr net.Error
-		if errors.As(err, &netErr) && netErr.Timeout() {
-			return fmt.Errorf("%w: status inquiry on %s got no usable answer: %v", ErrPrinterStatusUnsupported, address, err)
-		}
-		return err
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-	return nil
+	return err
 }

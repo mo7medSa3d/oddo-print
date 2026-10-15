@@ -17,6 +17,7 @@ import { databaseNowMs, parseDbTimeMs } from "../../../../../lib/database-clock"
 import { agentStaleThresholdSeconds } from "../../../../../lib/agent-availability";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { receiptPaperWidthMM } from "../../../../../lib/receipt-width";
+import { validatePayloadForPrinter } from "../../../../../lib/printer-capability";
 
 const CERTIFY_MAX_BODY_BYTES = 16 * 1024;
 
@@ -121,7 +122,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         // Only parse when a body was actually sent: an empty POST certifies
         // with defaults, but malformed JSON must not silently become defaults.
         const contentLength = req.headers.get("content-length")?.trim() ?? "";
-        const hasBody = contentLength !== "" ? contentLength !== "0" : true;
+        const hasBody = req.body !== null && contentLength !== "0";
         if (hasBody) { const parsedBody = await req.json(); if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) throw new Error("JSON object required"); body = parsedBody; }
       } catch {
         setStep("queue", "error", "Malformed JSON body", "invalid-json");
@@ -154,23 +155,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // Byte transports (raw/escpos/zpl/tspl) get a raw ticket in the declared
       // protocol; document transports (spooler/ipp/ipps) get a minimal PDF
       // ticket (a raw ticket would fail capability validation with 422).
-      const declaredProtocol = String(printer.protocol ?? "unknown").toLowerCase().trim();
-      const declaredConn = String(printer.connectionType ?? "").toLowerCase().trim();
-      const isByteProtocol = declaredProtocol === "raw" || declaredProtocol === "escpos"
-        || declaredProtocol === "zpl" || declaredProtocol === "tspl";
-      const isDocumentTransport = declaredConn === "spooler" || declaredConn === "ipp"
-        || declaredConn === "ipps" || (!isByteProtocol && declaredProtocol !== "unknown"
-          && (declaredProtocol === "spooler" || declaredProtocol === "ipp" || declaredProtocol === "ipps"));
+      const isDocumentTransport = validatePayloadForPrinter({ type: "pdf" }, printer).ok;
       // `encoding` is a REQUIRED member of the wire contract
       // (contracts/print-payload-contract.json -> payload.ts printJobPayloadSchema
       // `encoding: z.literal("base64")`). Omitting it made validatePrintJobPayload
       // throw a ZodError inside createPrintJobForPrinter, so every certification
       // request failed at the queue step with a 500 instead of enqueuing a job.
-      const payload = isDocumentTransport
-        ? { type: "pdf" as const, encoding: "base64" as const, data: Buffer.from(buildDeterministicCertificationPdf(printer, tenantId, idempotencyKey), "utf-8").toString("base64") }
-        : buildTestPrintPayloadForPrinter(printer.name, `Tenant ${tenantId}`, {
+      let payload: ReturnType<typeof buildTestPrintPayloadForPrinter>;
+      try {
+        payload = isDocumentTransport
+          ? { type: "pdf", encoding: "base64", data: Buffer.from(buildDeterministicCertificationPdf(printer, tenantId, idempotencyKey), "utf-8").toString("base64") }
+          : buildTestPrintPayloadForPrinter(printer.name, `Tenant ${tenantId}`, {
             protocol: printer.protocol, connectionType: printer.connectionType, capabilities: printer.capabilities, config: printer.config,
           }, idempotencyKey);
+      } catch (error) {
+        throw new PrintJobCapabilityError(error instanceof Error ? error.message : "Test page not supported for this printer");
+      }
 
       const expiresAt = new Date(certificationNowMs + 5 * 60 * 1000);
 
@@ -259,7 +259,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("agent", "error", "Agent state cannot be verified while Gateway database access is unavailable", `agentId=${printer.agentId}`);
     }
 
-    // Claim step: observed from job status
+    const claimObserved = Boolean(freshJob && (freshJob.claimedAt || freshJob.deliveredAt || freshJob.ackedAt || freshJob.claimToken || freshJob.closedClaimTokenHash));
+    // Claim step requires persisted attempt evidence, not a terminal status alone.
     if (jobStateLookupFailed) {
       // Keep the explicit error state; do not reinterpret a DB outage as a
       // missing job/pending claim.
@@ -267,10 +268,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("claim", "pending", "Job row not found after enqueue — pending", `jobId=${jobId}`);
     } else if (freshJob.status === "queued") {
       setStep("claim", "pending", `Job queued, waiting for agent ${printer.agentId} to claim via advisory lock`, `jobId=${jobId} status=queued`);
-    } else if (["claimed", "printing", "success", "failed"].includes(freshJob.status)) {
+    } else if (claimObserved) {
       setStep("claim", "ok", `Job ${freshJob.status} — claimed at ${freshJob.claimedAt?.toISOString() ?? "unknown"}`, `claimToken present=${!!freshJob.claimToken} attemptId=${freshJob.attemptId ?? "n/a"}`);
-    } else if (freshJob.status === "expired") {
-      setStep("claim", "error", "Job expired before claim", `status=expired`);
+    } else if (freshJob.status === "expired" || freshJob.status === "failed") {
+      setStep("claim", "error", "Job ended without an observed Agent claim", `status=${freshJob.status}`);
     } else {
       setStep("claim", "pending", `Job status ${freshJob.status} — claim pending`, `status=${freshJob.status}`);
     }
@@ -308,7 +309,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           setStep("agent", "blocked", `Agent offline last seen ${Math.round(age/1000)}s ago — cannot claim`, `agentId=${printer.agentId} lastSeenAt=${agent.lastSeenAt}`);
         }
       }
-    } else if (["claimed", "printing", "success", "failed"].includes(freshJob.status)) {
+    } else if (claimObserved) {
       setStep("agent", "ok", `Agent ${printer.agentId} claimed job at ${freshJob.claimedAt?.toISOString() ?? "unknown"}`, `agentId=${printer.agentId} status=${freshJob.status}`);
     } else {
       setStep("agent", "pending", `Job status ${freshJob.status} — agent step pending`, `status=${freshJob.status}`);
@@ -318,7 +319,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const transport = `${printer.connectionType}/${printer.protocol}`;
     if (jobStateLookupFailed) {
       setStep("transport", "error", "Unable to verify transport execution state", `jobId=${jobId}`);
-    } else if (!freshJob || freshJob.status === "queued") {
+    } else if (!freshJob || !claimObserved || freshJob.status === "queued" || freshJob.status === "claimed") {
       setStep("transport", "pending", `Transport ${transport} selected, waiting for claim to observe execution`, `transport=${transport}`);
     } else {
       const isSpooler = printer.connectionType === "spooler" || printer.protocol === "spooler" || printer.protocol === "windows_spooler";
@@ -331,8 +332,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       setStep("transport", "ok", msg, `transport=${transport} status=${freshJob.status}`);
     }
 
-    // Physical — always BLOCKED in sandbox, never auto-ok
-    setStep("physical", "blocked", "Physical verification requires real printer — BLOCKED in sandbox, must be verified on hardware", "BLOCKED: no physical printer in sandbox; test-print job created but paper outcome unverified");
+    // Physical output needs operator confirmation, never automatic certification.
+    setStep("physical", "blocked", "Physical verification requires real printer output confirmation", "BLOCKED: submission evidence does not independently verify physical paper output");
 
     // Ack — observed from job status
     if (jobStateLookupFailed) {
@@ -356,12 +357,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const certified = false; // Never auto-certify without physical proof
     const blocked = blockedSteps.length > 0;
 
-    if (pendingSteps.length > 0) {
+    if (hasError) {
+      setStep("final", "error", `Certification failed — ${steps.filter(s=>s.status==="error").map(s=>s.label).join(", ")}`, `certified=${certified}`);
+    } else if (pendingSteps.length > 0) {
       setStep("final", "pending", `Certification pending — waiting for ${pendingSteps.map(s => s.label).join(", ")}`, `pending=${pendingSteps.map(s=>s.id).join(",")} certified=${certified}`);
     } else if (blocked) {
       setStep("final", "blocked", `Certification BLOCKED at ${blockedSteps.map(s=>s.label).join(", ")} — requires hardware verification`, `certified=${certified} blocked=${blocked}`);
-    } else if (hasError) {
-      setStep("final", "error", `Certification failed — ${steps.filter(s=>s.status==="error").map(s=>s.label).join(", ")}`, `certified=${certified}`);
     } else {
       setStep("final", "pending", "Certification pending physical verification — all observed steps ok but physical BLOCKED", `certified=${certified} blocked=${blocked}`);
     }
@@ -372,13 +373,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         tenantId,
         stage: "blocked",
         status: "blocked",
-        message: "Certification blocked at physical step — sandbox has no printer",
+        message: "Physical paper output still requires operator verification",
         attemptId,
         printerId,
         agentId: printer.agentId,
         requestId,
         metadata: { certification: true, steps, isReused },
-      }).catch(()=>{});
+      }).catch((error: unknown) => logWarn("print.certification.event_persist_failed", { requestId, printerId, jobId, error: error instanceof Error ? error.message : "unknown" }));
     }
 
     return NextResponse.json(
@@ -394,7 +395,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         blocked,
         blockedReasons: blockedSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
         pendingReasons: pendingSteps.map(s => ({ step: s.id, label: s.label, message: s.message })),
-        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASEIR TEST PAGE, 5) Confirm ack success. In sandbox this remains BLOCKED by design. Double-click uses same Idempotency-Key to avoid duplicates.",
+        instructions: "To complete certification: 1) Ensure agent online, 2) Ensure printer reachable, 3) Check Gateway→Spooler Job linking (spoolerJobId), 4) Verify physical paper output YASEIR TEST PAGE, 5) Confirm ack success. Physical output remains unverified until checked on the printer. Double-click uses same Idempotency-Key to avoid duplicates.",
         timelineUrl: `/api/jobs/${jobId}/timeline`,
       },
       { headers: { "x-request-id": requestId } }

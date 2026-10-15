@@ -1008,33 +1008,10 @@ class PrintGatewayRouter(models.AbstractModel):
         printer_name = sanitize(binding.printer_id)
 
         if proto == "zpl":
-            ticket_raw = (
-                "^XA\n"
-                "^FO50,40^A0N,36,36^FDYASEIR PRINT GATEWAY^FS\n"
-                "^FO50,85^A0N,30,30^FDPRINTER TEST^FS\n"
-                "^FO50,125^GB700,2,2^FS\n"
-                f"^FO50,145^A0N,26,26^FDCompany : {company_name}^FS\n"
-                f"^FO50,180^A0N,26,26^FDLocation: {branch_name}^FS\n"
-                f"^FO50,215^A0N,26,26^FDPrinter : {printer_name}^FS\n"
-                "^FO50,250^A0N,26,26^FDStatus  : READY^FS\n"
-                f"^FO50,285^A0N,22,22^FDTime    : {now_str}^FS\n"
-                "^XZ\n"
-            )
+            ticket_raw = "^XA\n^FO4,4^A0N,12,12^FDTEST^FS\n^XZ\n"
         elif proto == "tspl":
-            ticket_raw = (
-                "SIZE 75 mm, 50 mm\n"
-                "GAP 2 mm, 0 mm\n"
-                "DIRECTION 1\n"
-                "CLS\n"
-                'TEXT 50,35,"3",0,1,1,"YASEIR PRINT GATEWAY"\n'
-                'TEXT 50,70,"2",0,1,1,"PRINTER TEST"\n'
-                f'TEXT 50,105,"2",0,1,1,"Company : {company_name}"\n'
-                f'TEXT 50,135,"2",0,1,1,"Location: {branch_name}"\n'
-                f'TEXT 50,165,"2",0,1,1,"Printer : {printer_name}"\n'
-                'TEXT 50,195,"2",0,1,1,"Status  : READY"\n'
-                f'TEXT 50,220,"1",0,1,1,"Time    : {now_str}"\n'
-                "PRINT 1,1\n"
-            )
+            # Firmware diagnostics use its configured stock without guessing size or gap.
+            ticket_raw = "SELFTEST\r\n"
         elif proto == "raw":
             ticket_raw = (
                 "================================\n"
@@ -1076,6 +1053,24 @@ class PrintGatewayRouter(models.AbstractModel):
 
     @api.model
     @api.private
+    def _diagnostic_paper_width_for_binding(self, binding, *, driver_managed=False):
+        runtime_printer = binding._validate_runtime_target()
+        runtime_capabilities = runtime_printer.get("capabilities")
+        declared_width = runtime_capabilities.get("paper_width_mm") if isinstance(runtime_capabilities, dict) else None
+        paper_width_mm = declared_width if type(declared_width) is int and declared_width in (58, 80) else None
+        if (
+            paper_width_mm is None
+            and not driver_managed
+            and getattr(binding, "destination_type", False) in ("pos", "pos_printer")
+            and str(runtime_printer.get("deviceClass") or "").strip().lower() == "thermal"
+        ):
+            raise ValidationError(_(
+                "Set the selected thermal receipt printer's paper width to 58 or 80 mm in the Agent or Gateway and sync it before sending a test page."
+            ))
+        return paper_width_mm
+
+    @api.model
+    @api.private
     def _route_spooler_test_page(self, *, binding, company, company_name, branch_name, printer_name, now_str):
         """PDF test page through the Windows Spooler driver path.
 
@@ -1091,9 +1086,8 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
             )
-        runtime_capabilities = binding._validate_runtime_target().get("capabilities")
-        declared_width = runtime_capabilities.get("paper_width_mm") if isinstance(runtime_capabilities, dict) else None
-        paper_width_mm = declared_width if type(declared_width) is int and declared_width in (58, 80) else None
+        # The Windows renderer fits to validated driver media before StartDoc.
+        paper_width_mm = self._diagnostic_paper_width_for_binding(binding, driver_managed=True)
         pdf_content = self._generate_test_pdf(
             company_name=company_name, branch_name=branch_name,
             printer_name=printer_name, now_str=now_str,
@@ -1117,9 +1111,7 @@ class PrintGatewayRouter(models.AbstractModel):
             raise ValidationError(
                 _("Gateway printing is enabled, but the binding resolved to native print. Check the binding configuration.")
             )
-        runtime_capabilities = binding._validate_runtime_target().get("capabilities")
-        declared_width = runtime_capabilities.get("paper_width_mm") if isinstance(runtime_capabilities, dict) else None
-        paper_width_mm = declared_width if type(declared_width) is int and declared_width in (58, 80) else None
+        paper_width_mm = self._diagnostic_paper_width_for_binding(binding)
         pdf_content = self._generate_test_pdf(
             company_name=company_name, branch_name=branch_name,
             printer_name=printer_name, now_str=now_str,
@@ -1168,16 +1160,20 @@ class PrintGatewayRouter(models.AbstractModel):
             "(YASEIR PRINT GATEWAY) Tj",
             "/F1 18 Tf", "0 -40 Td", "(PRINTER TEST PAGE) Tj",
             "/F1 12 Tf", "0 -30 Td",
-            f"(Company: {_pdf_text(company_name)}) Tj",
-            "0 -20 Td",
-            f"(Location: {_pdf_text(branch_name)}) Tj",
-            "0 -20 Td",
-            f"(Printer: {_pdf_text(printer_name)}) Tj",
-            "0 -20 Td", "(Status: READY) Tj",
-            "0 -20 Td",
-            f"(Time: {_pdf_text(now_str)}) Tj",
-            "ET",
         ]
+        office_lines = [
+            part for text in (
+                "Company: %s" % str(company_name or "")[:80],
+                "Location: %s" % str(branch_name or "")[:80],
+                "Printer: %s" % str(printer_name or "")[:80],
+                "Status: READY", "Time: %s" % str(now_str or "")[:80],
+            ) for part in textwrap.wrap(text, width=39)
+        ]
+        for index, text in enumerate(office_lines):
+            if index:
+                lines.append("0 -20 Td")
+            lines.append("(%s) Tj" % _pdf_text(text))
+        lines.append("ET")
         page_width, page_height = 612, 792
         if paper_width_mm:
             page_width, page_height = paper_width_mm * 72 / 25.4, 100 * 72 / 25.4

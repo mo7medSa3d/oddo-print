@@ -32,7 +32,7 @@ printer produces pages of garbage, so it is refused with `CAPABILITY_MISMATCH`.
 | Windows spooler | `spooler_windows.go` | ⚠️ only when RAW passthrough is explicitly declared | ⚠️ only when ESC/POS passthrough is explicitly declared | ✅ PDF pipeline (§4) | **COMPILE VERIFIED** only |
 | Windows spooler (non-Windows build) | `spooler_stub.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | `ERR_UNSUPPORTED_TRANSPORT` (same opt-in rule) | **SIMULATED** |
 | IPP / IPPS | `ipp.go` | ❌ `CAPABILITY_MISMATCH` (IPP is a document transport here) | ❌ `CAPABILITY_MISMATCH` | ✅ `application/pdf` | **NOT VERIFIED** against a real IPP printer (`httptest` coverage only) |
-| USB raw (`CreateFile` + `WriteFile`) | `usb_windows.go` | ✅ only for an explicitly declared `raw` device | ✅ only for an explicitly declared `escpos` device | ❌ `CAPABILITY_MISMATCH` — install the device as a Windows printer and route to the spooler queue | **COMPILE VERIFIED** only |
+| USB raw (`CreateFile` + `WriteFile`) | `usb_windows.go` | ✅ only for the explicitly declared matching byte language | ✅ only for an explicitly declared `escpos` device | ❌ `CAPABILITY_MISMATCH` — install the device as a Windows printer and route to the spooler queue | **COMPILE VERIFIED** only |
 | USB raw (non-Windows build) | `usb_other.go` | `ERR_UNSUPPORTED_TRANSPORT` (simulated file write only under explicit opt-in, still reported as failure) | same | ❌ | **SIMULATED** |
 
 Each backend declares what it accepts through `SupportsKind`, and the Agent reports
@@ -105,7 +105,7 @@ maps configuration to a backend is `agent/internal/printer/factory.go`.
 | Document kinds | `raw` ✅ · `escpos` ✅ · `image` ✅ only for `escpos` protocol · `pdf` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: network` (alias `tcp`), `endpoint: <ip>:<port>`, `protocol: raw`, `escpos`, `zpl`, or `tspl` |
 | Capability reporting | Without an explicit override the heartbeat derives only the configured language: `raw` → `[raw]`, `escpos` → `[escpos, image]`, `zpl` → `[zpl]`, `tspl` → `[tspl]`. An explicit supported-protocol list remains authoritative for this direct byte transport. |
-| Error handling | `DialContext` with a 5 s dial timeout, deadline from the job context (else 15 s), short-write loop, refuses empty and > 5 MiB payloads. Dial/write errors are returned verbatim to the gateway |
+| Error handling | `DialContext` with a 5 s dial timeout; 16 KiB write chunks use a 60 s stall bound capped by the job deadline. Cancellation owns the connection from dial through status preflight and payload. Incomplete status-command writes refuse document transmission; unreadable replies alone retain legacy compatibility. Partial document writes or failed TCP EOF handoff remain UNKNOWN and cannot be blindly retried. Empty and > 5 MiB payloads are refused. |
 | Status probe | 2 s TCP dial → `unknown` if reachable without a printer-state protocol, `offline` if refused. ESC/POS additionally uses a framed DLE EOT status probe to report explicit device evidence; TCP reachability alone is never `online`. |
 | Platform limits | None — identical on Windows/Linux/macOS |
 | Discovery | Active TCP 9100 scan of private IPv4 subnets (`network_discovery.go`) |
@@ -121,6 +121,8 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 |---|---|
 | Protocol | Document jobs use the Windows driver/GDI path (`StartDocW`/page rendering). Explicit byte-passthrough jobs use Winspool RAW (`OpenPrinterW` → `StartDocPrinterW` with datatype `RAW` → `StartPagePrinter` → `WritePrinter` loop → `EndPagePrinter` → `EndDocPrinter`) |
 | Document kinds | `pdf` ✅ · `image` ✅ by default; `raw`/`escpos` ✅ only when explicitly declared as spooler passthrough |
+| Paper fitting | Request the document form first; otherwise use the same driver's validated current media before `StartDocW`. Fit the whole page proportionally inside actual printable bounds, shrink/center without cropping or changing global defaults. Genuine invalid geometry/driver failures still refuse submission |
+| Explicit local test | `printers test` submits a small real PDF through this document path using current driver media; the backend's readiness-only `Test` method remains separate. Gateway/desktop/Odoo Test Print uses the same driver rendering |
 | Configuration | `type: spooler` plus `spooler_name` (falls back to `endpoint`). A local USB printer installed as a Windows printer is configured this way and does **not** require IP/port metadata |
 | Capability reporting | Legacy/missing capability rows derive `[pdf, image]`; explicit passthrough may add `raw` and/or `escpos` without removing document support |
 | Error handling | Short writes are completed in a loop. Pre-dispatch failures remain definite. After Windows allocates a spooler job ID, a later document failure is an **unknown physical outcome** and retains that job ID; cleanup after successful `EndDoc` cannot turn the completed submission into a safe-to-retry failure |
@@ -144,10 +146,10 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 | Aspect | Detail |
 |---|---|
 | Protocol | IPP 2.0 `Print-Job` (0x0002) over HTTP POST `application/ipp`, with `attributes-charset`, `attributes-natural-language`, `printer-uri`, `requesting-user-name`, `document-format`, `job-name`. The wire URL uses HTTP(S), but the **IPP operation** `printer-uri` attribute uses `ipp://` or `ipps://` as RFC 8010 requires; the original network port and TLS binding are preserved. |
-| Document kinds | `pdf` ✅ as `application/pdf`; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
+| Document kinds | `pdf` ✅ as conversion input: verified native PDF, complete PWG Raster, or single-page JPEG as advertised; `raw` / `escpos` ❌ → `CAPABILITY_MISMATCH` |
 | Configuration | `type: ipp` or `ipps` (also `type: network` with `protocol: ipp`), `endpoint:` an `ipp://`, `ipps://`, `http://` URL or a bare `host:port` — normalised by `normalizeIPPURL`; `ipp://` and `ipps://` default to port 631 when omitted |
 | Capability reporting | `supported_protocols: [pdf]` |
-| Error handling | A definite, correlated IPP `0x04xx` refusal is a non-printed error. HTTP 3xx redirects are **never followed or silently retried**: the request already reached the first endpoint, so the physical result remains **unknown**. HTTP 5xx, ambiguous network failures, malformed submission evidence and IPP `0x05xx` are likewise unknown; the complete IPP `0x00xx` success class requires a valid returned Job. The HTTP submission timeout follows the bounded job deadline when provided, otherwise defaults to 15 s. A protocol ACK does not prove paper output. |
+| Error handling | Failed/missing format proof stops before document submission. Acceptance needs HTTP200/application/ipp, a correlated valid IPP response and typed Job evidence. Other HTTP/media responses after Print-Job retain UNKNOWN; redirects and ambiguous responses are never silently retried. A definite correlated IPP `0x04xx` refusal is a non-printed error, while IPP `0x05xx` remains unknown. Submission follows the bounded job deadline (15 s fallback). See [IPP compatibility](docs/IPP_PRINT_COMPATIBILITY.md). |
 | Status probe | `Get-Printer-Attributes` (5 s): idle/processing → `online`/`busy`; explicit `offline`/`shutdown` reasons → `offline`; stopped/paused/admission/media/cover/toner/jam faults → `error`; probe/auth/protocol/transport failure → `unknown`. `printer-state-reasons` is retained as diagnostic detail |
 | Platform limits | None |
 | Discovery | Bounded mDNS/DNS-SD browse for `_ipp._tcp`, `_ipps._tcp`, and `_printer._tcp`, merged with the TCP 631 scan in `ipp_discovery.go`; partial mDNS failures do not discard successful candidates. |
@@ -159,9 +161,9 @@ JPEG dimensions are inspected with `jpeg.DecodeConfig` before full decode. Eithe
 |---|---|
 | Protocol | `CreateFile` on the discovered `\\?\usb#…` device interface path + `WriteFile` loop |
 | Document kinds | Top-level `raw` ✅ when the configured protocol is `raw`, `zpl`, or `tspl` and the payload declares that matching protocol; top-level `escpos` ✅ only when protocol=`escpos`; `pdf`/`image` ❌ → `CAPABILITY_MISMATCH` (there is no driver renderer; install the device as a Windows printer and route to the spooler queue) |
-| Configuration | `type: usb` with a real USBPRINT device path and an **explicit** `raw`, `escpos`, `zpl`, or `tspl` protocol. `usb_vid`/`usb_pid`/`usb_serial` identify the device but do not prove its printer language. When `spooler_name` is present the factory builds a **spooler** backend instead — that is the recommended document-printing setup |
+| Configuration | `type: usb` with a real USBPRINT device path and an **explicit** `raw`, `escpos`, `zpl`, or `tspl` protocol. `usb_vid`/`usb_pid` are valid 16-bit hexadecimal values (optional one `0x`/`0X` prefix); `usb_serial` is optional. They do not prove a byte language. Native interface/identity proof must match the selected device before writable open; no different interface is substituted. When `spooler_name` is present the factory builds a **spooler** backend instead — that is the recommended document-printing setup |
 | Capability reporting | Derives only the explicitly declared byte language (`[raw]`, `[escpos]`, `[zpl]`, or `[tspl]`); it never assumes that a USB/thermal printer is ESC/POS, ZPL, or TSPL |
-| Error handling | Without a device path or explicit byte protocol the backend fails closed with a diagnostic. `CreateFile`/`WriteFile` errors are wrapped with the device identity |
+| Error handling | Missing, malformed or mismatched native identity fails before writable open. After a kernel write begins, a timeout, partial/error write or abandoned worker preserves UNKNOWN and fences overlapping submissions; handle ownership stays with a live worker. `CreateFile`/`WriteFile` errors retain the device diagnosis. |
 | Status probe | USBPRINT interface presence/openability does not prove paper/device readiness; both successful open and access/sharing failures remain physical `unknown` unless stronger device evidence exists |
 | Identity | `Identify()` prefers serial → USB location → `VID:PID` |
 | Platform limits | Windows only. On other platforms the backend fails with `ERR_UNSUPPORTED_TRANSPORT` (`Status()` is `unknown`) unless the operator explicitly sets `ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1` for development diagnostics; simulated writes are then reported as failures prefixed `SIMULATED_TRANSPORT`, never as success |
@@ -235,6 +237,10 @@ directly, so failed registry persistence cannot substitute stale inventory.
 
 ## 9. Diagnostics
 
+Physical Test Print in the desktop, Gateway and Odoo uses the selected printer's supported document or byte-language path. Explicit local `printers test` submits a real Windows/IPP PDF or matched RAW/ESC-POS/ZPL/TSPL diagnostic. ZPL uses one small buffered `TEST` marker; TSPL uses the firmware's documented `SELFTEST`, without forcing stock size, gap, calibration or cutter settings. Actual application label commands keep their existing language/media requirements.
+
+Connection/setup checks remain read-only, and Test Center/E2E Capture remains rendering-only. A successful physical-test submission still requires checking paper before repeating an uncertain operation. Local exact printer IDs take precedence over names; ambiguous name aliases refuse rather than selecting another queue.
+
 * `POST /api/printers/:id/test-connection` — **no job is created**. Returns the cached
   heartbeat reachability (`latencyMs` is always `null`; the gateway cannot dial the LAN and
   a live agent probe is not implemented).
@@ -245,12 +251,18 @@ directly, so failed registry persistence cannot substitute stale inventory.
 
 ## 10. Success semantics (honest)
 
-* RAW TCP success = the kernel accepted the bytes on the socket. POS printers rarely
-  acknowledge paper.
+* RAW TCP success = the kernel accepted the bytes and the owned TCP stream's
+  EOF handoff succeeded. POS printers rarely acknowledge paper.
 * Spooler success = `WritePrinter`/`EndDocPrinter` returned success, i.e. the job was
   accepted by the Windows spooler.
 * PDF/spooler document success = Windows accepted/finalized the driver-rendered document. If a later error occurs after a spooler job ID was allocated, the outcome remains `unknown` rather than `not_printed`.
-* IPP success = the printer answered IPP status `0x0000`.
+* IPP success = a valid correlated HTTP200/application/ipp response in the
+  successful IPP status class returned usable Job evidence.
+
+LPR, WSD and SNMP are discovery/enrichment sources here; they do not supply
+direct print backends. A Windows-installed LPR/WSD printer still prints through
+its selected Windows spooler queue. Serial/Bluetooth-specific direct backends
+are not implemented; an installed Windows queue keeps the same driver route.
 
 None of these prove that a physical page came out. Bidirectional paper-level status is not
 implemented.

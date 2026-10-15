@@ -3,7 +3,9 @@ package printer
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -81,6 +83,37 @@ func TestPDFRejectsDefaultSheetSubstitution(t *testing.T) {
 	}
 	if err := validatePDFSheet(math.NaN(), 792, 2550, 3300, 300, 300); err == nil {
 		t.Fatal("invalid PDF dimensions accepted")
+	}
+}
+
+func TestPDFMediaDiagnosticSeparatesPhysicalAndPrintableGeometry(t *testing.T) {
+	cause := validatePDFSheet(612, 792, 576, 800, 203, 203)
+	if cause == nil {
+		t.Fatal("narrow physical form accepted for Letter PDF")
+	}
+	err := pdfSheetDiagnostic(cause, 2, true, 612, 792, 576, 800, 552, 776, 203, 203, 12, 12)
+	if !errors.Is(err, cause) {
+		t.Fatal("media diagnostic lost original rejection")
+	}
+	for _, text := range []string{"PDF page 2", "before StartDocW; no document submitted", "requested=215.9x279.4mm",
+		"driver physical=72.1x100.1mm (576x800px)", "printable=69.1x97.1mm (552x776px)", "DPI=203x203", "offset=12,12px", cause.Error()} {
+		if !strings.Contains(err.Error(), text) {
+			t.Fatalf("media diagnostic lacks %q: %v", text, err)
+		}
+	}
+	later := pdfSheetDiagnostic(cause, 3, false, 612, 792, 576, 800, 552, 776, 203, 203, 12, 12)
+	if !strings.Contains(later.Error(), "after StartDocW; earlier pages may have been submitted") || strings.Contains(later.Error(), "no document submitted") {
+		t.Fatalf("later-page rejection claims no submission: %v", later)
+	}
+}
+
+func TestPDFMediaDiagnosticKeepsInvalidDriverGeometryUnknown(t *testing.T) {
+	cause := validatePDFSheet(612, 792, 576, 800, 0, 203)
+	err := pdfSheetDiagnostic(cause, 1, true, 612, 792, 576, 800, -1, 776, 0, 203, 12, 12)
+	for _, text := range []string{"driver physical=unknown (576x800px)", "printable=unknown (-1x776px)", "DPI=0x203", cause.Error()} {
+		if !strings.Contains(err.Error(), text) {
+			t.Fatalf("invalid driver geometry lost %q: %v", text, err)
+		}
 	}
 }
 

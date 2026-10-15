@@ -253,7 +253,10 @@ describe("deep production review contracts", () => {
   });
   it("locks the tenant row during print-job admission", () => {
     const source = read("src/lib/print-job-service.ts");
-    expect(source).toContain("FOR UPDATE OF a, p, te");
+    expect(source).toContain("SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE");
+    expect(source.indexOf("SELECT lifecycle FROM tenants")).toBeLessThan(source.indexOf("SELECT pg_advisory_xact_lock"));
+    expect(source).toContain("FOR UPDATE OF a, p");
+    expect(source).not.toContain("FOR UPDATE OF a, p, te");
   });
 
 });

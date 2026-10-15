@@ -1091,6 +1091,9 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	if incoming.USBPID != "" && merged.USBPID == "" {
 		merged.USBPID = incoming.USBPID
 	}
+	if refreshNativeUSBDiscoveryIDs(existing, incoming) {
+		merged.USBVID, merged.USBPID = incoming.USBVID, incoming.USBPID
+	}
 	if incoming.USBSerial != "" && merged.USBSerial == "" {
 		merged.USBSerial = incoming.USBSerial
 	}
@@ -1138,37 +1141,24 @@ func mergeDeviceInfo(existing, incoming DeviceInfo) DeviceInfo {
 	return merged
 }
 
-// TestPrinter checks backend-specific readiness/transport for the given printer.
-// A successful Test does not prove bytes were submitted or physically printed.
-// It returns success/failure with a meaningful error. It resolves the printer via fast local discovery
-// first (registry, spooler, config), falling back to full network discovery only if needed.
+// TestPrinter submits an explicit diagnostic using the selected local backend.
+// Successful submission still requires checking actual paper output.
 func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
-	var target *DeviceInfo
-
 	// A printer test is an explicit operation against an already selected
 	// inventory record. Never invoke network discovery here: discovery has
 	// intentionally bounded LAN probes and their timeout budget must not leak
 	// into an interactive test-print action.
-	if infos, err := LoadRegistryPrinters(registryPath); err == nil {
-		for _, p := range infos {
-			if p.ID == printerID || p.SpoolerName == printerID || p.Name == printerID {
-				cp := p
-				target = &cp
-				break
-			}
-		}
-	} else if !os.IsNotExist(err) {
+	registered, err := LoadRegistryPrinters(registryPath)
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("load printer registry: %w", err)
 	}
-
-	if target == nil {
-		for _, p := range discoverFromConfig(cfg) {
-			if p.ID == printerID || p.SpoolerName == printerID || p.Name == printerID {
-				cp := p
-				target = &cp
-				break
-			}
-		}
+	var configured []DeviceInfo
+	if cfg != nil {
+		configured = discoverFromConfig(cfg)
+	}
+	target, err := selectLocalTestTarget(registered, configured, printerID)
+	if err != nil {
+		return err
 	}
 	if target == nil {
 		return fmt.Errorf("printer %q not found in local printer inventory", printerID)
@@ -1179,9 +1169,13 @@ func TestPrinter(cfg *config.Config, registryPath, printerID string) error {
 	if err != nil {
 		return fmt.Errorf("printer %s backend not available: %w", printerID, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	timeout := 15 * time.Second
+	if _, physical := prt.(interface{ PrintTestPage(context.Context) error }); physical {
+		timeout = defaultPDFPrintTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return prt.Test(ctx)
+	return runLocalPrinterTest(ctx, prt)
 }
 
 // printerConfigForTest resolves the backend configuration for an explicit

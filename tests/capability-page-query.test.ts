@@ -3,7 +3,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 const chain = vi.hoisted(() => ({ select: vi.fn(), from: vi.fn(), leftJoin: vi.fn(), where: vi.fn(), orderBy: vi.fn(), limit: vi.fn() }));
 vi.mock("../src/db/client", () => ({ db: { select: chain.select }, queryWithTimeout: (query: () => Promise<unknown>) => query() }));
-import { getPrinterCapabilityPage } from "../src/lib/printer-health";
+import { getPrinterCapabilityPage, getPrinterCapabilityMatrix } from "../src/lib/printer-health";
+import { nonVirtualPrinterPredicate } from "../src/lib/printer-virtual-sql";
 
 describe("bounded capability query before projection", () => {
   beforeEach(() => {
@@ -22,7 +23,8 @@ describe("bounded capability query before projection", () => {
     expect(predicate.sql).toContain('"printers"."tenant_id" =');
     expect(predicate.sql).toContain('"printers"."shared_with_gateway" =');
     expect(predicate.sql).toContain('"printers"."id" >');
-    expect(predicate.params).toEqual(["tenant-a", true, "earlier"]);
+    expect(predicate.params).toEqual(["tenant-a", true, ...new PgDialect().sqlToQuery(nonVirtualPrinterPredicate()).params, "earlier"]);
+    expect(predicate.sql).toContain("NOT (");
     expect(page.items.map(item => item.printerId)).toEqual(["طبعة-a", "طبعة-b"]);
     expect(page.hasMore).toBe(true);
     expect(Buffer.from(page.nextCursor!, "base64url").toString("utf8")).toBe("طبعة-b");
@@ -33,5 +35,10 @@ describe("bounded capability query before projection", () => {
     const page = await getPrinterCapabilityPage("tenant-a", { limit });
     expect(chain.limit).toHaveBeenCalledWith(fetchLimit);
     expect(page).toEqual({ items: [], hasMore: false });
+  });
+
+  it("does not expose a retained legacy software queue through direct capability lookup", async () => {
+    chain.limit.mockResolvedValue([{ printer: { id: "legacy", name: "Microsoft Print to PDF", connectionType: "spooler" }, agent: null }]);
+    expect(await getPrinterCapabilityMatrix("tenant-a", "legacy")).toBeNull();
   });
 });

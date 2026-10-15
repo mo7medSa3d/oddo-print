@@ -40,6 +40,17 @@ describe("printer destination security policy", () => {
     expect(validateConnectionConfig("ipps", { address: "http://192.168.1.60:631/ipp/print" })).toContain("HTTPS/IPPS address");
   });
 
+  it("keeps IPP addresses compatible with the Agent's host:port expansion", () => {
+    for (const address of ["192.168.1.60:631", "192.168.1.60:80", "[fd00:1234::1]:631", " 192.168.1.60:631 "]) {
+      expect(validateConnectionConfig("ipp", { address })).toBeNull();
+    }
+    for (const address of ["192.168.1.60", "192.168.1.60/ipp/print", "192.168.1.60:631/ipp/print", "[fd00:1234::1]", "192.168.1.60:631?queue=1"]) {
+      expect(validateConnectionConfig("ipp", { address })).toContain("absolute URL");
+    }
+    expect(validateConnectionConfig("ipps", { address: "192.168.1.60:631" })).toContain("HTTPS/IPPS address");
+    expect(validateConnectionConfig("ipp", { address: "192.168.1.60:9100" })).toContain("port must be");
+  });
+
   it("canonicalizes USB printers backed by the Windows spooler", async () => {
     const { parsePrinterInput } = await import("../src/lib/printer-model");
     const parsed = parsePrinterInput({

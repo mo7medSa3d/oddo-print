@@ -11,6 +11,8 @@ const source = (path) => stripTypeScriptTypes(readFileSync(path, 'utf8'), { mode
 const table = new Proxy({}, { get: (_, key) => `apiKeys.${String(key)}` });
 const sql = (parts, ...vals) => parts.reduce((s, part, i) => s + part + (i < vals.length ? String(vals[i]) : ''), '');
 const noop = () => {};
+class TenantSuspendedError extends Error {}
+class TenantDeletedError extends Error {}
 async function load(path, deps) {
   const context = createContext({ Date, Error, Request, Response, console });
   const sourceModule = new SourceTextModule(source(path), { context });
@@ -25,10 +27,10 @@ async function load(path, deps) {
   return sourceModule.namespace;
 }
 
-async function configFixture({ readOnly = false } = {}) {
+async function configFixture({ readOnly = false, lifecycle = 'active' } = {}) {
   const events = [];
   const tx = {
-    execute: async (query) => { events.push({ keyLock: query }); return { rows: [{ id: 'key' }] }; },
+    execute: async (query) => { events.push({ keyLock: query }); return { rows: query.includes('FROM tenants') ? [{ id: 'tenant', lifecycle }] : [{ id: 'key' }] }; },
     update: () => ({ set: (values) => {
       events.push({ write: values });
       return { where: () => ({ returning: async () => [
@@ -46,6 +48,11 @@ async function configFixture({ readOnly = false } = {}) {
     '../../../../lib/odoo-auth': { validateOdooKey: async () => ({ id: 'key', tenantId: 'tenant', hashedKey: 'valid', readOnly }) },
     '../../../../lib/audit': { writeAuditEvent: async () => events.push('audit') },
     '../../../../lib/entitlements': { isTenantBillingError: () => false, requireTenantBillingAccess: async () => events.push('bill-check') },
+    '../../../../lib/tenant-guard': { TenantSuspendedError, TenantDeletedError, requireActiveTenantInTransaction: async (transaction, tenantId) => {
+      const row = await transaction.execute(sql`SELECT lifecycle FROM tenants WHERE id = ${tenantId} FOR SHARE`);
+      if (row.rows[0]?.lifecycle !== 'active') throw new TenantSuspendedError();
+      return 'active';
+    } },
   });
   async function patch(revision, enabled) {
     const req = new Request('https://gateway.test/api/odoo/configuration', {
@@ -65,14 +72,16 @@ test('PATCH rejects revision above PostgreSQL signed int4 range before DB or aud
   assert.equal(f.events.length, 0, 'an invalid control-plane revision must not start a transaction');
 });
 
-test('PATCH locks the integration key before billing so print admission cannot deadlock with activation', async () => {
+test('PATCH locks tenant then integration key before billing so print admission cannot deadlock with activation', async () => {
   const f = await configFixture();
   const response = await f.patch(6, true);
   assert.equal(response.status, 200);
   const lockIndex = f.events.findIndex((event) => typeof event === 'object' && event.keyLock?.includes('FROM api_keys') && event.keyLock?.includes('FOR UPDATE'));
+  const tenantIndex = f.events.findIndex((event) => typeof event === 'object' && event.keyLock?.includes('FROM tenants') && event.keyLock?.includes('FOR SHARE'));
   const billingIndex = f.events.indexOf('bill-check');
   const writeIndex = f.events.findIndex((event) => typeof event === 'object' && event.write);
   assert.ok(lockIndex >= 0, 'live key must be row-locked before checking subscription');
+  assert.ok(tenantIndex >= 0 && tenantIndex < lockIndex, 'tenant admission precedes the key lock');
   assert.ok(billingIndex > lockIndex, 'must not lock subscription first (the opposite order from Odoo print admission)');
   assert.ok(writeIndex > billingIndex, 'billable mutation remains after subscription decision');
 });
@@ -102,6 +111,14 @@ test('PATCH rotated read-only integration key cannot mutate Odoo enabled state',
   assert.equal(f.events.length, 0);
 });
 
+test('PATCH rejects a suspended tenant before key lock, billing, write or audit', async () => {
+  const f = await configFixture({ lifecycle: 'suspended' });
+  const response = await f.patch(8, true);
+  assert.equal(response.status, 403);
+  assert.equal(f.events.length, 2);
+  assert.match(f.events[1].keyLock, /FROM tenants.*FOR SHARE/s);
+});
+
 async function deletionFixture() {
   const zstring = { trim() { return this; }, min() { return this; }, max() { return this; }, optional() { return this; } };
   const revisions = [];
@@ -116,7 +133,7 @@ async function deletionFixture() {
   const db = { transaction: (fn) => fn(tx) };
   const manager = { tenantId: 'tenant', userId: 'user' };
   const api = await load('src/app/api/odoo/keys/route.ts', {
-    '../../../../lib/tenant-guard': { requireActiveTenantInTransaction: noop },
+    '../../../../lib/tenant-guard': { TenantSuspendedError, TenantDeletedError, requireActiveTenantInTransaction: noop },
     '../../../../lib/manager-mutation-authorization': { requireManagerActorInTransaction: noop, ManagerMutationAuthorityChangedError: class extends Error {} },
     '../../../../lib/action-error': { ActionError: class extends Error {} },
     'next/server': { NextResponse: { json: (value, options) => Response.json(value, options) } },

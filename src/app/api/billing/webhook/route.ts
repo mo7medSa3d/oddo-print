@@ -471,6 +471,10 @@ async function handleWebhook(req: Request, snapshotRetry = 0): Promise<NextRespo
                     checkoutSessionId: null,
                     checkoutSessionUrl: null,
                     checkoutSessionExpiresAt: null,
+                    billingOperationId: null,
+                    billingOperationType: null,
+                    billingOperationIdempotencyKey: null,
+                    billingOperationSubscriptionId: null,
                   }
                 : {}),
               stripeLastEventCreatedAt: sql`GREATEST(COALESCE(${tenantSubscriptions.stripeLastEventCreatedAt}, ${eventCreatedAt}), ${eventCreatedAt})`,

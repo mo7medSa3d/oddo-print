@@ -1667,8 +1667,8 @@
     justify-content: center;
     gap: 10px;
     border-radius: var(--r-lg);
-    background: var(--brand);
-    color: white;
+    background: var(--brand-solid);
+    color: var(--brand-contrast);
     font-weight: 650;
     text-decoration: none;
   }

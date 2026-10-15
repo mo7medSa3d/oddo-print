@@ -931,6 +931,7 @@ export default function DashboardClient({
       failedJobs,
       expiredJobs,
       successRate,
+      resolvedJobs,
     };
   }, [fleet, kpiJobs]);
 
@@ -999,7 +1000,8 @@ export default function DashboardClient({
           setUpgradeLimit(limit);
           return;
         }
-        const errorKey = error.code === "PRINTER_NOT_SHARED" ? "printer.presentation.notSharedReason" : error.httpStatus === 401 ? "diagnostic.authRequired"
+        const errorKey = error.code === "CAPABILITY_MISMATCH" ? "errors.capabilityMismatch"
+          : error.code === "PRINTER_NOT_SHARED" ? "printer.presentation.notSharedReason" : error.httpStatus === 401 ? "diagnostic.authRequired"
           : error.httpStatus === 403 ? "diagnostic.permissionDenied" : "diagnostic.admissionUnknown";
         setMessage({ text: t(errorKey), type: "err" });
       } else {
@@ -1021,7 +1023,7 @@ export default function DashboardClient({
    */
   const confirmReprint = async () => {
     const job = reprintCandidate;
-    if (!job || busy) return;
+    if (!job || busy || !canMutate.jobsRetry) return;
     setReprintCandidate(null);
     setMessage(null);
     setBusy(true);
@@ -1397,7 +1399,7 @@ export default function DashboardClient({
             tone={kpis.successRate === null ? "neutral" : kpis.successRate >= 95 ? "ok" : kpis.successRate >= 80 ? "warn" : "bad"}
             meta={t("dashboard.deliveredOf", {
                 completed: formatNumber(kpis.completedJobs),
-                total: formatNumber(kpis.completedJobs + kpis.failedJobs + kpis.attentionJobs + kpis.expiredJobs),
+                total: formatNumber(kpis.resolvedJobs),
               })}
             progress={kpis.successRate ?? undefined}
           />
@@ -2194,7 +2196,7 @@ export default function DashboardClient({
             <Button variant="secondary" onClick={() => closeJobDetails()}>
               {t("common.close")}
             </Button>
-            {selectedJobView && selectedJobView.status.toLowerCase() !== "success" && !isJobInFlight(selectedJobView.status) && (
+            {canMutate.jobsRetry && selectedJobView && selectedJobView.status.toLowerCase() !== "success" && !isJobInFlight(selectedJobView.status) && (
               <Button
                 variant="primary"
                 disabled={busy}
@@ -2395,7 +2397,7 @@ export default function DashboardClient({
             <Button
               variant="primary"
               onClick={() => void confirmReprint()}
-              disabled={busy}
+              disabled={busy || !canMutate.jobsRetry}
               loading={busy}
               icon={<RotateCcw className="h-4 w-4" />}
             >
