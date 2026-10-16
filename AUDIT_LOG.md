@@ -39,16 +39,20 @@ Entry format (append-only):
 
 ## Checkpoint (read first)
 
-- **Session:** 2026-10-16. Start commit: `36afc0bf` (`origin/main`, local checkout synced).
+- **Session:** 2026-10-16. Start commit: `36afc0bf` (`origin/main`, local checkout synced; Phase 0 pushed as `c2f7d2e9`).
 - **Phase 0:** DONE — `AUDIT_MAP.md` + this log created and committed.
-- **Frontier:** Phase A (root entry/config) — see Work queue below for the exact next files.
-- **Counters:** 0 files audited in this log (prior-session evidence pointers above excluded).
+- **Phase A (partial):** `server.ts`, `proxy.ts`, `next.config.ts`, `drizzle.config.ts` audited and logged
+  (1 low finding fixed: dead `url.parse` import).
+- **Frontier:** Phase A remaining — `tsconfig.json`, `postcss.config.mjs`, `eslint.config.mjs`,
+  `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`, `.dockerignore`, `docker-compose.yml`,
+  `docker-compose.ci.yml`, `Caddyfile`, `vitest*.config.mts`, `vite.desktop.config.mts`.
+- **Counters:** 4 files audited in this log (prior-session evidence pointers above excluded).
 
 ## Status dashboard (updated every session; keep honest)
 
 | Area | Total files | Audited | Issues found (fixed) | Pending |
 |---|---|---|---|---|
-| A. Root entry/config | ~18 | 0 | 0 | 18 |
+| A. Root entry/config | ~18 | 4 | 1 (1) | 14 |
 | B. Gateway DB + migrations | 3 + 85 | 0 | 0 | 88 |
 | C. Gateway server core | 7 | 0 | 0 | 7 |
 | D. Gateway lib | 81 | 0 | 0 | 81 |
@@ -62,10 +66,10 @@ Entry format (append-only):
 
 ## Work queue (dependency order — entry points first, outward)
 
-- [ ] **A. Root entry/config**: `server.ts`, `proxy.ts`, `next.config.ts`,
-      `drizzle.config.ts`, `tsconfig.json`, `postcss.config.mjs`, `eslint.config.mjs`,
-      `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`, `.dockerignore`,
-      `docker-compose.yml`, `docker-compose.ci.yml`, `Caddyfile`,
+- [~] **A. Root entry/config** (4/18 done: `server.ts`, `proxy.ts`, `next.config.ts`,
+      `drizzle.config.ts`): remaining `tsconfig.json`, `postcss.config.mjs`,
+      `eslint.config.mjs`, `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`,
+      `.dockerignore`, `docker-compose.yml`, `docker-compose.ci.yml`, `Caddyfile`,
       `vitest*.config.mts`, `vite.desktop.config.mts`
 - [ ] **B. DB**: `src/db/schema.ts`, `src/db/client.ts`, `src/db/index.ts`,
       `drizzle/0000–0084` + `drizzle/meta` spot-checks
@@ -102,7 +106,7 @@ These cannot be closed statically by design; they stay open until a real environ
 
 ## Findings summary (by severity, this log only)
 
-- high: 0 · med: 0 · low: 0 (updated as entries are added)
+- high: 0 · med: 0 · low: 1 (fixed: 1) — updated as entries are added
 
 ---
 
@@ -116,3 +120,31 @@ These cannot be closed statically by design; they stay open until a real environ
   - [low] `ARCHITECTURE.md` §2.1 claims "78 route files, verified 2026-10-11"; actual count is 84 `src/app/api/**/route.ts` files at 36afc0bf — source: `git ls-files 'src/app/api/**/route.ts'`; queued for fix when ARCHITECTURE.md itself is audited in Phase K.
 - Proposed fix: correct the route count (and re-verify other counts) during Phase K docs audit.
 - Fix applied: no (deferred to docs phase, by design)
+
+## [server.ts] — audited 2026-10-16
+- Status: ISSUES FOUND
+- Findings:
+  - [low] Dead import `import { parse } from "url"` — nothing in the file uses it (only `parseInt` / the local `parsedAppBaseUrl` variable contain the string `parse`); it is also the legacy `url.parse` API. Verified surrounding validation is sound: PORT regex-validated 0..65535, production refuses known placeholder secrets, non-loopback bind requires `TRUST_PROXY=1`, `APP_BASE_URL` must be a clean HTTPS origin, WS clients closed with 1001 before `wss.close()`, maintenance tasks non-overlapping and skipped during shutdown, 10s drain then forced exit — source: https://nodejs.org/api/url.html (legacy `url.parse`).
+- Proposed fix: delete the single import line.
+- Fix applied: yes
+
+## [proxy.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `proxy.ts` is the current Next 16 replacement for `middleware.ts` (repo pins next 16.3.8) and the transparent pass-through intentionally avoids minting a second CSP nonce (the single request nonce is owned by server.ts) — source: https://nextjs.org/docs/messages/middleware-to-proxy
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [next.config.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `experimental.serverActions.bodySizeLimit: "8mb"` is still the currently documented option location, and the 8 MiB value matches the gateway's own request cap (server.ts/request-guard) and Caddy `max_size`; HSTS is production-only; nosniff / DENY / Referrer-Policy / Permissions-Policy set for all routes; `deploymentId` is a public release identifier (commented no-secrets rule) — source: https://nextjs.org/docs/app/api-reference/config/next-config-js/serverActions (doc updated 2026-08-26).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [drizzle.config.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Fail-fast on missing `DATABASE_URL` with no credential fallback; documented limitation that drizzle-kit (unlike runtime `runtimeSecret`) has no `*_FILE` support is accurate for drizzle-kit 0.31.10 tooling usage.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)

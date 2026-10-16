@@ -2,7 +2,6 @@ import { logError, logWarn } from "./src/lib/log";
 import { createServer } from "http";
 import type { Server as HttpServer } from "http";
 import type { WebSocket, WebSocketServer } from "ws";
-import { parse } from "url";
 import next from "next";
 import { attachAgentWSS } from "./src/server/ws";
 import { guardApiRequest } from "./src/server/request-guard";
