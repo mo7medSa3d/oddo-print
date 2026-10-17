@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, test/http-server-ready]
   pull_request:
     branches: [main]
   merge_group:
@@ -345,22 +345,38 @@ jobs:
         run: |
           set -euo pipefail
           credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
-          # ECR Public can temporarily rate-limit the pinned Odoo image.
-          # Retry only registry-throttling errors against Docker Hub with the
-          # same immutable OCI digest. Never substitute an unpinned tag.
-          odoo_image="public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"
+          # ECR Public can throttle concurrent push/PR runs. Both references
+          # are immutable and use the exact same Odoo 19 image-index digest.
+          # Never fall back to a floating latest / major-version tag.
+          odoo_image=""
+          # Preserve staging's bounded registry retries, but import main's
+          # fail-closed rule: changing registries is permitted ONLY for an
+          # explicit ECR throttle (429/toomanyrequests/rate exceeded).
           pull_log="$(mktemp)"
-          if docker pull "$odoo_image" > "$pull_log" 2>&1; then
-            cat "$pull_log"
-          else
-            cat "$pull_log" >&2
-            if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$pull_log"; then
-              exit 1
-            fi
-            echo "Odoo ECR Public throttled; retrying exact pinned digest from Docker Hub" >&2
-            odoo_image="odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"
-            docker pull "$odoo_image"
+          trap 'rm -f "$pull_log"' EXIT
+          for candidate in "public.ecr.aws/docker/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c" "docker.io/library/odoo:19.0@sha256:144175ec0039d52daff1d79f7e51c9281ca3c98b96c830feb49d09764a9f5d7c"; do
+            for attempt in 1 2; do
+              if docker pull "$candidate" > "$pull_log" 2>&1; then
+                cat "$pull_log"
+                odoo_image="$candidate"
+                break 2
+              fi
+              cat "$pull_log" >&2
+              echo "Pinned Odoo image pull unavailable: $candidate, attempt $attempt/2" >&2
+              if [[ "$candidate" == public.ecr.aws/* ]] && [ "$attempt" -eq 2 ]; then
+                if ! grep -Eqi 'toomanyrequests|rate exceeded|(^|[^0-9])429([^0-9]|$)' "$pull_log"; then
+                  echo "ECR returned a non-throttling failure; refusing a registry switch." >&2
+                  exit 1
+                fi
+              fi
+              if [ "$attempt" -lt 2 ]; then sleep 5; fi
+            done
+          done
+          if [ -z "$odoo_image" ]; then
+            echo "ERROR: both digest-pinned Odoo registries unavailable" >&2
+            exit 1
           fi
+          echo "Odoo 19 CI using verified pinned manifest: $odoo_image"
           rm -f /tmp/odoo19_test.log
           timeout --signal=TERM --kill-after=30s 12m \
             docker run --rm --network host --name odoo19_test_run \

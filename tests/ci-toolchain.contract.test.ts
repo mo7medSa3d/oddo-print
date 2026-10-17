@@ -94,8 +94,11 @@ describe("CI/runtime alignment", () => {
 
   it("keeps Caddy's forwarded-header security contract warning-free", () => {
     const caddy = readFileSync(path.join(root, "Caddyfile"), "utf8");
+    const httpTestCaddy = readFileSync(path.join(root, "deploy/http-test/Caddyfile"), "utf8");
     expect(caddy).toContain("header_up X-Forwarded-For {http.request.remote.host}");
+    expect(httpTestCaddy).not.toContain("header_up X-Forwarded-For");
     expect(caddy).not.toContain("header_up Host {http.request.host}");
+    expect(httpTestCaddy).not.toContain("header_up Host {http.request.host}");
   });
 
   it("keeps the Rust desktop JSON contract while using idiomatic field names", () => {

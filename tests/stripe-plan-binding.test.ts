@@ -90,6 +90,71 @@ describe("Stripe plan binding contract", () => {
     });
   });
 
+  it("uses the isolated HTTP test catalog without contacting Stripe", async () => {
+    const previousSecret = process.env.STRIPE_SECRET_KEY;
+    delete process.env.STRIPE_SECRET_KEY;
+    process.env.YASEIR_HTTP_TEST_MODE = "1";
+    process.env.STRIPE_PLAN_CATALOG = JSON.stringify([
+      {
+        id: "http-test",
+        name: "HTTP Test",
+        priceId: "price_http_test_yaseir",
+        currency: "usd",
+        interval: "month",
+        entitlements: { max_agents: 5 },
+      },
+    ]);
+    globalThis.fetch = vi.fn();
+
+    try {
+      await expect(validateStripePriceBinding({
+        priceId: "price_http_test_yaseir",
+        currency: "usd",
+        interval: "month",
+      })).resolves.toMatchObject({
+        id: "price_http_test_yaseir",
+        active: true,
+        type: "recurring",
+        currency: "usd",
+        interval: "month",
+        productId: null,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = previousSecret;
+      delete process.env.YASEIR_HTTP_TEST_MODE;
+      delete process.env.STRIPE_PLAN_CATALOG;
+    }
+  });
+
+  it("rejects an uncatalogued fake Price ID in isolated staging mode", async () => {
+    const previousSecret = process.env.STRIPE_SECRET_KEY;
+    delete process.env.STRIPE_SECRET_KEY;
+    process.env.YASEIR_HTTP_TEST_MODE = "1";
+    process.env.STRIPE_PLAN_CATALOG = JSON.stringify([
+      { priceId: "price_http_test_yaseir", currency: "usd", interval: "month" },
+    ]);
+    globalThis.fetch = vi.fn();
+
+    try {
+      await expect(validateStripePriceBinding({
+        priceId: "price_fake_platform_plan",
+        currency: "usd",
+        interval: "month",
+      })).rejects.toMatchObject({
+        code: "STRIPE_PRICE_INVALID",
+        status: 400,
+      });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = previousSecret;
+      delete process.env.YASEIR_HTTP_TEST_MODE;
+      delete process.env.STRIPE_PLAN_CATALOG;
+    }
+  });
+
   it("returns a service-level error when Stripe cannot be reached", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("network down"));
 

@@ -43,9 +43,18 @@ Both sides default **OFF**. Enable only on a controlled test deployment:
   validation are unchanged.
 
 Do not share installation API keys in screenshots, logs, or example payloads.
-If using the dedicated domain-test deployment, forward the same feature flag
-through its Gateway environment (default to 0). Do not relax HTTPS, Caddy, tenant
-security, or production printer admission to enable capture testing.
+For the dedicated `test/http-server-ready` HTTPS domain staging deployment,
+`deploy/domain-test/docker-compose.yml` passes the capture flag to the Gateway
+and defaults it to `0` if the staging environment is absent.
+`deploy/domain-test/setup-domain-test.sh` initializes it to `1` in the
+staging `.env.domain-test` file if not already set (preserving an explicit
+`0` opt-out). The production stack remains disabled by default. After
+deploying, a credential-free `GET /api/odoo/test-captures` returning HTTP
+`401` verifies that the enabled API route exists; `404` indicates the
+feature is off or the deployed route is missing. This check does not prove
+Agent readiness. Configure `server.e2e_capture_tests: true` on the assigned
+Windows Agent separately. Do not relax HTTPS, Caddy, tenant security,
+or production printer admission to enable capture testing.
 
 ## Windows Manager: safe opt-in without editing YAML
 

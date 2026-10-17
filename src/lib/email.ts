@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { runtimeSecret } from "./runtime-secret";
 
 export type TransactionalEmail = { to: string; subject: string; html: string; text: string };
@@ -29,7 +31,22 @@ export function appBaseUrl(req: Request): string {
   throw new Error("APP_BASE_URL is not configured; set it or opt into host-derived URLs with ALLOW_HOST_FALLBACK=1 for local development only");
 }
 
+// Explicit staging-only email capture; the live provider takes priority if configured.
+function captureHttpTestEmail(message: TransactionalEmail): boolean {
+  if (process.env.YASEIR_HTTP_TEST_MODE !== "1" || runtimeSecret("RESEND_API_KEY")) return false;
+  const captureFile = process.env.YASEIR_TEST_EMAIL_CAPTURE_FILE?.trim();
+  if (!captureFile) return false;
+  mkdirSync(dirname(captureFile), { recursive: true });
+  appendFileSync(
+    captureFile,
+    `TO: ${message.to}\nSUBJECT: ${message.subject}\n${message.text}\n---\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return true;
+}
+
 export async function sendTransactionalEmail(message: TransactionalEmail): Promise<void> {
+  if (captureHttpTestEmail(message)) return;
   const apiKey = runtimeSecret("RESEND_API_KEY");
   const from = runtimeSecret("EMAIL_FROM");
   if (!apiKey || !from) {

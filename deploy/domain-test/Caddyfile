@@ -1,0 +1,12 @@
+{$GATEWAY_DOMAIN} {
+  encode gzip zstd
+
+  request_body {
+    max_size 8MiB
+  }
+
+  reverse_proxy gateway:3000 {
+    header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
+    header_up -X-Real-Ip
+  }
+}
