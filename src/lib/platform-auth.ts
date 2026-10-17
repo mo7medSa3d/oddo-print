@@ -231,7 +231,7 @@ export async function validatePlatformClaims(
     where: eq(users.id, claims.userId),
     columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
   });
-  // AUDIT_FINDINGS.md [src/lib/platform-auth.ts]: enforce email match on legacy fallback tokens (parity with v2 session validation)
+  // AUDIT_LOG.md [src/lib/platform-auth.ts]: enforce email match on legacy fallback tokens (parity with v2 session validation)
   if (!user || !user.isPlatformOwner || !user.emailVerifiedAt || user.email !== claims.email) return null;
 
   return claims;

@@ -49,8 +49,14 @@ Entry format (append-only):
   supporting files pre-audited early (`db-migrate.ts`, `db-generate.ts`, `check-db-docs.py`,
   `runtime-secret.ts` — belong to D/J, skip when reached). No new findings; the compose
   `PGPASSWORD_FILE` watch item is closed.
-- **Frontier:** Phase C — `src/server/{ws,trusted-proxy,request-guard,cors,content-security-policy,correlation,api-defaults}.ts`.
-- **Counters:** 30 entries; A 20/20 · B 92/92.
+- **Phase C:** DONE — 7/7 server-core files (codebase-wide low fixed: three stale
+  `AUDIT_FINDINGS.md` pointers repointed to this log). 4 lib files pre-audited early
+  (`runtime-secret.ts`, `log.ts`, `request-limits.ts`, `trust-proxy-config.ts` — skip in D).
+- **Frontier:** Phase D — Gateway lib in risk order: auth/session (`agent-auth.ts`,
+  `session-tokens`/`session-*`, `manager-*`, `platform-auth.ts`, `password-*`,
+  `tenant-guard.ts`, `api-key*`), then jobs/idempotency/payload → billing/stripe →
+  infra (clock, metrics, circuit-breaker, bounded-query, ws-rate-limit) → rest.
+- **Counters:** 40 entries; A 20/20 · B 92/92 · C 7/7 (+4 D files pre-audited).
 
 ## Status dashboard (updated every session; keep honest)
 
@@ -58,8 +64,8 @@ Entry format (append-only):
 |---|---|---|---|---|
 | A. Root entry/config | 20 | 20 | 3 (3) | 0 |
 | B. Gateway DB + migrations | 3 + 85 (+4) | 92 | 0 | 0 |
-| C. Gateway server core | 7 | 0 | 0 | 7 |
-| D. Gateway lib | 81 | 0 | 0 | 81 |
+| C. Gateway server core | 7 | 7 | 1 (1) | 0 |
+| D. Gateway lib | 81 | 4 (pre) | 0 | 77 |
 | E. Gateway API routes | 84 | 0 | 0 | 84 |
 | F. Gateway UI (components, desktop, i18n, shared) | 59 | 0 | 0 | 59 |
 | G. Go agent | 274 | 0 | 0 | 274 |
@@ -78,10 +84,12 @@ Entry format (append-only):
 - [x] **B. DB**: 92/92 done (`schema.ts`, `client.ts`, `index.ts`, all 85 migrations +
       `drizzle/meta`; 4 support files pre-audited early: `db-migrate.ts`, `db-generate.ts`,
       `check-db-docs.py`, `runtime-secret.ts` — skip in D/J)
-- [ ] **C. Server core**: `src/server/{ws,trusted-proxy,request-guard,cors,
-      content-security-policy,correlation,api-defaults}.ts` — **← NEXT**
+- [x] **C. Server core**: 7/7 done (`ws.ts`, `trusted-proxy.ts`, `request-guard.ts`,
+      `cors.ts`, `content-security-policy.ts`, `correlation.ts`, `api-defaults.ts`)
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
-      jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest
+      jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest.
+      Pre-audited, skip: `runtime-secret.ts`, `log.ts`, `request-limits.ts`,
+      `trust-proxy-config.ts` — **← NEXT**
 - [ ] **E. API routes** by family: auth → agent → print → printers → odoo →
       billing → test-captures → team → settings/system → platform
 - [ ] **F. UI**: `src/components`, `src/desktop`, `src/i18n`, `src/shared`
@@ -111,7 +119,7 @@ These cannot be closed statically by design; they stay open until a real environ
 
 ## Findings summary (by severity, this log only)
 
-- high: 0 · med: 0 · low: 3 (fixed: 3) — updated as entries are added
+- high: 0 · med: 0 · low: 4 (fixed: 4) — updated as entries are added
 
 ---
 
@@ -295,5 +303,76 @@ These cannot be closed statically by design; they stay open until a real environ
 - Status: OK
 - Findings:
   - none. `*_FILE` first, env fallback second; 30s memo invalidated immediately when the `*_FILE` path changes (rotation); unreadable/missing file resolves to `undefined` so required-secret callers fail closed; `requiredRuntimeSecret` throws. (Logged under Phase B because the DB/migrate contract depends on it — its Phase D pass can skip.)
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/api-defaults.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Lazy `Cache-Control: no-store` default for `/api/*` is stamped at writeHead/end time (install-once sentinel, `headersSent`/`writableEnded` guards, route-provided value wins) — the correct hook point, because pre-setting the header would shadow Next's route policies and the file comment documents exactly that. Prevents heuristic/shared caching of authenticated API responses that Next does not stamp.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/content-security-policy.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Strict CSP: `default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`, `script-src` nonce + `strict-dynamic` (dev adds `unsafe-eval`, production does not), `connect-src 'self'`, `upgrade-insecure-requests`; `style-src-attr 'unsafe-inline'` is a deliberate minimal accommodation for SSR-emitted style attributes. Nonce minted from the contract-test-pinned `crypto.randomUUID()` form. Applied to pages only (`/api/`, `/_next/`, favicon excluded).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/correlation.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. AsyncLocalStorage context with generated `req_`/`attempt_`/`claim_` ids; inbound `x-request-id`/`x-correlation-id` bounded to 128 chars on both extraction paths. Log-forging check closed: `lib/log.ts` serializes one `JSON.stringify` line per record, so hostile request-id content is escaped, never injected as a log line.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/cors.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Exact-match origin allowlist (Tauri defaults + `DESKTOP_CORS_ORIGINS` override), `Access-Control-Allow-Credentials: false` (desktop uses bearer tokens, not cookies), explicit method/header/expose lists, correct `Vary`, forbidden preflights answered 403 without CORS headers.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/trusted-proxy.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. SHA-256-both-sides timing-safe compare for the proxy token; secret <32 chars → null → every request rejected (fail-closed); WS origin policy accepts native agents (no Origin) but requires exact `APP_BASE_URL` origin or `WS_ALLOWED_ORIGINS` for browser Origins — literal `null` Origin rejected, wildcards never honored; `APP_BASE_URL` resolved via `runtimeSecret` so the `*_FILE` form works. Shared `trustProxyEnabled` helper (see also ws.ts).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/request-guard.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Highlights: per-route pre-Next body limits for agent routes; strict Content-Length parsing (digits-only safe integer; smuggling forms → null → 413); chunked mutating bodies → 411 before Next touches the stream; bounded lingering-close drain (16 MiB / 5 s, unref'd) so documented 4xx survives Windows keep-alive instead of ECONNRESET; CSRF proof for cookie mutations (cross-site rejected, full scheme+host+port equality against `APP_BASE_URL`, fail-closed in production without it); JWT budget screen verifies the HMAC before granting the 32 MiB authenticated pool (fail-closed when the secret is unavailable); budget charged only for payload-bearing endpoints and released exactly once on `finish`/`close`.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/server/ws.ts] — audited 2026-10-16
+- Status: ISSUES FOUND
+- Findings:
+  - [low] Three comments across the codebase referenced `AUDIT_FINDINGS.md`, which no longer exists (removed in commit `925bcd55`): `src/server/ws.ts` L315, `src/app/api/system/health/route.ts` L15, `src/lib/platform-auth.ts` L234. The surviving canonical audit trail is `AUDIT_LOG.md`.
+  - substance — none found. Verified: frame caps (64 KiB maxPayload, 16-message in-flight, 1 MiB `bufferedAmount` skip, no double-send on ambiguous send — duplicates never risked); per-agent token bucket persists across reconnects with 10-min GC; lifecycle admission holds `FOR SHARE` on the tenant + agent rows so a disable cannot race registration; earlier-revision sockets fenced by revision with legacy revisions resolved against the durable row; NOTIFY payloads treated as unauthenticated transport (DB re-verification before mass disconnect; tenant match enforced before claiming); delivery is a DB fact (`markJobDelivered` under the claim token) with `delivery_unknown` fencing on ambiguous outcomes; PG listener reconnect with full jitter + bounded retry timers (128 cap, 3 rungs); socket-slot reservation and registration-pending cleanup on every failure path exactly once.
+- Proposed fix: repoint the three comments at `AUDIT_LOG.md`.
+- Fix applied: yes
+
+## [src/lib/log.ts] — audited 2026-10-16 (early; belongs to Phase D)
+- Status: OK
+- Findings:
+  - none. One `JSON.stringify` line per record (no log-line forging); sensitive-key regex redaction (`secret|password|token|authorization|cookie|api-key|payload|pairing`) plus `redactClaimToken`; depth ≤6, 100-key/100-array caps, 500-char string truncation; level default info in production. Read early to close the `correlation.ts` watch item — skip in Phase D.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/request-limits.ts] — audited 2026-10-16 (early; belongs to Phase D)
+- Status: OK
+- Findings:
+  - none. `parseStrictContentLength` accepts only digit strings that are safe integers (arrays, signs, whitespace, comma forms → null → rejection); `clampListLimit` enforces both floor and ceiling; `hasBodyOverLimit` is the route-level mirror of the server boundary. Read early to close the `request-guard.ts` watch item — skip in Phase D.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/trust-proxy-config.ts] — audited 2026-10-16 (early; belongs to Phase D)
+- Status: OK
+- Findings:
+  - none. `TRUST_PROXY` enabled only by exact `1`/`true`. Shared by server.ts, ws.ts and trusted-proxy.ts — one truth source. Skip in Phase D.
 - Proposed fix: none.
 - Fix applied: n/a (no findings)
