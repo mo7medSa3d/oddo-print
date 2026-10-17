@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
 import { databaseNowMs } from "./database-clock";
-import { hashPassword, verifyPassword, normalizeEmail } from "./password";
+import { hashPassword, verifyPassword, normalizeEmail, burnPasswordVerification } from "./password";
 import { requireActiveTenantOrNull } from "./tenant-guard";
 import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
 import {
@@ -433,7 +433,12 @@ export async function authenticateManagerUser(username: string, password: string
     where: eq(users.email, normalized),
     columns: { id: true, passwordHash: true, emailVerifiedAt: true },
   });
-  if (!row || !row.emailVerifiedAt) return null;
+  if (!row || !row.emailVerifiedAt) {
+    // Equalize response timing with the known-account path so login cannot
+    // confirm whether an account exists (OWASP Authentication Cheat Sheet).
+    await burnPasswordVerification(password);
+    return null;
+  }
   const valid = row.passwordHash.startsWith("argon2id$")
     ? await verifyPassword(password, row.passwordHash)
     : await verifyScryptPasswordHash(password, row.passwordHash);
@@ -470,7 +475,12 @@ export async function authenticateCustomer(email: string, password: string): Pro
     where: eq(users.email, normalized),
     columns: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
   });
-  if (!row || !row.emailVerifiedAt) return null;
+  if (!row || !row.emailVerifiedAt) {
+    // Equalize response timing with the known-account path so login cannot
+    // confirm whether an account exists (OWASP Authentication Cheat Sheet).
+    await burnPasswordVerification(password);
+    return null;
+  }
   const valid = row.passwordHash.startsWith("argon2id$")
     ? await verifyPassword(password, row.passwordHash)
     : await verifyScryptPasswordHash(password, row.passwordHash);

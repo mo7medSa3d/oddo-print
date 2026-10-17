@@ -49,14 +49,20 @@ Entry format (append-only):
   supporting files pre-audited early (`db-migrate.ts`, `db-generate.ts`, `check-db-docs.py`,
   `runtime-secret.ts` — belong to D/J, skip when reached). No new findings; the compose
   `PGPASSWORD_FILE` watch item is closed.
-- **Phase C:** DONE — 7/7 server-core files (codebase-wide low fixed: three stale
-  `AUDIT_FINDINGS.md` pointers repointed to this log). 4 lib files pre-audited early
-  (`runtime-secret.ts`, `log.ts`, `request-limits.ts`, `trust-proxy-config.ts` — skip in D).
-- **Frontier:** Phase D — Gateway lib in risk order: auth/session (`agent-auth.ts`,
-  `session-tokens`/`session-*`, `manager-*`, `platform-auth.ts`, `password-*`,
-  `tenant-guard.ts`, `api-key*`), then jobs/idempotency/payload → billing/stripe →
-  infra (clock, metrics, circuit-breaker, bounded-query, ws-rate-limit) → rest.
-- **Counters:** 40 entries; A 20/20 · B 92/92 · C 7/7 (+4 D files pre-audited).
+- **Phase D — batch 1 (auth/session) DONE:** 9/9 — `agent-auth.ts`, `tenant-guard.ts`,
+  `password.ts`, `odoo-auth.ts`, `customer-auth.ts`, `session-tokens.ts`, `manager-auth.ts`,
+  `platform-auth.ts`, `auth-rate-limit.ts`. 1 low finding fixed (unknown-account login timing
+  oracle → new `burnPasswordVerification()` in `password.ts` + 3 call sites; verified: edited
+  files typecheck clean — full `tsc` has only 15 pre-existing errors from uninstalled optional
+  deps `@radix-ui/react-dialog` / `gsap`). Open watch items for Phase E routes: odoo `readOnly`
+  rotation-grace enforcement; password-reset lock order + family revocation; `ALLOW_HOST_FALLBACK`.
+- **Frontier:** Phase D batch 2 — authorization/tenant (`entitlements.ts`, `tenant-lifecycle.ts`,
+  `routing.ts`), then jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`,
+  `job-maintenance.ts`, `job-status.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`), then
+  billing/stripe, then infra (clock, metrics, circuit-breaker, bounded-query, ws-rate-limit),
+  then printers/agents/system/rest. Skip pre-audited: `runtime-secret.ts`, `log.ts`,
+  `request-limits.ts`, `trust-proxy-config.ts`.
+- **Counters:** 49 entries; A 20/20 · B 92/92 · C 7/7 · D 13/81 (4 pre + 9 batch 1).
 
 ## Status dashboard (updated every session; keep honest)
 
@@ -65,7 +71,7 @@ Entry format (append-only):
 | A. Root entry/config | 20 | 20 | 3 (3) | 0 |
 | B. Gateway DB + migrations | 3 + 85 (+4) | 92 | 0 | 0 |
 | C. Gateway server core | 7 | 7 | 1 (1) | 0 |
-| D. Gateway lib | 81 | 4 (pre) | 0 | 77 |
+| D. Gateway lib | 81 | 13 | 1 (1) | 68 |
 | E. Gateway API routes | 84 | 0 | 0 | 84 |
 | F. Gateway UI (components, desktop, i18n, shared) | 59 | 0 | 0 | 59 |
 | G. Go agent | 274 | 0 | 0 | 274 |
@@ -89,7 +95,8 @@ Entry format (append-only):
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
       jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest.
       Pre-audited, skip: `runtime-secret.ts`, `log.ts`, `request-limits.ts`,
-      `trust-proxy-config.ts` — **← NEXT**
+      `trust-proxy-config.ts`. **Batch 1 (auth/session) DONE 9/9** — next:
+      `entitlements.ts`, `tenant-lifecycle.ts`, `routing.ts` — **← NEXT**
 - [ ] **E. API routes** by family: auth → agent → print → printers → odoo →
       billing → test-captures → team → settings/system → platform
 - [ ] **F. UI**: `src/components`, `src/desktop`, `src/i18n`, `src/shared`
@@ -119,7 +126,7 @@ These cannot be closed statically by design; they stay open until a real environ
 
 ## Findings summary (by severity, this log only)
 
-- high: 0 · med: 0 · low: 4 (fixed: 4) — updated as entries are added
+- high: 0 · med: 0 · low: 5 (fixed: 5) — updated as entries are added
 
 ---
 
@@ -374,5 +381,73 @@ These cannot be closed statically by design; they stay open until a real environ
 - Status: OK
 - Findings:
   - none. `TRUST_PROXY` enabled only by exact `1`/`true`. Shared by server.ts, ws.ts and trusted-proxy.ts — one truth source. Skip in Phase D.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/agent-auth.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Pairing contract (unambiguous 32-char alphabet, no O/I/0/1) generated with `randomInt`; pairing hash normalization (`upper(trim())`) exactly matches migration 0022; `validateAgent` requires `Bearer agt_…:secret`, validates the ID shape, timing-safe hashes the presented secret, then enforces agent lifecycle and tenant lifecycle (fail-closed). Agent secrets are 24 random bytes, so plain SHA-256 storage is appropriate — no KDF needed for high-entropy secrets.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/tenant-guard.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Transactional fence takes `FOR SHARE` on the tenant row and treats missing/unknown lifecycle values as deleted (no fall-through possible); the `…OrNull` wrapper converts only expected lifecycle denials to null and rethrows DB/transport errors so operational failures stay visible.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/password.ts] — audited 2026-10-17
+- Status: ISSUES FOUND (fixed)
+- Findings:
+  - [low] (site: all three login paths — see `platform-auth.ts` / `manager-auth.ts` entries) Unknown-account shortcuts returned before any KDF work, making response timing a network-observable account-enumeration oracle. Fixed by adding the shared `burnPasswordVerification()` helper here.
+  - none in the primitives: Argon2id m=64 MiB / t=3 / p=4 with 16-byte salt and 32-byte tag; parameters pinned at verify with a documented "treat a bump as a migration" note; timing-safe compare on equal-length buffers; every malformed encoding fails closed.
+- Proposed fix: burn-before-return helper (applied below).
+- Fix applied: yes
+
+## [src/lib/odoo-auth.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Bearer / `X-Api-Key` extraction with `odoo_` prefix; SHA-256 lookup plus timing-safe re-compare; revocation and rotation-grace windows evaluated in SQL and re-checked in JS (all `clock_timestamp()`); `lastUsedAt` write failure is logged and never blocks auth; tenant lifecycle gate defaults on with a documented opt-out for health/config callers; integration-enabled check is deliberately separate from credential validity with an opt-out for re-enable flows.
+  - watch (not a finding): rotation-grace keys return `readOnly: true`; every mutating consumer must enforce that flag — verify each call site in the Phase E route audit.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/customer-auth.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Tenant-selection token: HS256 with header pinned to HS256/JWT, timing-safe signature compare, strict claims validation (`tsel_` jti prefix, hex-64 credentialVersion, safe-integer iat/exp, exp>now, iat≤now+60), database clock only, 5-minute TTL. `validateCustomer` rejects a v2 token found in the wrong cookie kind instead of cross-accepting; the legacy fallback only runs for tokens that fail v2 verification. Membership resolution never truncates workspaces and enforces tenant lifecycle before returning a tenant.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/session-tokens.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Access JWT validated by exact shape (ver=2, kind, min/max lengths, sub pinned per kind, platform forbids tenant/role, `exp−iat` must equal the 15-minute TTL) with timing-safe HMAC. Refresh rotation: tenant fence (`FOR SHARE`) → user-row lock → family advisory lock → row `FOR UPDATE` in the documented global lock order; 30-day absolute family TTL; principal revalidation (platform owner+email match; tenant active + membership role match; customer requires verified email); 5-second rotation grace for duplicate submits; reuse detection revokes the whole family durably with the audit event written behind a savepoint so failed telemetry cannot roll the revocation back. Logout reads the family id without a row lock specifically to preserve lock order (deadlock documented in-line). Cookies: HttpOnly, SameSite=Lax (access) / Strict (refresh), path-scoped refresh, Secure per `sessionCookieSecure()`.
+  - watch (not a finding): the password-reset flow is documented to take the same user lock and revoke families before updating credentials — confirm in the Phase E route audit.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/manager-auth.ts] — audited 2026-10-17
+- Status: ISSUES FOUND (fixed)
+- Findings:
+  - [low] `authenticateManagerUser` and `authenticateCustomer` returned immediately for a missing/unverified user while a known user with a wrong password paid full Argon2/scrypt cost — response timing revealed whether an account exists. Fixed: both now burn equal KDF work via `burnPasswordVerification()` (source: OWASP Authentication Cheat Sheet, https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html — "same process no matter what the user or the password is … approximately the same response time").
+  - none otherwise. Legacy tokens carry an exact legacy-shape guard (any v2 marker field rejects), role allowlist, TTL ≤ legacy max; validation always re-reads the DB session row and requires second-level expiry parity, tenant/role/userId parity, unrevoked state, membership role re-check. `resolveManagerTenantId` never infers a tenant from row counts (documented Host-header attack) — only a verified domain or explicit `MANAGER_TENANT_ID`. Env-credential path: timing-equalized username compare with dummy scrypt work for unknown usernames; plaintext fallback only in development/test with explicit opt-in. Scrypt→Argon2id login upgrade is optimistic-concurrency safe.
+- Proposed fix: burn-on-unknown-account (applied).
+- Fix applied: yes
+
+## [src/lib/platform-auth.ts] — audited 2026-10-17
+- Status: ISSUES FOUND (fixed)
+- Findings:
+  - [low] `authenticatePlatformOwner` returned immediately when no owner row matched, skipping the Argon2 work that a known owner with a wrong password pays — response timing could confirm platform-owner emails. Fixed with `burnPasswordVerification()` on the early return. Source: OWASP Authentication Cheat Sheet (same URL as above — unknown-user quick-exit is named as the classic detection vector).
+  - none otherwise. v2 verification fails closed (never falls through to the legacy verifier once a v2 shape is recognized); both token shapes enforce family revocation + owner/email/verified state; `requirePlatformActorInTransaction` rechecks mutation authority under user-row `FOR UPDATE` + family advisory lock + row `FOR SHARE` with exp/iat windows.
+- Proposed fix: burn-on-unknown-account (applied).
+- Fix applied: yes
+
+## [src/lib/auth-rate-limit.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Shared PostgreSQL-backed limiter (multi-instance safe by design); reservations in one transaction with sorted keys (stable lock order); progressive account/IP lock curves; X-Forwarded-For parsed as a whole list with last-valid-entry-wins (attacker-controlled leftmost entries cannot choose a bucket) and only when a trusted proxy is configured; unknown client IPs skip the shared bucket instead of locking everyone out (documented), with the per-code pairing fence as backstop; successful auth clears both account and IP buckets; 24-hour retention cleanup matches migration 0007's index.
 - Proposed fix: none.
 - Fix applied: n/a (no findings)
