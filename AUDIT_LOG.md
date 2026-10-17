@@ -56,15 +56,17 @@ Entry format (append-only):
   files typecheck clean — full `tsc` has only 15 pre-existing errors from uninstalled optional
   deps `@radix-ui/react-dialog` / `gsap`). **Batch 2 (authorization/tenant) DONE:** 3/3 —
   `entitlements.ts`, `tenant-lifecycle.ts`, `routing.ts` — no findings (one concurrency
-  watch item to confirm in `print-job-service.ts`).
-- **Frontier:** Phase D batch 3 — jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`,
-  `job-maintenance.ts`, `job-status.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`), then
+  watch item to confirm in `print-job-service.ts`). **Batch 3 (jobs) in progress:** 2/7 done
+  (`print-job-service.ts`, `job-delivery.ts` — no findings; batch-2 watch closed, odoo
+  `readOnly` enforced at enqueue). Remaining: `job-maintenance.ts`, `job-status.ts`,
+  `job-fencing.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`.
+- **Frontier:** Phase D batch 3 continued — the remaining job files above, then
   billing/stripe, then infra (clock, metrics, circuit-breaker, bounded-query, ws-rate-limit),
   then printers/agents/system/rest. Skip pre-audited: `runtime-secret.ts`, `log.ts`,
   `request-limits.ts`, `trust-proxy-config.ts`. Open watch items for Phase E routes: odoo
-  `readOnly` rotation-grace enforcement; password-reset lock order + family revocation;
-  `ALLOW_HOST_FALLBACK` production refusal.
-- **Counters:** 52 entries; A 20/20 · B 92/92 · C 7/7 · D 16/81.
+  `readOnly` enforcement on remaining consumers (status/heartbeat paths); password-reset
+  lock order + family revocation; `ALLOW_HOST_FALLBACK` production refusal.
+- **Counters:** 54 entries; A 20/20 · B 92/92 · C 7/7 · D 18/81.
 
 ## Status dashboard (updated every session; keep honest)
 
@@ -73,7 +75,7 @@ Entry format (append-only):
 | A. Root entry/config | 20 | 20 | 3 (3) | 0 |
 | B. Gateway DB + migrations | 3 + 85 (+4) | 92 | 0 | 0 |
 | C. Gateway server core | 7 | 7 | 1 (1) | 0 |
-| D. Gateway lib | 81 | 16 | 1 (1) | 65 |
+| D. Gateway lib | 81 | 18 | 1 (1) | 63 |
 | E. Gateway API routes | 84 | 0 | 0 | 84 |
 | F. Gateway UI (components, desktop, i18n, shared) | 59 | 0 | 0 | 59 |
 | G. Go agent | 274 | 0 | 0 | 274 |
@@ -97,9 +99,9 @@ Entry format (append-only):
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
       jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest.
       Pre-audited, skip: `runtime-secret.ts`, `log.ts`, `request-limits.ts`,
-      `trust-proxy-config.ts`. **Batches 1 (auth 9/9) + 2 (tenant 3/3) DONE** — next:
-      jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`, `job-maintenance.ts`,
-      `job-status.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`) — **← NEXT**
+      `trust-proxy-config.ts`. **Batches 1 (auth 9/9) + 2 (tenant 3/3) DONE; batch 3 jobs 2/7**
+      (`print-job-service.ts`, `job-delivery.ts` done). Next: `job-maintenance.ts`,
+      `job-status.ts`, `job-fencing.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts` — **← NEXT**
 - [ ] **E. API routes** by family: auth → agent → print → printers → odoo →
       billing → test-captures → team → settings/system → platform
 - [ ] **F. UI**: `src/components`, `src/desktop`, `src/i18n`, `src/shared`
@@ -474,5 +476,19 @@ These cannot be closed statically by design; they stay open until a real environ
 - Status: OK
 - Findings:
   - none. One canonical status/transport predicate shared by the claim and delivery paths (documented: SQL gates must never reimplement it); positive-evidence triage (online/busy attemptable; offline/error fail fast without stranding jobs; unknown eligible only with a fully declared transport — spooler/IPP self-declaring, network/USB requiring a contract-listed raw protocol); `isPrinterAvailableForJob` adds lifecycle, sharing, inventory, virtual-printer and agent-freshness gates.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/print-job-service.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Enqueue is one serialized transaction: tenant `FOR SHARE` → per-tenant + per-agent advisory locks → authority fences (Manager commit-point recheck including the agent row lock; Agent-diagnostic ownership recheck; `api_keys` row lock requiring a fully active, unrevoked credential — the rotation-grace `readOnly` flag is enforced here as a hard 401 for new jobs) → idempotency/reprint reuse (every reuse path is fenced by live authority first; Odoo callers can never receive an internal Manager identity; reprint sequence allocation runs under the tenant lock with LIKE-escaped job ids) → runtime-owner re-validation (`FOR UPDATE OF a, p` in the documented order; tenant/virtual/sharing/inventory/lifecycle/executability/desired-revision gates and a capability re-check under the row lock) → entitlements (closes the batch-2 watch item: `enforceTenantJobEntitlements` runs in this same transaction after the tenant advisory lock, so its count cannot race another creator) → atomic print-credit upsert → per-agent queue caps (jobs + logical payload bytes, TOAST undercount rationale documented) → INSERT with `createdAt`/`expiresAt` from the same DB clock read → `pg_notify` hint. `recoverReceiptForMissingOwner` preserves lost-response idempotency for removed printer/Agent rows without resurrecting them, under the same credential/tenant/idempotency locks.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/job-delivery.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Single home for `MAX_AGENT_IN_FLIGHT_JOBS` (WebSocket, poll and creation all import it); documented two-budget counter contract (`delivery_attempts` = real hand-offs, `retries` = provably-unsent returns). `claimJobForDelivery`: tenant fence → agent advisory lock (the same lock the poll path and creation admission take) → in-flight ceiling with the poll's stale-claim exclusion (prevents reclaim starvation at the cap) → eligibility in SQL mirroring `isPrinterClaimable` plus freshness/desired-revision/subscription, `FOR UPDATE … SKIP LOCKED` → token-minting UPDATE that re-checks status/expiry/subscription and charges exactly one delivery attempt. `markJobDelivered` only clears the evidence-pending sentinel it owns; `markJobDeliveryUnknown` preserves the execution fence for late reconciliation while preventing automatic retry; `recordJobAck` requires a durably active agent (socket close is an optimisation, not authority); `releaseUndeliveredClaim` only handles provably-unsent claims and never touches either budget.
 - Proposed fix: none.
 - Fix applied: n/a (no findings)
