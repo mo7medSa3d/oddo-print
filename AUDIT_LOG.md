@@ -54,15 +54,17 @@ Entry format (append-only):
   `platform-auth.ts`, `auth-rate-limit.ts`. 1 low finding fixed (unknown-account login timing
   oracle → new `burnPasswordVerification()` in `password.ts` + 3 call sites; verified: edited
   files typecheck clean — full `tsc` has only 15 pre-existing errors from uninstalled optional
-  deps `@radix-ui/react-dialog` / `gsap`). Open watch items for Phase E routes: odoo `readOnly`
-  rotation-grace enforcement; password-reset lock order + family revocation; `ALLOW_HOST_FALLBACK`.
-- **Frontier:** Phase D batch 2 — authorization/tenant (`entitlements.ts`, `tenant-lifecycle.ts`,
-  `routing.ts`), then jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`,
+  deps `@radix-ui/react-dialog` / `gsap`). **Batch 2 (authorization/tenant) DONE:** 3/3 —
+  `entitlements.ts`, `tenant-lifecycle.ts`, `routing.ts` — no findings (one concurrency
+  watch item to confirm in `print-job-service.ts`).
+- **Frontier:** Phase D batch 3 — jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`,
   `job-maintenance.ts`, `job-status.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`), then
   billing/stripe, then infra (clock, metrics, circuit-breaker, bounded-query, ws-rate-limit),
   then printers/agents/system/rest. Skip pre-audited: `runtime-secret.ts`, `log.ts`,
-  `request-limits.ts`, `trust-proxy-config.ts`.
-- **Counters:** 49 entries; A 20/20 · B 92/92 · C 7/7 · D 13/81 (4 pre + 9 batch 1).
+  `request-limits.ts`, `trust-proxy-config.ts`. Open watch items for Phase E routes: odoo
+  `readOnly` rotation-grace enforcement; password-reset lock order + family revocation;
+  `ALLOW_HOST_FALLBACK` production refusal.
+- **Counters:** 52 entries; A 20/20 · B 92/92 · C 7/7 · D 16/81.
 
 ## Status dashboard (updated every session; keep honest)
 
@@ -71,7 +73,7 @@ Entry format (append-only):
 | A. Root entry/config | 20 | 20 | 3 (3) | 0 |
 | B. Gateway DB + migrations | 3 + 85 (+4) | 92 | 0 | 0 |
 | C. Gateway server core | 7 | 7 | 1 (1) | 0 |
-| D. Gateway lib | 81 | 13 | 1 (1) | 68 |
+| D. Gateway lib | 81 | 16 | 1 (1) | 65 |
 | E. Gateway API routes | 84 | 0 | 0 | 84 |
 | F. Gateway UI (components, desktop, i18n, shared) | 59 | 0 | 0 | 59 |
 | G. Go agent | 274 | 0 | 0 | 274 |
@@ -95,8 +97,9 @@ Entry format (append-only):
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
       jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest.
       Pre-audited, skip: `runtime-secret.ts`, `log.ts`, `request-limits.ts`,
-      `trust-proxy-config.ts`. **Batch 1 (auth/session) DONE 9/9** — next:
-      `entitlements.ts`, `tenant-lifecycle.ts`, `routing.ts` — **← NEXT**
+      `trust-proxy-config.ts`. **Batches 1 (auth 9/9) + 2 (tenant 3/3) DONE** — next:
+      jobs/idempotency (`print-job-service.ts`, `job-delivery.ts`, `job-maintenance.ts`,
+      `job-status.ts`, `job-timeline.ts`, `job-diagnostic-payload.ts`) — **← NEXT**
 - [ ] **E. API routes** by family: auth → agent → print → printers → odoo →
       billing → test-captures → team → settings/system → platform
 - [ ] **F. UI**: `src/components`, `src/desktop`, `src/i18n`, `src/shared`
@@ -449,5 +452,27 @@ These cannot be closed statically by design; they stay open until a real environ
 - Status: OK
 - Findings:
   - none. Shared PostgreSQL-backed limiter (multi-instance safe by design); reservations in one transaction with sorted keys (stable lock order); progressive account/IP lock curves; X-Forwarded-For parsed as a whole list with last-valid-entry-wins (attacker-controlled leftmost entries cannot choose a bucket) and only when a trusted proxy is configured; unknown client IPs skip the shared bucket instead of locking everyone out (documented), with the per-code pairing fence as backstop; successful auth clears both account and IP buckets; 24-hour retention cleanup matches migration 0007's index.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/entitlements.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Single canonical live-subscription predicates (trialing/active/past_due; past_due exempt from the period end; `clock_timestamp()` authoritative; optional `entitlement_blocked` exclusion) shared by every consumer; plan JSON strictly normalized (positive safe integer or `"unlimited"`; malformed plans are logged then raised as the 403-class config error); `reserveTenantPrintCredit` is one atomic `INSERT … ON CONFLICT … WHERE used < limit` upsert, so concurrent job creation cannot overshoot the quota; resource and job limits are read under `FOR UPDATE OF ts`, so check-and-insert cannot race another creator inside the same transaction; quota period parsing fails closed on unparseable or inverted periods.
+  - watch (not a finding): the concurrency guarantee of `enforceTenantJobEntitlements` depends on callers invoking it inside the same transaction that inserts the job (the subscription row lock serializes creators) — confirm in `print-job-service.ts` (batch 3).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/tenant-lifecycle.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. Explicit transition map with `deleted` terminal; the tenant row is locked before the lifecycle read, so a stale caller cannot overwrite a newer transition; admitted platform authority is rechecked inside the same transaction when claims are present; the platform tenant is protected with the dev-only fail-open branch deliberately documented against server.ts's production boot refusal; DB clock with a 503 on failure; suspend/delete durably revokes legacy manager sessions + refresh families and notifies agent sockets (`pg_notify`, consumed by ws.ts which re-verifies before acting); the audit event records from/to/reason.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/routing.ts] — audited 2026-10-17
+- Status: OK
+- Findings:
+  - none. One canonical status/transport predicate shared by the claim and delivery paths (documented: SQL gates must never reimplement it); positive-evidence triage (online/busy attemptable; offline/error fail fast without stranding jobs; unknown eligible only with a fully declared transport — spooler/IPP self-declaring, network/USB requiring a contract-listed raw protocol); `isPrinterAvailableForJob` adds lifecycle, sharing, inventory, virtual-printer and agent-freshness gates.
 - Proposed fix: none.
 - Fix applied: n/a (no findings)
