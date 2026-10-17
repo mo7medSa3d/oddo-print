@@ -43,17 +43,21 @@ Entry format (append-only):
 - **Phase 0:** DONE — `AUDIT_MAP.md` + this log created and committed.
 - **Phase A:** DONE — 20/20 root entry/config files audited and logged
   (3 low findings, all fixed: dead `url.parse` import; `graphify-out` Docker context; agent runtime-state ignores).
-- **Frontier:** Phase B — `src/db/schema.ts`, `src/db/client.ts`, `src/db/index.ts`,
-  then `drizzle/0000–0084` + `drizzle/meta` spot-checks. Watch item to close in Phase B:
-  `PGPASSWORD_FILE` handling in the pool + migrate script (compose depends on it).
-- **Counters:** 24 entries / 20 Phase A files + 4 earlier (Phase 0 entry).
+- **Phase B:** DONE — 92/92 (`schema.ts` 26 tables; `index.ts` + `client.ts`; all 85 migrations
+  with journal/ledger/docs-sync verified and every destructive/UPDATE/NOT-NULL file read in full,
+  ≈2 100 of 3 301 lines; remainder covered by the CI replay gate + `check-db-docs.py`), plus 4
+  supporting files pre-audited early (`db-migrate.ts`, `db-generate.ts`, `check-db-docs.py`,
+  `runtime-secret.ts` — belong to D/J, skip when reached). No new findings; the compose
+  `PGPASSWORD_FILE` watch item is closed.
+- **Frontier:** Phase C — `src/server/{ws,trusted-proxy,request-guard,cors,content-security-policy,correlation,api-defaults}.ts`.
+- **Counters:** 30 entries; A 20/20 · B 92/92.
 
 ## Status dashboard (updated every session; keep honest)
 
 | Area | Total files | Audited | Issues found (fixed) | Pending |
 |---|---|---|---|---|
 | A. Root entry/config | 20 | 20 | 3 (3) | 0 |
-| B. Gateway DB + migrations | 3 + 85 | 0 | 0 | 88 |
+| B. Gateway DB + migrations | 3 + 85 (+4) | 92 | 0 | 0 |
 | C. Gateway server core | 7 | 0 | 0 | 7 |
 | D. Gateway lib | 81 | 0 | 0 | 81 |
 | E. Gateway API routes | 84 | 0 | 0 | 84 |
@@ -71,10 +75,11 @@ Entry format (append-only):
       `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`, `.dockerignore`,
       `docker-compose.yml`, `docker-compose.ci.yml`, `Caddyfile`, `vitest*.config.mts`,
       `vite.desktop.config.mts`, `.gitignore`)
-- [ ] **B. DB**: `src/db/schema.ts`, `src/db/client.ts`, `src/db/index.ts`,
-      `drizzle/0000–0084` + `drizzle/meta` spot-checks — **← NEXT**
+- [x] **B. DB**: 92/92 done (`schema.ts`, `client.ts`, `index.ts`, all 85 migrations +
+      `drizzle/meta`; 4 support files pre-audited early: `db-migrate.ts`, `db-generate.ts`,
+      `check-db-docs.py`, `runtime-secret.ts` — skip in D/J)
 - [ ] **C. Server core**: `src/server/{ws,trusted-proxy,request-guard,cors,
-      content-security-policy,correlation,api-defaults}.ts`
+      content-security-policy,correlation,api-defaults}.ts` — **← NEXT**
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
       jobs/idempotency/payload → billing/stripe → infra (clock, limits) → rest
 - [ ] **E. API routes** by family: auth → agent → print → printers → odoo →
@@ -248,3 +253,47 @@ These cannot be closed statically by design; they stay open until a real environ
   - [low] The local agent runtime-state set curated in `.dockerignore` (`agent/agent.db-*` WAL/SHM sidecars, `agent/queue.db*`, `agent/config.yaml*`, `agent/e2e-captures`) was not mirrored here, so local agent/CLI runs pollute `git status` with untracked artifacts; only `agent/agent.db` and `agent/sudo` were covered.
 - Proposed fix: mirror the runtime-state list (none of these paths are tracked; `agent/configs/config.yaml.example` is unaffected).
 - Fix applied: yes
+
+## [src/db/schema.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. All 26 tables read; table count matches ARCHITECTURE.md. Security/substance checks: `agents.secret` stores only the SHA-256 hash (`hashSecret` on registration, `timingSafeStringEqual` compare in `src/lib/agent-auth.ts`) — never plaintext; partial unique indexes are the real concurrency anchors (one platform owner, one owner per tenant, one running discovery per tenant+agent, per-key + internal idempotency); hot-table FKs are composite `(tenant_id, …)` so cross-tenant references are rejected at the DB layer; `printers`/`tenant_users` deliberately use `UNIQUE` in place of a PK (documented; `REPLICA IDENTITY USING INDEX` set in 0072); job timestamps default to `clock_timestamp()` (0067) matching the 1-minute rate window; `e2e_capture_runs` CHECK forces payload NULL in terminal states.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/db/index.ts + src/db/client.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `parseInputDatesAsUTC` is set before any pool exists; pool max 20 / idle 30s / connect 10s / statement 30s / lock 5s / maxUses 10000 with `timezone=UTC` pinned in the session options; the structured PG* path validates PGPORT and resolves `PGPASSWORD_FILE` through `runtimeSecret`; the no-config dummy pool throws per query (fail-safe, not fail-open — the compose ordered `migrate` gate makes it unreachable in production); diagnostics are doubly bounded (circuit breaker 5 failures/30s + `BoundedQueryRunner(8)` reserving ≥12 of 20 connections for print/auth).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [drizzle/0000–0084 + drizzle/meta] — audited 2026-10-16 (grouped; scope below)
+- Status: OK
+- Findings:
+  - none. Scope: journal consistency verified (85 files = 85 `_journal.json` entries, idx 0–84); every file containing `DELETE`/`UPDATE`/`DROP …`/`SET NOT NULL`/`ADD COLUMN … NOT NULL` was read in full, plus all structural giants: 0006, 0007, 0011, 0013, 0020, 0022, 0028, 0029, 0030, 0033, 0041, 0045, 0047, 0056, 0058, 0059, 0061, 0067, 0071, 0072, 0074, 0081, 0082, 0084 (≈2 100 of 3 301 lines). Notable positive invariants: 0081 refuses to delete while a virtual-printer job is claimed/printing; 0029 refuses an ambiguous tenant backfill instead of guessing; 0041 pre-checks duplicates and RAISEs with the offending table; 0022 hashes legacy pairing codes as `upper(trim())` which exactly matches runtime `hashPairingCode`; destructive DDL (0006/0011/0020/0058/0059/0071) is documented pre-release architecture evolution; the remaining ~60 files are small guarded idempotent DDL covered by the CI migration-replay gate + `check-db-docs.py`. `drizzle/meta` is intentionally sparse (0000, 0028, 0071–0084 snapshots) — guarded by `db-generate.ts`.
+  - [observation, low] Historical migration files were edited in place during earlier audits (up to 11 commits per file). Deliberate pre-release pattern; already-deployed databases are served by the forward repairs (`AUDIT_REPAIRS` + 0082). A deployed DB meeting an edited same-numbered file would re-run it — idempotent for current content, otherwise fails loudly inside the migrator transaction.
+  - [observation, low] 0045's `NOT VALID` + `VALIDATE CONSTRAINT` pair executes inside one transaction, so the lock-splitting benefit of the technique does not materialize; harmless because the migrator is a cold one-shot job the gateway waits on (compose gate).
+- Proposed fix: none (observations; no code change justified).
+- Fix applied: n/a (no findings)
+
+## [scripts/db-migrate.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Transaction-scoped advisory lock keyed on database+`current_schema()`; `SET LOCAL search_path`; `scopeMigrationConstraintGuards` pins name-only `pg_constraint` guards to the current schema (fixes cross-schema suppression); `AUDIT_REPAIRS` is an append-only, content-hash-ledgered forward-repair channel that skips already-applied repairs; the whole run is one transaction (all-or-nothing). **Closes the `docker-compose.yml` Phase B watch item**: the migrate path resolves `PGPASSWORD_FILE` through `runtimeSecret`, and the shared pool honors it.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [scripts/db-generate.ts + scripts/check-db-docs.py] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `db-generate.ts` refuses `drizzle-kit generate` when the latest journal tag's canonical snapshot is missing (guards the deliberately sparse `drizzle/meta` set); `check-db-docs.py` (stdlib-only) enforces that every schema table is created by exactly one migration, no migration creates an orphan table, and `docs/DATABASE.md` documents every table — the doc is in sync (85 = `0000`…`0084`).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [src/lib/runtime-secret.ts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `*_FILE` first, env fallback second; 30s memo invalidated immediately when the `*_FILE` path changes (rotation); unreadable/missing file resolves to `undefined` so required-secret callers fail closed; `requiredRuntimeSecret` throws. (Logged under Phase B because the DB/migrate contract depends on it — its Phase D pass can skip.)
+- Proposed fix: none.
+- Fix applied: n/a (no findings)

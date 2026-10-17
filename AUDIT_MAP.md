@@ -65,6 +65,19 @@ Pool tenancy: one PostgreSQL database, app-level `tenant_id` filtering, composit
 `UNIQUE(tenant_id, id)` + composite FKs. Auth gates: `requireActiveTenant()`
 (`src/lib/tenant-guard.ts`), agent auth checks agent + tenant lifecycle, Odoo key
 chain key→tenant→lifecycle. **RLS is NOT enabled** (documented gap, ARCHITECTURE.md §3).
+`printers` and `discovered_devices` intentionally keep `UNIQUE(tenant_id, id)` instead of a
+surrogate PK, with `REPLICA IDENTITY USING INDEX` for logical replication (migration 0072).
+
+## Database evolution rules (verified in Phase B, 2026-10-16)
+
+- Migrations `0000–0084` are journal-pinned (`drizzle/meta/_journal.json`) and replayed in CI.
+  Historical files were edited pre-release; already-deployed databases are carried forward by
+  the append-only `AUDIT_REPAIRS` hash-ledger in `scripts/db-migrate.ts` plus repair migration 0082.
+- `drizzle/meta` snapshots are deliberately sparse (0000, 0028, 0071–0084); `npm run db:generate`
+  refuses to run when the latest canonical snapshot is missing.
+- `scripts/check-db-docs.py` enforces schema ↔ migrations ↔ `docs/DATABASE.md` agreement.
+- The migrator runs one transaction under an advisory lock; compose orders `migrate` to complete
+  before the gateway starts (`service_completed_successfully`).
 
 ## File inventory (counts at 36afc0bf)
 
