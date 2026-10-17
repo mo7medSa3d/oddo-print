@@ -41,18 +41,18 @@ Entry format (append-only):
 
 - **Session:** 2026-10-16. Start commit: `36afc0bf` (`origin/main`, local checkout synced; Phase 0 pushed as `c2f7d2e9`).
 - **Phase 0:** DONE — `AUDIT_MAP.md` + this log created and committed.
-- **Phase A (partial):** `server.ts`, `proxy.ts`, `next.config.ts`, `drizzle.config.ts` audited and logged
-  (1 low finding fixed: dead `url.parse` import).
-- **Frontier:** Phase A remaining — `tsconfig.json`, `postcss.config.mjs`, `eslint.config.mjs`,
-  `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`, `.dockerignore`, `docker-compose.yml`,
-  `docker-compose.ci.yml`, `Caddyfile`, `vitest*.config.mts`, `vite.desktop.config.mts`.
-- **Counters:** 4 files audited in this log (prior-session evidence pointers above excluded).
+- **Phase A:** DONE — 20/20 root entry/config files audited and logged
+  (3 low findings, all fixed: dead `url.parse` import; `graphify-out` Docker context; agent runtime-state ignores).
+- **Frontier:** Phase B — `src/db/schema.ts`, `src/db/client.ts`, `src/db/index.ts`,
+  then `drizzle/0000–0084` + `drizzle/meta` spot-checks. Watch item to close in Phase B:
+  `PGPASSWORD_FILE` handling in the pool + migrate script (compose depends on it).
+- **Counters:** 24 entries / 20 Phase A files + 4 earlier (Phase 0 entry).
 
 ## Status dashboard (updated every session; keep honest)
 
 | Area | Total files | Audited | Issues found (fixed) | Pending |
 |---|---|---|---|---|
-| A. Root entry/config | ~18 | 4 | 1 (1) | 14 |
+| A. Root entry/config | 20 | 20 | 3 (3) | 0 |
 | B. Gateway DB + migrations | 3 + 85 | 0 | 0 | 88 |
 | C. Gateway server core | 7 | 0 | 0 | 7 |
 | D. Gateway lib | 81 | 0 | 0 | 81 |
@@ -66,13 +66,13 @@ Entry format (append-only):
 
 ## Work queue (dependency order — entry points first, outward)
 
-- [~] **A. Root entry/config** (4/18 done: `server.ts`, `proxy.ts`, `next.config.ts`,
-      `drizzle.config.ts`): remaining `tsconfig.json`, `postcss.config.mjs`,
-      `eslint.config.mjs`, `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`,
-      `.dockerignore`, `docker-compose.yml`, `docker-compose.ci.yml`, `Caddyfile`,
-      `vitest*.config.mts`, `vite.desktop.config.mts`
+- [x] **A. Root entry/config**: 20/20 done (`server.ts`, `proxy.ts`, `next.config.ts`,
+      `drizzle.config.ts`, `tsconfig.json`, `postcss.config.mjs`, `eslint.config.mjs`,
+      `.env.example`, `.npmrc`, `.nvmrc`, `Dockerfile`, `.dockerignore`,
+      `docker-compose.yml`, `docker-compose.ci.yml`, `Caddyfile`, `vitest*.config.mts`,
+      `vite.desktop.config.mts`, `.gitignore`)
 - [ ] **B. DB**: `src/db/schema.ts`, `src/db/client.ts`, `src/db/index.ts`,
-      `drizzle/0000–0084` + `drizzle/meta` spot-checks
+      `drizzle/0000–0084` + `drizzle/meta` spot-checks — **← NEXT**
 - [ ] **C. Server core**: `src/server/{ws,trusted-proxy,request-guard,cors,
       content-security-policy,correlation,api-defaults}.ts`
 - [ ] **D. Gateway lib** (risk order): auth/session → authorization/tenant →
@@ -106,7 +106,7 @@ These cannot be closed statically by design; they stay open until a real environ
 
 ## Findings summary (by severity, this log only)
 
-- high: 0 · med: 0 · low: 1 (fixed: 1) — updated as entries are added
+- high: 0 · med: 0 · low: 3 (fixed: 3) — updated as entries are added
 
 ---
 
@@ -148,3 +148,103 @@ These cannot be closed statically by design; they stay open until a real environ
   - none. Fail-fast on missing `DATABASE_URL` with no credential fallback; documented limitation that drizzle-kit (unlike runtime `runtimeSecret`) has no `*_FILE` support is accurate for drizzle-kit 0.31.10 tooling usage.
 - Proposed fix: none.
 - Fix applied: n/a (no findings)
+
+## [tsconfig.json] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `strict: true` retained (security-relevant, must not be widened); `module: esnext` + `moduleResolution: bundler` is the documented Next pairing; `**/*.ts` also matches `.mts` configs by glob semantics while `**/*.tsx` is listed separately; `.audit` excluded from the program — source: https://www.typescriptlang.org/tsconfig/strict.html (cached rule from STACK_NOTES).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [.env.example] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none blocking. Every `[required in production]` marker cross-checked against server.ts startup assertions (GATEWAY_JWT_SECRET, TRUST_PROXY_SECRET, APP_BASE_URL, COOKIE_SECURE, PLATFORM_TENANT_ID) — all enforced. The DB-name split (`print_gateway` in `DATABASE_URL` vs `yasser_db` in the compose/PG* block) matches the two documented paths (bare-metal: DEPLOYMENT.md L58-59 uses `print_gateway`; Docker: SERVER_FIRST_RUN.md L85 + compose default use `yasser_db`) — not drift.
+  - [watch item, low] `ALLOW_HOST_FALLBACK=1` marked "NEVER in production" but server.ts has no explicit production refusal; production already requires APP_BASE_URL, so the fallback path looks unreachable there — verify consumers in Phase D (`src/lib/email.ts`, `src/lib/stripe.ts`).
+- Proposed fix: none yet; confirm consumer behavior in Phase D before deciding.
+- Fix applied: no (watch item)
+
+## [eslint.config.mjs] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Flat-config import `eslint-config-next/core-web-vitals` spread into `defineConfig` is the currently documented Next 16 pattern; odoo_addons JS exception block (no-undef error + OWL-appropriate rule offs) is deliberate; `globalIgnores` covers generated dirs — source: https://nextjs.org/docs/app/api-reference/config/eslint
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [Dockerfile] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Multi-stage, digest-pinned base with `ARG NODE_BASE_IMAGE` for the ECR mirror swap; non-root `USER node`; `ENV HOSTNAME=0.0.0.0` prevents the Docker container-id hostname from being bound by server.ts; `tsx` deliberately a production dependency (TS server runs directly); healthcheck targets `/api/live` (the proxy-trust-exempt probe); migrations explicitly a separate ordered job — source: https://docs.docker.com/build/building/best-practices/ (cached rule).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [.dockerignore] — audited 2026-10-16
+- Status: ISSUES FOUND
+- Findings:
+  - [low] `graphify-out/` was not excluded, so the local-only graph artifacts (`graph.json` ≈ 11.4 MB + `graph.html`) are sent in the Docker build context on every build; the repo already treats everything except `graphify-out/FINAL_AUDIT.md` as local-only (`.gitignore` L47-48).
+- Proposed fix: add `graphify-out` to `.dockerignore` (mirrors the existing `.audit` entry).
+- Fix applied: yes
+
+## [Caddyfile] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Proxy token via `header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}` (absolute path per the verified Caddy `{file.*}` rule); `X-Forwarded-For` **overwritten** with `{http.request.remote.host}` instead of Caddy's default append (comment documents the spoofed-bucket risk); `-X-Real-Ip` deleted; `max_size 8MiB` matches the Gateway cap; `reverse_proxy` tunnels WebSockets automatically — sources: caddyserver.com docs + issue #5374 (cached rules from STACK_NOTES).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [postcss.config.mjs] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Tailwind v4 pattern: only `@tailwindcss/postcss` (the v3 `tailwindcss` PostCSS plugin is correctly absent) — source: tailwindcss.com v4 docs pattern (repo pins tailwindcss 4.3.3).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [.npmrc + .nvmrc] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. `engine-strict=true` enforces the `>=24.15.0` engine at install time; `.nvmrc` 24.21.0 equals the Dockerfile base and CI pin (single Node baseline across all paths) — internal consistency verified.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [docker-compose.yml] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Secrets delivered as `*_FILE` mounts (nothing on the command line/env for the sensitive ones); `migrate` runs as a dedicated one-shot service and `gateway` requires `service_completed_successfully` (ordered migration gate); `APP_BASE_URL`/`GATEWAY_DOMAIN` fail fast; `TRUST_PROXY` and `COOKIE_SECURE` default to 1/secure; empty `PLATFORM_TENANT_ID` default is intentionally refused at startup by server.ts; digest-pinned postgres/caddy images.
+  - [watch item, low] The `*_FILE` contract for `PGPASSWORD_FILE` inside the `migrate` script and the pool must be honored by `src/db/client.ts` + `scripts/db-migrate.ts` — verified there in Phase B.
+- Proposed fix: none.
+- Fix applied: no (watch item resolves in Phase B)
+
+## [docker-compose.ci.yml] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Registry substitution only, identical manifest digests, explicit comment that a mirror missing the digest MUST fail rather than fall back to a mutable tag (fail-closed intent).
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [vitest.config.mts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Base config intentionally runs the full suite (including DB-backed tests) for local runs; the canonical unit/integration split lives in `vitest.test-groups.mts`; POS mock aliases map Odoo POS/Web modules to `tests/__mocks__/odoo`.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [vitest.unit.config.mts + vitest.integration.config.mts + vitest.test-groups.mts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. One shared classification module feeds both selective configs (plus a contract test enforcing it); unit config cannot silently run DB suites; integration config is serialized (`pool: forks`, `fileParallelism: false`, `sequence.concurrent: false`) with `RUN_DB_BACKED_ACCEPTANCE=1`; `ci-tripwire.check.ts` is deliberately integration-only.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [vite.desktop.config.mts] — audited 2026-10-16
+- Status: OK
+- Findings:
+  - none. Preview harness is `apply: "serve"` only (never in the installer); production entry pinned to `src/desktop/index.html`; `strictPort: 1420` matches the Tauri `devUrl`; `allowedHosts` extends via `VITE_ALLOWED_HOSTS` (supported by the pinned Vite 8.3.2) — matches the cached Tauri/Vite wiring rules.
+- Proposed fix: none.
+- Fix applied: n/a (no findings)
+
+## [.gitignore] — audited 2026-10-16
+- Status: ISSUES FOUND
+- Findings:
+  - [low] The local agent runtime-state set curated in `.dockerignore` (`agent/agent.db-*` WAL/SHM sidecars, `agent/queue.db*`, `agent/config.yaml*`, `agent/e2e-captures`) was not mirrored here, so local agent/CLI runs pollute `git status` with untracked artifacts; only `agent/agent.db` and `agent/sudo` were covered.
+- Proposed fix: mirror the runtime-state list (none of these paths are tracked; `agent/configs/config.yaml.example` is unaffected).
+- Fix applied: yes

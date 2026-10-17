@@ -3,6 +3,7 @@ node_modules
 .git
 .github
 .audit
+graphify-out
 .env
 .env.*
 !.env.example
