@@ -41,6 +41,9 @@ jobs:
           - 'postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
           - 'caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e'
     steps:
+      - name: Checkout security baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Scan pinned base image (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -50,13 +53,15 @@ jobs:
           severity: 'CRITICAL,HIGH'
           limit-severities-for-sarif: true
           ignore-unfixed: true
-          # Do not pass a scanner report with fixable HIGH/CRITICAL findings.
-          exit-code: '1'
+          # Report findings so the digest-bound, expiring upstream baseline
+          # can reject *new* vulnerabilities without hiding existing ones.
+          exit-code: '0'
 
-      # This personal private repository does not have GitHub Code Security.
-      # Code Scanning SARIF uploads fail even with security-events: write.
-      # Preserve each actual scan report and make vulnerability findings fail
-      # CI rather than relying on the unavailable Security tab.
+      - name: Enforce reviewed upstream image vulnerability baseline
+        run: python3 scripts/check-trivy-baseline.py trivy.sarif "${{ matrix.image }}"
+
+      # Code Scanning SARIF uploads are unavailable to this private repo.
+      # Preserve every report as an artifact, including failed baseline gates.
       - name: Retain Trivy findings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

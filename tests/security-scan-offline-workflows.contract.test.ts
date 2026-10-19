@@ -12,7 +12,9 @@ describe("private repository security scanning workflow", () => {
     expect(dockerScan).toContain("severity: 'CRITICAL,HIGH'");
     expect(dockerScan).toContain("ignore-unfixed: true");
     expect(dockerScan).toContain("limit-severities-for-sarif: true");
-    expect(dockerScan).toContain("exit-code: '1'");
+    expect(dockerScan).toContain("exit-code: '0'");
+    expect(dockerScan).toContain("scripts/check-trivy-baseline.py");
+    expect(dockerScan).toContain("actions/checkout@");
     expect(dockerScan).toContain("actions/upload-artifact@");
     expect(dockerScan).toContain("if-no-files-found: error");
     expect(dockerScan).not.toContain("github/codeql-action/upload-sarif@");
