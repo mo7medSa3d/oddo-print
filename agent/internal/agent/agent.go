@@ -3571,7 +3571,7 @@ func (a *Agent) updateJobStatusWithTransport(ctx context.Context, jobID, status,
 		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
 	}
-	if status == "printing" || status == "success" || status == "failed" || status == "queued" {
+	if status == "printing" || status == "success" || status == "failed" || status == "queued" || status == "expired" {
 		var accepted struct {
 			Success bool   `json:"success"`
 			Status  string `json:"status"`

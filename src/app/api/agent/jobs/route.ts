@@ -382,6 +382,7 @@ export async function PATCH(req: Request) {
       .set({
         status: "expired",
         error: expiryError,
+        closedClaimTokenHash,
         // Use DB-native now() to match the sweeper's clock (updated_at < now() - interval).
         // JS new Date() is the app-server clock and can drift from the DB host.
         updatedAt: sql`clock_timestamp()`,

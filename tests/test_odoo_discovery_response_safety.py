@@ -121,3 +121,13 @@ def test_nested_remote_freshness_is_type_safe_in_both_discovery_routes(monkeypat
         result = controller.runtime_printers(agent_id="agent")
         assert result["printers"][0]["freshness"] == expected
         assert get.call_count == 2
+
+
+def test_oversized_discovery_responses_fail_closed(monkeypatch):
+    controller, _, _ = discovery(monkeypatch, agents=AGENTS, printers=[PRINTER])
+    oversized = b"x" * (2 * 1024 * 1024 + 1)
+    monkeypatch.setattr(requests, "get", Mock(return_value=Mock(status_code=200, content=oversized, json=lambda: {"agents": AGENTS})))
+    with pytest.raises(ValidationError, match="unavailable"):
+        controller.runtime_agents()
+    with pytest.raises(ValidationError, match="unavailable"):
+        controller.runtime_printers(agent_id="agent")
