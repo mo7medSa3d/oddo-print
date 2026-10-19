@@ -48,7 +48,6 @@ type WorkspaceInfo = {
   email?: string;
   role?: string;
   plan?: string;
-  planExpired?: boolean;
 };
 
 const COLLAPSE_KEY = "yaseir:console-nav";
@@ -196,9 +195,7 @@ function WorkspaceMenu({
             <span className="flex min-w-0 flex-1 flex-col items-start leading-tight">
               <span className="w-full break-words text-sm font-[600] leading-snug text-ink">{displayName}</span>
               <span className="mt-0.5 w-full break-words text-xs leading-snug text-ink-3">
-                {workspace.plan
-                  ? (workspace.planExpired ? `${workspace.plan} · ${t("billing.ended")}` : workspace.plan)
-                  : (workspace.role ?? t("nav.signedIn"))}
+                {workspace.plan ?? workspace.role ?? t("nav.signedIn")}
               </span>
             </span>
           )}
@@ -281,14 +278,13 @@ function ConsoleShell({
     fetchWithTimeout("/api/billing/status?includePlanName=1", { credentials: "include", cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return null;
-        return (await response.json()) as { hasSubscription?: boolean; periodExpired?: boolean; planName?: string | null };
+        return (await response.json()) as { hasSubscription?: boolean; planName?: string | null };
       })
       .then((data) => {
         if (cancelled || !data) return;
         setWorkspace((current) => ({
           ...current,
-          plan: typeof data.planName === "string" ? data.planName : undefined,
-          planExpired: data.periodExpired === true,
+          plan: data.hasSubscription && typeof data.planName === "string" ? data.planName : undefined,
         }));
       })
       .catch(() => undefined);
