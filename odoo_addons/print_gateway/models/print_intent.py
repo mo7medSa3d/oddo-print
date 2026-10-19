@@ -152,12 +152,58 @@ class PrintGatewayIntent(models.Model):
             return False
 
     @classmethod
+    def _finalize_route_failure(cls, env, intent_id, claim_token, error):
+        """Persist routing/setup failures even when the routing cursor is aborted.
+
+        An unexpected failure before route_intent() must not strand a claimed
+        intent until the five-minute recovery lease expires. Re-read retry
+        budget under a fresh cursor and keep the claim-token fencing check:
+        a superseded worker must never modify the current worker's result.
+        """
+        if not claim_token:
+            return False
+        failure_cr = None
+        try:
+            failure_cr = env.registry.cursor()
+            failure_cr.execute("""
+                SELECT attempts, max_attempts
+                  FROM print_gateway_intent
+                 WHERE id = %s AND status = 'claimed' AND claim_token = %s
+            """, (intent_id, claim_token))
+            attempt_row = failure_cr.fetchone()
+            if not attempt_row:
+                _logger.warning("Cannot record failure for intent %s: claim was superseded.", intent_id)
+                return False
+            attempts, max_attempts = attempt_row
+            next_retry = False
+            if attempts < max_attempts:
+                delay_sec = min(300, 15 * (2 ** max(0, attempts - 1)))
+                next_retry = db_now_utc(failure_cr) + datetime.timedelta(seconds=delay_sec)
+            finalized = cls._finalize_intent_state(
+                env, intent_id, claim_token,
+                status="failed" if attempts >= max_attempts else "pending",
+                last_error=(str(error) or type(error).__name__)[:4096],
+                next_retry_at=next_retry,
+                cr=failure_cr,
+            )
+            if finalized:
+                failure_cr.commit()
+            return finalized
+        except Exception:
+            _logger.exception("Failed to persist routing error for print intent %s", intent_id)
+            return False
+        finally:
+            if failure_cr is not None:
+                failure_cr.close()
+
+    @classmethod
     def _execute_dispatched_route(cls, env, intent_id, res_model, res_id, claim_token):
         """Execute network/gateway dispatch using an already acquired claim_token."""
         if not claim_token:
             return
-        cr = env.registry.cursor()
+        cr = None
         try:
+            cr = env.registry.cursor()
             new_env = api.Environment(cr, env.uid, dict(env.context))
             intent = new_env["print_gateway.intent"].browse(intent_id).exists()
             if not intent or intent.claim_token != claim_token:
@@ -219,21 +265,13 @@ class PrintGatewayIntent(models.Model):
                     )
             except Exception as exc:
                 _logger.warning("Failed to route print intent %s for %s(%s): %s", intent.intent_key[:12], res_model, res_id, exc)
-                next_retry = False
-                if intent.attempts < intent.max_attempts:
-                    delay_sec = min(300, 15 * (2 ** max(0, intent.attempts - 1)))
-                    next_retry = db_now_utc(cr) + datetime.timedelta(seconds=delay_sec)
-                target_status = "failed" if intent.attempts >= intent.max_attempts else "pending"
-                cls._finalize_intent_state(
-                    env, intent_id, claim_token,
-                    status=target_status,
-                    last_error=str(exc),
-                    next_retry_at=next_retry,
-                )
+                cls._finalize_route_failure(env, intent_id, claim_token, exc)
         except Exception as exc:
-            _logger.error("Error in dispatched route execution for intent %s: %s", intent_id, exc)
+            _logger.exception("Error preparing print intent %s for dispatch", intent_id)
+            cls._finalize_route_failure(env, intent_id, claim_token, exc)
         finally:
-            cr.close()
+            if cr is not None:
+                cr.close()
 
     @classmethod
     def _dispatch_intent_postcommit(cls, env, intent_id, res_model, res_id):
@@ -378,7 +416,11 @@ class PrintGatewayIntent(models.Model):
                 self.env.cr.execute("""
                     UPDATE print_gateway_intent
                        SET status = 'failed', claimed_at = NULL, claim_token = NULL,
-                           next_retry_at = NULL, last_error = %s,
+                           next_retry_at = NULL,
+                           last_error = CASE
+                               WHEN NULLIF(last_error, '') IS NULL THEN %s
+                               ELSE last_error || E'\\nFinal dispatch lease expired; inspect Print Activity before re-arming.'
+                           END,
                            write_date = NOW() AT TIME ZONE 'UTC'
                      WHERE id = %s AND status = 'claimed' AND attempts >= max_attempts
                        AND claim_token IS NOT DISTINCT FROM %s
