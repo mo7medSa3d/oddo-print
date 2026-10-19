@@ -10,12 +10,16 @@ describe("console plan summary and billing permission boundaries", () => {
   it("uses a lightweight status summary instead of calling the quota endpoint on every mount", () => {
     expect(shell).toContain('fetchWithTimeout("/api/billing/status?includePlanName=1"');
     expect(shell).not.toContain('fetchWithTimeout("/api/billing/usage"');
-    expect(shell).toContain('data.hasSubscription && typeof data.planName === "string"');
+    expect(shell).toContain('plan: typeof data.planName === "string"');
+    expect(shell).toContain("planExpired: data.periodExpired === true");
   });
 
-  it("only reads and returns a plan name for a live subscription and billing.read manager", () => {
+  it("only discloses a historical plan name to billing.read managers without granting quota", () => {
     expect(status).toContain('includePlanName = new URL(req.url).searchParams.get("includePlanName") === "1"');
-    expect(status).toContain('includePlanName && hasSubscription && hasManagerPermission(manager, "billing.read") && sub');
+    expect(status).toContain('includePlanName && hasManagerPermission(manager, "billing.read") && sub');
+    expect(status).toContain('const periodExpired = !!sub');
+    expect(status).toContain('periodExpired,');
+    expect(status).toContain('!isSubscriptionPeriodLive(sub.currentPeriodEnd)');
     expect(status).toContain('where: eq(plans.id, sub.planId)');
     expect(status).toContain('...(includePlanName ? { planName: currentPlan?.name ?? null } : {})');
     expect(status).toContain('"Cache-Control": "no-store"');
