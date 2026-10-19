@@ -29,6 +29,8 @@ describe("single workspace staging reset safeguards", () => {
     expect(reset).toContain("pg_dump -Fc");
     expect(reset).toContain("pg_restore --list");
     expect(reset).toContain("sha256sum");
+    expect(reset).toContain('BACKUP_DIR="$HOME/.local/share/yaseir-staging-backups"');
+    expect(reset).not.toContain('BACKUP_DIR="$ROOT/backups/domain-staging"');
     expect(reset.indexOf("pg_restore --list")).toBeLessThan(reset.indexOf("compose down --remove-orphans"));
   });
   it("preserves original data and uses new volume and credentials", () => {

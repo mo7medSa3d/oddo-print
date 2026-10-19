@@ -56,7 +56,7 @@ fi
 read -r -p "Type RESET HTTPS STAGING exactly: " CONFIRMATION
 [[ "$CONFIRMATION" == "RESET HTTPS STAGING" ]] || { echo "Cancelled" >&2; exit 2; }
 
-BACKUP_DIR="$ROOT/backups/domain-staging"
+BACKUP_DIR="$HOME/.local/share/yaseir-staging-backups"
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 STAMP="$(date -u '+%Y%m%dT%H%M%SZ')"

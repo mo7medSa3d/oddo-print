@@ -63,7 +63,7 @@ The apply step requires typing RESET HTTPS STAGING. It takes a PostgreSQL
 custom-format dump, validates the archive with pg_restore, creates a private
 environment backup, and only then switches to a brand-new Docker volume with
 rotated staging credentials. It never runs docker volume rm or down -v.
-Backups are private under backups/domain-staging. The original volume survives
+Backups are private under your home directory at ~/.local/share/yaseir-staging-backups (outside the Git working tree). The original volume survives
 unchanged. Keep it until you confirm the new environment works and choose a
 safe retention policy.
 
