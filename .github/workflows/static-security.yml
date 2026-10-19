@@ -90,7 +90,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Dependency Review requires GitHub Code Security for private repos.
+      # Preserve an enforced high/critical dependency gate on staging PRs
+      # using the same audited policy as the supply-chain workflow.
+      - name: Setup Node for private-repository audit
+        if: ${{ github.event.repository.private }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Audit private-repository dependencies
+        if: ${{ github.event.repository.private }}
+        run: node scripts/audit-gate.mjs
+
       - name: Review dependency changes
+        if: ${{ !github.event.repository.private }}
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
@@ -101,6 +117,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # The action reads /pulls/{number}/commits on pull_request.
+      pull-requests: read
     steps:
       - name: Checkout full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
