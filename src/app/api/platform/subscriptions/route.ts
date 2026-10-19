@@ -27,8 +27,26 @@ export async function GET(req: Request) {
   const conditions: SQL[] = [];
   const filter = searchParams.get("filter") ?? "all";
   if (!["all", "active", "attention", "other"].includes(filter)) return NextResponse.json({ error: "Invalid filter" }, { status: 400 });
-  if (filter === "active") conditions.push(sql`${tenantSubscriptions.status} IN ('active','trialing')`);
-  if (filter === "attention") conditions.push(sql`${tenantSubscriptions.status} IN ('past_due','paused','incomplete','unpaid')`);
+  // PostgreSQL's authoritative clock must decide if a displayed trial is
+  // live; merely storing status='trialing' does not mean it can print.
+  const live = sql`(
+    COALESCE(${tenantSubscriptions.entitlementBlocked}, false) = false
+    AND ${tenantSubscriptions.status} IN ('active','trialing','past_due')
+    AND (${tenantSubscriptions.status} = 'past_due'
+      OR ${tenantSubscriptions.currentPeriodEnd} IS NULL
+      OR ${tenantSubscriptions.currentPeriodEnd} > clock_timestamp())
+  )`;
+  const periodExpired = sql`(
+    ${tenantSubscriptions.status} IN ('trialing','active')
+    AND ${tenantSubscriptions.currentPeriodEnd} IS NOT NULL
+    AND ${tenantSubscriptions.currentPeriodEnd} <= clock_timestamp()
+  )`;
+  if (filter === "active") conditions.push(sql`(${live} AND ${tenantSubscriptions.status} IN ('active','trialing'))`);
+  if (filter === "attention") conditions.push(sql`(
+    ${tenantSubscriptions.status} IN ('past_due','paused','incomplete','unpaid')
+    OR ${periodExpired}
+    OR (${tenantSubscriptions.entitlementBlocked} = true AND ${tenantSubscriptions.status} IN ('active','trialing'))
+  )`);
   if (filter === "other") conditions.push(sql`${tenantSubscriptions.status} IN ('cancelled','incomplete_expired')`);
   if (search) conditions.push(sql`(lower(${tenants.id}) LIKE ${term} ESCAPE '\\' OR lower(${tenants.name}) LIKE ${term} ESCAPE '\\' OR lower(COALESCE(${tenantSubscriptions.stripeCustomerId}, '')) LIKE ${term} ESCAPE '\\')`);
   const rows = await queryWithTimeout(
@@ -42,6 +60,9 @@ export async function GET(req: Request) {
         stripeCustomerId: tenantSubscriptions.stripeCustomerId,
         stripeSubscriptionId: tenantSubscriptions.stripeSubscriptionId,
         status: tenantSubscriptions.status,
+        hasBillingAccess: sql<boolean>`${live}`,
+        periodExpired: sql<boolean>`${periodExpired}`,
+        entitlementBlocked: tenantSubscriptions.entitlementBlocked,
         currentPeriodEnd: tenantSubscriptions.currentPeriodEnd,
         trialStartedAt: tenantSubscriptions.trialStartedAt,
         cancelAtPeriodEnd: tenantSubscriptions.cancelAtPeriodEnd,

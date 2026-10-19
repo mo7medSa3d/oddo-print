@@ -30,11 +30,12 @@ export async function GET(req: Request) {
     !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
       && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
 
-  // The console chrome needs only the active plan name, not quota/usage
-  // counters. An optional summary keeps the normal status probe lightweight
-  // and never exposes billing details to managers without billing.read.
+  // An expired trial is historical, never an active entitlement. Share the
+  // recorded plan name only with billing.read viewers, with an expiry flag.
+  const periodExpired = !!sub && (sub.status === "trialing" || sub.status === "active")
+    && sub.currentPeriodEnd != null && !isSubscriptionPeriodLive(sub.currentPeriodEnd);
   const includePlanName = new URL(req.url).searchParams.get("includePlanName") === "1";
-  const currentPlan = includePlanName && hasSubscription && hasManagerPermission(manager, "billing.read") && sub
+  const currentPlan = includePlanName && hasManagerPermission(manager, "billing.read") && sub
     ? await db.query.plans.findFirst({
         where: eq(plans.id, sub.planId),
         columns: { name: true },
@@ -44,6 +45,7 @@ export async function GET(req: Request) {
   return NextResponse.json(
     {
       hasSubscription,
+      periodExpired,
       entitlementBlocked: sub?.entitlementBlocked ?? false,
       status: sub?.status ?? null,
       planId: sub?.planId ?? null,

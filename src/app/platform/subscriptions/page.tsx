@@ -30,6 +30,9 @@ type Subscription = {
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   status: SubscriptionStatus;
+  hasBillingAccess: boolean;
+  periodExpired: boolean;
+  entitlementBlocked: boolean;
   currentPeriodEnd: string | null;
   trialStartedAt: string | null;
   cancelAtPeriodEnd: boolean;
@@ -47,9 +50,11 @@ const STATUS_META: Record<SubscriptionStatus, { tone: Tone; key: MessageKey }> =
   cancelled: { tone: "neutral", key: "platform.subs.status.cancelled" },
 };
 
-function statusMeta(status: string): { tone: Tone; key: MessageKey | null; raw: string } {
-  const meta = STATUS_META[status as SubscriptionStatus];
-  return meta ? { tone: meta.tone, key: meta.key, raw: status } : { tone: "neutral", key: null, raw: status };
+function statusMeta(sub: Subscription): { tone: Tone; key: MessageKey | null; raw: string } {
+  if (sub.periodExpired) return { tone: "warn", key: sub.status === "trialing" ? "billing.trialExpired" : "billing.ended", raw: sub.status };
+  if (sub.entitlementBlocked) return { tone: "warn", key: "billing.paymentAttention", raw: sub.status };
+  const meta = STATUS_META[sub.status];
+  return meta ? { tone: meta.tone, key: meta.key, raw: sub.status } : { tone: "neutral", key: null, raw: sub.status };
 }
 
 type Filter = "all" | "active" | "attention" | "other";
@@ -93,8 +98,8 @@ export default function PlatformSubscriptionsPage() {
   const counts = useMemo(
     () => ({
       all: subscriptions.length,
-      active: subscriptions.filter((s) => s.status === "active" || s.status === "trialing").length,
-      attention: subscriptions.filter((s) => ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)).length,
+      active: subscriptions.filter((s) => s.hasBillingAccess && (s.status === "active" || s.status === "trialing")).length,
+      attention: subscriptions.filter((s) => s.periodExpired || (s.entitlementBlocked && ["active", "trialing"].includes(s.status)) || ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)).length,
       other: subscriptions.filter((s) => ["cancelled", "incomplete_expired"].includes(s.status)).length,
     }),
     [subscriptions],
@@ -111,9 +116,9 @@ export default function PlatformSubscriptionsPage() {
       filter === "all"
         ? true
         : filter === "active"
-          ? s.status === "active" || s.status === "trialing"
+          ? s.hasBillingAccess && (s.status === "active" || s.status === "trialing")
           : filter === "attention"
-            ? ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)
+            ? s.periodExpired || (s.entitlementBlocked && ["active", "trialing"].includes(s.status)) || ["past_due", "paused", "incomplete", "unpaid"].includes(s.status)
             : ["cancelled", "incomplete_expired"].includes(s.status);
     return matchesSearch && matchesFilter;
   });
@@ -202,7 +207,7 @@ export default function PlatformSubscriptionsPage() {
           <>
             <div className="divide-y divide-edge-subtle sm:hidden">
               {filtered.map((subscription) => {
-                const meta = statusMeta(subscription.status);
+                const meta = statusMeta(subscription);
                 return (
                   <article key={subscription.tenantId} className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -260,7 +265,7 @@ export default function PlatformSubscriptionsPage() {
               </thead>
               <tbody>
                 {filtered.map((s) => {
-                  const meta = statusMeta(s.status);
+                  const meta = statusMeta(s);
                   return (
                     <tr key={s.tenantId}>
                       <td>
