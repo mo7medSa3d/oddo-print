@@ -3,7 +3,7 @@ import { platformSessions, users } from "../db/schema";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { requiredRuntimeSecret } from "./runtime-secret";
-import { verifyPassword, normalizeEmail } from "./password";
+import { verifyPassword, normalizeEmail, burnPasswordVerification } from "./password";
 import { verifyScryptPasswordHash } from "./manager-auth";
 import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
 import { databaseNowMs } from "./database-clock";
@@ -231,7 +231,7 @@ export async function validatePlatformClaims(
     where: eq(users.id, claims.userId),
     columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
   });
-  // AUDIT_FINDINGS.md [src/lib/platform-auth.ts]: enforce email match on legacy fallback tokens (parity with v2 session validation)
+  // AUDIT_LOG.md [src/lib/platform-auth.ts]: enforce email match on legacy fallback tokens (parity with v2 session validation)
   if (!user || !user.isPlatformOwner || !user.emailVerifiedAt || user.email !== claims.email) return null;
 
   return claims;
@@ -263,7 +263,12 @@ export async function authenticatePlatformOwner(
     where: eq(users.email, normalized),
     columns: { id: true, email: true, passwordHash: true, emailVerifiedAt: true, isPlatformOwner: true },
   });
-  if (!user || !user.isPlatformOwner || !user.emailVerifiedAt) return null;
+  if (!user || !user.isPlatformOwner || !user.emailVerifiedAt) {
+    // Burn equal KDF work so response timing cannot confirm whether an owner
+    // account exists (OWASP Authentication Cheat Sheet).
+    await burnPasswordVerification(passwordInput);
+    return null;
+  }
 
   const valid = user.passwordHash.startsWith("argon2id$")
     ? await verifyPassword(passwordInput, user.passwordHash)

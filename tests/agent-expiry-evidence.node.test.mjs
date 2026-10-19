@@ -20,7 +20,7 @@ async function harness({ status = 'claimed', marker = null, delivered = false, a
   const changes = [];
   const row = {
     id: 'job-c', tenantId: 'tenant-c', agentId: 'agent-c', printerId: 'printer-c', status,
-    error: marker, claimToken: token, claimedAt: claimed ? new Date() : null,
+    error: marker, claimToken: token, closedClaimTokenHash: null, claimedAt: claimed ? new Date() : null,
     deliveredAt: delivered ? new Date() : null, ackedAt: acked ? new Date() : null,
     expiresAt: new Date(Date.now() + ttlMs), updatedAt: new Date(),
   };
@@ -31,6 +31,11 @@ async function harness({ status = 'claimed', marker = null, delivered = false, a
       changes.push({ values: this.values, predicate: this.predicate });
       // A deliberately small PostgreSQL UPDATE model: the row must be expired
       // and owned by the claim, while SET expressions read its latest version.
+      if (this.predicate.includes('jobs.closedClaimTokenHash=')) {
+        const expected = `jobs.status=${row.status} AND jobs.closedClaimTokenHash=${row.closedClaimTokenHash}`;
+        if (!row.closedClaimTokenHash || !this.predicate.includes(expected)) return [];
+        return [{ status: row.status, error: row.error }];
+      }
       if (!this.predicate.includes(`FENCE status=${row.status} token=${row.claimToken}`)) return [];
       if (this.values.status === 'expired' && row.expiresAt > new Date()) return [];
       if (this.values.error?.startsWith?.('CASE')) {
@@ -43,6 +48,7 @@ async function harness({ status = 'claimed', marker = null, delivered = false, a
         row.error = this.values.error;
       }
       row.status = this.values.status;
+      if (this.values.closedClaimTokenHash !== undefined) row.closedClaimTokenHash = this.values.closedClaimTokenHash;
       if (this.values.claimToken === 'NULL') row.claimToken = null;
       if (this.values.deliveredAt?.includes?.('COALESCE')) row.deliveredAt ??= new Date();
       return [{ status: row.status, error: row.error }];
@@ -188,4 +194,15 @@ test('late failed handoff must reject a different attempt token and unclaimed ro
   assert.equal((await bad.patch('success')).code, 409);
   const unclaimed = await harness({ status: 'failed', marker: 'UNKNOWN_PARTIAL_DELIVERY: no response', claimed: false });
   assert.equal((await unclaimed.patch('success')).code, 409);
+});
+
+test('retried Agent expired report is idempotently acknowledged via closedClaimTokenHash', async () => {
+  const f = await harness({ status: 'printing', delivered: true });
+  const first = await f.patch('expired');
+  assert.equal(first.code, 200);
+  assert.equal(f.row.closedClaimTokenHash, createHash('sha256').update('claim-current').digest('hex'));
+  const retry = await f.patch('expired');
+  assert.equal(retry.code, 200);
+  assert.equal(retry.body.status, 'expired');
+  assert.equal(retry.body.physicalOutcome, 'unknown');
 });

@@ -60,6 +60,30 @@ export async function verifyPassword(password: string, encoded: string): Promise
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+/**
+ * Well-formed Argon2id encoding that can never verify (all-zero salt/tag), used
+ * only to burn the same KDF work when no account row exists. Unknown-account
+ * login paths must not run measurably faster than known-account paths with a
+ * wrong password, or response timing confirms whether an account exists
+ * (OWASP Authentication Cheat Sheet; parity with manager-auth.ts's
+ * env-credential dummy-work path).
+ */
+const DUMMY_ARGON2_HASH = [
+  "argon2id",
+  "v=19",
+  `m=${ARGON_MEMORY},t=${ARGON_PASSES},p=${ARGON_PARALLELISM}`,
+  "A".repeat(22), // 16 zero bytes, base64url
+  "A".repeat(43), // 32 zero bytes, base64url
+].join("$");
+
+export async function burnPasswordVerification(password: string): Promise<void> {
+  try {
+    await verifyPassword(password, DUMMY_ARGON2_HASH);
+  } catch {
+    // Timing equalization only — a KDF failure must not change the outcome.
+  }
+}
+
 export async function hashToken(token: string): Promise<string> {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }

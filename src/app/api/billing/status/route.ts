@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../db";
-import { tenantSubscriptions } from "../../../../db/schema";
+import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { validateWorkspaceManager } from "../../../../lib/manager-auth";
+import { hasManagerPermission } from "../../../../lib/authorization";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../../../lib/entitlements";
 import { refreshClockSkew } from "../../../../lib/database-clock";
 import { eq } from "drizzle-orm";
@@ -29,6 +30,17 @@ export async function GET(req: Request) {
     !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
       && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
 
+  // The console chrome needs only the active plan name, not quota/usage
+  // counters. An optional summary keeps the normal status probe lightweight
+  // and never exposes billing details to managers without billing.read.
+  const includePlanName = new URL(req.url).searchParams.get("includePlanName") === "1";
+  const currentPlan = includePlanName && hasSubscription && hasManagerPermission(manager, "billing.read") && sub
+    ? await db.query.plans.findFirst({
+        where: eq(plans.id, sub.planId),
+        columns: { name: true },
+      })
+    : null;
+
   return NextResponse.json(
     {
       hasSubscription,
@@ -36,6 +48,7 @@ export async function GET(req: Request) {
       status: sub?.status ?? null,
       planId: sub?.planId ?? null,
       currentPeriodEnd: sub?.currentPeriodEnd ?? null,
+      ...(includePlanName ? { planName: currentPlan?.name ?? null } : {}),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

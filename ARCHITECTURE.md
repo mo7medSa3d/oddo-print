@@ -1,6 +1,6 @@
 # Yaseir Cloud Printing Platform — Architecture
 
-> **Version**: 19.0.2.14.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
+> **Version**: 19.0.2.15.0 | **Node**: 24.21.0 | **Go**: 1.26 | **Odoo**: 19 CE
 
 ## 1. System Overview
 
@@ -48,7 +48,7 @@ The Gateway is a Next.js 16.3.8 application with a **custom HTTP server** (`serv
 - Enforces trusted proxy authentication (Caddy → Gateway)
 - Rejects known placeholder secrets in production mode
 
-**API Route Structure** (78 route files, verified 2026-10-11):
+**API Route Structure** (84 route files, verified 2026-10-19):
 - `/api/agent/*` — Agent data plane (heartbeat, jobs, register, discovery)
 - `/api/agents/*` — Agent management (CRUD, discovery sessions)
 - `/api/odoo/*` — Odoo integration endpoints (agents, printers, keys, health)

@@ -33,7 +33,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +41,9 @@ jobs:
           - 'postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
           - 'caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e'
     steps:
+      - name: Checkout security baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Scan pinned base image (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -49,13 +51,25 @@ jobs:
           format: 'sarif'
           output: 'trivy.sarif'
           severity: 'CRITICAL,HIGH'
+          limit-severities-for-sarif: true
           ignore-unfixed: true
+          # Report findings so the digest-bound, expiring upstream baseline
+          # can reject *new* vulnerabilities without hiding existing ones.
+          exit-code: '0'
 
-      - name: Upload Trivy findings
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - name: Enforce reviewed upstream image vulnerability baseline
+        run: python3 scripts/check-trivy-baseline.py trivy.sarif "${{ matrix.image }}"
+
+      # Code Scanning SARIF uploads are unavailable to this private repo.
+      # Preserve every report as an artifact, including failed baseline gates.
+      - name: Retain Trivy findings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          sarif_file: 'trivy.sarif'
-          category: 'trivy-${{ strategy.job-index }}'
+          name: trivy-image-${{ strategy.job-index }}
+          path: trivy.sarif
+          if-no-files-found: error
+          retention-days: 14
 
   docker-build-runtime:
     runs-on: ubuntu-latest

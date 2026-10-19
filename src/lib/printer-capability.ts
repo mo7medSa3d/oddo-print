@@ -130,7 +130,6 @@ export function validatePayloadForPrinter(
   // transport. For network/usb (byte pipes with no declared language) the
   // family resolves to a name nothing matches: invented-but-routable is
   // impossible, the device is inventoried but dark until declared.
-  const family = proto && proto !== "unknown" ? proto : conn;
   const anyCap = (...names: string[]) => hasExplicitCaps
     ? names.some((name) => supported!.includes(name))
     : false;

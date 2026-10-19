@@ -194,6 +194,9 @@ fn write_line(level: &str, msg: &str) {
                     drop(logger.file.take());
                     rotate_if_full(&logger.path);
                     logger.file = OpenOptions::new().create(true).append(true).open(&logger.path).ok();
+                    if logger.file.is_some() && paths::ensure_manager_file_security(&logger.path).is_err() {
+                        logger.file = None;
+                    }
                 }
                 if let Some(file) = logger.file.as_mut() {
                     if file.write_all(line.as_bytes()).and_then(|_| file.flush()).is_ok() { return; }

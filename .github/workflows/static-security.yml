@@ -23,7 +23,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -57,9 +56,28 @@ jobs:
         uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
 
       - name: Analyze
+        id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: /language:${{ matrix.language }}
+          # GitHub Code Security is not enabled on this private repository:
+          # still run CodeQL and keep the SARIF, but do not upload to an
+          # unavailable Code Scanning API.
+          upload: never
+          upload-database: false
+          output: ${{ runner.temp }}/codeql-sarif-${{ matrix.language }}
+
+      - name: Enforce high-severity CodeQL security findings
+        run: python3 scripts/check-codeql-sarif.py "${{ steps.analyze.outputs.sarif-output }}"
+
+      - name: Retain CodeQL SARIF report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: codeql-${{ matrix.language }}
+          path: ${{ steps.analyze.outputs.sarif-output }}
+          if-no-files-found: error
+          retention-days: 14
 
   dependency-review:
     name: Dependency Review

@@ -94,6 +94,8 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             )
             if response.status_code != 200:
                 raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % response.status_code)
+            if len(getattr(response, 'content', None) or b'') > 2 * 1024 * 1024:
+                raise ValueError('Gateway agent discovery response exceeds 2 MiB')
             body = response.json()
         except (requests.RequestException, ValueError) as exc:
             raise ValidationError(request.env._('Gateway agent discovery is unavailable.')) from exc
@@ -169,6 +171,8 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             )
             if agent_response.status_code != 200:
                 raise ValidationError(request.env._('Gateway agent discovery failed (HTTP %s).') % agent_response.status_code)
+            if len(getattr(agent_response, 'content', None) or b'') > 2 * 1024 * 1024:
+                raise ValueError('Gateway agent discovery response exceeds 2 MiB')
             agent_body = agent_response.json() if agent_response.content else {}
             all_agents = agent_body.get('agents') if isinstance(agent_body, dict) else None
         except ValidationError:
@@ -193,6 +197,8 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             )
             if response.status_code != 200:
                 raise ValidationError(request.env._('Gateway printer discovery failed (HTTP %s).') % response.status_code)
+            if len(getattr(response, 'content', None) or b'') > 2 * 1024 * 1024:
+                raise ValueError('Gateway printer discovery response exceeds 2 MiB')
             body = response.json()
         except ValidationError:
             raise

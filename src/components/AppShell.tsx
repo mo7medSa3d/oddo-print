@@ -272,14 +272,20 @@ function ConsoleShell({
       })
       .catch(() => undefined);
 
-    fetchWithTimeout("/api/billing/usage", { credentials: "include", cache: "no-store" })
+    // The sidebar displays a plan label, not privileged quota usage. Use the
+    // optional status summary: missing subscriptions and non-billing roles get
+    // a normal 200 response with no plan name instead of expected 403 noise.
+    fetchWithTimeout("/api/billing/status?includePlanName=1", { credentials: "include", cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) return null;
-        return (await response.json()) as { plan?: { name?: string } };
+        return (await response.json()) as { hasSubscription?: boolean; planName?: string | null };
       })
       .then((data) => {
-        if (cancelled || !data?.plan?.name) return;
-        setWorkspace((current) => ({ ...current, plan: data.plan?.name }));
+        if (cancelled || !data) return;
+        setWorkspace((current) => ({
+          ...current,
+          plan: data.hasSubscription && typeof data.planName === "string" ? data.planName : undefined,
+        }));
       })
       .catch(() => undefined);
 
