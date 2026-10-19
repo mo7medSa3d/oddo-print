@@ -177,9 +177,13 @@ async function withMountedDashboard(
   role: ManagerRole,
   fetchUsage: (init: RequestInit | undefined) => Promise<Response>,
   inspect: (host: HTMLDivElement, fetchMock: ReturnType<typeof vi.fn>, rerender: (role: ManagerRole, scope?: string) => Promise<void>) => Promise<void>,
+  hasSubscription = true,
 ) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/billing/status") {
+      return Response.json({ hasSubscription }, { status: 200 });
+    }
     if (String(input) === "/api/billing/usage") return fetchUsage(init);
     if (String(input) === "/api/auth/me") return new Response(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 }), { status: 200 });
     throw new Error(`Unexpected dashboard fetch: ${String(input)}`);
@@ -224,6 +228,17 @@ describe("dashboard billing read authority", () => {
       expect(host.textContent).not.toContain(usageWarning);
       expect(host.textContent).not.toContain("Print credits");
     });
+  });
+
+  it.each(["owner", "admin"] as const)("does not report a billing outage or call usage during onboarding for %s", async (role) => {
+    await withMountedDashboard(role, async () => { throw new Error("Quota request must not happen"); }, async (host, fetchMock) => {
+      expect(fetchMock.mock.calls.filter(([url]) => url === "/api/billing/status")).toHaveLength(1);
+      expect(usageRequests(fetchMock)).toHaveLength(0);
+      expect(host.textContent).not.toContain(usageWarning);
+      expect(host.textContent).not.toContain("Print credits");
+      await refreshDashboard(host);
+      expect(usageRequests(fetchMock)).toHaveLength(0);
+    }, false);
   });
 
   it.each(["owner", "admin"] as const)("retains fetched print usage for %s", async (role) => {
