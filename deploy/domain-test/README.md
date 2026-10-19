@@ -38,6 +38,49 @@ bash deploy/domain-test/setup-domain-test.sh
 
 The script stops the old HTTP-only stack without deleting its PostgreSQL volume, reuses its secrets when available, starts Caddy + Gateway over HTTPS, validates the local HTTPS certificate and path, and provisions the existing test plan catalog.
 
+## Fresh single-workspace staging
+
+The shared HTTPS staging environment is configured to allow exactly one
+workspace. Login never creates a workspace. The first verified signup can
+create one; further registrations return STAGING_WORKSPACE_EXISTS. A
+transaction-level PostgreSQL lock prevents two simultaneous verifications
+from creating two tenants. Production continues to support multiple tenants.
+The old HTTP smoke script created a disposable tenant per run; it is now
+disabled unless explicitly opted into on an isolated loopback instance.
+
+The accumulated accounts can be replaced with a new, clean staging database
+without issuing unsafe foreign-key DELETEs. This also resets staging printer
+registrations, Odoo API keys, pairing, test accounts, and session history in
+the active environment. Backups retain all original data for recovery.
+
+On the staging server, update the test branch without overwriting local edits.
+Then run these two commands from /opt/yasser:
+
+    bash deploy/domain-test/reset-staging-workspace.sh --dry-run
+    bash deploy/domain-test/reset-staging-workspace.sh --apply
+
+The apply step requires typing RESET HTTPS STAGING. It takes a PostgreSQL
+custom-format dump, validates the archive with pg_restore, creates a private
+environment backup, and only then switches to a brand-new Docker volume with
+rotated staging credentials. It never runs docker volume rm or down -v.
+Backups are private under backups/domain-staging. The original volume survives
+unchanged. Keep it until you confirm the new environment works and choose a
+safe retention policy.
+
+After reset, visit https://print.yaseir.cloud/signup, register the single
+intended account, verify its email, set a new password and complete onboarding
+using the HTTP Test plan with a 30-day trial. The test-only verification email
+is captured in the Gateway container at
+/tmp/yaseir-domain-test-verification-email.txt. Read the captured email from
+the VM, never paste the one-time token into public chats. After the single
+signup, rerun bash deploy/domain-test/setup-domain-test.sh to bind the domain
+to the new workspace; future self-signups remain blocked.
+
+The new workspace must re-pair Windows Agents and regenerate Odoo API keys.
+Platform Owner credentials must be bootstrapped separately using the project's
+platform:bootstrap command. Old logins and API keys no longer work in the
+fresh staging database. This operation must never be used on production.
+
 ## Renew an expired HTTP Test trial (one tenant only)
 
 The `http-test` plan is a 30-day staging trial. When it expires, the
