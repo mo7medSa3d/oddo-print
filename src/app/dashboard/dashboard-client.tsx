@@ -1,6 +1,7 @@
 "use client";
 
 import { fetchWithTimeout } from "../../lib/fetch-timeout";
+import { fetchDashboardBillingUsage } from "../../lib/dashboard-billing-usage";
 import React, { useState, useMemo, useEffect } from "react";
 import { ensureCustomerSession } from "../../lib/session-config";
 import { useRouter } from "next/navigation";
@@ -506,7 +507,9 @@ export default function DashboardClient({
   }
   const billingUsage = canReadBillingUsage && billingScopeMatches ? billingState.usage : null;
   const billingUsageError = canReadBillingUsage && billingScopeMatches && billingState.error;
-  const [billingRefreshTick, setBillingRefreshTick] = useState(0);
+  // Start with a first read on mount; no synchronous setState inside an effect.
+  const [billingRefreshTick, setBillingRefreshTick] = useState(1);
+  const billingForbiddenScopeRef = React.useRef<string | null>(null);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
   const [printerSearch, setPrinterSearch] = useState("");
@@ -702,16 +705,30 @@ export default function DashboardClient({
     return () => clearInterval(timer);
   }, []);
 
-  const refreshBillingUsage = React.useCallback(() => {
+  const refreshBillingUsage = React.useCallback((retryForbidden = false) => {
+    // Deliberate user retry can clear the 401/403 latch. Normal fleet/job
+    // polling must not hammer an endpoint that denied this actor.
+    if (retryForbidden) billingForbiddenScopeRef.current = null;
     setBillingRefreshTick((tick) => tick + 1);
   }, []);
 
+  // Usage metrics are not part of the six-second device/job refresh loop.
+  // A 60-second cadence keeps the counters useful without quota API floods.
   useEffect(() => {
-    if (!billingAuthority.canReadBillingUsage || billingRefreshTick === 0) return;
+    if (!canReadBillingUsage) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshBillingUsage();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [canReadBillingUsage, diagnosticActorScope, refreshBillingUsage]);
+
+  useEffect(() => {
+    if (!billingAuthority.canReadBillingUsage ||
+        billingForbiddenScopeRef.current === billingAuthority.diagnosticActorScope) return;
     const controller = new AbortController();
     // Scope identity changes even when the same role returns after revocation.
     // A cancelled response must never restore another actor's usage or errors.
-    const update = (usage: BillingUsage | undefined, error: boolean) => {
+    const update = (usage: BillingUsage | null | undefined, error: boolean) => {
       if (controller.signal.aborted) return;
       setBillingState((current) => current.authority === billingAuthority
         ? { ...current, usage: usage === undefined ? current.usage : usage, error }
@@ -719,17 +736,21 @@ export default function DashboardClient({
     };
     void (async () => {
       try {
-        const res = await fetchWithTimeout("/api/billing/usage", { credentials: "same-origin", cache: "no-store", signal: controller.signal });
-        if (!res.ok) {
+        // The subscription-status endpoint returns 200 even when no plan is
+        // configured. Never request restricted quota usage without a plan.
+        const result = await fetchDashboardBillingUsage<BillingUsage>(fetchWithTimeout, controller.signal);
+        if (result.kind === "unsubscribed") {
+          update(null, false);
+        } else if (result.kind === "forbidden") {
+          // An actual 401/403 may reflect a revoked role or broken entitlement.
+          // Stop automatic retries until the user retries or the actor changes.
+          if (!controller.signal.aborted) billingForbiddenScopeRef.current = billingAuthority.diagnosticActorScope;
+          update(null, true);
+        } else if (result.kind === "unavailable") {
           update(undefined, true);
-          return;
+        } else {
+          update(result.usage, false);
         }
-        const data = await res.json().catch(() => null);
-        if (!data || typeof data !== "object") {
-          update(undefined, true);
-          return;
-        }
-        update(data as BillingUsage, false);
       } catch {
         update(undefined, true);
       }
@@ -831,7 +852,6 @@ export default function DashboardClient({
           return currentPairing;
         });
       }
-          void refreshBillingUsage();
         } catch (error) {
           setMessage({ text: isServerActionVersionMismatch(error) ? t("errors.pageUpdatedReload") : error instanceof Error ? error.message : t("errors.operationFailed"), type: "err" });
         }
@@ -845,7 +865,7 @@ export default function DashboardClient({
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [refreshBillingUsage, t, getDashboardState, getDashboardJobs]);
+  }, [t, getDashboardState, getDashboardJobs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1470,7 +1490,7 @@ export default function DashboardClient({
           tone="warn"
           title={t("billing.usageUnavailable")}
           action={
-            <Button variant="secondary" size="sm" onClick={() => void refreshBillingUsage()}>
+            <Button variant="secondary" size="sm" onClick={() => refreshBillingUsage(true)}>
               {t("common.retry")}
             </Button>
           }
