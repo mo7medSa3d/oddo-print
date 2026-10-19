@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Each old HTTP smoke run created a new tenant and never cleaned it up.
+# Legacy test is opt-in and never permitted on the shared HTTPS domain.
+if [[ "${ALLOW_LEGACY_DATA_CREATING_SMOKE:-0}" != "1" ]]; then
+  echo "ERROR: Legacy HTTP smoke generates disposable workspace records." >&2
+  echo "Use deploy/domain-test/smoke-domain-test.sh for HTTPS staging." >&2
+  exit 1
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
@@ -22,6 +30,10 @@ source "$ENV_FILE"
 set +a
 
 BASE="${SMOKE_BASE_URL:-${APP_BASE_URL:-http://127.0.0.1:${HTTP_TEST_PORT}}}"
+case "$BASE" in
+  http://127.0.0.1:*|http://localhost:*) ;;
+  *) echo "ERROR: Legacy smoke requires a disposable loopback-only HTTP database." >&2; exit 1 ;;
+esac
 EMAIL="test+$(date +%s)-${BASHPID}@yaseir.invalid"
 json_field() {
   node -e 'const fs=require("fs"); const obj=JSON.parse(fs.readFileSync(0,"utf8")); const key=process.argv[1]; const value=obj[key]; if (value === undefined || value === null) process.exit(1); process.stdout.write(String(value));' "$1"

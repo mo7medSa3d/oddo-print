@@ -104,6 +104,8 @@ upsert_env APP_BASE_URL "https://$DOMAIN"
 upsert_env COOKIE_SECURE 1
 upsert_env TRUST_PROXY 1
 upsert_env YASEIR_HTTP_TEST_MODE 1
+# Prevent accidental multi-tenant trial proliferation on shared HTTPS staging.
+upsert_env YASEIR_STAGING_SINGLE_WORKSPACE 1
 # Enable safe, isolated capture tests on staging, but preserve an explicit 0 opt-out.
 ensure_env YASEIR_E2E_CAPTURE_ENABLED 1
 upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
