@@ -799,6 +799,8 @@ export const ar: Catalog = {
   "billing.entitlement.max_concurrent_jobs": "مهام متزامنة",
   "billing.included": "مشمول",
   "billing.trial": "تجريبي",
+  "billing.trialExpired": "انتهت الفترة التجريبية",
+  "billing.trialExpiredBody": "انتهت الفترة التجريبية. تواصل مع مسؤول المنصة أو اختر خطة لاستعادة الطباعة.",
   "billing.trialBody": "فترتك التجريبية نشطة. اشترك أدناه للاحتفاظ بهذه الخطة.",
   "billing.active": "نشط",
   "billing.activeBody": "اشتراك نشط.",

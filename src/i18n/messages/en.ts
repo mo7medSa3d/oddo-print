@@ -793,6 +793,8 @@ export const en = {
   "billing.entitlement.max_concurrent_jobs": "Concurrent jobs",
   "billing.included": "Included",
   "billing.trial": "Trial",
+  "billing.trialExpired": "Trial expired",
+  "billing.trialExpiredBody": "Your trial has ended. Contact your administrator or choose a plan to restore printing.",
   "billing.trialBody": "Your trial is active. Subscribe below to keep this plan.",
   "billing.active": "Active",
   "billing.activeBody": "Active subscription.",

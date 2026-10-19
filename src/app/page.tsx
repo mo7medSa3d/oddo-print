@@ -74,6 +74,8 @@ export default async function Home() {
     const hasActiveSubscription = !!subscription && !subscription.entitlementBlocked
       && isBillingAccessStatus(subscription.status)
       && (subscription.status === "past_due" || isSubscriptionPeriodLive(subscription.currentPeriodEnd));
+    const trialExpired = !!subscription && subscription.status === "trialing"
+      && subscription.currentPeriodEnd != null && !isSubscriptionPeriodLive(subscription.currentPeriodEnd);
     const requiresBillingAttention = !!subscription && (subscription.entitlementBlocked
       || (isBillingAccessStatus(subscription.status) && !hasActiveSubscription));
 
@@ -87,6 +89,7 @@ export default async function Home() {
         subscriptionStatus={subscription?.status ?? null}
         periodEnd={subscription?.currentPeriodEnd ?? null}
         hasActiveSubscription={hasActiveSubscription}
+        trialExpired={trialExpired}
         requiresBillingAttention={requiresBillingAttention}
         canBilling={hasManagerPermission(claims, "billing.read")}
         canTeam={hasManagerPermission(claims, "users.read")}
@@ -580,6 +583,7 @@ function AuthenticatedHome({
   subscriptionStatus,
   periodEnd,
   hasActiveSubscription,
+  trialExpired,
   requiresBillingAttention,
   canBilling,
   canTeam,
@@ -592,6 +596,7 @@ function AuthenticatedHome({
   subscriptionStatus: string | null;
   periodEnd: Date | null;
   hasActiveSubscription: boolean;
+  trialExpired: boolean;
   requiresBillingAttention: boolean;
   canBilling: boolean;
   canTeam: boolean;
@@ -635,14 +640,14 @@ function AuthenticatedHome({
         <dl className="grid grid-cols-1 divide-y divide-edge-subtle border-t border-edge-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <div className="px-6 py-4">
             <dt className="label-caps">{t("home.planLabel")}</dt>
-            <dd className="mt-1.5 text-sm font-[600] text-ink">{hasPlan ? planName : t("billing.noPlanSelected")}</dd>
+            <dd className="mt-1.5 text-sm font-[600] text-ink">{hasPlan ? planName : planName ? `${planName} · ${trialExpired ? t("billing.trialExpired") : t("billing.ended")}` : t("billing.noPlanSelected")}</dd>
           </div>
           <div className="px-6 py-4">
             <dt className="label-caps">{t("home.subscriptionLabel")}</dt>
             <dd className="mt-1.5">
               <StatusBadge
                 tone={statusTone}
-                label={requiresBillingAttention ? t("billing.paymentAttention")
+                label={trialExpired ? t("billing.trialExpired") : requiresBillingAttention ? t("billing.paymentAttention")
                   : subscriptionStatus ? formatStatus(subscriptionStatus, t) : t("billing.notConfigured")}
               />
             </dd>

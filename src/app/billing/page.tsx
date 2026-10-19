@@ -132,9 +132,16 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
       })
     : null;
 
+  await refreshClockSkew();
+  const hasActivePlan = !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
+    && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
+  const trialExpired = !!sub && sub.status === "trialing" && sub.currentPeriodEnd != null
+    && !isSubscriptionPeriodLive(sub.currentPeriodEnd);
+
   let printUsage: Awaited<ReturnType<typeof getTenantPrintUsage>> | null = null;
   let printUsageUnavailable = false;
-  if (sub) {
+  // Expected expiry is not a backend outage. Never probe an expired quota.
+  if (hasActivePlan) {
     try {
       printUsage = await getTenantPrintUsage(db, claims.tenantId);
     } catch (error) {
@@ -159,16 +166,15 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
     .orderBy(asc(plans.displayOrder), asc(plans.name));
 
   const selectedPlan = selectedPlanId ? availablePlans.find((item) => item.id === selectedPlanId) ?? null : null;
-  await refreshClockSkew();
-  const hasActivePlan = !!sub && !sub.entitlementBlocked && isBillingAccessStatus(sub.status)
-    && (sub.status === "past_due" || isSubscriptionPeriodLive(sub.currentPeriodEnd));
   const hasStripeSubscription = !!sub?.stripeCustomerId && !!sub.stripeSubscriptionId;
   // The stored plan row is history, not state: a cancelled/expired
   // subscription must not present its plan as current (C055).
   const effectivePlan = hasActivePlan ? currentPlan : null;
-  const status = sub && (sub.entitlementBlocked || (isBillingAccessStatus(sub.status) && !hasActivePlan))
-    ? { tone: "warn" as const, label: t("billing.paymentAttention"), message: t("errors.billingBlocked") }
-    : sub ? planStatus(sub, t, formatDate) : null;
+  const status = trialExpired
+    ? { tone: "warn" as const, label: t("billing.trialExpired"), message: t("billing.trialExpiredBody") }
+    : sub && (sub.entitlementBlocked || (isBillingAccessStatus(sub.status) && !hasActivePlan))
+      ? { tone: "warn" as const, label: t("billing.paymentAttention"), message: t("errors.billingBlocked") }
+      : sub ? planStatus(sub, t, formatDate) : null;
   const entitlements = effectivePlan?.entitlements
     ? Object.entries(effectivePlan.entitlements)
         .filter(([, value]) => value !== false)
@@ -178,7 +184,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
 
   const renewalLabel = !sub
     ? t("billing.noRenewalDate")
-    : sub.status === "cancelled"
+    : trialExpired && sub.currentPeriodEnd
+      ? t("billing.periodEndsOn", { date: formatDate(sub.currentPeriodEnd) })
+      : sub.status === "cancelled"
       ? sub.currentPeriodEnd
         ? t("billing.periodEndsOn", { date: formatDate(sub.currentPeriodEnd) })
         : t("billing.ended")
@@ -270,7 +278,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                   <div className="min-w-0">
                     <div className="label-caps">{t("billing.currentPlan")}</div>
                     <h2 className="mt-2 text-3xl font-[660] tracking-[-0.035em] text-ink">
-                      {effectivePlan?.name ?? t("billing.noPlanSelected")}
+                      {effectivePlan?.name ?? (currentPlan
+                        ? `${currentPlan.name} · ${trialExpired ? t("billing.trialExpired") : t("billing.ended")}`
+                        : t("billing.noPlanSelected"))}
                     </h2>
                     <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-ink-3">
                       {effectivePlan?.description || status?.message || t("billing.choosePlanToActivate")}
