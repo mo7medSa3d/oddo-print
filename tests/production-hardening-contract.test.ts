@@ -390,7 +390,12 @@ describe("production hardening contracts", () => {
     const auth = read("src/lib/manager-auth.ts");
     expect(auth).toContain("passwordHash: true");
     expect(auth).toContain("eq(users.passwordHash, legacyHash)");
-    expect(auth).toContain("if (!row || !row.emailVerifiedAt) return null;");
+    // Unverified and nonexistent accounts must perform the dummy password
+    // verification BEFORE the denial; a literal one-line return assertion
+    // would reject this side-channel-hardening improvement.
+    const deniedCustomerLogin = auth.match(/if \(!row \|\| !row\.emailVerifiedAt\) \{([^}]+)\}/)?.[1];
+    expect(deniedCustomerLogin).toBeDefined();
+    expect(deniedCustomerLogin).toMatch(/await burnPasswordVerification\(password\);\s*return null;/);
     expect(auth).toContain("if (upgradedRows.length !== 1) return null;");
 
     // The cancel/resume operation protocol (persistent claim fence, Stripe
