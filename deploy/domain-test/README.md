@@ -38,6 +38,46 @@ bash deploy/domain-test/setup-domain-test.sh
 
 The script stops the old HTTP-only stack without deleting its PostgreSQL volume, reuses its secrets when available, starts Caddy + Gateway over HTTPS, validates the local HTTPS certificate and path, and provisions the existing test plan catalog.
 
+## Renew an expired HTTP Test trial (one tenant only)
+
+The `http-test` plan is a 30-day staging trial. When it expires, the
+subscription row can still say `trialing`, but the protected printing
+entitlement correctly denies access. Deployment deliberately does **not**
+auto-renew trials. Do not modify `tenant_subscriptions` in production.
+
+From **Platform → Subscriptions**, confirm the exact tenant ID of the
+logged-in workspace and the previous period end. For the reported incident the
+old end timestamp was `2026-10-18T23:51:02.856Z`. Then on the staging VM:
+
+```bash
+cd /opt/yasser
+git switch test/http-server-ready
+git status --short
+# Resolve any local changes before fetching; never use reset --hard.
+git pull --ff-only origin test/http-server-ready
+
+ENV_FILE=deploy/domain-test/.env.domain-test
+COMPOSE=deploy/domain-test/docker-compose.yml
+TENANT_ID=ten_REPLACE_WITH_VERIFIED_TENANT_ID
+
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE" exec -T postgres \
+  sh -c 'exec psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 "$@"' sh \
+  -v "tenant_id=$TENANT_ID" \
+  -v "expected_period_end=2026-10-18T23:51:02.856Z" \
+  < deploy/domain-test/renew-expired-trial.sql
+```
+
+The transaction fails closed if the database is not `yasser_http_test`,
+the tenant or exact old expiration differs, the workspace is disabled, the
+trial is still live, or the subscription has Stripe billing, block flags or
+pending checkout. Only the specified unlinked expired `http-test` trial is
+extended **30 days**. The old usage history is preserved, a new billing
+period begins, and an audit event is recorded. Check the output includes
+`COMMIT`; then refresh
+`https://print.yaseir.cloud/api/billing/status?includePlanName=1`
+while authenticated. It should show `hasSubscription: true` and the
+plan name again. This does not require a new Gateway image.
+
 ## E2E Capture test (staging only)
 
 The domain staging deploy script writes `YASEIR_E2E_CAPTURE_ENABLED=1` to
