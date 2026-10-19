@@ -37,6 +37,7 @@ import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
 import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { billingIntervalLabel } from "../../../lib/billing-labels";
+import { platformPlanMutationErrorKey } from "../../../lib/platform-plan-errors";
 
 type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
@@ -138,7 +139,13 @@ export default function PlatformPlansPage() {
     const payload = { id: form.id, name: form.name, description: form.description, stripePriceId: form.stripePriceId, stripeProductId: form.stripeProductId || undefined, currency: form.currency, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
     try {
       const res = await fetchWithTimeout(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error(t("platform.plans.saveFailed"));
+      if (!res.ok) {
+        // A definitive 400/409 means the plan was rejected, not an ambiguous
+        // network outcome. Surface the server's stable error code in the
+        // selected language rather than telling the owner to retry blindly.
+        const failure = await res.json().catch(() => null);
+        throw new Error(t(platformPlanMutationErrorKey(res.status, failure)));
+      }
       closeEditor();
       setNotice(isNew ? t("platform.plans.createdNotice", { name: form.name }) : t("platform.plans.updatedNotice", { name: form.name }));
       refresh(false);
@@ -440,9 +447,12 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
 
   async function submit() {
     setLocalError(null);
-    if (isNew && !form.id.trim()) return setLocalError(t("platform.plans.validation.planId"));
+    if (isNew && !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(form.id.trim())) return setLocalError(t("platform.plans.validation.planIdFormat"));
     if (!form.name.trim()) return setLocalError(t("platform.plans.validation.name"));
     if (!/^price_[A-Za-z0-9_]+$/.test(form.stripePriceId.trim())) return setLocalError(t("platform.plans.validation.priceId"));
+    if (!Number.isSafeInteger(form.displayOrder) || form.displayOrder < 0 || form.displayOrder > 1_000_000) {
+      return setLocalError(t("platform.plans.validation.displayOrder"));
+    }
     for (const key of Object.keys(ENTITLEMENT_LABEL_KEYS) as EntitlementKey[]) { const v = form.entitlements[key]; if (v !== "unlimited" && (!Number.isSafeInteger(v) || v <= 0)) return setLocalError(t("platform.plans.validation.entitlement", { label: entitlementLabel(key) })); }
     setSaving(true);
     try { await onSave(form, isNew); } catch (err) { setLocalError(err instanceof Error ? err.message : t("platform.plans.saveFailed")); } finally { setSaving(false); }
