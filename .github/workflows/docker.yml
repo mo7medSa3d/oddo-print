@@ -33,7 +33,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -49,13 +48,23 @@ jobs:
           format: 'sarif'
           output: 'trivy.sarif'
           severity: 'CRITICAL,HIGH'
+          limit-severities-for-sarif: true
           ignore-unfixed: true
+          # Do not pass a scanner report with fixable HIGH/CRITICAL findings.
+          exit-code: '1'
 
-      - name: Upload Trivy findings
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      # This personal private repository does not have GitHub Code Security.
+      # Code Scanning SARIF uploads fail even with security-events: write.
+      # Preserve each actual scan report and make vulnerability findings fail
+      # CI rather than relying on the unavailable Security tab.
+      - name: Retain Trivy findings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          sarif_file: 'trivy.sarif'
-          category: 'trivy-${{ strategy.job-index }}'
+          name: trivy-image-${{ strategy.job-index }}
+          path: trivy.sarif
+          if-no-files-found: error
+          retention-days: 14
 
   docker-build-runtime:
     runs-on: ubuntu-latest
