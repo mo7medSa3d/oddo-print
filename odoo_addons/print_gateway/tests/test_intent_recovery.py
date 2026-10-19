@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+import datetime
 import uuid
 from unittest import TestCase
 
 from psycopg2 import IntegrityError
 
-from odoo import api
+from odoo import api, fields
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase
 
@@ -157,3 +158,118 @@ class TestPrintGatewayIntentRecovery(TransactionCase):
         finally:
             verify.rollback()
             verify.close()
+
+    def test_setup_failure_finalizes_claim_instead_of_expiring_lease(self):
+        """An exception before route_intent must preserve the actual error.
+
+        The source model was removed after the intent was committed. This is a
+        deterministic outer-try exception that previously left status=claimed
+        until cron replaced the cause with 'Dispatch lease expired'.
+        """
+        model_name = "print_gateway.absent_source_fixture"
+        token = "setup-failure-%s" % uuid.uuid4().hex
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            stock_model = env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+            self.assertTrue(stock_model)
+            policy = env["print_gateway.policy"].create({
+                "name": "Setup Failure %s" % uuid.uuid4().hex,
+                "company_id": env.company.id,
+                "model_id": stock_model.id,
+                "event_type": "picking_validated",
+                "action_type": "raw_template",
+                "raw_protocol": "zpl",
+                "raw_template": "^XA^FD{id}^FS^XZ",
+            })
+            intent = env["print_gateway.intent"].create({
+                "company_id": env.company.id,
+                "intent_key": "setup-failure-%s" % uuid.uuid4().hex,
+                "policy_id": policy.id,
+                "res_model": model_name,
+                "res_id": 42,
+                "event_type": "picking_validated",
+                "status": "claimed",
+                "attempts": 3,
+                "max_attempts": 3,
+                "claimed_at": fields.Datetime.now(),
+                "claim_token": token,
+            })
+            intent_id = intent.id
+            cr.commit()
+        finally:
+            cr.close()
+
+        intent_cls = type(self.env["print_gateway.intent"])
+        intent_cls._execute_dispatched_route(self.env, intent_id, model_name, 42, token)
+
+        verify_cr = self.env.registry.cursor()
+        try:
+            verify_env = api.Environment(verify_cr, self.env.uid, dict(self.env.context))
+            row = verify_env["print_gateway.intent"].browse(intent_id).exists()
+            self.assertTrue(row)
+            self.assertEqual(row.status, "failed")
+            self.assertIn(model_name, row.last_error)
+            self.assertFalse(row.claim_token)
+            self.assertFalse(row.claimed_at)
+            self.assertFalse(row.next_retry_at)
+            self.assertEqual(row.attempts, 3)
+            self.assertFalse(row.print_job_id)
+        finally:
+            verify_cr.rollback()
+            verify_cr.close()
+
+    def test_final_expired_lease_preserves_prior_failure_diagnostic(self):
+        """The recovery cron must not overwrite a known Gateway rejection."""
+        cr = self.env.registry.cursor()
+        try:
+            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            stock_model = env["ir.model"].search([("model", "=", "stock.picking")], limit=1)
+            self.assertTrue(stock_model)
+            policy = env["print_gateway.policy"].create({
+                "name": "Lease Diagnostic %s" % uuid.uuid4().hex,
+                "company_id": env.company.id,
+                "model_id": stock_model.id,
+                "event_type": "picking_validated",
+                "action_type": "raw_template",
+                "raw_protocol": "zpl",
+                "raw_template": "^XA^FD{id}^FS^XZ",
+            })
+            intent = env["print_gateway.intent"].create({
+                "company_id": env.company.id,
+                "intent_key": "lease-diagnostic-%s" % uuid.uuid4().hex,
+                "policy_id": policy.id,
+                "res_model": "stock.picking",
+                "res_id": 0,
+                "event_type": "picking_validated",
+                "status": "claimed",
+                "attempts": 3,
+                "max_attempts": 3,
+                "claim_token": "expired-%s" % uuid.uuid4().hex,
+                "claimed_at": fields.Datetime.now() - datetime.timedelta(minutes=10),
+                "last_error": "GATEWAY_REJECTED_404: target printer removed",
+            })
+            intent_id = intent.id
+            cr.commit()
+        finally:
+            cr.close()
+
+        recovery_cr = self.env.registry.cursor()
+        try:
+            recovery_env = api.Environment(recovery_cr, self.env.uid, dict(self.env.context))
+            recovery_env["print_gateway.intent"].cron_recover_pending_intents()
+        finally:
+            recovery_cr.close()
+
+        verify_cr = self.env.registry.cursor()
+        try:
+            verify_env = api.Environment(verify_cr, self.env.uid, dict(self.env.context))
+            row = verify_env["print_gateway.intent"].browse(intent_id).exists()
+            self.assertTrue(row)
+            self.assertEqual(row.status, "failed")
+            self.assertIn("GATEWAY_REJECTED_404: target printer removed", row.last_error)
+            self.assertIn("Final dispatch lease expired", row.last_error)
+            self.assertFalse(row.claim_token)
+        finally:
+            verify_cr.rollback()
+            verify_cr.close()
