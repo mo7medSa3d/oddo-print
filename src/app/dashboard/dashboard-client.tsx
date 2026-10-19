@@ -507,7 +507,8 @@ export default function DashboardClient({
   }
   const billingUsage = canReadBillingUsage && billingScopeMatches ? billingState.usage : null;
   const billingUsageError = canReadBillingUsage && billingScopeMatches && billingState.error;
-  const [billingRefreshTick, setBillingRefreshTick] = useState(0);
+  // Start with a first read on mount; no synchronous setState inside an effect.
+  const [billingRefreshTick, setBillingRefreshTick] = useState(1);
   const billingForbiddenScopeRef = React.useRef<string | null>(null);
 
   const [printerViewMode, setPrinterViewMode] = useState<"grid" | "table">("grid");
@@ -715,7 +716,6 @@ export default function DashboardClient({
   // A 60-second cadence keeps the counters useful without quota API floods.
   useEffect(() => {
     if (!canReadBillingUsage) return;
-    refreshBillingUsage();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") refreshBillingUsage();
     }, 60_000);
@@ -723,7 +723,7 @@ export default function DashboardClient({
   }, [canReadBillingUsage, diagnosticActorScope, refreshBillingUsage]);
 
   useEffect(() => {
-    if (!billingAuthority.canReadBillingUsage || billingRefreshTick === 0 ||
+    if (!billingAuthority.canReadBillingUsage ||
         billingForbiddenScopeRef.current === billingAuthority.diagnosticActorScope) return;
     const controller = new AbortController();
     // Scope identity changes even when the same role returns after revocation.
