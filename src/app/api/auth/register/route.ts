@@ -10,6 +10,7 @@ import { getServerLocale, makeT } from "../../../../i18n/server";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { clientIpFrom, reserveAuthAttempt, setRateLimitHeaders } from "../../../../lib/auth-rate-limit";
 import { sql } from "drizzle-orm";
+import { isSingleWorkspaceStaging, stagingWorkspaceExists, STAGING_WORKSPACE_EXISTS_MESSAGE } from "../../../../lib/staging-single-workspace";
 
 const GENERIC = { ok: true, message: "If the account can be created, a verification email will be sent." };
 
@@ -32,6 +33,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 });
   }
   if (!rate.allowed) { const res = NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 }); res.headers.set("Retry-After", String(rate.retryAfterSec)); return setRateLimitHeaders(res, rate); }
+  // This is an explicitly single-workspace staging deployment. Existing
+  // users log in normally; fresh signups must not generate another tenant.
+  // This preflight is only UX: the transaction-level verification lock below
+  // is the race-safe source of truth for concurrent registrants.
+  if (isSingleWorkspaceStaging()) {
+    try {
+      if (await stagingWorkspaceExists(db)) {
+        return setRateLimitHeaders(NextResponse.json({
+          error: STAGING_WORKSPACE_EXISTS_MESSAGE, code: "STAGING_WORKSPACE_EXISTS",
+        }, { status: 409 }), rate);
+      }
+    } catch (error) {
+      logError("auth.register.staging_workspace_check_failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return setRateLimitHeaders(NextResponse.json({ error: "Registration temporarily unavailable" }, { status: 503 }), rate);
+    }
+  }
   const existing = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.email, email), columns: { id: true, emailVerifiedAt: true } });
   if (existing) return setRateLimitHeaders(NextResponse.json(GENERIC, { status: 202 }), rate);
   const userId = `usr_${nanoid(18)}`;
