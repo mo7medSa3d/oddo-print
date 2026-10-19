@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
   merge_group:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,8 +16,32 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      app: ${{ steps.scope.outputs.app }}
+      agent: ${{ steps.scope.outputs.agent }}
+      odoo: ${{ steps.scope.outputs.odoo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
   agent:
     name: Agent / Go
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -65,6 +90,8 @@ jobs:
 
   ci:
     name: App / Gateway
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -317,6 +344,8 @@ jobs:
         run: bash scripts/ci-postgres.sh stop
 
   odoo19:
+    needs: changes
+    if: needs.changes.outputs.odoo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

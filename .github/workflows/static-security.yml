@@ -7,6 +7,8 @@ on:
     branches: [main]
   merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: '7 4 * * 0'  # Weekly all-language CodeQL security sweep
 
 permissions:
   contents: read
@@ -16,8 +18,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      codeql_js: ${{ steps.scope.outputs.codeql_js }}
+      codeql_py: ${{ steps.scope.outputs.codeql_py }}
+      codeql_go: ${{ steps.scope.outputs.codeql_go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
   codeql:
     name: CodeQL / ${{ matrix.language }}
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -37,8 +62,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Determine whether this language changed
+        id: scope
+        shell: bash
+        env:
+          CODEQL_LANGUAGE: ${{ matrix.language }}
+          JS_CHANGED: ${{ needs.changes.outputs.codeql_js }}
+          PY_CHANGED: ${{ needs.changes.outputs.codeql_py }}
+          GO_CHANGED: ${{ needs.changes.outputs.codeql_go }}
+        run: |
+          case "$CODEQL_LANGUAGE" in
+            javascript-typescript) run="$JS_CHANGED" ;;
+            python) run="$PY_CHANGED" ;;
+            go) run="$GO_CHANGED" ;;
+            *) echo "Unexpected CodeQL language $CODEQL_LANGUAGE" >&2; exit 1 ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "CodeQL $CODEQL_LANGUAGE: run=$run"
       - name: Setup Go
-        if: matrix.language == 'go'
+        if: matrix.language == 'go' && steps.scope.outputs.run == 'true'
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: agent/go.mod
@@ -46,16 +88,18 @@ jobs:
           cache-dependency-path: agent/go.sum
 
       - name: Initialize CodeQL
+        if: steps.scope.outputs.run == 'true'
         uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Autobuild compiled language
-        if: matrix.build-mode == 'autobuild'
+        if: matrix.build-mode == 'autobuild' && steps.scope.outputs.run == 'true'
         uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
 
       - name: Analyze
+        if: steps.scope.outputs.run == 'true'
         id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
@@ -68,10 +112,11 @@ jobs:
           output: ${{ runner.temp }}/codeql-sarif-${{ matrix.language }}
 
       - name: Enforce high-severity CodeQL security findings
+        if: steps.scope.outputs.run == 'true'
         run: python3 scripts/check-codeql-sarif.py "${{ steps.analyze.outputs.sarif-output }}"
 
       - name: Retain CodeQL SARIF report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: codeql-${{ matrix.language }}

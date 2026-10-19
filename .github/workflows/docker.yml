@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 0'  # Weekly pinned-image vulnerability scan
 
 concurrency:
   group: docker-${{ github.ref }}
@@ -28,7 +30,30 @@ env:
   COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
 
 jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      docker: ${{ steps.scope.outputs.docker }}
+      docker_scan: ${{ steps.scope.outputs.docker_scan }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
   docker-image-scan:
+    needs: changes
+    if: needs.changes.outputs.docker_scan == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -72,6 +97,8 @@ jobs:
           retention-days: 14
 
   docker-build-runtime:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

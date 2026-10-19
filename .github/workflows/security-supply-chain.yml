@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '41 3 * * 0'  # Re-evaluate dependency advisories weekly
 
 permissions:
   contents: read
@@ -16,7 +18,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      supply: ${{ steps.scope.outputs.supply }}
+      postgres: ${{ steps.scope.outputs.postgres }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
   supply-chain:
+    needs: changes
+    if: needs.changes.outputs.supply == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -180,6 +205,8 @@ jobs:
           echo 'All third-party workflow action references are immutable SHA pins.'
 
   postgres-failure-injection:
+    needs: changes
+    if: needs.changes.outputs.postgres == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
