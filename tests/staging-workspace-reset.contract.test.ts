@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const load = (path: string) => readFileSync(path, "utf8");
@@ -10,6 +11,16 @@ const legacy = load("deploy/http-test/smoke-http-test.sh");
 const readme = load("deploy/domain-test/README.md");
 
 describe("single workspace staging reset safeguards", () => {
+  it("parses the reset and disabled legacy scripts as valid Bash", () => {
+    for (const file of [
+      "deploy/domain-test/reset-staging-workspace.sh",
+      "deploy/http-test/smoke-http-test.sh",
+    ]) {
+      const result = spawnSync("bash", ["-n", file], { encoding: "utf8" });
+      expect(result.status, result.stderr || "bash not available").toBe(0);
+    }
+  });
+
   it("enforces one-workspace mode on the HTTPS staging stack only", () => {
     expect(compose).toContain('YASEIR_STAGING_SINGLE_WORKSPACE: "1"');
     expect(setup).toContain("upsert_env YASEIR_STAGING_SINGLE_WORKSPACE 1");
