@@ -197,7 +197,7 @@ function httpTestCatalogBinding(input: {
 export class StripePriceBindingError extends Error {
   constructor(
     message: string,
-    public readonly code: "STRIPE_PRICE_INVALID" | "STRIPE_NOT_CONFIGURED" | "STRIPE_UNAVAILABLE",
+    public readonly code: "STRIPE_PRICE_INVALID" | "STRIPE_NOT_CONFIGURED" | "STRIPE_UNAVAILABLE" | "TEST_PRICE_NOT_IN_CATALOG",
     public readonly status: 400 | 502 | 503,
   ) {
     super(message);
@@ -215,8 +215,8 @@ export async function validateStripePriceBinding(input: {
     const binding = httpTestCatalogBinding(input);
     if (binding) return binding;
     throw new StripePriceBindingError(
-      "Stripe Price is not present in the HTTP test catalog.",
-      "STRIPE_PRICE_INVALID",
+      "Test Stripe Price is not registered with matching currency and interval in the staging catalog.",
+      "TEST_PRICE_NOT_IN_CATALOG",
       400,
     );
   }

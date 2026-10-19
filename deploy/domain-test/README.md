@@ -81,6 +81,35 @@ Platform Owner credentials must be bootstrapped separately using the project's
 platform:bootstrap command. Old logins and API keys no longer work in the
 fresh staging database. This operation must never be used on production.
 
+
+### Creating a Go plan with staging's test Stripe Price
+
+The HTTPS staging Gateway has **two explicitly allowlisted fake Stripe
+Price IDs**: `price_http_test_yasser` and `price_go_yasser`. The Go
+fixture is USD/month and allows the Platform Owner to create a Go plan
+from **Platform → Plans** using that exact fake price, without a live
+Stripe account. It does **not** charge money or create a real Stripe
+Price: production continues to validate recurring Prices against Stripe.
+
+Run `bash deploy/domain-test/setup-domain-test.sh` after updating this
+branch. The setup script upgrades the original *stock* one-price catalog
+to the two-price version while **preserving customised catalogs**. If
+the server has a custom `STRIPE_PLAN_CATALOG`, review it before adding
+`price_go_yasser` with currency `usd` and interval `month`; the
+Gateway rejects prices not explicitly registered there. Avoid sharing
+the entire .env file because it also contains secret values. Recheck
+the allowed IDs without printing secrets:
+
+```bash
+cd /opt/yasser
+grep '^STRIPE_PLAN_CATALOG=' deploy/domain-test/.env.domain-test | grep -o 'price_[a-zA-Z0-9_]*'
+```
+
+No Go database plan is auto-created: the Platform Owner still chooses
+its limits, visibility and name in the web editor. Existing customer
+subscriptions remain unchanged. New test prices do not constitute
+verified payment-provider prices.
+
 ## Renew an expired HTTP Test trial (one tenant only)
 
 The `http-test` plan is a 30-day staging trial. When it expires, the

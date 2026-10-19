@@ -109,7 +109,15 @@ upsert_env YASEIR_STAGING_SINGLE_WORKSPACE 1
 # Enable safe, isolated capture tests on staging, but preserve an explicit 0 opt-out.
 ensure_env YASEIR_E2E_CAPTURE_ENABLED 1
 upsert_env HTTP_TEST_VOLUME_NAME "$HTTP_TEST_VOLUME_NAME"
-ensure_env STRIPE_PLAN_CATALOG '[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
+# These are STAGING-ONLY allowlisted pretend Stripe prices, not real Stripe
+# products. Updating the stock one-price fixture preserves a custom operator
+# catalog. The UI still requires the same exact Price ID/currency/interval.
+LEGACY_STAGING_PRICE_CATALOG='[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}}]'
+DEFAULT_STAGING_PRICE_CATALOG='[{"id":"http-test","name":"HTTP Test","priceId":"price_http_test_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":5,"max_printers":10,"max_jobs_per_minute":60,"max_concurrent_jobs":8,"max_prints_per_period":"unlimited"}},{"id":"go","name":"Go","priceId":"price_go_yasser","currency":"usd","interval":"month","entitlements":{"max_agents":10,"max_printers":10,"max_jobs_per_minute":120,"max_concurrent_jobs":20,"max_prints_per_period":"unlimited"}}]'
+ensure_env STRIPE_PLAN_CATALOG "$DEFAULT_STAGING_PRICE_CATALOG"
+if [[ "$(get_env_value STRIPE_PLAN_CATALOG "$ENV_FILE")" == "$LEGACY_STAGING_PRICE_CATALOG" ]]; then
+  upsert_env STRIPE_PLAN_CATALOG "$DEFAULT_STAGING_PRICE_CATALOG"
+fi
 chmod 600 "$ENV_FILE"
 
 # Prepare the schema and persist the domain binding before starting the Gateway.
