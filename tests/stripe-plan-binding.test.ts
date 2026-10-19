@@ -143,7 +143,7 @@ describe("Stripe plan binding contract", () => {
         currency: "usd",
         interval: "month",
       })).rejects.toMatchObject({
-        code: "STRIPE_PRICE_INVALID",
+        code: "TEST_PRICE_NOT_IN_CATALOG",
         status: 400,
       });
       expect(globalThis.fetch).not.toHaveBeenCalled();
