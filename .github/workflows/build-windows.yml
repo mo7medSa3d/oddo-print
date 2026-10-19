@@ -478,7 +478,7 @@ jobs:
             ~/AppData/Local/tauri
           key: ${{ runner.os }}-rust-v2-${{ hashFiles('src-tauri/Cargo.lock') }}
       - name: Upload Windows NSIS installer
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Yaseir-Manager-Windows-NSIS
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yaseir Print Manager_*-setup.exe
@@ -489,7 +489,7 @@ jobs:
       # distinct name so nothing can mistake it for an acceptance-verified build.
       - name: Upload unverified Windows installer for diagnostics
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Yaseir-Manager-Windows-NSIS-UNVERIFIED-DIAGNOSTIC
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Yaseir Print Manager_*-setup.exe
