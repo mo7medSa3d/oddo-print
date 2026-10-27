@@ -17,6 +17,7 @@ import { formatNumber as formatNumberFor } from "../../i18n/format";
 import type { Translator } from "../../i18n/translate";
 import { isBillingAccessStatus, isSubscriptionPeriodLive } from "../../lib/entitlements";
 import { refreshClockSkew } from "../../lib/database-clock";
+import { formatPlanPriceAmount } from "../../lib/plan-pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,7 @@ export default async function Pricing() {
     description: string | null;
     entitlements: unknown;
     currency: string | null;
+    priceAmount: string | null;
     interval: string | null;
     displayOrder: number;
   }> = [];
@@ -68,11 +70,12 @@ export default async function Pricing() {
         description: plans.description,
         entitlements: plans.entitlements,
         currency: plans.currency,
+        priceAmount: plans.priceAmount,
         interval: plans.interval,
         displayOrder: plans.displayOrder,
       })
       .from(plans)
-      .where(and(isNotNull(plans.stripePriceId), eq(plans.isActive, true), eq(plans.isPublic, true)))
+      .where(and(eq(plans.isActive, true), eq(plans.isPublic, true)))
       .orderBy(asc(plans.displayOrder), asc(plans.name));
   } catch (error: unknown) {
     // The catalog is the only thing this page needs from the database. If it is
@@ -208,7 +211,7 @@ export default async function Pricing() {
                     )}
                     <p className="mt-3 flex items-center gap-2 text-xs text-ink-3">
                       <Receipt className="h-3.5 w-3.5 text-ink-4" aria-hidden />
-                      {t("pricing.billedPer", {
+                      {formatPlanPriceAmount(plan.priceAmount, plan.currency, locale) ?? t("pricing.billedPer", {
                         interval: billingIntervalLabel(plan.interval, t),
                         currency: (plan.currency ?? "USD").toUpperCase(),
                       })}
