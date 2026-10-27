@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { billingIntervalLabel } from "../../lib/billing-labels";
 import { ArrowRight, Check, CreditCard, DatabaseZap, Receipt } from "lucide-react";
