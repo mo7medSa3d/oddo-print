@@ -37,6 +37,7 @@ import { useI18n } from "../../../i18n/react";
 import type { MessageKey } from "../../../i18n/messages/en";
 import { fetchWithTimeout } from "../../../lib/fetch-timeout";
 import { billingIntervalLabel } from "../../../lib/billing-labels";
+import { formatPlanPriceAmount } from "../../../lib/plan-pricing";
 
 type EntitlementKey = "max_agents" | "max_printers" | "max_jobs_per_minute" | "max_concurrent_jobs" | "max_prints_per_period";
 type Entitlements = Record<EntitlementKey, number | "unlimited">;
@@ -49,6 +50,7 @@ type Plan = {
   stripePriceId: string | null;
   stripeProductId: string | null;
   currency: string | null;
+  priceAmount: string | null;
   interval: string | null;
   isActive: boolean;
   isPublic: boolean;
@@ -69,7 +71,7 @@ const ENTITLEMENT_LABEL_KEYS: Record<EntitlementKey, MessageKey> = {
 };
 
 function emptyForm() {
-  return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
+  return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", priceAmount: "0.00", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
 }
 
 export default function PlatformPlansPage() {
@@ -135,7 +137,7 @@ export default function PlatformPlansPage() {
   async function save(form: ReturnType<typeof emptyForm>, isNew: boolean) {
     setError(null); setNotice(null);
     const url = isNew ? "/api/platform/plans" : `/api/platform/plans/${form.id}`;
-    const payload = { id: form.id, name: form.name, description: form.description, stripePriceId: form.stripePriceId, stripeProductId: form.stripeProductId || undefined, currency: form.currency, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
+    const payload = { id: form.id, name: form.name, description: form.description, stripePriceId: form.stripePriceId, stripeProductId: form.stripeProductId || undefined, currency: form.currency, priceAmount: form.priceAmount, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
     try {
       const res = await fetchWithTimeout(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(t("platform.plans.saveFailed"));
@@ -265,8 +267,8 @@ export default function PlatformPlansPage() {
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs font-[550] text-ink-4">{t("platform.plans.colStripePrice")}</div>
-                      <Mono className="mt-1 block break-all text-xs">{plan.stripePriceId || t("platform.plans.notLinked")}</Mono>
+                      <div className="text-xs font-[550] text-ink-4">{t("platform.plans.colPrice")}</div>
+                      <Mono className="mt-1 block break-all text-xs">{formatPlanPriceAmount(plan.priceAmount, plan.currency, "en") ?? t("platform.plans.notPriced")}</Mono>
                       <div className="mt-0.5 text-xs text-ink-4">
                         {(plan.currency ?? "usd").toUpperCase()}
                         {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
@@ -350,7 +352,7 @@ export default function PlatformPlansPage() {
                     <div className="mt-0.5 text-xs text-ink-4">{t("platform.plans.subscribersTotal", { count: formatNumber(plan.subscriberCount) })}</div>
                   </td>
                   <td>
-                    <Mono className="block">{plan.stripePriceId || t("platform.plans.notLinked")}</Mono>
+                    <Mono className="block">{formatPlanPriceAmount(plan.priceAmount, plan.currency, "en") ?? t("platform.plans.notPriced")}</Mono>
                     <div className="mt-0.5 text-xs text-ink-4">
                       {(plan.currency ?? "usd").toUpperCase()}
                       {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
@@ -388,7 +390,7 @@ export default function PlatformPlansPage() {
       </Card>
 
       {(creating || editing) && (
-        <PlanEditor initial={editing ? { id: editing.id, name: editing.name, description: editing.description, stripePriceId: editing.stripePriceId || "", stripeProductId: editing.stripeProductId || "", currency: editing.currency || "usd", interval: editing.interval || "month", displayOrder: editing.displayOrder, isActive: editing.isActive, isPublic: editing.isPublic, entitlements: editing.entitlements } : emptyForm()} isNew={creating} onClose={closeEditor} onSave={save} />
+        <PlanEditor initial={editing ? { id: editing.id, name: editing.name, description: editing.description, stripePriceId: editing.stripePriceId || "", stripeProductId: editing.stripeProductId || "", currency: editing.currency || "usd", priceAmount: editing.priceAmount ?? "0.00", interval: editing.interval || "month", displayOrder: editing.displayOrder, isActive: editing.isActive, isPublic: editing.isPublic, entitlements: editing.entitlements } : emptyForm()} isNew={creating} onClose={closeEditor} onSave={save} />
       )}
 
       <ConfirmDialog
@@ -442,7 +444,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
     setLocalError(null);
     if (isNew && !form.id.trim()) return setLocalError(t("platform.plans.validation.planId"));
     if (!form.name.trim()) return setLocalError(t("platform.plans.validation.name"));
-    if (!/^price_[A-Za-z0-9_]+$/.test(form.stripePriceId.trim())) return setLocalError(t("platform.plans.validation.priceId"));
+    if (!/^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,2})?$/.test(form.priceAmount)) return setLocalError(t("platform.plans.validation.priceAmount"));
     for (const key of Object.keys(ENTITLEMENT_LABEL_KEYS) as EntitlementKey[]) { const v = form.entitlements[key]; if (v !== "unlimited" && (!Number.isSafeInteger(v) || v <= 0)) return setLocalError(t("platform.plans.validation.entitlement", { label: entitlementLabel(key) })); }
     setSaving(true);
     try { await onSave(form, isNew); } catch (err) { setLocalError(err instanceof Error ? err.message : t("platform.plans.saveFailed")); } finally { setSaving(false); }
@@ -477,14 +479,14 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
         <Field label={t("platform.plans.field.name")} required>
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t("platform.plans.field.namePlaceholder")} />
         </Field>
-        <Field label={t("platform.plans.field.priceId")} hint={t("platform.plans.field.priceIdHint")} required>
-          <Input value={form.stripePriceId} onChange={(e) => setForm({ ...form, stripePriceId: e.target.value })} placeholder="price_…" className="font-mono" />
-        </Field>
-        <Field label={t("platform.plans.field.productId")} hint={t("platform.plans.field.productIdHint")} optional>
-          <Input value={form.stripeProductId} onChange={(e) => setForm({ ...form, stripeProductId: e.target.value })} placeholder="prod_…" className="font-mono" />
+        <Field label={t("platform.plans.field.priceAmount")} required>
+          <Input type="text" inputMode="decimal" value={form.priceAmount} onChange={(e) => setForm({ ...form, priceAmount: e.target.value })} placeholder="49.00" className="tabular-nums" />
         </Field>
         <Field label={t("platform.plans.field.currency")}>
-          <Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toLowerCase() })} maxLength={3} className="font-mono uppercase" />
+          <Select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+            <option value="usd">USD — $</option>
+            <option value="sar">SAR — ر.س</option>
+          </Select>
         </Field>
         <Field label={t("platform.plans.field.interval")}>
           <Select value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value })}>
