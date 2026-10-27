@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { db } from "../../db";
 import { plans, tenantSubscriptions } from "../../db/schema";
@@ -107,6 +108,10 @@ export default async function Pricing() {
       currentPlanId = subscription.planId;
     }
   }
+
+  // For signed-in customers with a live subscription, /billing is the
+  // canonical plan summary; the public catalogue is for new subscribers.
+  if (claims && currentPlanId) redirect("/billing");
 
   const locale = await getServerLocale();
   const t = makeT(locale);
