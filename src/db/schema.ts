@@ -537,6 +537,7 @@ export const plans = pgTable("plans", {
   stripePriceHistory: text("stripe_price_history").array().notNull().default(sql`ARRAY[]::text[]`),
   stripeProductId: text("stripe_product_id"),
   currency: text("currency"),
+  priceAmount: text("price_amount"),
   interval: text("interval"),
   isActive: boolean("is_active").notNull().default(true),
   isPublic: boolean("is_public").notNull().default(true),
