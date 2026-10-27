@@ -137,7 +137,7 @@ export default function PlatformPlansPage() {
   async function save(form: ReturnType<typeof emptyForm>, isNew: boolean) {
     setError(null); setNotice(null);
     const url = isNew ? "/api/platform/plans" : `/api/platform/plans/${form.id}`;
-    const payload = { id: form.id, name: form.name, description: form.description, stripePriceId: form.stripePriceId, stripeProductId: form.stripeProductId || undefined, currency: form.currency, priceAmount: form.priceAmount, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
+    const payload = { id: form.id, name: form.name, description: form.description, currency: form.currency, priceAmount: form.priceAmount, interval: form.interval, displayOrder: form.displayOrder, isActive: form.isActive, isPublic: form.isPublic, entitlements: form.entitlements };
     try {
       const res = await fetchWithTimeout(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(t("platform.plans.saveFailed"));
