@@ -75,7 +75,7 @@ function emptyForm() {
 }
 
 export default function PlatformPlansPage() {
-  const { t, tc, formatNumber } = useI18n();
+  const { t, tc, formatNumber, locale } = useI18n();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -268,7 +268,7 @@ export default function PlatformPlansPage() {
                     </div>
                     <div>
                       <div className="text-xs font-[550] text-ink-4">{t("platform.plans.colPrice")}</div>
-                      <Mono className="mt-1 block break-all text-xs">{formatPlanPriceAmount(plan.priceAmount, plan.currency, "en") ?? t("platform.plans.notPriced")}</Mono>
+                      <Mono className="mt-1 block break-all text-xs">{formatPlanPriceAmount(plan.priceAmount, plan.currency, locale) ?? t("platform.plans.notPriced")}</Mono>
                       <div className="mt-0.5 text-xs text-ink-4">
                         {(plan.currency ?? "usd").toUpperCase()}
                         {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
@@ -352,7 +352,7 @@ export default function PlatformPlansPage() {
                     <div className="mt-0.5 text-xs text-ink-4">{t("platform.plans.subscribersTotal", { count: formatNumber(plan.subscriberCount) })}</div>
                   </td>
                   <td>
-                    <Mono className="block">{formatPlanPriceAmount(plan.priceAmount, plan.currency, "en") ?? t("platform.plans.notPriced")}</Mono>
+                    <Mono className="block">{formatPlanPriceAmount(plan.priceAmount, plan.currency, locale) ?? t("platform.plans.notPriced")}</Mono>
                     <div className="mt-0.5 text-xs text-ink-4">
                       {(plan.currency ?? "usd").toUpperCase()}
                       {plan.interval ? ` ${t("platform.plans.perInterval", { interval: billingIntervalLabel(plan.interval, t) })}` : ""}
