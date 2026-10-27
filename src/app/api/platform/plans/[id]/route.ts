@@ -15,7 +15,7 @@ function validateId(value: unknown): string {
   return id;
 }
 
-type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "priceAmount" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">> & { stripePriceId?: string };
+type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "priceAmount" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">>;
 
 function parsePatch(input: unknown): PlanPatch {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid JSON body.");
