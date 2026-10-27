@@ -8,6 +8,7 @@ import { normalizePlanEntitlements } from "../../../../lib/entitlements";
 import { validateStripePriceBinding, StripePriceBindingError, lockStripePlanCatalog } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
+import { parsePlanPriceAmount, parsePlanCurrency } from "../../../../lib/plan-pricing";
 
 function parsePlanPayload(input: unknown) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid JSON body");
@@ -17,7 +18,8 @@ function parsePlanPayload(input: unknown) {
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const stripePriceId = typeof body.stripePriceId === "string" ? body.stripePriceId.trim() : "";
   const stripeProductId = typeof body.stripeProductId === "string" ? body.stripeProductId.trim() : "";
-  const currency = typeof body.currency === "string" ? body.currency.trim().toLowerCase() : "usd";
+  const currency = parsePlanCurrency(body.currency ?? "usd");
+  const priceAmount = body.priceAmount === null || body.priceAmount === undefined ? null : parsePlanPriceAmount(body.priceAmount);
   const interval = typeof body.interval === "string" ? body.interval.trim().toLowerCase() : "month";
   const displayOrder = body.displayOrder === undefined ? 0 : Number(body.displayOrder);
   const isActive = body.isActive === undefined ? true : body.isActive === true;
@@ -26,7 +28,7 @@ function parsePlanPayload(input: unknown) {
   if (!id || !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(id)) throw new Error("Plan ID must be 2-64 characters using lowercase letters, numbers, _ or -.");
   if (!name || name.length > 120) throw new Error("Plan name is required and must be at most 120 characters.");
   if (description.length > 500) throw new Error("Plan description must be at most 500 characters.");
-  if (!/^price_[A-Za-z0-9_]+$/.test(stripePriceId)) throw new Error("A valid Stripe Price ID is required.");
+  if (stripePriceId && !/^price_[A-Za-z0-9_]+$/.test(stripePriceId)) throw new Error("Invalid legacy Stripe Price ID.");
   if (stripeProductId && !/^prod_[A-Za-z0-9_]+$/.test(stripeProductId)) throw new Error("Stripe Product ID must look like prod_...");
   if (!/^[a-z]{3}$/.test(currency)) throw new Error("Currency must be a 3-letter ISO code.");
   if (!["day", "week", "month", "year"].includes(interval)) throw new Error("Interval must be day, week, month, or year.");
@@ -39,7 +41,7 @@ function parsePlanPayload(input: unknown) {
     throw new Error(error instanceof Error ? error.message : "Invalid plan entitlements.");
   }
 
-  return { id, name, description, stripePriceId, stripeProductId: stripeProductId || null, currency, interval, isActive, isPublic, displayOrder, entitlements };
+  return { id, name, description, stripePriceId: stripePriceId || null, stripeProductId: stripeProductId || null, priceAmount, currency, interval, isActive, isPublic, displayOrder, entitlements };
 }
 
 export async function GET(req: Request) {
@@ -66,6 +68,7 @@ export async function GET(req: Request) {
         stripePriceId: plans.stripePriceId,
         stripeProductId: plans.stripeProductId,
         currency: plans.currency,
+        priceAmount: plans.priceAmount,
         interval: plans.interval,
         isActive: plans.isActive,
         isPublic: plans.isPublic,
@@ -104,27 +107,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid plan payload." }, { status: 400 });
   }
 
-  try {
-    const stripePrice = await validateStripePriceBinding({
-      priceId: parsed.stripePriceId,
-      currency: parsed.currency,
-      interval: parsed.interval,
-      productId: parsed.stripeProductId,
-      requireActive: parsed.isActive,
-    });
-    // The Stripe Price is the source of truth for the linked Product. Keep
-    // the optional catalog field synchronized without accepting mismatches.
-    if (!parsed.stripeProductId && stripePrice.productId) parsed.stripeProductId = stripePrice.productId;
-  } catch (error) {
-    if (error instanceof StripePriceBindingError) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
-    }
-    return NextResponse.json({ error: "Stripe Price could not be verified.", code: "STRIPE_PRICE_INVALID" }, { status: 400 });
-  }
 
   try {
     await db.transaction(async (tx) => {
-      await lockStripePlanCatalog(tx, parsed.id, parsed.stripePriceId);
+      await lockStripePlanCatalog(tx, parsed.id, parsed.stripePriceId ?? undefined);
       await requirePlatformActorInTransaction(tx, claims);
       const existing = await tx.query.plans.findFirst({ where: eq(plans.id, parsed.id), columns: { id: true } });
       if (existing) throw new Error("PLAN_EXISTS");
@@ -135,9 +121,10 @@ export async function POST(req: Request) {
         description: parsed.description,
         entitlements: parsed.entitlements,
         stripePriceId: parsed.stripePriceId,
-        stripePriceHistory: [parsed.stripePriceId],
+        stripePriceHistory: parsed.stripePriceId ? [parsed.stripePriceId] : [],
         stripeProductId: parsed.stripeProductId,
         currency: parsed.currency,
+        priceAmount: parsed.priceAmount,
         interval: parsed.interval,
         isActive: parsed.isActive,
         isPublic: parsed.isPublic,
@@ -151,7 +138,7 @@ export async function POST(req: Request) {
         action: "plan.created",
         resourceType: "plan",
         resourceId: inserted[0].id,
-        metadata: { name: parsed.name, isActive: parsed.isActive, isPublic: parsed.isPublic, entitlements: parsed.entitlements },
+        metadata: { name: parsed.name, isActive: parsed.isActive, isPublic: parsed.isPublic, entitlements: parsed.entitlements, currency: parsed.currency, priceAmount: parsed.priceAmount },
       }, tx);
     });
 
