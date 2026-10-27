@@ -9,6 +9,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getManagerCookieName, verifyWorkspaceTokenFromCookieValues } from "../../lib/manager-auth";
 import { hasManagerPermission } from "../../lib/authorization";
 import { billingIntervalLabel } from "../../lib/billing-labels";
+import { formatPlanPriceAmount } from "../../lib/plan-pricing";
 import { BillingActions } from "../../components/BillingActions";
 import { AlertTriangle, ArrowRight, CalendarDays, Check, CreditCard, Receipt } from "lucide-react";
 import Link from "next/link";
@@ -128,7 +129,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
   const currentPlan = sub
     ? await db.query.plans.findFirst({
         where: eq(plans.id, sub.planId),
-        columns: { id: true, name: true, description: true, currency: true, interval: true, entitlements: true },
+        columns: { id: true, name: true, description: true, currency: true, priceAmount: true, interval: true, entitlements: true },
       })
     : null;
 
@@ -217,9 +218,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                 {t("billing.manageBilling")}
               </Button>
             )}
-            <Button variant="primary" size="sm" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
-              {hasActivePlan ? t("billing.upgradePlan") : t("billing.viewPlans")}
-            </Button>
+            {!hasActivePlan && <Button variant="primary" size="sm" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
+              {t("billing.viewPlans")}
+            </Button>}
           </>
         }
       />
@@ -272,14 +273,17 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                     <h2 className="mt-2 text-3xl font-[660] tracking-[-0.035em] text-ink">
                       {effectivePlan?.name ?? t("billing.noPlanSelected")}
                     </h2>
+                    {effectivePlan && formatPlanPriceAmount(effectivePlan.priceAmount, effectivePlan.currency, locale) && (
+                      <p className="mt-2 text-xl font-[650] text-ink tabular-nums" dir="auto">{formatPlanPriceAmount(effectivePlan.priceAmount, effectivePlan.currency, locale)} / {intervalLabel(effectivePlan.interval, t)}</p>
+                    )}
                     <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-ink-3">
                       {effectivePlan?.description || status?.message || t("billing.choosePlanToActivate")}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-                    <Button variant="primary" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
-                      {hasActivePlan ? t("billing.upgradePlan") : t("billing.choosePlan")}
-                    </Button>
+                    {!hasActivePlan && <Button variant="primary" href="/pricing" icon={<ArrowRight className="h-4 w-4 rtl:-scale-x-100" />}>
+                      {t("billing.choosePlan")}
+                    </Button>}
                   </div>
                 </div>
 
