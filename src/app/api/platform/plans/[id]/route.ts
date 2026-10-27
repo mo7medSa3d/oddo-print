@@ -7,6 +7,7 @@ import { normalizePlanEntitlements } from "../../../../../lib/entitlements";
 import { validateStripePriceBinding, StripePriceBindingError, lockStripePlanCatalog } from "../../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../../lib/audit";
+import { parsePlanCurrency, parsePlanPriceAmount } from "../../../../../lib/plan-pricing";
 
 function validateId(value: unknown): string {
   const id = typeof value === "string" ? value.trim() : "";
@@ -14,7 +15,7 @@ function validateId(value: unknown): string {
   return id;
 }
 
-type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">> & { stripePriceId?: string };
+type PlanPatch = Partial<Pick<typeof plans.$inferInsert, "name" | "description" | "entitlements" | "stripePriceId" | "stripeProductId" | "priceAmount" | "currency" | "interval" | "isActive" | "isPublic" | "displayOrder">> & { stripePriceId?: string };
 
 function parsePatch(input: unknown): PlanPatch {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid JSON body.");
@@ -34,17 +35,15 @@ function parsePatch(input: unknown): PlanPatch {
     catch (error) { throw new Error(error instanceof Error ? error.message : "Invalid plan entitlements."); }
   }
   if (body.stripePriceId !== undefined) {
-    if (typeof body.stripePriceId !== "string" || !/^price_[A-Za-z0-9_]+$/.test(body.stripePriceId.trim())) throw new Error("A valid Stripe Price ID is required.");
-    result.stripePriceId = body.stripePriceId.trim();
+    if (body.stripePriceId !== null && (typeof body.stripePriceId !== "string" || (body.stripePriceId.trim() && !/^price_[A-Za-z0-9_]+$/.test(body.stripePriceId.trim())))) throw new Error("Invalid Stripe Price ID.");
+    result.stripePriceId = typeof body.stripePriceId === "string" ? body.stripePriceId.trim() || null : null;
   }
   if (body.stripeProductId !== undefined) {
     if (body.stripeProductId !== null && (typeof body.stripeProductId !== "string" || !/^prod_[A-Za-z0-9_]+$/.test(body.stripeProductId.trim()))) throw new Error("Stripe Product ID must look like prod_...");
     result.stripeProductId = typeof body.stripeProductId === "string" ? body.stripeProductId.trim() : null;
   }
-  if (body.currency !== undefined) {
-    if (typeof body.currency !== "string" || !/^[a-z]{3}$/.test(body.currency.trim().toLowerCase())) throw new Error("Currency must be a 3-letter ISO code.");
-    result.currency = body.currency.trim().toLowerCase();
-  }
+  if (body.currency !== undefined) result.currency = parsePlanCurrency(body.currency);
+  if (body.priceAmount !== undefined) result.priceAmount = body.priceAmount === null ? null : parsePlanPriceAmount(body.priceAmount);
   if (body.interval !== undefined) {
     const interval = typeof body.interval === "string" ? body.interval.trim().toLowerCase() : "";
     if (!["day", "week", "month", "year"].includes(interval)) throw new Error("Interval must be day, week, month, or year.");
@@ -107,12 +106,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     currentForValidation = currentRows as Record<string, unknown> | undefined;
     if (!currentForValidation) throw new Error("PLAN_NOT_FOUND");
 
-    const touchesStripeBinding =
-      patch.stripePriceId !== undefined ||
-      patch.stripeProductId !== undefined ||
-      patch.currency !== undefined ||
-      patch.interval !== undefined ||
-      patch.isActive === true;
+    const touchesStripeBinding = patch.stripePriceId !== undefined && !!patch.stripePriceId;
 
     if (touchesStripeBinding) {
       const effectivePriceId = typeof patch.stripePriceId === "string"
@@ -120,7 +114,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
         : typeof currentForValidation.stripePriceId === "string"
           ? currentForValidation.stripePriceId
           : "";
-      if (!effectivePriceId) throw new Error("A Stripe Price is required for a billable plan.");
+      if (!effectivePriceId) throw new Error("Invalid Stripe price.");
 
       const stripePrice = await validateStripePriceBinding({
         priceId: effectivePriceId,
@@ -174,12 +168,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
       if (!current) throw new Error("PLAN_NOT_FOUND");
       await requirePlatformActorInTransaction(tx, claims);
 
-      const touchesStripeBinding =
-        patch.stripePriceId !== undefined ||
-        patch.stripeProductId !== undefined ||
-        patch.currency !== undefined ||
-        patch.interval !== undefined ||
-        patch.isActive === true;
+      const touchesStripeBinding = patch.stripePriceId !== undefined && !!patch.stripePriceId;
       if (touchesStripeBinding && currentForValidation) {
         const guardedFields = ["stripePriceId", "stripeProductId", "currency", "interval", "isActive"];
         for (const field of guardedFields) {
