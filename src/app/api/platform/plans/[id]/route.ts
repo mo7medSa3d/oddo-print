@@ -155,7 +155,7 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
 
   try {
     const result = await db.transaction(async (tx) => {
-      await lockStripePlanCatalog(tx, id, patch.stripePriceId);
+      await lockStripePlanCatalog(tx, id, patch.stripePriceId ?? undefined);
       const currentRows = await tx.execute(sql`
         SELECT id, name, description, entitlements, stripe_price_id AS "stripePriceId", stripe_price_history AS "stripePriceHistory",
                stripe_product_id AS "stripeProductId", currency, interval,
