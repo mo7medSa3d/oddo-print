@@ -253,7 +253,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
             </Callout>
           )}
 
-          {selectedPlan && selectedPlan.id !== effectivePlan?.id && (
+          {!hasActivePlan && selectedPlan && selectedPlan.id !== effectivePlan?.id && (
             <BillingActions
               hasSubscription={hasActivePlan && hasStripeSubscription}
               cancelAtPeriodEnd={!!sub?.cancelAtPeriodEnd}
@@ -312,12 +312,11 @@ export default async function BillingPage({ searchParams }: { searchParams: Sear
                     <h3 className="text-md font-[600] tracking-[-0.015em] text-ink">
                       {t("billing.whatThisPlanCovers")}
                     </h3>
-                    <Link
-                      href="/pricing"
-                      className="inline-flex items-center gap-1.5 text-sm font-[550] text-brand transition-colors hover:text-brand-hover"
-                    >
-                      {t("billing.comparePlans")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
-                    </Link>
+                    {!hasActivePlan && (
+                      <Link href="/pricing" className="inline-flex items-center gap-1.5 text-sm font-[550] text-brand transition-colors hover:text-brand-hover">
+                        {t("billing.comparePlans")} <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden />
+                      </Link>
+                    )}
                   </div>
 
                   {entitlements.length > 0 ? (
