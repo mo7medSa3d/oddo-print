@@ -444,7 +444,7 @@ function PlanEditor({ initial, isNew, onClose, onSave }: { initial: ReturnType<t
     setLocalError(null);
     if (isNew && !form.id.trim()) return setLocalError(t("platform.plans.validation.planId"));
     if (!form.name.trim()) return setLocalError(t("platform.plans.validation.name"));
-    if (!/^(0|[1-9][0-9]{0,9})(\\.[0-9]{1,2})?$/.test(form.priceAmount)) return setLocalError(t("platform.plans.validation.priceAmount"));
+    if (!/^(0|[1-9][0-9]{0,9})(\.[0-9]{1,2})?$/.test(form.priceAmount)) return setLocalError(t("platform.plans.validation.priceAmount"));
     for (const key of Object.keys(ENTITLEMENT_LABEL_KEYS) as EntitlementKey[]) { const v = form.entitlements[key]; if (v !== "unlimited" && (!Number.isSafeInteger(v) || v <= 0)) return setLocalError(t("platform.plans.validation.entitlement", { label: entitlementLabel(key) })); }
     setSaving(true);
     try { await onSave(form, isNew); } catch (err) { setLocalError(err instanceof Error ? err.message : t("platform.plans.saveFailed")); } finally { setSaving(false); }
