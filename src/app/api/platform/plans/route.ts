@@ -5,7 +5,7 @@ import { plans, tenantSubscriptions } from "../../../../db/schema";
 import { asc, eq, sql } from "drizzle-orm";
 import { requirePlatformOwner, PlatformUnauthorizedError, requirePlatformActorInTransaction, PlatformMutationAuthorityChangedError } from "../../../../lib/platform-auth";
 import { normalizePlanEntitlements } from "../../../../lib/entitlements";
-import { validateStripePriceBinding, StripePriceBindingError, lockStripePlanCatalog } from "../../../../lib/stripe";
+import { lockStripePlanCatalog } from "../../../../lib/stripe";
 import { hasBodyOverLimit } from "../../../../lib/request-limits";
 import { writeAuditEvent } from "../../../../lib/audit";
 import { parsePlanPriceAmount, parsePlanCurrency } from "../../../../lib/plan-pricing";
