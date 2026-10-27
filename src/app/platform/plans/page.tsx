@@ -71,7 +71,7 @@ const ENTITLEMENT_LABEL_KEYS: Record<EntitlementKey, MessageKey> = {
 };
 
 function emptyForm() {
-  return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", priceAmount: "0.00", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
+  return { id: "", name: "", description: "", stripePriceId: "", stripeProductId: "", currency: "usd", priceAmount: "", interval: "month", displayOrder: 0, isActive: true, isPublic: true, entitlements: { ...EMPTY_ENTITLEMENTS } };
 }
 
 export default function PlatformPlansPage() {
@@ -390,7 +390,7 @@ export default function PlatformPlansPage() {
       </Card>
 
       {(creating || editing) && (
-        <PlanEditor initial={editing ? { id: editing.id, name: editing.name, description: editing.description, stripePriceId: editing.stripePriceId || "", stripeProductId: editing.stripeProductId || "", currency: editing.currency || "usd", priceAmount: editing.priceAmount ?? "0.00", interval: editing.interval || "month", displayOrder: editing.displayOrder, isActive: editing.isActive, isPublic: editing.isPublic, entitlements: editing.entitlements } : emptyForm()} isNew={creating} onClose={closeEditor} onSave={save} />
+        <PlanEditor initial={editing ? { id: editing.id, name: editing.name, description: editing.description, stripePriceId: editing.stripePriceId || "", stripeProductId: editing.stripeProductId || "", currency: editing.currency || "usd", priceAmount: editing.priceAmount ?? "", interval: editing.interval || "month", displayOrder: editing.displayOrder, isActive: editing.isActive, isPublic: editing.isPublic, entitlements: editing.entitlements } : emptyForm()} isNew={creating} onClose={closeEditor} onSave={save} />
       )}
 
       <ConfirmDialog
