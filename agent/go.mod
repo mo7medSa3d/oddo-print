@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/gosnmp/gosnmp v1.44.0
+	github.com/gosnmp/gosnmp v1.47.0
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/kardianos/service v1.3.0
 	github.com/klippa-app/go-pdfium v1.21.1
