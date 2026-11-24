@@ -1253,7 +1253,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Unavailability of the API degrades to the polling behaviour below.
 	a.launchTracked(func() { a.watchSpoolerChanges(ctx) })
 	a.launchTracked(func() { a.runOdooWebSocket(ctx) })
-	a.launchTracked(func() { _ = printer.WarmPDFium(ctx) })
+	go func() { _ = printer.WarmPDFium(ctx) }()
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	// 1s base tick: poll every 1s when WebSocket push is disconnected, or every
