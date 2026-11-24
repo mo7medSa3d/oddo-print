@@ -29,7 +29,9 @@ func TestTerminalOutboxRejectedPrefixCannotStarveLaterOutcome(t *testing.T) {
 			beforeCursorAcknowledged = true
 		} else if report.ID != "zz-later-success" {
 			staleAttempts++
-			http.Error(w, "original claim no longer reconcilable", http.StatusConflict)
+			// A transient rejection keeps the original claim in the outbox;
+			// a 409 would authoritatively settle it and drop the token.
+			http.Error(w, "temporary status admission failure", http.StatusServiceUnavailable)
 			return
 		}
 		acknowledged = true

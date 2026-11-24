@@ -44,10 +44,18 @@ func TestQuickDiscoveryMustFenceTwoDistinctSpoolerQueuesWithSameLegacyID(t *test
 	}}}
 	for i := 0; i < 10; i++ {
 		result := DiscoverQuick(cfg, path)
-		if len(result.Printers) != 1 {
-			t.Fatalf("one quarantined identity expected, not an arbitrarily selected queue: %+v", result.Printers)
+		// On a real Windows runner the live spooler also reports the host's
+		// own queues. Only the two colliding fixture queues matter here.
+		var fixtureRows []DeviceInfo
+		for _, row := range result.Printers {
+			if row.ID == legacyID {
+				fixtureRows = append(fixtureRows, row)
+			}
 		}
-		ambiguous := result.Printers[0]
+		if len(fixtureRows) != 1 {
+			t.Fatalf("one quarantined identity expected, not an arbitrarily selected queue: %+v", fixtureRows)
+		}
+		ambiguous := fixtureRows[0]
 		if got := ambiguous.Capabilities["identity_collision"]; got != "same_id_different_queue" {
 			t.Fatalf("discovery silently merged different native queues into an executable ID: %+v", ambiguous)
 		}

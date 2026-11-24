@@ -29,7 +29,7 @@ func (p *statusDetailPrinter) StatusDetail() string { return "paused" }
 // The enums below are copied from src/lib/printer-model.ts; if the Gateway's
 // vocabulary changes, this test must change with it.
 func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
-	gatewayPrinterTypes := map[string]bool{"physical": true}
+	gatewayPrinterTypes := map[string]bool{"physical": true, "virtual": true}
 	gatewayDeviceClasses := map[string]bool{
 		"thermal": true, "laser": true, "inkjet": true, "label": true, "other": true, "unknown": true,
 	}
@@ -67,8 +67,10 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 	}
 
 	payload := ag.printerStatusPayload()
-	if len(payload) != len(declared)-3 {
-		t.Fatalf("expected %d physical entries, got %d", len(declared)-3, len(payload))
+	// Redirected queues are withheld; usable virtual printers are published
+	// with printerType=virtual and isVirtual=true so Odoo can register them.
+	if len(payload) != len(declared)-1 {
+		t.Fatalf("expected %d published entries, got %d", len(declared)-1, len(payload))
 	}
 
 	byID := make(map[string]map[string]interface{}, len(payload))
@@ -79,11 +81,19 @@ func TestHeartbeatPrinterStatusEmitsGatewayClassEnums(t *testing.T) {
 
 	for i, pt := range declared {
 		entry := byID[ids[i]]
-		if i == 1 || i == 2 || i == 11 {
+		if i == 2 {
 			if entry != nil {
-				t.Errorf("virtual/redirected %q leaked into heartbeat", pt)
+				t.Errorf("redirected %q leaked into heartbeat", pt)
 			}
 			continue
+		}
+		if i == 1 || i == 11 {
+			if entry == nil {
+				t.Fatalf("virtual %q missing from heartbeat", pt)
+			}
+			if entry["isVirtual"] != true || entry["printerType"] != "virtual" {
+				t.Errorf("virtual %q emitted isVirtual=%v printerType=%v", pt, entry["isVirtual"], entry["printerType"])
+			}
 		}
 		if entry == nil {
 			t.Fatalf("printer_type=%q: entry %q missing from payload", pt, ids[i])

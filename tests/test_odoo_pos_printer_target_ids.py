@@ -68,6 +68,9 @@ def fixture():
         env=env,
     )
     self._gateway_active_company = MethodType(production_method("_gateway_active_company"), self)
+    # The selected printer must be checked against the real POS preparation
+    # inventory before any Gateway print route is accepted.
+    self._preparation_printers = MethodType(production_method("_preparation_printers"), self)
     return self, selected, called
 
 

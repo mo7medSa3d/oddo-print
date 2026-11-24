@@ -32,7 +32,15 @@ func TestQuickDiscoveryQuarantinesContradictoryTCPPrintLanguages(t *testing.T) {
 				Protocol: pair[1], Endpoint: prior.Endpoint, PrinterType: "physical",
 			}}}
 			for i := 0; i < 8; i++ {
-				rows := DiscoverQuick(cfg, path).Printers
+				all := DiscoverQuick(cfg, path).Printers
+				// A Windows CI host contributes its own spooler queues; only
+				// the logical endpoint under test is in scope.
+				var rows []DeviceInfo
+				for _, row := range all {
+					if row.ID == prior.ID {
+						rows = append(rows, row)
+					}
+				}
 				if len(rows) != 1 {
 					t.Fatalf("duplicate or missing logical network endpoint: %+v", rows)
 				}
