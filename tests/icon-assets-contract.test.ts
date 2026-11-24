@@ -7,7 +7,7 @@ const read = (file: string) => readFileSync(join(root, file), "utf8");
 
 describe("Yaseir icon asset contract", () => {
   it("uses an Odoo module-root icon path", () => {
-    const manifest = read("odoo_addons/print_gateway/__manifest__.py");
+    const manifest = read("odoo_addons19/print_gateway/__manifest__.py");
     expect(manifest).toContain("'icon': '/print_gateway/static/description/icon.png'");
     expect(manifest).not.toContain("'icon': 'static/description/icon.png'");
   });
@@ -25,7 +25,7 @@ describe("Yaseir icon asset contract", () => {
     expect(desktopIcon.equals(agentMark)).toBe(true);
     // The Odoo addon fronts the Gateway, so its PNG keeps the Gateway
     // mark and must NOT be the Agent PNG.
-    const odoo = readFileSync(join(root, "odoo_addons/print_gateway/static/description/icon.png"));
+    const odoo = readFileSync(join(root, "odoo_addons19/print_gateway/static/description/icon.png"));
     const agentPng = readFileSync(join(root, "src-tauri/icons/icon.png"));
     expect(odoo.equals(agentPng)).toBe(false);
   });

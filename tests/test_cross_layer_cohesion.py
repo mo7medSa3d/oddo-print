@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 LICENSE_SIGNER_TS = ROOT / "src" / "lib" / "license-signer.ts"
-PRINT_CONFIG_PY = ROOT / "odoo_addons" / "print_gateway" / "models" / "print_config.py"
+PRINT_CONFIG_PY = ROOT / "odoo_addons19" / "print_gateway" / "models" / "print_config.py"
 AGENT_LICENSE_GO = ROOT / "agent" / "internal" / "license" / "license.go"
 AGENT_GUARD_GO = ROOT / "agent" / "internal" / "license" / "guard.go"
 
@@ -25,11 +25,11 @@ AGENT_GO = ROOT / "agent" / "internal" / "agent" / "agent.go"
 PAIRING_GO = ROOT / "agent" / "internal" / "agent" / "pairing.go"
 WS_CLIENT_GO = ROOT / "agent" / "internal" / "agent" / "ws_client.go"
 
-AGENT_API_PY = ROOT / "odoo_addons" / "print_gateway" / "controllers" / "agent_api.py"
-AGENT_WS_PY = ROOT / "odoo_addons" / "print_gateway" / "controllers" / "agent_ws.py"
-RUNTIME_PRINTERS_PY = ROOT / "odoo_addons" / "print_gateway" / "controllers" / "runtime_printers.py"
-PRINTER_MODEL_PY = ROOT / "odoo_addons" / "print_gateway" / "models" / "printer.py"
-PRINT_JOB_PY = ROOT / "odoo_addons" / "print_gateway" / "models" / "print_job.py"
+AGENT_API_PY = ROOT / "odoo_addons19" / "print_gateway" / "controllers" / "agent_api.py"
+AGENT_WS_PY = ROOT / "odoo_addons19" / "print_gateway" / "controllers" / "agent_ws.py"
+RUNTIME_PRINTERS_PY = ROOT / "odoo_addons19" / "print_gateway" / "controllers" / "runtime_printers.py"
+PRINTER_MODEL_PY = ROOT / "odoo_addons19" / "print_gateway" / "models" / "printer.py"
+PRINT_JOB_PY = ROOT / "odoo_addons19" / "print_gateway" / "models" / "print_job.py"
 
 DESKTOP_TYPES_TS = ROOT / "src" / "desktop" / "types.ts"
 DESKTOP_IPC_TS = ROOT / "src" / "desktop" / "lib" / "ipc.ts"

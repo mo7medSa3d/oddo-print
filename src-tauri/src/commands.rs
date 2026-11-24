@@ -1222,6 +1222,30 @@ fn decode_printer_visibility_reply(
     Ok(reply)
 }
 
+/// Build the agent CLI invocation for toggling local printer visibility.
+/// Includes `--allow-virtual` so printable virtual queues (e.g. Microsoft Print to PDF)
+/// can be shared from the UI while the Go agent still blocks fax/blackhole/redirected queues.
+fn build_printer_visibility_command(
+    cli: &std::path::Path,
+    config: &std::path::Path,
+    root: &std::path::Path,
+    raw_id: &str,
+    available_to_odoo: bool,
+) -> Result<(String, std::process::Command), String> {
+    let id = validate_local_printer_id(raw_id)?;
+    let mut cmd = std::process::Command::new(cli);
+    cmd.arg("printers-share")
+        .arg("--id")
+        .arg(&id)
+        .arg("--shared")
+        .arg(if available_to_odoo { "true" } else { "false" })
+        .arg("--allow-virtual")
+        .arg("-config")
+        .arg(config)
+        .env("YASEIR_AGENT_DATA_DIR", root);
+    Ok((id, cmd))
+}
+
 #[tauri::command]
 pub async fn set_printer_visibility(
     app: tauri::AppHandle,
@@ -1231,17 +1255,15 @@ pub async fn set_printer_visibility(
     if !is_running_as_admin() {
         return Err("Administrator privileges are required to change local printer sharing".into());
     }
-    let id = validate_local_printer_id(&printer_id)?;
+    let cli = agent::cli_path(&app)?;
+    let (id, cmd) = build_printer_visibility_command(
+        &cli,
+        &paths::agent_config_path(),
+        &paths::agent_data_root(),
+        &printer_id,
+        available_to_odoo,
+    )?;
     run_blocking(move || {
-        let mut cmd = Command::new(agent::cli_path(&app)?);
-        cmd.arg("printers-share")
-            .arg("--id")
-            .arg(&id)
-            .arg("--shared")
-            .arg(if available_to_odoo { "true" } else { "false" })
-            .arg("-config")
-            .arg(paths::agent_config_path())
-            .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
         // Go JSON can escape each byte of the validated256-byte ID sixfold.
         let output =
             agent::run_bounded_command(cmd, std::time::Duration::from_secs(15), 2048, 8192)?;

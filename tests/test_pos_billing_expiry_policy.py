@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "odoo_addons/print_gateway/pos_retry_policy.py"
+MODULE = ROOT / "odoo_addons19/print_gateway/pos_retry_policy.py"
 spec = spec_from_file_location("pos_retry_policy", MODULE)
 module = module_from_spec(spec)
 spec.loader.exec_module(module)

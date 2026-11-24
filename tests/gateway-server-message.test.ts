@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error - addon JS has no type declarations; @web/* resolves to the shared mock module.
-import { gatewayDiagnosticMessage as gatewayServerMessage } from "../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog";
+import { gatewayDiagnosticMessage as gatewayServerMessage } from "../odoo_addons19/print_gateway/static/src/js/gateway_limit_dialog";
 
 /**
  * Diagnostic extraction must retain the server-side evidence. V4 customer

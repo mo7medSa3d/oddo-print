@@ -24,7 +24,7 @@ export default defineConfig([
   // Next's original Core Web Vitals config is global, including CommonJS.
   nextPlugin.configs["core-web-vitals"],
   {
-    files: ["odoo_addons/**/*.js", "odoo_addons_20/**/*.js"],
+    files: ["odoo_addons19/**/*.js", "odoo_addons_20/**/*.js"],
     languageOptions: {
       globals: Object.fromEntries([
         "window", "document", "console", "crypto", "luxon", "XMLHttpRequest",
@@ -46,5 +46,5 @@ export default defineConfig([
       "react-hooks/exhaustive-deps": "off",
     },
   },
-  globalIgnores([".audit/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "dist-desktop/**", "src-tauri/**"]),
+  globalIgnores([".audit/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "dist-desktop/**", "src-tauri/**", "odoo_addons19/native_print/**", "odoo_addons_20/native_print/**"]),
 ]);

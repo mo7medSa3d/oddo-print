@@ -266,12 +266,12 @@ class TestE2EOverhaulVerification(unittest.TestCase):
         self.assertEqual(epson_thermal.recommended_protocol, "escpos")
 
         # Verify agent_api heartbeat source accepts virtual printers and persists them
-        agent_api_src = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+        agent_api_src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
         self.assertIn("is_virtual", agent_api_src)
         self.assertIn("Microsoft Print to PDF", (ROOT / "agent/internal/printer/classify.go").read_text(encoding="utf-8"))
 
         # Verify print_router allows dispatching PDF jobs to virtual printers without rejecting them
-        router_src = (ROOT / "odoo_addons/print_gateway/models/print_router.py").read_text(encoding="utf-8")
+        router_src = (ROOT / "odoo_addons19/print_gateway/models/print_router.py").read_text(encoding="utf-8")
         self.assertNotIn("virtual printers are not supported", router_src.lower())
 
     def test_04_pos_fault_tolerance_python_and_js(self):

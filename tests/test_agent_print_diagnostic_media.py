@@ -16,7 +16,7 @@ from odoo_geometry_fixture import normalize_receipt_paper_width_mm
 from test_f010_report_binding_identity import ValidationError, production_methods
 
 
-ROOT = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway"
+ROOT = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway"
 RouterProduction = production_methods("print_router.py", [
     "_generate_test_pdf", "_route_spooler_test_page", "_route_ipp_test_page",
     "_diagnostic_paper_width_for_binding",

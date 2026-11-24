@@ -93,7 +93,7 @@ COPY --from=profile-build /wheels /wheels
 COPY --from=profile-build /opt/odoo /opt/odoo
 COPY --from=profile-build /os-security /os-security
 COPY docs/runtime-hardening /opt/yaseir-runtime-profile
-COPY odoo_addons/print_gateway /opt/yaseir-addons/print_gateway
+COPY odoo_addons19/print_gateway /opt/yaseir-addons/print_gateway
 COPY scripts/odoo-hardened-entrypoint.py /usr/local/bin/yaseir-odoo-entrypoint.py
 COPY scripts/odoo-healthcheck.py /usr/local/bin/yaseir-odoo-healthcheck.py
 COPY scripts/apply-perl-podlators-security-fix.py /usr/local/bin/yaseir-apply-perl-podlators-security-fix.py

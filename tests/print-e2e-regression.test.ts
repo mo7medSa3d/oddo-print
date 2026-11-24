@@ -57,8 +57,8 @@ describe("print end-to-end regressions", () => {
   });
 
   it("F/G/K: Odoo exact binding test uses binding document type and validates identity before capability", () => {
-    const router = fs.readFileSync("odoo_addons/print_gateway/models/print_router.py", "utf8");
-    const binding = fs.readFileSync("odoo_addons/print_gateway/models/binding.py", "utf8");
+    const router = fs.readFileSync("odoo_addons19/print_gateway/models/print_router.py", "utf8");
+    const binding = fs.readFileSync("odoo_addons19/print_gateway/models/binding.py", "utf8");
     const testBlock = router.slice(router.indexOf("def route_test_page"), router.indexOf("def _generate_test_pdf"));
     expect(testBlock).toContain("document_type=binding.document_type");
     expect(testBlock).not.toContain('job_document_type="test_page"');

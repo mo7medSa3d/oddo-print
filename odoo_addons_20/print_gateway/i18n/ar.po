@@ -1902,9 +1902,13 @@ msgstr "نشاط الطباعة"
 #. module: print_gateway
 #. odoo-javascript
 #: code:addons/print_gateway/static/src/components/runtime_agent_field.js:0 model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__agent_id model:ir.model.fields,field_description:print_gateway.field_print_gateway_runtime_agent_assignment__agent_id model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_form model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_binding_list model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_runtime_assignment_form model_terms:ir.ui.view,arch_db:print_gateway.view_print_gateway_runtime_assignment_list
-#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__runtime_agent_id
 msgid "Print Agent"
 msgstr "Agent طباعة"
+
+#. module: print_gateway
+#: model:ir.model.fields,field_description:print_gateway.field_print_gateway_binding__runtime_agent_id
+msgid "Print Agent UID"
+msgstr "معرّف Agent الطباعة"
 
 #. module: print_gateway
 #. odoo-python

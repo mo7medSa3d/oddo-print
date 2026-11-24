@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { webcrypto } from 'node:crypto';
 const root = resolve(import.meta.dirname || dirname(new URL(import.meta.url).pathname), '..');
-const addon = resolve(root, 'odoo_addons/print_gateway/static/src/js');
+const addon = resolve(root, 'odoo_addons19/print_gateway/static/src/js');
 
 async function harness() {
   const seen = { submissions: [], notifications: [], reports: new Map() };

@@ -21,6 +21,12 @@ var pdfiumWarmupState struct {
 // module's compilation. There is at most one startup worker using the existing
 // one-instance pool. Canceling a probe neither cancels nor poisons that shared
 // initialization; no file or printer output is produced by warmup.
+// WarmPDFium pre-compiles and initializes the embedded PDFium WASM runtime
+// in the background so the first user PDF print does not pay cold-start cost.
+func WarmPDFium(ctx context.Context) error {
+	return awaitPDFiumWarmup(ctx)
+}
+
 func awaitPDFiumWarmup(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

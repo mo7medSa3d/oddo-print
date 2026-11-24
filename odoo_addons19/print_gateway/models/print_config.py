@@ -20,7 +20,7 @@ _logger = logging.getLogger(__name__)
 
 # Optional build-time pinned Ed25519 public key (base64/PEM). When set, it takes
 # precedence over ir.config_parameter 'print_gateway.license_public_key_b64'.
-PINNED_LICENSE_PUBLIC_KEY_B64 = "V7Rf2YzctJpIe65VtCwvxWYe0IS57txYbGEhCHmAwa0="
+PINNED_LICENSE_PUBLIC_KEY_B64 = "MCowBQYDK2VwAyEAcVmjYaYXtVajIOD5+a23bDBQgwcOtUNUDCDR9g7uLzU="  # local staging key
 
 
 def _resolve_license_public_key(icp):

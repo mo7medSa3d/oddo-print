@@ -24,7 +24,7 @@ import { resolve } from "node:path";
 import { htmlToCanvas, renderToElement, toCanvas } from "./__mocks__/odoo";
 // @ts-expect-error - the JS module under test has no type declarations; its Odoo
 // dependencies resolve to the shared mock module via vitest aliases.
-import { renderReceiptImage } from "../odoo_addons/print_gateway/static/src/js/pos_print_router";
+import { renderReceiptImage } from "../odoo_addons19/print_gateway/static/src/js/pos_print_router";
 
 function geometry(dots = 576) {
   return { version: 1, source: "validated_profile", validation: "configured",
@@ -224,20 +224,20 @@ describe("renderReceiptImage — POS receipt font 404 resilience", () => {
 
 describe("renderReceiptImage — no-fonts static contract", () => {
   const source = readFileSync(
-    resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/pos_print_router.js"),
+    resolve(process.cwd(), "odoo_addons19/print_gateway/static/src/js/pos_print_router.js"),
     "utf8",
   );
 
   it("rasterizes through the vendored build with web-font embedding disabled", () => {
     // Odoo's render_service.htmlToCanvas drops every option except addClass,
     // so skipFonts must reach html-to-image via a direct call.
-    const helper = readFileSync(resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/receipt_raster.js"), "utf8");
+    const helper = readFileSync(resolve(process.cwd(), "odoo_addons19/print_gateway/static/src/js/receipt_raster.js"), "utf8");
     expect(source).toContain('from "./receipt_raster"');
     expect(helper).toContain('from "@point_of_sale/app/utils/html-to-image"');
     expect(helper).toContain("skipFonts: true");
     expect(helper).toContain("renderer.whenMounted");
     expect(helper).toContain("node.scrollWidth");
-    const css = readFileSync(resolve(process.cwd(), "odoo_addons/print_gateway/static/src/css/receipt_raster.css"), "utf8");
+    const css = readFileSync(resolve(process.cwd(), "odoo_addons19/print_gateway/static/src/css/receipt_raster.css"), "utf8");
     expect(css).toContain(".pos-receipt-amount");
     expect(css).toContain(".pos-receipt-qr");
     expect(css).toContain("flex-wrap: nowrap");
@@ -245,7 +245,7 @@ describe("renderReceiptImage — no-fonts static contract", () => {
 
   it("never caches POS receipt geometry by POS config across different printers", () => {
     const source = readFileSync(
-      resolve(process.cwd(), "odoo_addons/print_gateway/static/src/js/pos_print_router.js"),
+      resolve(process.cwd(), "odoo_addons19/print_gateway/static/src/js/pos_print_router.js"),
       "utf8",
     );
     const start = source.indexOf("async function gatewayReceiptGeometry(");

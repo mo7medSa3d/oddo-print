@@ -3,7 +3,21 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+
+function findBash() {
+  if (process.platform === "win32") {
+    for (const envVar of ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)", "LocalAppData"]) {
+      const base = process.env[envVar];
+      if (!base) continue;
+      for (const rel of ["Git\\bin\\bash.exe", "Git\\usr\\bin\\bash.exe", "Programs\\Git\\bin\\bash.exe"]) {
+        const candidate = join(base, rel);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  return "bash";
+}
 
 const script = "scripts/ci-postgres.sh";
 const digest = "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea";
@@ -43,12 +57,12 @@ exit 0
 `);
   chmodSync(dockerPath, 0o755);
   try {
-    const result = spawnSync("bash", [script, "start"], {
+    const result = spawnSync(findBash(), [script, "start"], {
       encoding: "utf8", timeout: 15_000,
       env: {
         ...process.env,
         BASH_ENV: "",
-        PATH: dir + ":" + process.env.PATH,
+        PATH: dir + delimiter + (process.env.PATH ?? ""),
         CI_PG_USER: "postgres",
         CI_PG_PASSWORD: "postgres",
         CI_PG_DATABASE: "app_db",

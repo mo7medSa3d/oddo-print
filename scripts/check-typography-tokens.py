@@ -4,7 +4,7 @@
 One definition, three consumers:
 
   typography/tokens.css                                     (canonical)
-  odoo_addons/print_gateway/static/src/css/typography_tokens.css   (Odoo copy)
+  odoo_addons19/print_gateway/static/src/css/typography_tokens.css   (Odoo copy)
 
 The Odoo add-on is installed as a standalone module, so it cannot import a
 file from outside the module. It therefore ships a copy, and this check makes
@@ -25,8 +25,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 CANONICAL_TOKENS = ROOT / "typography" / "tokens.css"
-ODOO_TOKENS = ROOT / "odoo_addons" / "print_gateway" / "static" / "src" / "css" / "typography_tokens.css"
-ODOO_FONTS_DIR = ROOT / "odoo_addons" / "print_gateway" / "static" / "fonts"
+ODOO_TOKENS = ROOT / "odoo_addons19" / "print_gateway" / "static" / "src" / "css" / "typography_tokens.css"
+ODOO_FONTS_DIR = ROOT / "odoo_addons19" / "print_gateway" / "static" / "fonts"
 WEB_FONTS_DIR = ROOT / "src" / "app" / "fonts"
 
 FONT_FILES = (

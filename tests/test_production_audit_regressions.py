@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "odoo_addons" / "print_gateway"
+ADDON = ROOT / "odoo_addons19" / "print_gateway"
 
 class ValidationError(Exception):
     pass

@@ -123,6 +123,14 @@ func TestRGBAConversionCompositesTransparency(t *testing.T) {
 	if img.Pix[4] != 0 || img.Pix[5] != 255 || img.Pix[6] != 0 || img.Pix[7] != 0 {
 		t.Fatalf("unexpected opaque conversion: %v", img.Pix[4:8])
 	}
+	// Fully transparent pixel composites to pure white in BGRA.
+	img2 := &image.RGBA{Pix: []byte{12, 34, 56, 0}, Stride: 4, Rect: image.Rect(0, 0, 1, 1)}
+	if err := rgbaToBGRAInPlace(img2); err != nil {
+		t.Fatalf("rgbaToBGRAInPlace transparent: %v", err)
+	}
+	if img2.Pix[0] != 255 || img2.Pix[1] != 255 || img2.Pix[2] != 255 || img2.Pix[3] != 0 {
+		t.Fatalf("unexpected fully transparent conversion: %v", img2.Pix[:4])
+	}
 }
 
 func TestRGBAConversionRejectsTruncatedOrPaddedBitmap(t *testing.T) {

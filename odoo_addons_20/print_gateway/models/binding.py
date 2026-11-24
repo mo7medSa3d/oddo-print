@@ -112,7 +112,7 @@ class PrintGatewayBinding(models.Model):
         domain="[('company_id', '=', company_id), ('active', '=', True)]",
     )
     runtime_agent_id = fields.Char(
-        string="Print Agent",
+        string="Print Agent UID",
         related="agent_id.agent_uid",
         readonly=True,
         store=False,
@@ -133,7 +133,6 @@ class PrintGatewayBinding(models.Model):
     )
     destination_pos_printer_id = fields.Many2one(
         "pos.printer", string="Odoo Preparation Printer", ondelete="restrict",
-        domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]",
         help="Native Odoo preparation-printer identity. Its product categories determine which kitchen lines this Direct Odoo binding receives.",
     )
     destination_picking_type_id = fields.Many2one(

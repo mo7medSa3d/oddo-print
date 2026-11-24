@@ -132,7 +132,7 @@ else
           agent/go.mod|agent/go.sum) mark codeql_go supply ;;
         esac
         ;;
-      odoo_addons/*)
+      odoo_addons19/*)
         mark app odoo
         case "$file" in
           *.py) mark codeql_py ;;

@@ -95,6 +95,37 @@ fn local_test_print_preserves_exact_printer_identity_in_cli_args() {
 }
 
 #[test]
+fn printer_visibility_preserves_identity_and_allows_printable_virtual_queues() {
+    let executable = std::path::Path::new("fake-agent");
+    let config = std::path::Path::new("agent.yaml");
+    let root = std::path::Path::new("agent-data");
+    assert!(
+        super::build_printer_visibility_command(executable, config, root, "-config", true).is_err()
+    );
+    let id = "Microsoft Print to PDF";
+    let (validated, command) =
+        super::build_printer_visibility_command(executable, config, root, id, true).unwrap();
+    assert_eq!(validated, id);
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        vec![
+            "printers-share".to_string(),
+            "--id".to_string(),
+            id.to_string(),
+            "--shared".to_string(),
+            "true".to_string(),
+            "--allow-virtual".to_string(),
+            "-config".to_string(),
+            "agent.yaml".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn discovery_uses_current_cli_result_and_preserves_legacy_empty_output() {
     let printers = parse_discovery_stdout(r#"[{"id":"fresh-scan","name":"Office","status":"unknown","enabled":true,"connectionType":"spooler","protocol":"spooler","capabilities":{"driver_name":"Microsoft enhanced point and print compatibility driver"}}]"#).unwrap();
     assert_eq!(printers.len(), 1);

@@ -42,7 +42,7 @@ from collections import Counter
 import sys
 from pathlib import Path
 
-ADDON = Path(__file__).resolve().parent.parent / "odoo_addons" / "print_gateway"
+ADDON = Path(__file__).resolve().parent.parent / "odoo_addons19" / "print_gateway"
 CATALOG = ADDON / "i18n" / "ar.po"
 
 # Attributes Odoo exports from views as translatable terms.

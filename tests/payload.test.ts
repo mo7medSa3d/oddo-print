@@ -15,7 +15,7 @@ describe("payload", () => {
     }
     expect(go).not.toContain('"jpeg"');
     expect(go).not.toContain('"raster_jpeg"');
-    const odoo = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    const odoo = readFileSync("odoo_addons19/print_gateway/models/print_job.py", "utf8");
     const mapBlock = odoo.slice(odoo.indexOf("_PAYLOAD_TYPE_MAP = {"), odoo.indexOf("}", odoo.indexOf("_PAYLOAD_TYPE_MAP = {")));
     // The map KEYS must be exactly the four wire types (values are the
     // internal payload_type column names, which legitimately differ).

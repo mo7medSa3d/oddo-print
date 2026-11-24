@@ -42,17 +42,17 @@ async function loadHooks(file = "pos_print_router.js") {
   ], function () {
     this.setExport("renderGatewayReceiptJpeg", async () => "VALIDJPEG");
   }, { context });
-  const asyncSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/async_control.js", import.meta.url), "utf8");
+  const asyncSource = await readFile(new URL("../odoo_addons19/print_gateway/static/src/js/async_control.js", import.meta.url), "utf8");
   const asyncControl = new vm.SourceTextModule(asyncSource, { context });
   await asyncControl.link(() => { throw new Error("async_control has no external imports"); });
   await asyncControl.evaluate();
-  const limitSource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog.js", import.meta.url), "utf8");
+  const limitSource = await readFile(new URL("../odoo_addons19/print_gateway/static/src/js/gateway_limit_dialog.js", import.meta.url), "utf8");
   const limits = new vm.SourceTextModule(limitSource, { context });
   await limits.link(() => common);
-  const recoverySource = await readFile(new URL("../odoo_addons/print_gateway/static/src/js/operation_recovery.js", import.meta.url), "utf8");
+  const recoverySource = await readFile(new URL("../odoo_addons19/print_gateway/static/src/js/operation_recovery.js", import.meta.url), "utf8");
   const recovery = new vm.SourceTextModule(recoverySource, { context });
   await recovery.link((name) => { assert.equal(name, "@web/core/l10n/translation"); return common; });
-  const source = await readFile(new URL(`../odoo_addons/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
+  const source = await readFile(new URL(`../odoo_addons19/print_gateway/static/src/js/${file}`, import.meta.url), "utf8");
   const loadedModule = new vm.SourceTextModule(source, { context });
   await loadedModule.link((name) => name === "./gateway_limit_dialog" ? limits : name === "./async_control" ? asyncControl : name === "./receipt_raster" ? raster : name === "./operation_recovery" ? recovery : common);
   await loadedModule.evaluate();

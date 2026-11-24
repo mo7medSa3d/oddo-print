@@ -212,15 +212,24 @@ func rgbaToBGRAInPlace(src *image.RGBA) error {
 	if src.Stride != width*4 || len(src.Pix) != width*height*4 {
 		return fmt.Errorf("PDFium returned unsupported bitmap layout: stride %d, %d bytes for %dx%d", src.Stride, len(src.Pix), width, height)
 	}
-	for i := 0; i < len(src.Pix); i += 4 {
-		r, g, b, a := src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3]
-		if a != 255 {
-			inv := uint32(255 - a)
-			r = uint8((uint32(r)*uint32(a) + 255*inv) / 255)
-			g = uint8((uint32(g)*uint32(a) + 255*inv) / 255)
-			b = uint8((uint32(b)*uint32(a) + 255*inv) / 255)
+	pix := src.Pix
+	_ = pix[len(pix)-1]
+	for i := 0; i < len(pix); i += 4 {
+		p := pix[i : i+4 : i+4]
+		a := p[3]
+		if a == 255 {
+			p[0], p[2], p[3] = p[2], p[0], 0
+			continue
 		}
-		src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = b, g, r, 0
+		if a == 0 {
+			p[0], p[1], p[2], p[3] = 255, 255, 255, 0
+			continue
+		}
+		inv := uint32(255 - a)
+		r := uint8((uint32(p[0])*uint32(a) + 255*inv) / 255)
+		g := uint8((uint32(p[1])*uint32(a) + 255*inv) / 255)
+		b := uint8((uint32(p[2])*uint32(a) + 255*inv) / 255)
+		p[0], p[1], p[2], p[3] = b, g, r, 0
 	}
 	return nil
 }
@@ -399,6 +408,10 @@ func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath
 	if err != nil {
 		return "", fmt.Errorf("read PDF file %q: %w", pdfPath, err)
 	}
+	return platformPrintPDFBytesWithJobIDObserved(ctx, printerName, data, onJobID)
+}
+
+func platformPrintPDFBytesWithJobIDObserved(ctx context.Context, printerName string, data []byte, onJobID func(uint32)) (string, error) {
 	var spoolerJobID uint32
 	printErr := renderAndPrintPDFWithPDFiumResultObserved(ctx, printerName, data, &spoolerJobID, onJobID)
 	jobID := ""

@@ -57,7 +57,7 @@ def _load_print_config_helpers():
     try:
         return _load_module_from_path(
             "print_gateway_print_config_test",
-            ROOT / "odoo_addons/print_gateway/models/print_config.py",
+            ROOT / "odoo_addons19/print_gateway/models/print_config.py",
         )
     finally:
         for k, prev in saved.items():
@@ -69,8 +69,8 @@ def _load_print_config_helpers():
 
 class TestV17LifecycleFixes(unittest.TestCase):
     def test_agent_claim_parses_json_payload_and_maps_wire_payload_type(self):
-        src = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
-        py_compile.compile(str(ROOT / "odoo_addons/print_gateway/controllers/agent_api.py"), doraise=True)
+        src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+        py_compile.compile(str(ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py"), doraise=True)
         self.assertIn("raw_payload = json.loads(raw_payload)", src)
         self.assertIn('wire_type = "image"', src)
         self.assertIn('wire_type = "escpos" if proto == "escpos" else "raw"', src)
@@ -78,7 +78,7 @@ class TestV17LifecycleFixes(unittest.TestCase):
         self.assertIn('"payloadType": wire_type,', src)
 
     def test_agent_ack_preserves_payload_on_failed_and_unknown_for_retry_and_reprint(self):
-        src = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+        src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
         self.assertIn("payload = CASE WHEN %s = 'success' THEN '' ELSE payload END,", src)
         self.assertNotIn("payload = CASE WHEN %s IN ('success', 'failed', 'unknown')", src)
 
@@ -104,7 +104,7 @@ class TestV17LifecycleFixes(unittest.TestCase):
             self.assertIn(f'"{key}":', ar_ts)
 
     def test_odoo_agent_views_buttons_exist_on_model(self):
-        agent_py = (ROOT / "odoo_addons/print_gateway/models/agent.py").read_text(encoding="utf-8")
+        agent_py = (ROOT / "odoo_addons19/print_gateway/models/agent.py").read_text(encoding="utf-8")
         tree = ast.parse(agent_py)
         methods = {
             node.name
@@ -113,7 +113,7 @@ class TestV17LifecycleFixes(unittest.TestCase):
             for node in cls.body
             if isinstance(node, ast.FunctionDef)
         }
-        view_tree = ET.parse(str(ROOT / "odoo_addons/print_gateway/views/agent_views.xml"))
+        view_tree = ET.parse(str(ROOT / "odoo_addons19/print_gateway/views/agent_views.xml"))
         for btn in view_tree.findall(".//button[@type='object']"):
             name = btn.attrib.get("name", "")
             self.assertIn(name, methods, f"Missing method {name} on print_gateway.agent")
@@ -153,8 +153,8 @@ class TestV17LifecycleFixes(unittest.TestCase):
 
 class TestV18V19HardeningRegressions(unittest.TestCase):
     def test_rpc_skip_limit_check_requires_superuser(self):
-        agent_py = (ROOT / "odoo_addons/print_gateway/models/agent.py").read_text(encoding="utf-8")
-        printer_py = (ROOT / "odoo_addons/print_gateway/models/printer.py").read_text(encoding="utf-8")
+        agent_py = (ROOT / "odoo_addons19/print_gateway/models/agent.py").read_text(encoding="utf-8")
+        printer_py = (ROOT / "odoo_addons19/print_gateway/models/printer.py").read_text(encoding="utf-8")
         self.assertIn('self.env.is_superuser() and self.env.context.get("skip_agent_limit_check")', agent_py)
         self.assertEqual(
             printer_py.count('self.env.is_superuser() and self.env.context.get("skip_printer_limit_check")'),
@@ -170,7 +170,7 @@ class TestV18V19HardeningRegressions(unittest.TestCase):
     def test_ssrf_effective_ip_blocks_ipv4_mapped_ipv6_literals_and_dns(self):
         gd = _load_module_from_path(
             "print_gateway_destination_test",
-            ROOT / "odoo_addons/print_gateway/models/gateway_destination.py",
+            ROOT / "odoo_addons19/print_gateway/models/gateway_destination.py",
         )
         for blocked in ("::ffff:169.254.169.254", "::ffff:100.100.100.200", "::ffff:0.0.0.0", "::ffff:224.0.0.1"):
             with self.subTest(literal=blocked), self.assertRaises(ValueError):

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class TestV15Hardening(unittest.TestCase):
     def test_license_api_key_field_restricted_to_base_group_system(self):
-        path = ROOT / "odoo_addons/print_gateway/models/print_config.py"
+        path = ROOT / "odoo_addons19/print_gateway/models/print_config.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         found_groups = None
         for node in ast.walk(tree):
@@ -29,7 +29,7 @@ class TestV15Hardening(unittest.TestCase):
         )
 
     def test_agent_ws_revoked_sends_event_and_closes_socket(self):
-        ws_src = (ROOT / "odoo_addons/print_gateway/controllers/agent_ws.py").read_text(encoding="utf-8")
+        ws_src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_ws.py").read_text(encoding="utf-8")
         # Heartbeat revocation path must notify and actively close the WebSocket
         self.assertRegex(
             ws_src,
@@ -56,12 +56,12 @@ class TestV15Hardening(unittest.TestCase):
         self.assertIn("DrawerKickPin2 = []byte{0x1B, 0x70, 0x00, 0x19, 0xFA}", per_src)
         self.assertRegex(per_src, r'case\s+"epson_pulse":\s*buf\.Write\(BuzzerEpson\)')
 
-        bind_src = (ROOT / "odoo_addons/print_gateway/models/binding.py").read_text(encoding="utf-8")
+        bind_src = (ROOT / "odoo_addons19/print_gateway/models/binding.py").read_text(encoding="utf-8")
         self.assertIn("0x1B 0x42 0x02 0x02", bind_src)
 
     def test_kind_image_peripheral_wiring_in_odoo_and_go_agent(self):
         # Odoo side: allow peripherals on ESC/POS image jobs
-        router_src = (ROOT / "odoo_addons/print_gateway/models/print_router.py").read_text(encoding="utf-8")
+        router_src = (ROOT / "odoo_addons19/print_gateway/models/print_router.py").read_text(encoding="utf-8")
         self.assertIn('(ptype == "image" and getattr(binding, "printer_protocol", "") == "escpos")', router_src)
         self.assertIn('payload["peripherals"] = periph', router_src)
 

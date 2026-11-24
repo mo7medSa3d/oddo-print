@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CRYPTO_PATH = ROOT / "odoo_addons" / "print_gateway" / "models" / "crypto.py"
+CRYPTO_PATH = ROOT / "odoo_addons19" / "print_gateway" / "models" / "crypto.py"
 SPEC = spec_from_file_location("yaseir_odoo_crypto_under_test", CRYPTO_PATH)
 assert SPEC is not None and SPEC.loader is not None
 crypto = module_from_spec(SPEC)
@@ -51,8 +51,8 @@ def test_direct_odoo_pairing_fails_closed_when_external_key_is_missing():
 
 
 def test_direct_odoo_pairing_model_and_public_registration_use_same_keyed_hash():
-    model_source = (ROOT / "odoo_addons/print_gateway/models/agent.py").read_text(encoding="utf-8")
-    controller_source = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+    model_source = (ROOT / "odoo_addons19/print_gateway/models/agent.py").read_text(encoding="utf-8")
+    controller_source = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
     assert "return hash_agent_pairing_code(raw_value)" in model_source
     assert "pairing_hash = hash_agent_pairing_code(pairing_code)" in controller_source
     assert "pairing_hash = _hash_token(pairing_code.upper())" not in controller_source

@@ -95,10 +95,10 @@ def test_unsupported_or_duplicate_test_definition_fails_closed(suite, source):
 
 
 def test_real_addon_inventory_is_nonempty_and_includes_every_module():
-    expected = GATE.expected_test_ids(ROOT / "odoo_addons" / "print_gateway" / "tests")
+    expected = GATE.expected_test_ids(ROOT / "odoo_addons19" / "print_gateway" / "tests")
     assert expected
     modules = {name.rsplit(".", 2)[0] for name in expected}
-    assert len(modules) == len(list((ROOT / "odoo_addons" / "print_gateway" / "tests").glob("test_*.py")))
+    assert len(modules) == len(list((ROOT / "odoo_addons19" / "print_gateway" / "tests").glob("test_*.py")))
 
 
 def test_static_post_install_phase_keeps_every_method_required(suite):

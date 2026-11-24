@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BINDING = ROOT / "odoo_addons" / "print_gateway" / "models" / "binding.py"
+BINDING = ROOT / "odoo_addons19" / "print_gateway" / "models" / "binding.py"
 
 
 class TestOdooPrinterProtocolAliasContract(unittest.TestCase):

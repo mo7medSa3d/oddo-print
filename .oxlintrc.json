@@ -29,6 +29,6 @@
   "env": { "browser": true, "node": true },
   "ignorePatterns": ["node_modules/**", ".audit/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "dist-desktop/**", "src-tauri/**"],
   "overrides": [
-    { "files": ["odoo_addons/**/*.js", "odoo_addons_20/**/*.js"], "rules": { "react/no-direct-mutation-state": "off" } }
+    { "files": ["odoo_addons19/**/*.js", "odoo_addons_20/**/*.js"], "rules": { "react/no-direct-mutation-state": "off" } }
   ]
 }

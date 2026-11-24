@@ -27,7 +27,7 @@ fs.mkdirSync(output, { recursive: true });
 const barcodePath = path.join(output, "code128-fixture.svg");
 execFileSync(python, ["scripts/acceptance/verify-odoo-receipt-codes.py", "--generate-svg", barcodePath], { cwd: root });
 const sha = value => createHash("sha256").update(value).digest("hex");
-const addon = "odoo_addons/print_gateway/static/src/";
+const addon = "odoo_addons19/print_gateway/static/src/";
 const read = relative => baseline && ["js/receipt_raster.js", "css/receipt_raster.css"].includes(relative)
   ? execFileSync("git", ["show", `HEAD:${addon}${relative}`], { cwd: root, encoding: "utf8" })
   : fs.readFileSync(path.join(root, addon, relative), "utf8");
@@ -54,7 +54,7 @@ const barcode = fs.readFileSync(barcodePath, "utf8").replace(/<\?xml[^>]*\?>/, "
 const fixturePath = path.join(root, "tests/fixtures/receipt-geometry.html");
 const fixtureSource = fs.readFileSync(fixturePath, "utf8");
 const html = fixtureSource
-  .replace('href="../../odoo_addons/print_gateway/static/src/css/receipt_raster.css"', 'href="/receipt.css"')
+  .replace('href="../../odoo_addons19/print_gateway/static/src/css/receipt_raster.css"', 'href="/receipt.css"')
   .replace('<div class="fixture-qr">', `<div class="fixture-code128" style="display:flex;justify-content:center">${barcode}</div><div class="fixture-qr">`);
 const sources = new Map([
   ["/", ["text/html", html]], ["/receipt.css", ["text/css", css]],

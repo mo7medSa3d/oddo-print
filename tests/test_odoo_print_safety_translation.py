@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1] / "odoo_addons" / "print_gateway"
+ROOT = Path(__file__).resolve().parents[1] / "odoo_addons19" / "print_gateway"
 CATALOG = ROOT / "i18n" / "ar.po"
 
 

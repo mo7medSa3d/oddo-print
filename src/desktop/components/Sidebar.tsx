@@ -67,6 +67,7 @@ export function Sidebar({
         {/* The Desktop app is the Print Agent: its brand mark is the Agent
             badge (public/brand/print-agent.svg), NOT the Gateway's ط mark.
             Same asset as the Settings footer and the bundle/tray icons. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="./brand/print-agent.svg" alt="" aria-hidden="true" draggable={false} className="h-10 w-10 shrink-0 rounded-xl" />
         {!compact && (
           <div className="min-w-0 flex-1">

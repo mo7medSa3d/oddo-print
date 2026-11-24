@@ -2,7 +2,7 @@
 import importlib.util
 from pathlib import Path
 
-_path = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/printer_geometry.py"
+_path = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/printer_geometry.py"
 _spec = importlib.util.spec_from_file_location("odoo_geometry_fixture_validator", _path)
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)

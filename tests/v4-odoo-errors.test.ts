@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 // @ts-expect-error Odoo JS is exercised through the existing @web test adapter.
-import { gatewayServerMessage, parseGatewayBillingLimit, showGatewayBillingLimitDialog } from "../odoo_addons/print_gateway/static/src/js/gateway_limit_dialog";
+import { gatewayServerMessage, parseGatewayBillingLimit, showGatewayBillingLimitDialog } from "../odoo_addons19/print_gateway/static/src/js/gateway_limit_dialog";
 
 describe("V4 Odoo customer error boundary", () => {
   it("never displays raw remote exception text, SQL, or credential material", () => {
@@ -72,7 +72,7 @@ describe("V4 Odoo customer error boundary", () => {
 
 
   it("keeps Odoo POS receipt and kitchen notices behind the safe localized error presenter", () => {
-    const source = readFileSync("odoo_addons/print_gateway/static/src/js/pos_print_router.js", "utf8");
+    const source = readFileSync("odoo_addons19/print_gateway/static/src/js/pos_print_router.js", "utf8");
     const receiptNotices = source.slice(
       source.indexOf('// Truthful feedback: "submitted"'),
       source.indexOf("// Count only accepted/known print outcomes"),

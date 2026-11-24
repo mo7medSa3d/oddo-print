@@ -9,7 +9,7 @@ import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-ODOO_WS_PATH = ROOT / "odoo_addons" / "print_gateway" / "controllers" / "agent_ws.py"
+ODOO_WS_PATH = ROOT / "odoo_addons19" / "print_gateway" / "controllers" / "agent_ws.py"
 
 
 def _load_agent_ws_module():
@@ -156,7 +156,7 @@ class TestGoAgentAndOdooContracts(unittest.TestCase):
 
         models_src = "\n".join(
             p.read_text(encoding="utf-8")
-            for p in (ROOT / "odoo_addons" / "print_gateway" / "models").glob("*.py")
+            for p in (ROOT / "odoo_addons19" / "print_gateway" / "models").glob("*.py")
         )
         self.assertTrue(
             "pg_notify('print_gateway_job_ready'" in models_src
@@ -238,7 +238,7 @@ class TestStrictFailClosedLicenseEnforcement(unittest.TestCase):
         import sys
         import types
 
-        module_path = ROOT / "odoo_addons" / "print_gateway" / "models" / "print_config.py"
+        module_path = ROOT / "odoo_addons19" / "print_gateway" / "models" / "print_config.py"
         fake_odoo = types.ModuleType("odoo")
         fake_api = types.ModuleType("odoo.api")
         fake_api.model = lambda fn: fn

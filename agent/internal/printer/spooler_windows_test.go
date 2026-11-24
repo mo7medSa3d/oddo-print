@@ -1163,6 +1163,13 @@ func TestSpoolerQueueIdentityKeepsServerAndShareDistinct(t *testing.T) {
 	}
 }
 
+func TestSpoolerQueueDeviceInfoDefaultsEnabledTrue(t *testing.T) {
+	di := spoolerDeviceInfo("Microsoft Print to PDF", "PORTPROMPT:", "Microsoft Print To PDF", "online", PRINTER_ATTRIBUTE_LOCAL)
+	if !di.Enabled {
+		t.Fatalf("discovered Windows spooler queue must default Enabled=true, got %+v", di)
+	}
+}
+
 func TestDispatchPreFlightAllowsAdvisoryWarningBits(t *testing.T) {
 	for _, tc := range []struct {
 		name string

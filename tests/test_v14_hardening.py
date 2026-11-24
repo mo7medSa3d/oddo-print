@@ -9,13 +9,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class TestV14Hardening(unittest.TestCase):
     def test_all_odoo_python_files_compile_cleanly(self):
-        py_files = list((ROOT / "odoo_addons" / "print_gateway").rglob("*.py"))
+        py_files = list((ROOT / "odoo_addons19" / "print_gateway").rglob("*.py"))
         self.assertGreater(len(py_files), 15)
         for path in py_files:
             py_compile.compile(str(path), doraise=True)
 
     def test_all_odoo_xml_files_parse_cleanly(self):
-        xml_files = list((ROOT / "odoo_addons" / "print_gateway").rglob("*.xml"))
+        xml_files = list((ROOT / "odoo_addons19" / "print_gateway").rglob("*.xml"))
         self.assertGreater(len(xml_files), 3)
         for path in xml_files:
             ET.parse(str(path))
@@ -28,7 +28,7 @@ class TestV14Hardening(unittest.TestCase):
         self.assertNotIn("if activePrinters := a.printerCount(); activePrinters > 0 {", src)
 
     def test_phase1_odoo_heartbeat_preserves_unshared_and_removes_random_disable(self):
-        src = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+        src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
         self.assertIn("pg_advisory_xact_lock(hashtext('print_gateway_printer_limit'))", src)
         self.assertIn("WHEN EXCLUDED.available_to_odoo = FALSE THEN FALSE", src)
         self.assertIn("ELSE print_gateway_printer.available_to_odoo", src)
@@ -36,30 +36,30 @@ class TestV14Hardening(unittest.TestCase):
         self.assertIn('"disabledPrinterIds": disabled_printer_ids', src)
 
     def test_phase1_odoo_printer_model_enforces_max_printers_on_write(self):
-        src = (ROOT / "odoo_addons/print_gateway/models/printer.py").read_text(encoding="utf-8")
+        src = (ROOT / "odoo_addons19/print_gateway/models/printer.py").read_text(encoding="utf-8")
         self.assertIn("def write(self, vals):", src)
         self.assertIn("pg_advisory_xact_lock(hashtext('print_gateway_printer_limit'))", src)
         self.assertIn("check_license_limits(icp, active_printers=projected)", src)
 
     def test_phase2_agent_lifecycle_locks_and_ws_revoke(self):
-        api_src = (ROOT / "odoo_addons/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
+        api_src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_api.py").read_text(encoding="utf-8")
         self.assertIn("pg_advisory_xact_lock(hashtext('print_gateway_agent_limit'))", api_src)
 
-        agent_src = (ROOT / "odoo_addons/print_gateway/models/agent.py").read_text(encoding="utf-8")
+        agent_src = (ROOT / "odoo_addons19/print_gateway/models/agent.py").read_text(encoding="utf-8")
         self.assertIn("def write(self, vals):", agent_src)
         self.assertIn("def action_revoke_disconnect(self):", agent_src)
         self.assertIn("NOTIFY print_gateway_license_updated", agent_src)
 
-        view_src = (ROOT / "odoo_addons/print_gateway/views/agent_views.xml").read_text(encoding="utf-8")
+        view_src = (ROOT / "odoo_addons19/print_gateway/views/agent_views.xml").read_text(encoding="utf-8")
         self.assertIn('name="action_revoke_disconnect"', view_src)
 
-        ws_src = (ROOT / "odoo_addons/print_gateway/controllers/agent_ws.py").read_text(encoding="utf-8")
+        ws_src = (ROOT / "odoo_addons19/print_gateway/controllers/agent_ws.py").read_text(encoding="utf-8")
         self.assertIn("def _is_agent_active(cr, agent_id):", ws_src)
         self.assertIn('"type": "agent_revoked"', ws_src)
         self.assertIn("AND active = TRUE", ws_src)
 
     def test_phase2_print_router_fail_fast_on_unshared_or_inactive(self):
-        src = (ROOT / "odoo_addons/print_gateway/models/print_router.py").read_text(encoding="utf-8")
+        src = (ROOT / "odoo_addons19/print_gateway/models/print_router.py").read_text(encoding="utf-8")
         self.assertIn("SELECT pr.available_to_odoo, a.active", src)
         self.assertIn("is archived or inactive", src)
         self.assertIn("is currently not shared with Odoo", src)
@@ -104,7 +104,7 @@ class TestV14Hardening(unittest.TestCase):
         pdf_src = (ROOT / "agent/internal/printer/pdf_receipt.go").read_text(encoding="utf-8")
         self.assertIn("tolDots := math.Max(2.0, float64(dpiX)*2.0/25.4)", pdf_src)
 
-        bind_src = (ROOT / "odoo_addons/print_gateway/models/binding.py").read_text(encoding="utf-8")
+        bind_src = (ROOT / "odoo_addons19/print_gateway/models/binding.py").read_text(encoding="utf-8")
         self.assertIn("0x1B 0x42 0x02 0x02", bind_src)
         self.assertIn("has_width_fallback", bind_src)
 

@@ -15,7 +15,7 @@ const layout = readFileSync(resolve("src/app/layout.tsx"), "utf8");
 const css = readFileSync(resolve("src/app/globals.css"), "utf8");
 const tokens = readFileSync(resolve("typography/tokens.css"), "utf8");
 const odooTokens = readFileSync(
-  resolve("odoo_addons/print_gateway/static/src/css/typography_tokens.css"),
+  resolve("odoo_addons19/print_gateway/static/src/css/typography_tokens.css"),
   "utf8",
 );
 

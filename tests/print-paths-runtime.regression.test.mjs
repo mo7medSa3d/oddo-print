@@ -46,7 +46,7 @@ async function loadHooks(file = "pos_print_router.js", options = {}) {
   ], function () {
     this.setExport("renderGatewayReceiptJpeg", (...args) => controls.raster(...args));
   }, { context });
-  const root = new URL("../odoo_addons/print_gateway/static/src/js/", import.meta.url);
+  const root = new URL("../odoo_addons19/print_gateway/static/src/js/", import.meta.url);
   const asyncControl = new vm.SourceTextModule(await readFile(new URL("async_control.js", root), "utf8"), { context });
   await asyncControl.link(() => { throw new Error("Unexpected async-control import"); });
   const recovery = new vm.SourceTextModule(await readFile(new URL("operation_recovery.js", root), "utf8"), { context });

@@ -10,7 +10,7 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/models/pos_order.py"
+SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/models/pos_order.py"
 
 
 class ValidationError(Exception):

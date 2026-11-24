@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ADDON = path.join(ROOT, "odoo_addons", "print_gateway");
+const ADDON = path.join(ROOT, "odoo_addons19", "print_gateway");
 const read = (file: string) => readFileSync(path.join(ADDON, file), "utf8");
 
 describe("Odoo addon static contracts", () => {

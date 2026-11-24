@@ -144,7 +144,7 @@ def test_actual_raw_policy_reaches_durable_job_with_exact_binding_and_identity()
 
 
 def test_form_only_requires_report_for_report_destination_and_reveals_label_help():
-    path = Path(__file__).resolve().parents[1] / 'odoo_addons/print_gateway/views/binding_views.xml'
+    path = Path(__file__).resolve().parents[1] / 'odoo_addons19/print_gateway/views/binding_views.xml'
     xml = ET.parse(path).getroot()
     fields = xml.findall('.//record[@id="view_print_gateway_binding_form"]//field[@name="report_id"]')
     assert len(fields) == 1

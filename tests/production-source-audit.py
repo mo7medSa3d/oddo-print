@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree
 
-ROOTS = ("src", "agent", "src-tauri/src", "odoo_addons/print_gateway", "scripts")
+ROOTS = ("src", "agent", "src-tauri/src", "odoo_addons19/print_gateway", "scripts")
 SUFFIXES = {".ts", ".tsx", ".js", ".mjs", ".mts", ".go", ".rs", ".py"}
 IGNORED = {"node_modules", ".git", ".next", "target", "__pycache__", "vendor"}
 FLAGS = {
@@ -88,11 +88,11 @@ def scan(root: Path):
             sources[root_file] = target.read_text(encoding="utf-8")
             counts["root_entrypoints"] += 1
 
-    addon = root / "odoo_addons/print_gateway"
+    addon = root / "odoo_addons19/print_gateway"
     manifest = addon / "__manifest__.py"
     if manifest.is_file():
         try:
-            manifest_text = sources.get("odoo_addons/print_gateway/__manifest__.py") or manifest.read_text(encoding="utf-8")
+            manifest_text = sources.get("odoo_addons19/print_gateway/__manifest__.py") or manifest.read_text(encoding="utf-8")
             data = ast.literal_eval(ast.parse(manifest_text).body[0].value)
             refs = list(data.get("data", []))
             for asset_group in data.get("assets", {}).values():
@@ -100,7 +100,7 @@ def scan(root: Path):
             for ref in refs:
                 if not isinstance(ref, str) or "*" in ref:
                     continue
-                target = root / "odoo_addons" / ref if ref.startswith("print_gateway/") else addon / ref
+                target = root / "odoo_addons19" / ref if ref.startswith("print_gateway/") else addon / ref
                 if not target.is_file():
                     errors.append({"path": "__manifest__.py", "error": "missing asset", "asset": ref})
         except (SyntaxError, ValueError, AttributeError, IndexError) as exc:
@@ -118,7 +118,7 @@ def scan(root: Path):
                 errors.append({"path": path.relative_to(root).as_posix(), "error": f"XML syntax: {exc}"})
 
     for rel, content in sources.items():
-        if not (rel.startswith("odoo_addons/print_gateway/") and rel.endswith("/__init__.py")):
+        if not (rel.startswith("odoo_addons19/print_gateway/") and rel.endswith("/__init__.py")):
             continue
         init_dir = (root / rel).parent
         for line in content.splitlines():

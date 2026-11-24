@@ -416,7 +416,7 @@ test("no auth secret reaches browser storage, broadcast payloads or logs in the 
   const { readdirSync, statSync } = require("node:fs");
   const { join } = require("node:path");
   const touchCallers = [];
-  const walk = dir => { for (const entry of readdirSync(dir)) { const full = join(dir, entry); if (statSync(full).isDirectory()) { if (entry !== "node_modules") walk(full); } else if (/\.tsx?$/.test(entry) && readFileSync(full, "utf8").includes("touch: true")) touchCallers.push(full); } };
+  const walk = dir => { for (const entry of readdirSync(dir)) { const full = join(dir, entry); if (statSync(full).isDirectory()) { if (entry !== "node_modules") walk(full); } else if (/\.tsx?$/.test(entry) && readFileSync(full, "utf8").includes("touch: true")) touchCallers.push(full.replaceAll("\\", "/")); } };
   walk("src");
   assert.deepEqual(touchCallers, ["src/app/api/auth/activity/route.ts"]);
   // Silent refresh never writes the login timestamp: the detailed rotation

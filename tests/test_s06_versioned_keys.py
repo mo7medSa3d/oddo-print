@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/idempotency_namespace.py"
+SRC = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/idempotency_namespace.py"
 
 
 def impl():

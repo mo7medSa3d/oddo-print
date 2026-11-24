@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "odoo_addons" / "print_gateway"
+ADDON = ROOT / "odoo_addons19" / "print_gateway"
 
 
 def read(rel):
@@ -309,7 +309,7 @@ def test_agent_registration_pairing_uses_database_clock():
 
 def test_dynamic_sql_identifiers_are_composed_with_psycopg2_identifier():
     offenders = []
-    for path in (ROOT / "odoo_addons").rglob("*.py"):
+    for path in (ROOT / "odoo_addons19").rglob("*.py"):
         source = path.read_text(encoding="utf-8")
         for line_no, line in enumerate(source.splitlines(), 1):
             if "_table" in line and "%" in line and "sql.Identifier" not in line:
@@ -336,7 +336,7 @@ def test_odoo_js_device_class_filter_uses_only_canonical_gateway_values():
     canonical = {v.strip().strip('"') for v in m.group(1).split(",")}
     assert canonical == {"thermal", "laser", "inkjet", "label", "other", "unknown"}
 
-    js_source = (ROOT / "odoo_addons" / "print_gateway" / "static" / "src" / "components" / "runtime_printer_field.js").read_text(encoding="utf-8")
+    js_source = (ROOT / "odoo_addons19" / "print_gateway" / "static" / "src" / "components" / "runtime_printer_field.js").read_text(encoding="utf-8")
     filter_arrays = re.findall(r'\[([^\]]+)\]\.includes\(\(p\.deviceClass', js_source)
     for arr_src in filter_arrays:
         used = {v.strip().strip('"\'') for v in arr_src.split(",")}

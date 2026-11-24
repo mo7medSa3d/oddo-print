@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/models/ir_actions_report.py"
+SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/models/ir_actions_report.py"
 
 
 def report_hook(route):

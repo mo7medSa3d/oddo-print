@@ -258,6 +258,7 @@ type Agent struct {
 	// duplicate requests loses nothing.
 	heartbeatTrigger    chan struct{}
 	wsWakeCh            chan struct{}
+	wsConnected         atomic.Bool
 	licenseGuard        *license.RuntimeGuard
 	lastVisibilityStamp string
 	// observations caches the heartbeat probe loop's per-printer geometry
@@ -1252,12 +1253,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Unavailability of the API degrades to the polling behaviour below.
 	a.launchTracked(func() { a.watchSpoolerChanges(ctx) })
 	a.launchTracked(func() { a.runOdooWebSocket(ctx) })
+	a.launchTracked(func() { _ = printer.WarmPDFium(ctx) })
 
 	heartbeatTicker := time.NewTicker(30 * time.Second)
-	// Poll fallback: reduced from 10s to 5s per 2025 best practice.
-	// Odoo is polled directly. A five-second interval keeps dispatch simple
-	// and predictable without maintaining a second transport.
-	pollTicker := time.NewTicker(5 * time.Second)
+	// 1s base tick: poll every 1s when WebSocket push is disconnected, or every
+	// 5s as a backstop while WebSocket push is active.
+	pollTicker := time.NewTicker(1 * time.Second)
+	pollTick := 0
 	cleanupTicker := time.NewTicker(localQueueCleanupInterval)
 	defer heartbeatTicker.Stop()
 	defer pollTicker.Stop()
@@ -1313,6 +1315,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			// fence); only job acquisition below is gated.
 			a.launchTracked(func() { a.sendHeartbeatGuardedContext(ctx) })
 		case <-pollTicker.C:
+			pollTick++
+			if a.wsConnected.Load() && pollTick%5 != 0 {
+				continue
+			}
 			if a.checkVisibilityPolicyChanged() {
 				a.requestImmediateHeartbeat()
 			}
@@ -3878,10 +3884,12 @@ func (a *Agent) runOdooWebSocket(ctx context.Context) {
 				}
 			}()
 
+		a.wsConnected.Store(true)
 		readLoop:
 			for {
 				op, msg, readErr := ws.ReadMessage()
 				if readErr != nil {
+					a.wsConnected.Store(false)
 					if ctx.Err() == nil {
 						log.Printf("[ws] disconnected from Odoo (reconnecting): %v", readErr)
 					}

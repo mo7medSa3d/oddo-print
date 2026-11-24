@@ -345,3 +345,25 @@ describe("native sharing IPC DTO boundary", () => {
     await expect(getPrinters()).rejects.toThrow("CLI timed out");
   });
 });
+
+describe("Printers page agent identity fallback", () => {
+  it("shows this computer hostname or local fallback for local printers and keeps Unknown agent only for unattributed remote printers", () => {
+    const withHostname = renderToStaticMarkup(tree(h(PrintersPage, {
+      s: state({ agentStatus: { running: true, hostname: "POS-PC-01" }, printers: [local], filteredPrinters: [local], localPrinters: [local] }),
+    })));
+    expect(withHostname).toContain("POS-PC-01");
+    expect(withHostname).not.toContain("Unknown agent");
+
+    const withoutHostname = renderToStaticMarkup(tree(h(PrintersPage, {
+      s: state({ agentStatus: null, printers: [local], filteredPrinters: [local], localPrinters: [local] }),
+    })));
+    expect(withoutHostname).toContain("This PC");
+    expect(withoutHostname).not.toContain("Unknown agent");
+
+    const remoteUnattributed = { ...cloud, agentName: undefined, localObservedAt: undefined };
+    const remoteHtml = renderToStaticMarkup(tree(h(PrintersPage, {
+      s: state({ printers: [remoteUnattributed], filteredPrinters: [remoteUnattributed], localPrinters: [] }),
+    })));
+    expect(remoteHtml).toContain("Unknown agent");
+  });
+});

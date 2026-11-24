@@ -5,8 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_print_gateway_table_separator_uses_defined_design_token():
-    tokens = (ROOT / 'odoo_addons/print_gateway/static/src/scss/print_gateway_tokens.scss').read_text()
-    styles = (ROOT / 'odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss').read_text()
+    tokens = (ROOT / 'odoo_addons19/print_gateway/static/src/scss/print_gateway_tokens.scss').read_text()
+    styles = (ROOT / 'odoo_addons19/print_gateway/static/src/scss/print_gateway_backend.scss').read_text()
     assert '--pg-border:' in tokens
     assert 'tbody tr.o_data_row + tr.o_data_row { border-top: 1px solid var(--pg-border); }' in styles
     assert '--pg-border-subtle' not in styles

@@ -44,7 +44,7 @@ def test_encryption_migration_refreshes_cached_credential(monkeypatch):
         config.stored = params[0]
 
     migration = Path(__file__).resolve().parents[1] / (
-        "odoo_addons/print_gateway/migrations/19.0.2.4.0/post-migrate.py"
+        "odoo_addons19/print_gateway/migrations/19.0.2.4.0/post-migrate.py"
     )
     runpy.run_path(str(migration))["migrate"](SimpleNamespace(execute=update), "19.0.2.3.0")
     assert config.cloud_api_key == "enc:fixture-key"

@@ -181,7 +181,7 @@ func loadRegistryPartitionedLocked(registryPath string) (production, hidden []De
 			removed++
 			continue
 		}
-		if ClassifyDeviceInfo(d).IsVirtual {
+		if cls := ClassifyDeviceInfo(d); cls.IsRedirected || cls.IsUnusable {
 			removed++
 			continue
 		}
@@ -272,10 +272,12 @@ func saveRegistryLocked(registryPath string, printers []DeviceInfo) error {
 	if err := config.EnsureSecureDirectoryACL(dir); err != nil {
 		return fmt.Errorf("secure registry dir: %w", err)
 	}
-	// Never persist even legacy virtual records passed by CLI or recovery.
+	// Never persist unusable virtual (fax/blackhole/software app) or
+	// redirected queues passed by CLI or recovery. Printable virtual queues
+	// remain first-class managed printers.
 	physical := make([]DeviceInfo, 0, len(printers))
 	for _, entry := range printers {
-		if !ClassifyDeviceInfo(entry).IsVirtual {
+		if cls := ClassifyDeviceInfo(entry); !cls.IsRedirected && !cls.IsUnusable {
 			physical = append(physical, entry)
 		}
 	}

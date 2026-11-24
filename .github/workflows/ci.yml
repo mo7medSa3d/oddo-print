@@ -176,7 +176,7 @@ jobs:
         run: npm run typography:check
       - name: Validate Odoo 19 addon XML conventions
         run: |
-          if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons/print_gateway/views; then
+          if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons19/print_gateway/views; then
             echo 'Odoo 19 incompatibility detected.'
             exit 1
           fi
@@ -184,7 +184,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          odoo_icon="odoo_addons/print_gateway/static/description/icon.png"
+          odoo_icon="odoo_addons19/print_gateway/static/description/icon.png"
           agent_icon="src-tauri/icons/icon.png"
           test -s "$odoo_icon" || { echo "Odoo Gateway icon is missing or empty."; exit 1; }
           test -s "$agent_icon" || { echo "Desktop Agent icon is missing or empty."; exit 1; }
@@ -204,7 +204,7 @@ jobs:
         run: |
           python3 -m pip install --break-system-packages -r requirements-test.txt
           # Odoo __init__ modules intentionally import for registration.
-          find odoo_addons scripts tests -name '*.py' ! -name '__init__.py' -print0 | xargs -0 python3 -m pyflakes
+          find odoo_addons19 scripts tests -name '*.py' ! -name '__init__.py' -print0 | xargs -0 python3 -m pyflakes
           pytest tests/test_*.py
       - name: Run unit tests (no DB)
         run: npm run test:unit
@@ -521,7 +521,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/verify-odoo-test-results.py \
-            --tests-dir odoo_addons/print_gateway/tests \
+            --tests-dir odoo_addons19/print_gateway/tests \
             --log /tmp/odoo19_test.log
       - name: Generate an SBOM for the tested Odoo image
         if: ${{ !cancelled() && steps.hardened-image.outcome == 'success' }}

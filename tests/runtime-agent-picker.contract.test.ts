@@ -5,15 +5,15 @@ import { join } from "node:path";
 describe("Odoo runtime agent picker contract", () => {
   it("forwards assignment_only from the view into the field component", () => {
     const source = readFileSync(
-      join(process.cwd(), "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js"),
+      join(process.cwd(), "odoo_addons19/print_gateway/static/src/components/runtime_agent_field.js"),
       "utf8",
     );
     const bindingView = readFileSync(
-      join(process.cwd(), "odoo_addons/print_gateway/views/binding_views.xml"),
+      join(process.cwd(), "odoo_addons19/print_gateway/views/binding_views.xml"),
       "utf8",
     );
     const assignmentView = readFileSync(
-      join(process.cwd(), "odoo_addons/print_gateway/views/runtime_assignment_views.xml"),
+      join(process.cwd(), "odoo_addons19/print_gateway/views/runtime_assignment_views.xml"),
       "utf8",
     );
 
@@ -43,7 +43,7 @@ describe("Odoo runtime agent picker contract", () => {
     // The scope must therefore be read as a reactive dependency of an effect,
     // which subscribes the widget to those record fields.
     const source = (file: string) => readFileSync(join(process.cwd(), file), "utf8");
-    const agentSource = source("odoo_addons/print_gateway/static/src/components/runtime_agent_field.js");
+    const agentSource = source("odoo_addons19/print_gateway/static/src/components/runtime_agent_field.js");
     expect(agentSource).not.toMatch(/onWillUpdateProps\s*\(/);
     expect(agentSource).toContain("() => [this.companyId, this.branchId, this.assignmentOnly],");
     expect(agentSource).toContain("get branchId() {");
@@ -51,7 +51,7 @@ describe("Odoo runtime agent picker contract", () => {
     expect(agentSource).toContain("branch_id: branchId,");
     expect(agentSource).toContain("fieldDependencies: [");
 
-    const printerSource = source("odoo_addons/print_gateway/static/src/components/runtime_printer_field.js");
+    const printerSource = source("odoo_addons19/print_gateway/static/src/components/runtime_printer_field.js");
     expect(printerSource).not.toMatch(/onWillUpdateProps\s*\(/);
     expect(printerSource).toContain("() => [this.companyId, this.branchId, this.agentId, this.destinationType, this.reportId, this.documentType],");
     expect(printerSource).toContain("agent_id: agentId,");
@@ -63,7 +63,7 @@ describe("Odoo runtime agent picker contract", () => {
     // (different) Agent mark. The two icons were previously forced
     // byte-identical, which shipped the Gateway icon as the Agent icon.
     const odooIcon = readFileSync(
-      join(process.cwd(), "odoo_addons/print_gateway/static/description/icon.png"),
+      join(process.cwd(), "odoo_addons19/print_gateway/static/description/icon.png"),
     );
     const desktopIcon = readFileSync(
       join(process.cwd(), "src-tauri/icons/icon.png"),
@@ -80,7 +80,7 @@ describe("Odoo runtime agent picker contract", () => {
     // a name with the component's getter-only selectedAgent accessor,
     // readonly views crash during the Owl render lifecycle.
     const source = readFileSync(
-      join(process.cwd(), "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js"),
+      join(process.cwd(), "odoo_addons19/print_gateway/static/src/components/runtime_agent_field.js"),
       "utf8",
     );
     const readonlyBranch = source.split('<t t-if="props.readonly">')[1]?.split('<t t-else="">')[0];

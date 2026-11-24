@@ -11,7 +11,7 @@ from types import MethodType, SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "odoo_addons/print_gateway/models/print_router.py"
+SOURCE = ROOT / "odoo_addons19/print_gateway/models/print_router.py"
 
 
 class ValidationError(Exception):
@@ -29,7 +29,7 @@ def geometry(dpi=203, dots=576):
 
 def router():
     scope = {"ValidationError": ValidationError, "_": lambda message: message}
-    helper = ROOT / "odoo_addons/print_gateway/printer_geometry.py"
+    helper = ROOT / "odoo_addons19/print_gateway/printer_geometry.py"
     if helper.exists():
         spec = importlib.util.spec_from_file_location("odoo_printer_geometry_under_test", helper)
         module = importlib.util.module_from_spec(spec)
@@ -100,7 +100,7 @@ def test_driver_image_requires_paper_media_but_direct_raster_typography_does_not
 
 
 def load_geometry_module():
-    path = ROOT / "odoo_addons/print_gateway/printer_geometry.py"
+    path = ROOT / "odoo_addons19/print_gateway/printer_geometry.py"
     spec = importlib.util.spec_from_file_location("odoo_shared_geometry_contract", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

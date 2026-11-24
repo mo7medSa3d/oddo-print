@@ -25,7 +25,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parent.parent
-ADDON = ROOT / "odoo_addons" / "print_gateway"
+ADDON = ROOT / "odoo_addons19" / "print_gateway"
 
 
 def _install_odoo_stubs():
@@ -139,7 +139,7 @@ def _install_odoo_stubs():
 
 
 def _load_addon_package():
-    """Load odoo_addons/print_gateway as a package with stubbed Odoo dependencies."""
+    """Load odoo_addons19/print_gateway as a package with stubbed Odoo dependencies."""
     _install_odoo_stubs()
     parent_dir = str(ADDON.parent)
     if parent_dir not in sys.path:

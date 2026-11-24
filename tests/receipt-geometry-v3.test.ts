@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toCanvas, waitImages } from "./__mocks__/odoo";
 import sharedGeometry from "../contracts/printer-geometry-fixtures.json";
 // @ts-expect-error Odoo JS modules have no TS declaration files.
-import { validatedPrinterGeometry } from "../odoo_addons/print_gateway/static/src/js/printer_geometry";
+import { validatedPrinterGeometry } from "../odoo_addons19/print_gateway/static/src/js/printer_geometry";
 // @ts-expect-error Odoo JS modules have no TS declaration files.
-import { renderGatewayReceiptJpeg } from "../odoo_addons/print_gateway/static/src/js/receipt_raster";
+import { renderGatewayReceiptJpeg } from "../odoo_addons19/print_gateway/static/src/js/receipt_raster";
 
 function geometry(dpiX = 203, dpiY = dpiX, dots = 576) {
   return {

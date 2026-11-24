@@ -17,7 +17,7 @@ function createStorage() {
         removeItem: (key) => records.delete(key),
     };
 }
-const root = new URL('../odoo_addons/print_gateway/static/src/js/', import.meta.url);
+const root = new URL('../odoo_addons19/print_gateway/static/src/js/', import.meta.url);
 
 async function loadHook(file, { storage, clock = { now: 1000 }, storageThrows = false, infoThrows = false,
     translate = (phrase) => phrase } = {}) {

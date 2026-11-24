@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 
-ADDON = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway"
+ADDON = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway"
 spec = importlib.util.spec_from_file_location("reprint_identity_contract", ADDON / "idempotency_namespace.py")
 identity = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(identity)

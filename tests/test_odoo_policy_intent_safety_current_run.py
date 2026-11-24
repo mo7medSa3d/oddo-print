@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-BASE = Path(__file__).resolve().parents[1] / 'odoo_addons' / 'print_gateway' / 'models'
+BASE = Path(__file__).resolve().parents[1] / 'odoo_addons19' / 'print_gateway' / 'models'
 
 
 class ValidationError(Exception):

@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "agent"
-ODOO = ROOT / "odoo_addons" / "print_gateway"
+ODOO = ROOT / "odoo_addons19" / "print_gateway"
 
 checks = []
 

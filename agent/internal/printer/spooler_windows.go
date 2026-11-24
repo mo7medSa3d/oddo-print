@@ -49,10 +49,10 @@ var (
 	// regression-testable without a 30-second sleep.
 	postCancelSpoolerResultGrace = 30 * time.Second
 
-	// platformPrintPDFObserved publishes StartDocW's job identity before the
-	// remaining GDI session finishes. Tests replace this seam only to emulate a
-	// wedged driver; production uses the real Windows implementation.
-	platformPrintPDFObserved = platformPrintPDFWithJobIDObserved
+	// platformPrintPDFObserved is a test seam to emulate a wedged Windows GDI
+	// driver via a temp file path. When nil (production), Windows prints
+	// directly from doc.Data in RAM via platformPrintPDFBytesWithJobIDObserved.
+	platformPrintPDFObserved func(ctx context.Context, printerName, pdfPath string, onJobID func(uint32)) (string, error)
 )
 
 const (
@@ -1289,20 +1289,31 @@ func (p *SpoolerPrinter) printPDFDocument(ctx context.Context, doc Document) err
 			return
 		}
 
-		resultFn := p.PDFPrintResult
-		if resultFn == nil {
-			resultFn = func(callCtx context.Context, printerName, pdfPath string) (string, error) {
-				return platformPrintPDFObserved(callCtx, printerName, pdfPath, func(jobID uint32) {
+		var spoolerJobID string
+		var printErr error
+		if p.PDFPrintResult == nil && platformPrintPDFObserved == nil {
+			spoolerJobID, printErr = printPDFBytesWithResult(ctx, p.SpoolerName, doc, func(callCtx context.Context, printerName string, data []byte) (string, error) {
+				return platformPrintPDFBytesWithJobIDObserved(callCtx, printerName, data, func(jobID uint32) {
 					if jobID != 0 {
-						// Publish StartDocW identity immediately, before any later GDI
-						// call can block. Publish only to this invocation's evidence.
 						recordJobID(uint64(jobID))
 					}
 				})
+			})
+		} else {
+			resultFn := p.PDFPrintResult
+			if resultFn == nil {
+				resultFn = func(callCtx context.Context, printerName, pdfPath string) (string, error) {
+					return platformPrintPDFObserved(callCtx, printerName, pdfPath, func(jobID uint32) {
+						if jobID != 0 {
+							// Publish StartDocW identity immediately, before any later GDI
+							// call can block. Publish only to this invocation's evidence.
+							recordJobID(uint64(jobID))
+						}
+					})
+				}
 			}
+			spoolerJobID, printErr = printPDFWithResult(ctx, p.SpoolerName, doc, resultFn)
 		}
-
-		spoolerJobID, printErr := printPDFWithResult(ctx, p.SpoolerName, doc, resultFn)
 		if spoolerJobID != "" {
 			id, parseErr := strconv.ParseUint(spoolerJobID, 10, 64)
 			if parseErr != nil || id == 0 {
@@ -2377,6 +2388,7 @@ func spoolerQueueDeviceInfo(name, portName, driverName, serverName, shareName, s
 		SpoolerServer:  serverName,
 		SpoolerShare:   shareName,
 		Status:         statusText,
+		Enabled:        true,
 		Capabilities: map[string]interface{}{
 			"discovered_via":     SourceSpooler,
 			"port_name":          portName,

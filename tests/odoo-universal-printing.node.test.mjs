@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
-const root = path.resolve("odoo_addons/print_gateway/static/src");
+const root = path.resolve("odoo_addons19/print_gateway/static/src");
 const now = Date.parse("2026-10-24T13:30:00Z");
 class Clock extends Date { static now() { return now; } }
 async function load(relative) {

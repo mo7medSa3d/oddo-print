@@ -35,6 +35,6 @@ class TestDirectAgentContract(TransactionCase):
         self.assertIn("UNKNOWN_PARTIAL_DELIVERY", source)
 
     def test_legacy_cloud_jobs_are_quarantined_during_upgrade(self):
-        source = (self.addon_root / "migrations" / "19.0.2.37.0" / "pre-migrate.py").read_text()
+        source = (self.addon_root / "migrations" / "20.0.2.37.0" / "pre-migrate.py").read_text()
         self.assertIn("LEGACY_CLOUD_JOB_REQUIRES_MANUAL_REVIEW", source)
         self.assertIn("SET status = 'unknown'", source)

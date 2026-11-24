@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 
-ADDON = Path(__file__).resolve().parents[1] / "odoo_addons" / "print_gateway"
+ADDON = Path(__file__).resolve().parents[1] / "odoo_addons19" / "print_gateway"
 
 
 class ValidationError(Exception):

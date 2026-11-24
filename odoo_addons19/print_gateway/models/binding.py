@@ -112,7 +112,7 @@ class PrintGatewayBinding(models.Model):
         domain="[('company_id', '=', company_id), ('active', '=', True)]",
     )
     runtime_agent_id = fields.Char(
-        string="Print Agent",
+        string="Print Agent UID",
         related="agent_id.agent_uid",
         readonly=True,
         store=False,

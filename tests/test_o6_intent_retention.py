@@ -1,7 +1,7 @@
 """O-6: automation intent history must not be deletable (audit trail)."""
 from pathlib import Path
 
-CSV = Path(__file__).resolve().parent.parent / "odoo_addons" / "print_gateway" / "security" / "ir.model.access.csv"
+CSV = Path(__file__).resolve().parent.parent / "odoo_addons19" / "print_gateway" / "security" / "ir.model.access.csv"
 
 
 def _row(prefix):

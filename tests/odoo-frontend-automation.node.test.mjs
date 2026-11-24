@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
-const root = path.resolve("odoo_addons/print_gateway/static/src");
+const root = path.resolve("odoo_addons19/print_gateway/static/src");
 
 async function load(relative, extra = {}, overrides = {}) {
   const registry = { category: () => ({ add() {}, contains: () => false }) };
@@ -232,7 +232,7 @@ test("an unavailable or stale language session never reloads with the previous l
 
 
 test("Odoo Apps description uses translated manifest metadata without a static override", () => {
-  const base = path.resolve("odoo_addons/print_gateway");
+  const base = path.resolve("odoo_addons19/print_gateway");
   const manifest = fs.readFileSync(path.join(base, "__manifest__.py"), "utf8");
   const catalog = fs.readFileSync(path.join(base, "i18n/ar.po"), "utf8");
   const routing = fs.readFileSync(path.join(base, "views/binding_views.xml"), "utf8");

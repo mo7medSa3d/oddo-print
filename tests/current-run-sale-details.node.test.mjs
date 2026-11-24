@@ -11,7 +11,7 @@ import { resolve, dirname } from 'node:path';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
-const addon = resolve(import.meta.dirname || dirname(new URL(import.meta.url).pathname), '../odoo_addons/print_gateway/static/src/js');
+const addon = resolve(import.meta.dirname || dirname(new URL(import.meta.url).pathname), '../odoo_addons19/print_gateway/static/src/js');
 
 async function fixture({ outcomes = [], enabled = true } = {}) {
   const submissions = [];

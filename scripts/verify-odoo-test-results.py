@@ -163,7 +163,7 @@ def verify_test_log(expected: set[str], log: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tests-dir", type=Path, default=Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/tests")
+    parser.add_argument("--tests-dir", type=Path, default=Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/tests")
     parser.add_argument("--log", type=Path, required=True)
     args = parser.parse_args()
     try:

@@ -3,7 +3,7 @@ import importlib.util
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "odoo_addons" / "print_gateway"
+ADDON = ROOT / "odoo_addons19" / "print_gateway"
 
 
 def read(rel: str) -> str:

@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/models/print_router.py"
+SOURCE = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/models/print_router.py"
 
 
 class ValidationError(Exception):

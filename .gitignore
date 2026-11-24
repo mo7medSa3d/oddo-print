@@ -19,7 +19,7 @@ agent/odoo-agent-cli.exe
 !.env.example
 
 *.log
-
+odoo_addons_20/native_print/
 # Local agent runtime state
 agent/agent.db
 agent/agent.db-*
@@ -59,3 +59,4 @@ graphify-out/
 # 0091_workspace_session_security_snapshot.json is the versioned metadata.
 /drizzle/meta/0091_snapshot.json
 Screenshot *.png
+odoo_addons19/native_print/*

@@ -14,7 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { webcrypto } from 'node:crypto';
 
 const root = resolve(import.meta.dirname || dirname(new URL(import.meta.url).pathname), '..');
-const addon = resolve(root, 'odoo_addons/print_gateway/static/src/js');
+const addon = resolve(root, 'odoo_addons19/print_gateway/static/src/js');
 
 function harness({ fontReady = Promise.resolve(), writeResponses = [] } = {}) {
   const seen = { canvasCalls: 0, imageWaits: 0, submissions: [], writes: [], rasterizedFontState: [], notifications: [] };

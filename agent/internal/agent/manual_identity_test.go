@@ -43,6 +43,26 @@ func completeDisablementTestSync(t *testing.T, a *Agent) {
 	a.cfg.Agent.ID, a.cfg.Agent.Secret, a.cfg.Server.URL = "agt_test", "secret", server.URL
 }
 
+func filterDevicesByEndpoint(devices []printer.DeviceInfo, endpoint string) []printer.DeviceInfo {
+	var matched []printer.DeviceInfo
+	for _, d := range devices {
+		if d.Endpoint == endpoint {
+			matched = append(matched, d)
+		}
+	}
+	return matched
+}
+
+func filterDevicesByUSBVID(devices []printer.DeviceInfo, vid string) []printer.DeviceInfo {
+	var matched []printer.DeviceInfo
+	for _, d := range devices {
+		if d.USBVID == vid {
+			matched = append(matched, d)
+		}
+	}
+	return matched
+}
+
 func TestRegisterManualCannotRebindGeneratedHardwareID(t *testing.T) {
 	prior := printer.DeviceInfo{Name: "First USB printer", PrinterType: "physical", ConnectionType: "usb", Protocol: "raw",
 		Endpoint: `\\?\usb#vid_1234&pid_5678#device-a`, USBVID: "1234", USBPID: "5678", USBSerial: "same-serial", Enabled: false}
@@ -54,8 +74,9 @@ func TestRegisterManualCannotRebindGeneratedHardwareID(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := printer.LoadRegistryPrinters(a.registryPath)
-	if err != nil || len(rows) != 2 {
-		t.Fatalf("new endpoint replaced an established hardware-derived ID: %+v, %v", rows, err)
+	matched := filterDevicesByUSBVID(rows, "1234")
+	if err != nil || len(matched) != 2 {
+		t.Fatalf("new endpoint replaced an established hardware-derived ID: %+v, %v", matched, err)
 	}
 }
 
@@ -66,11 +87,12 @@ func TestRegisterManualUsesPersistedCanonicalIdentityForRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err := printer.LoadRegistryPrinters(a.registryPath)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("manual registration missing: %+v, %v", rows, err)
+	matched := filterDevicesByEndpoint(rows, "10.0.0.20:9100")
+	if err != nil || len(matched) != 1 {
+		t.Fatalf("manual registration missing: %+v, %v", matched, err)
 	}
-	if _, exists := a.getPrinter(rows[0].ID); !exists {
-		t.Fatalf("runtime identity differs from persisted registration %q", rows[0].ID)
+	if _, exists := a.getPrinter(matched[0].ID); !exists {
+		t.Fatalf("runtime identity differs from persisted registration %q", matched[0].ID)
 	}
 }
 
@@ -78,17 +100,19 @@ func TestRegisterManualAliasCannotEnableAnEstablishedDisabledBinding(t *testing.
 	prior := productionNetworkDevice("retained-id", "10.0.0.20:9100")
 	prior.Enabled = false
 	a := newRegistryDisablementAgent(t, &config.Config{}, []printer.DeviceInfo{prior})
+	beforeCount := a.printerCount()
 	incoming := prior
 	incoming.ID, incoming.Enabled = "", true
 	if err := a.RegisterManual(incoming); err != nil {
 		t.Fatal(err)
 	}
-	if a.printerCount() != 0 {
+	if _, exists := a.getPrinter(prior.ID); exists || a.printerCount() != beforeCount {
 		t.Fatal("an auto-ID alias created an enabled backend for a disabled registration")
 	}
 	rows, err := printer.LoadRegistryPrinters(a.registryPath)
-	if err != nil || len(rows) != 1 || rows[0].ID != prior.ID || rows[0].Enabled {
-		t.Fatalf("alias changed established identity or local disablement: %+v, %v", rows, err)
+	matched := filterDevicesByEndpoint(rows, "10.0.0.20:9100")
+	if err != nil || len(matched) != 1 || matched[0].ID != prior.ID || matched[0].Enabled {
+		t.Fatalf("alias changed established identity or local disablement: %+v, %v", matched, err)
 	}
 }
 
@@ -98,16 +122,20 @@ func TestRegisterManualCannotChooseBetweenAmbiguousPersistedBindings(t *testing.
 	second := first
 	second.ID = "second-id"
 	a := newRegistryDisablementAgent(t, &config.Config{}, []printer.DeviceInfo{first, second})
+	beforeCount := a.printerCount()
 	incoming := first
 	incoming.ID, incoming.Enabled = "", true
 	if err := a.RegisterManual(incoming); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous registrations must require explicit resolution: %v", err)
 	}
-	if a.printerCount() != 0 {
+	_, hasFirst := a.getPrinter(first.ID)
+	_, hasSecond := a.getPrinter(second.ID)
+	if hasFirst || hasSecond || a.printerCount() != beforeCount {
 		t.Fatal("ambiguous binding created an executable backend")
 	}
 	rows, err := printer.LoadRegistryPrinters(a.registryPath)
-	if err != nil || len(rows) != 2 {
-		t.Fatalf("existing ambiguity was deleted or assigned a third ID: %+v, %v", rows, err)
+	matched := filterDevicesByEndpoint(rows, "10.0.0.20:9100")
+	if err != nil || len(matched) != 2 {
+		t.Fatalf("existing ambiguity was deleted or assigned a third ID: %+v, %v", matched, err)
 	}
 }

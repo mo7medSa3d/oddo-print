@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ROOT / "odoo_addons/print_gateway/models"
+MODELS = ROOT / "odoo_addons19/print_gateway/models"
 
 
 class AccessError(Exception):
@@ -194,7 +194,7 @@ def test_runtime_assignment_enforces_active_and_assigned_companies():
 
 
 def test_binding_runtime_scope_enforces_user_company_ids_and_active_companies():
-    source = (ROOT / "odoo_addons/print_gateway/models/binding.py").read_text(encoding="utf-8")
+    source = (ROOT / "odoo_addons19/print_gateway/models/binding.py").read_text(encoding="utf-8")
     assert 'user_companies = getattr(getattr(self.env, "user", None), "company_ids", None)' in source
     assert "record.company_id not in user_companies" in source
     assert "record.branch_id not in user_companies" in source

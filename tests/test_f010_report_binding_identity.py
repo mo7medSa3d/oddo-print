@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1] / 'odoo_addons/print_gateway/models'
+ROOT = Path(__file__).resolve().parents[1] / 'odoo_addons19/print_gateway/models'
 
 class ValidationError(Exception):
     pass

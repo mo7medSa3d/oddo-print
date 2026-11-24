@@ -59,7 +59,7 @@ test("original Next and React Hook rule names and severities remain active", asy
     const severity = Array.isArray(value) ? value[0] : value;
     assert.equal(config.rules[name][0], severity === "error" ? 2 : severity === "warn" ? 1 : 0, name);
   }
-  const odoo = await eslint.calculateConfigForFile("odoo_addons/print_gateway/static/src/js/pos_print_router.js");
+  const odoo = await eslint.calculateConfigForFile("odoo_addons19/print_gateway/static/src/js/pos_print_router.js");
   assert.equal(odoo.rules["no-undef"][0], 2);
   assert.equal(odoo.rules["no-unused-vars"][0], 2);
   const manifest = JSON.parse(await readFile("package.json", "utf8"));

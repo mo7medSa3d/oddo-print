@@ -1422,8 +1422,12 @@ export default function App() {
                     : t("desktop.drawer.pending")}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agent")}>
-                {selectedPrinter.agentName ?? selectedPrinter.agentId ?? "—"} ·{" "}
-                {printerAgentView(selectedPrinter, nowMs, locale).label}
+                {selectedPrinter.agentName ??
+                  selectedPrinter.agentId ??
+                  (selectedPrinter.localObservedAt != null || localPrinters.some((lp) => lp.id === selectedPrinter.id)
+                    ? (agentStatus?.hostname || t("desktop.agents.thisPc"))
+                    : "—")}{" "}
+                · {printerAgentView(selectedPrinter, nowMs, locale).label}
               </MetaRow>
               <MetaRow label={t("desktop.drawer.agentHeartbeat")}>
                 <span className="tabular-nums">{selectedPrinter.agentLastSeenAt ? formatDateTime(selectedPrinter.agentLastSeenAt) : "—"}</span>

@@ -7,7 +7,7 @@ from types import SimpleNamespace, MethodType
 import pytest
 from odoo_geometry_fixture import receipt_geometry, validated_printer_geometry
 
-SRC = Path(__file__).resolve().parents[1] / 'odoo_addons/print_gateway/models/binding.py'
+SRC = Path(__file__).resolve().parents[1] / 'odoo_addons19/print_gateway/models/binding.py'
 TREE = ast.parse(SRC.read_text())
 CLASS = next(cls for cls in TREE.body if isinstance(cls, ast.ClassDef) and cls.name == 'PrintGatewayBinding') if any(isinstance(cls, ast.ClassDef) and cls.name == 'PrintGatewayBinding' for cls in TREE.body) else None
 if CLASS is None:

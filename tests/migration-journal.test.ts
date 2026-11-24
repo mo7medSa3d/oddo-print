@@ -89,9 +89,9 @@ describe("Drizzle Migration Journal & File Integrity", () => {
   it("keeps retired capture and Test Center backends out of shipped runtime code", () => {
     const roots = [
       "src", "agent/internal", "src-tauri/src",
-      "odoo_addons/print_gateway/models",
-      "odoo_addons/print_gateway/controllers",
-      "odoo_addons/print_gateway/static/src",
+      "odoo_addons19/print_gateway/models",
+      "odoo_addons19/print_gateway/controllers",
+      "odoo_addons19/print_gateway/static/src",
     ];
     const retired = /\be2e_capture_runs\b|\bCaptureTestDocument\b|\bTestCenter\b|\/api\/e2e-capture\b/i;
     let checked = 0;

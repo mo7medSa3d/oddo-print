@@ -1,6 +1,7 @@
 import base64
 import configparser
 import importlib.util
+import os
 import pathlib
 import stat
 import tempfile
@@ -25,7 +26,8 @@ class OdooHardenedEntrypointTest(unittest.TestCase):
     def test_private_config_keeps_secret_values_out_of_arguments_and_fences_database(self):
         with tempfile.TemporaryDirectory() as directory:
             filename = MODULE.build_config(self.environment(directory), directory)
-            self.assertEqual(stat.S_IMODE(pathlib.Path(filename).stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(pathlib.Path(filename).stat().st_mode), 0o600)
             config = configparser.ConfigParser(interpolation=None)
             config.read(filename)
             self.assertEqual(config["options"]["db_password"], "synthetic-db-password")
@@ -95,7 +97,8 @@ class OdooHardenedEntrypointTest(unittest.TestCase):
             environment["ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION_FILE"] = str(version)
             environment["ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V2_B64_FILE"] = str(key)
             filename = MODULE.build_config(environment, directory)
-            self.assertEqual(stat.S_IMODE(pathlib.Path(filename).stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(pathlib.Path(filename).stat().st_mode), 0o600)
 
 
 if __name__ == "__main__":

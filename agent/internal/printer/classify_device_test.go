@@ -407,6 +407,32 @@ func TestVirtualPrintersNeverEnterTheManagedRegistry(t *testing.T) {
 	}
 }
 
+func TestPrintableVirtualPrintersPersistInManagedRegistry(t *testing.T) {
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "printers.json")
+
+	pdf := DeviceInfo{
+		ID: "printer_pdf", Name: "Microsoft Print to PDF", ConnectionType: "spooler",
+		Protocol: "spooler", SpoolerName: "Microsoft Print to PDF", PrinterType: "virtual",
+		Status: "online", Enabled: true, IsVirtual: true,
+		Capabilities: caps("port_name", "PORTPROMPT:", "driver_name", "Microsoft Print To PDF"),
+	}
+	merged, err := UpsertRegistry(registryPath, []DeviceInfo{pdf})
+	if err != nil {
+		t.Fatalf("UpsertRegistry: %v", err)
+	}
+	if len(merged) != 1 || merged[0].ID != "printer_pdf" {
+		t.Fatalf("printable virtual queue missing after upsert: %+v", merged)
+	}
+	listed, err := loadRegistryPrinters(registryPath)
+	if err != nil {
+		t.Fatalf("loadRegistryPrinters: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != "printer_pdf" {
+		t.Fatalf("printable virtual queue dropped on reload: %+v", listed)
+	}
+}
+
 func TestDiscoveryHidesVirtualQueues(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{}

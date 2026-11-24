@@ -5,7 +5,7 @@ The repository ships three copies of each family:
 
   src/app/fonts/*.ttf                          the pinned upstream sources
   src/app/fonts/*.woff2                        what the Web app serves
-  odoo_addons/print_gateway/static/fonts/*.ttf  what the Odoo add-on serves
+  odoo_addons19/print_gateway/static/fonts/*.ttf  what the Odoo add-on serves
 
 The Web app serves WOFF2 (about 65% smaller than the TTF). The Desktop app
 and the Odoo add-on serve the TTF: the Desktop app bundles it with the

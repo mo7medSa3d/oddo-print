@@ -1,7 +1,7 @@
 """Retained branch/security invariants for the native Odoo Agent/printer pickers."""
 from pathlib import Path
 
-ADDON = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway"
+ADDON = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway"
 
 
 def test_nested_branch_rejected_before_any_runtime_agent_or_printer_lookup():

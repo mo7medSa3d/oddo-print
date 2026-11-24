@@ -1,7 +1,7 @@
 """O-2: persist must revalidate the selected binding on its fresh cursor."""
 from pathlib import Path
 
-ROUTER = Path(__file__).resolve().parent.parent / "odoo_addons" / "print_gateway" / "models" / "print_router.py"
+ROUTER = Path(__file__).resolve().parent.parent / "odoo_addons19" / "print_gateway" / "models" / "print_router.py"
 
 
 def test_persist_revalidates_binding():

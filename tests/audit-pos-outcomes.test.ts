@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { patch } from "./__mocks__/odoo";
 // @ts-expect-error Native Node boundary fixture has no declaration file.
 import { recoveryIndexedDB } from "./helpers/odoo-recovery-indexeddb.mjs";
-import "../odoo_addons/print_gateway/static/src/js/pos_print_router";
+import "../odoo_addons19/print_gateway/static/src/js/pos_print_router";
 
 type Outcome = { successful: boolean; gatewayOutcome?: string; canRetry?: boolean };
 const methods = patch.mock.calls.at(-1)?.[1] as { printChanges: (this: unknown, order: unknown, changes: unknown[], reprint?: boolean, printers?: unknown) => Promise<boolean> };

@@ -137,6 +137,49 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 	return path, cleanup, nil
 }
 
+// printPDFBytesWithResult executes an in-memory PDF renderer directly on
+// doc.Data without round-tripping through a temporary file on disk, while
+// preserving deadline, validation, and job-ID outcome wrapping.
+func printPDFBytesWithResult(ctx context.Context, printerName string, doc Document, printFn func(ctx context.Context, printerName string, data []byte) (string, error)) (string, error) {
+	if err := ValidatePDF(doc.Data); err != nil {
+		return "", err
+	}
+	if err := ValidatePDFPrinterName(printerName); err != nil {
+		return "", fmt.Errorf("refusing to print PDF: %w", err)
+	}
+	if printFn == nil {
+		return "", fmt.Errorf("PDF print result function is nil")
+	}
+	printCtx, cancel := pdfPrintDeadlineContext(ctx)
+	defer cancel()
+
+	spoolerJobID, err := printFn(printCtx, printerName, doc.Data)
+	return finishPrintPDFResult(printerName, doc.JobID, len(doc.Data), spoolerJobID, err)
+}
+
+func pdfPrintDeadlineContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, assigned := ctx.Deadline(); assigned {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, defaultPDFPrintTimeout)
+}
+
+func finishPrintPDFResult(printerName, jobID string, docSize int, spoolerJobID string, err error) (string, error) {
+	if err != nil {
+		// Once Windows has allocated a spooler job identity, a later error
+		// cannot honestly prove that no physical output occurred. Preserve
+		// the identity and force UNKNOWN semantics unless the lower layer
+		// already supplied a stronger unknown-outcome marker. This is the
+		// final duplicate-prevention fence for renderer/cleanup failures.
+		if spoolerJobID != "" && !OutcomeUnknown(err) {
+			err = MarkUnknown("Windows spooler job %s was allocated before a later PDF failure; physical outcome is unknown: %v", spoolerJobID, err)
+		}
+		return spoolerJobID, fmt.Errorf("PDF print on %q failed: %w", printerName, err)
+	}
+	log.Printf("PDF job %s (%d bytes) submitted to printer %q via embedded PDFium path", jobID, docSize, printerName)
+	return spoolerJobID, nil
+}
+
 // printPDFWithResult preserves the assigned renderer deadline and cancellation,
 // using a 120-second fallback only without a deadline. The result-bearing
 // callback lets Windows propagate StartDocW's spooler job identifier without
@@ -158,29 +201,11 @@ func printPDFWithResult(ctx context.Context, printerName string, doc Document, p
 	}
 	defer cleanup()
 
-	var printCtx context.Context
-	var cancel context.CancelFunc
-	if _, assigned := ctx.Deadline(); assigned {
-		printCtx, cancel = context.WithCancel(ctx)
-	} else {
-		printCtx, cancel = context.WithTimeout(ctx, defaultPDFPrintTimeout)
-	}
+	printCtx, cancel := pdfPrintDeadlineContext(ctx)
 	defer cancel()
 
 	spoolerJobID, err := printFn(printCtx, printerName, path)
-	if err != nil {
-		// Once Windows has allocated a spooler job identity, a later error
-		// cannot honestly prove that no physical output occurred. Preserve
-		// the identity and force UNKNOWN semantics unless the lower layer
-		// already supplied a stronger unknown-outcome marker. This is the
-		// final duplicate-prevention fence for renderer/cleanup failures.
-		if spoolerJobID != "" && !OutcomeUnknown(err) {
-			err = MarkUnknown("Windows spooler job %s was allocated before a later PDF failure; physical outcome is unknown: %v", spoolerJobID, err)
-		}
-		return spoolerJobID, fmt.Errorf("PDF print on %q failed: %w", printerName, err)
-	}
-	log.Printf("PDF job %s (%d bytes) submitted to printer %q via embedded PDFium path", doc.JobID, len(doc.Data), printerName)
-	return spoolerJobID, nil
+	return finishPrintPDFResult(printerName, doc.JobID, len(doc.Data), spoolerJobID, err)
 }
 
 // PrintPDF preserves the public/test callback contract. Production callers

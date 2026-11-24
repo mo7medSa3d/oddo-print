@@ -137,8 +137,8 @@ test("horizontal table navigation is offered only when overflow exists", () => {
 
 test("mobile and RTL refinements remain scoped to the product UIs", () => {
   const css = source("src/app/globals.css");
-  const odoo = source("odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss");
-  const odooTokens = source("odoo_addons/print_gateway/static/src/scss/print_gateway_tokens.scss");
+  const odoo = source("odoo_addons19/print_gateway/static/src/scss/print_gateway_backend.scss");
+  const odooTokens = source("odoo_addons19/print_gateway/static/src/scss/print_gateway_tokens.scss");
   const gateway = source("src/components/AppShell.tsx");
   const platform = source("src/components/platform/PlatformSidebar.tsx");
   assert.match(css, /\.tg-desktop-header-actions\s*\{/);

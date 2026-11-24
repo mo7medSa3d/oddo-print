@@ -15,7 +15,7 @@ const nativeOrderSource = await readFile(nativeOrderPath, "utf8");
 const nativeMethod = nativeOrderSource.slice(nativeOrderSource.indexOf("    updateLastOrderChange() {"));
 assert.ok(nativeMethod.includes("updateLastOrderChange()"));
 const nativeChangeSource = await readFile(new URL("./fixtures/odoo19-native-order-change.mjs", import.meta.url), "utf8");
-const addonSource = await readFile(new URL("odoo_addons/print_gateway/static/src/js/pos_print_router.js", repo), "utf8");
+const addonSource = await readFile(new URL("odoo_addons19/print_gateway/static/src/js/pos_print_router.js", repo), "utf8");
 let hooks, signalSubmitted, releaseSubmitted;
 const submitted = new Promise((resolve) => { signalSubmitted = resolve; });
 const released = new Promise((resolve) => { releaseSubmitted = resolve; });
@@ -47,9 +47,9 @@ const mocks = {
 const common = new vm.SyntheticModule(Object.keys(mocks), function () {
     for (const [key, value] of Object.entries(mocks)) this.setExport(key, value);
 }, { context });
-const controls = new vm.SourceTextModule(await readFile(new URL("odoo_addons/print_gateway/static/src/js/async_control.js", repo), "utf8"), { context });
+const controls = new vm.SourceTextModule(await readFile(new URL("odoo_addons19/print_gateway/static/src/js/async_control.js", repo), "utf8"), { context });
 await controls.link(() => { throw new Error("Unexpected import"); });
-const recovery = new vm.SourceTextModule(await readFile(new URL("odoo_addons/print_gateway/static/src/js/operation_recovery.js", repo), "utf8"), { context });
+const recovery = new vm.SourceTextModule(await readFile(new URL("odoo_addons19/print_gateway/static/src/js/operation_recovery.js", repo), "utf8"), { context });
 await recovery.link((name) => { assert.equal(name, "@web/core/l10n/translation"); return common; });
 const addon = new vm.SourceTextModule(addonSource, { context });
 await addon.link((name) => name === "./async_control" ? controls : name === "./operation_recovery" ? recovery : common);

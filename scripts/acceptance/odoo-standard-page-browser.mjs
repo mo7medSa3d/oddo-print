@@ -19,7 +19,7 @@ fs.mkdirSync(output, { recursive: true });
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const hashes = {};
 const read = filename => { const data = fs.readFileSync(filename, "utf8"); hashes[filename] = sha(data); return data; };
-const addon = path.resolve("odoo_addons/print_gateway/static/src");
+const addon = path.resolve("odoo_addons19/print_gateway/static/src");
 const pos = path.join(odoo, "addons/point_of_sale/static/src");
 const dependencies = {
   "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt": "app/screens/receipt_screen/receipt/order_receipt",

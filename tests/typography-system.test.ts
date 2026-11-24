@@ -19,7 +19,7 @@ import { resolve } from "node:path";
 const read = (relative: string) => readFileSync(resolve(process.cwd(), relative), "utf8");
 
 const CANONICAL = "typography/tokens.css";
-const ODOO_COPY = "odoo_addons/print_gateway/static/src/css/typography_tokens.css";
+const ODOO_COPY = "odoo_addons19/print_gateway/static/src/css/typography_tokens.css";
 
 describe("shared typography system", () => {
   it("ships one canonical token file", () => {
@@ -96,18 +96,18 @@ describe("shared typography system", () => {
   });
 
   it("uses the shared family stack in the Odoo add-on", () => {
-    const scss = read("odoo_addons/print_gateway/static/src/scss/print_gateway_backend.scss");
+    const scss = read("odoo_addons19/print_gateway/static/src/scss/print_gateway_backend.scss");
     expect(scss).toContain("font-family: var(--typo-font-stack-latin);");
     expect(scss).toContain("font-family: var(--typo-font-stack-arabic);");
     expect(scss).not.toContain("Avenir Next");
 
-    const manifest = read("odoo_addons/print_gateway/__manifest__.py");
+    const manifest = read("odoo_addons19/print_gateway/__manifest__.py");
     expect(manifest).toContain("print_gateway/static/src/css/typography_tokens.css");
     expect(manifest).toContain("print_gateway/static/src/css/typography_fonts.css");
   });
 
   it("ships the families inside the Odoo module for the server PDF engine", () => {
-    const fonts = read("odoo_addons/print_gateway/static/src/css/typography_fonts.css");
+    const fonts = read("odoo_addons19/print_gateway/static/src/css/typography_fonts.css");
     expect(fonts).toContain("font-display: block");
     expect(fonts).toContain("/print_gateway/static/fonts/ibm-plex-sans-arabic-400.ttf");
     for (const weight of ["400", "500", "600", "700"]) {
@@ -120,12 +120,12 @@ describe("shared typography system", () => {
       "ibm-plex-sans-arabic-600.ttf",
       "ibm-plex-sans-arabic-700.ttf",
     ]) {
-      expect(existsSync(resolve(process.cwd(), "odoo_addons/print_gateway/static/fonts", file))).toBe(true);
+      expect(existsSync(resolve(process.cwd(), "odoo_addons19/print_gateway/static/fonts", file))).toBe(true);
     }
   });
 
   it("keeps the POS receipt raster geometry and its no-web-font contract", () => {
-    const css = read("odoo_addons/print_gateway/static/src/css/receipt_raster.css");
+    const css = read("odoo_addons19/print_gateway/static/src/css/receipt_raster.css");
     // Physical CSS type stays stable while the output canvas uses the
     // selected printer's dots and independent X/Y DPI.
     expect(css).toContain('--pg-receipt-font-family: "DejaVu Sans", Arial, "Segoe UI", sans-serif;');

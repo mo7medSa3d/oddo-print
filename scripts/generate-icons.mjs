@@ -18,7 +18,7 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 const srcSvg = join(root, "src/app/icon.svg");
-const odooIcon = join(root, "odoo_addons/print_gateway/static/description/icon.png");
+const odooIcon = join(root, "odoo_addons19/print_gateway/static/description/icon.png");
 
 async function main() {
   const svgBuf = await readFile(srcSvg);
@@ -29,7 +29,7 @@ async function main() {
     .resize(512, 512, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png({ compressionLevel: 9 })
     .toFile(odooIcon);
-  console.log("✓ odoo_addons/print_gateway/static/description/icon.png (512)");
+  console.log("✓ odoo_addons19/print_gateway/static/description/icon.png (512)");
 
   // The Gateway web app serves src/app/icon.svg directly; no PNG
   // favicon is tracked, and none is generated here.

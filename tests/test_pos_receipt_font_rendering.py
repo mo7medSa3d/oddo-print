@@ -40,7 +40,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "odoo_addons" / "print_gateway"
+ADDON = ROOT / "odoo_addons19" / "print_gateway"
 
 
 def read(rel):

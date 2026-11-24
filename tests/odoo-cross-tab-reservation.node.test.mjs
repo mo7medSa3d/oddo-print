@@ -8,7 +8,7 @@ async function recovery(storage, indexedDB) {
     const context = vm.createContext({ window: { localStorage: storage, indexedDB }, setTimeout, clearTimeout });
     const translations = new vm.SyntheticModule(["_t"], function () { this.setExport("_t", value => value); }, { context });
     const recoveryModule = new vm.SourceTextModule(await readFile(new URL(
-        "../odoo_addons/print_gateway/static/src/js/operation_recovery.js", import.meta.url), "utf8"), { context });
+        "../odoo_addons19/print_gateway/static/src/js/operation_recovery.js", import.meta.url), "utf8"), { context });
     await recoveryModule.link(() => translations);
     await recoveryModule.evaluate();
     return recoveryModule.namespace;

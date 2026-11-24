@@ -25,9 +25,9 @@ describe("Odoo version-neutral customer copy", () => {
   });
 
   it("uses unversioned Odoo help labels in the addon and its Arabic translation catalog", () => {
-    const model = read("odoo_addons/print_gateway/models/binding.py");
-    const view = read("odoo_addons/print_gateway/views/binding_views.xml");
-    const catalog = read("odoo_addons/print_gateway/i18n/ar.po");
+    const model = read("odoo_addons19/print_gateway/models/binding.py");
+    const view = read("odoo_addons19/print_gateway/views/binding_views.xml");
+    const catalog = read("odoo_addons19/print_gateway/i18n/ar.po");
     expect(model).not.toMatch(/help="[^"]*Odoo 19/);
     expect(view).not.toMatch(/help="[^"]*Odoo 19/);
     expect(catalog).not.toMatch(pinnedOdooLabel);
@@ -36,7 +36,7 @@ describe("Odoo version-neutral customer copy", () => {
   });
 
   it("preserves the Odoo addon technical version until Odoo 20 support is implemented and tested", () => {
-    const manifest = read("odoo_addons/print_gateway/__manifest__.py");
+    const manifest = read("odoo_addons19/print_gateway/__manifest__.py");
     expect(manifest).toMatch(/'version': '19\.0\.\d+\.\d+\.\d+'/);
   });
 });

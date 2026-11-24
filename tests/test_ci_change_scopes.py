@@ -64,7 +64,7 @@ def test_docs_only_main_push_revalidates_real_app_agent_and_odoo_jobs(tmp_path):
 
 
 def test_odoo_model_runs_odoo_and_cross_layer_contracts_but_not_go_or_docker():
-    flags = classify("odoo_addons/print_gateway/models/print_intent.py")
+    flags = classify("odoo_addons19/print_gateway/models/print_intent.py")
     assert flags["odoo"] and flags["app"] and flags["codeql_py"]
     assert not flags["agent"] and not flags["docker"] and not flags["codeql_go"]
     assert not flags["codeql_js"]
@@ -128,7 +128,7 @@ def test_postgres_change_keeps_database_failure_injection():
 
 
 def test_combined_changes_union_the_relevant_scopes():
-    flags = classify("agent/go.mod", "odoo_addons/print_gateway/models/print_intent.py")
+    flags = classify("agent/go.mod", "odoo_addons19/print_gateway/models/print_intent.py")
     assert flags["agent"] and flags["odoo"] and flags["app"]
     assert flags["codeql_go"] and flags["codeql_py"]
 

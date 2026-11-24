@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def presenter():
-    path = ROOT / "odoo_addons/print_gateway/customer_presentation.py"
+    path = ROOT / "odoo_addons19/print_gateway/customer_presentation.py"
     assert path.exists(), "Odoo needs a locale-safe customer presenter"
     spec = importlib.util.spec_from_file_location("v4_customer_presentation", path)
     module = importlib.util.module_from_spec(spec)
@@ -79,7 +79,7 @@ def test_changed_automation_rule_is_actionable_in_arabic_and_english(diagnostic)
     assert "company changed after capture" not in english
     arabic = module.customer_error_message(lambda value: "عربي: " + value, diagnostic)
     assert arabic == "عربي: " + english
-    catalog = (ROOT / "odoo_addons/print_gateway/i18n/ar.po").read_text(encoding="utf-8")
+    catalog = (ROOT / "odoo_addons19/print_gateway/i18n/ar.po").read_text(encoding="utf-8")
     # Gettext entries use a real newline, not a literal backslash+n string.
     # Require a nonempty Arabic translation of the exact safe operator copy.
     import re

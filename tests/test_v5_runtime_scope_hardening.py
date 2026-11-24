@@ -12,7 +12,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROLLER = ROOT / "odoo_addons/print_gateway/controllers/runtime_printers.py"
+CONTROLLER = ROOT / "odoo_addons19/print_gateway/controllers/runtime_printers.py"
 
 
 class Forbidden(Exception):
@@ -170,7 +170,7 @@ def test_explicit_branch_scope_rejects_fractional_rpc_ids():
 
 
 def test_native_agent_picker_tracks_saved_agent_not_implicit_first_scope():
-    source = (ROOT / "odoo_addons/print_gateway/static/src/components/runtime_agent_field.js").read_text()
+    source = (ROOT / "odoo_addons19/print_gateway/static/src/components/runtime_agent_field.js").read_text()
     assert 't-att-selected="agent.id === selectedAgentUid"' in source
     assert 'this.state.agents = [];' in source
     assert 'this.state.branchId = branchId;' in source
@@ -178,7 +178,7 @@ def test_native_agent_picker_tracks_saved_agent_not_implicit_first_scope():
 
 
 def test_native_printer_picker_tracks_saved_printer_for_exact_agent():
-    source = (ROOT / "odoo_addons/print_gateway/static/src/components/runtime_printer_field.js").read_text()
+    source = (ROOT / "odoo_addons19/print_gateway/static/src/components/runtime_printer_field.js").read_text()
     assert 't-att-selected="printer.id === props.record.data[props.name]"' in source
     assert 't-att-disabled="state.loading || !state.agentId"' in source
     assert "this.companyId, this.branchId, this.agentId, this.destinationType" in source

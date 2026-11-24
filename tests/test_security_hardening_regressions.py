@@ -33,7 +33,7 @@ class Pass1Pass2SecurityHardeningTests(unittest.TestCase):
         self.assertIn("throw new Error(", body)
 
     def test_odoo_agent_pairing_authorization_and_stale_claim_retry_cap(self):
-        agent_path = REPO / "odoo_addons/print_gateway/models/agent.py"
+        agent_path = REPO / "odoo_addons19/print_gateway/models/agent.py"
         src = agent_path.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(agent_path))
 
@@ -62,7 +62,7 @@ class Pass1Pass2SecurityHardeningTests(unittest.TestCase):
         self.assertRegex(sweep_src, r"SET\s+status\s*=\s*'queued'")
 
     def test_odoo_security_xml_separates_read_hierarchy_from_root_only_writes(self):
-        xml_path = REPO / "odoo_addons/print_gateway/security/security.xml"
+        xml_path = REPO / "odoo_addons19/print_gateway/security/security.xml"
         root = ElementTree.parse(xml_path).getroot()
         records = {}
         for rec in root.findall(".//record"):

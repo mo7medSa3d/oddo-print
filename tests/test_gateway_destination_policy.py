@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "odoo_addons" / "print_gateway" / "models"
+MODEL_DIR = Path(__file__).resolve().parent.parent / "odoo_addons19" / "print_gateway" / "models"
 spec = importlib.util.spec_from_file_location("gateway_destination_policy_tested", MODEL_DIR / "gateway_destination.py")
 destination = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(destination)

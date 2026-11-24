@@ -126,7 +126,7 @@ describe("design guide v2.1 token contract (Gateway)", () => {
     // (v10-exact moved them there from the old globals.css override),
     // byte-synced to the Odoo copy — pin them there, in both files.
     const tokens = read("typography/tokens.css");
-    const odooTokens = read("odoo_addons/print_gateway/static/src/css/typography_tokens.css");
+    const odooTokens = read("odoo_addons19/print_gateway/static/src/css/typography_tokens.css");
     for (const t of [tokens, odooTokens]) {
       expect(t).toContain('--typo-font-latin: var(--font-thmanyah, "Thmanyah Sans"), var(--font-ibm-plex-sans, "IBM Plex Sans");');
       expect(t).toContain('--typo-font-arabic: var(--font-thmanyah, "Thmanyah Sans"), var(--font-ibm-plex-sans-arabic, "IBM Plex Sans Arabic");');

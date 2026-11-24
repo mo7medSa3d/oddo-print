@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 describe("document-type routing contract", () => {
   it("normalizes explicit document types and derives known Odoo models centrally", () => {
-    const src = readFileSync("odoo_addons/print_gateway/models/print_router.py", "utf8");
+    const src = readFileSync("odoo_addons19/print_gateway/models/print_router.py", "utf8");
     // Parameter renamed value -> explicit in _document_type(..., explicit=None).
     expect(src).toContain('normalized = str(explicit).strip().lower()');
     expect(src).toContain('"sale.order": "order"');
@@ -14,7 +14,7 @@ describe("document-type routing contract", () => {
   });
 
   it("has specialized entry points converge on the same durable submit implementation", () => {
-    const src = readFileSync("odoo_addons/print_gateway/models/print_router.py", "utf8");
+    const src = readFileSync("odoo_addons19/print_gateway/models/print_router.py", "utf8");
     expect(src).toContain("def _submit_route(");
     expect(src).toContain("def route_report(");
     expect(src).toContain("def route_pos_receipt(");

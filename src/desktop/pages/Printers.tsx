@@ -39,6 +39,12 @@ export function PrintersPage({ s }: { s: DesktopState }) {
   const total = s.statusFilter === "saved" ? s.printers.filter(isProductionPrinter).filter((p) => !isMainInventoryPrinter(p)).length : s.totalPrinters;
 
   const registeredLocalIds = new Set(s.localPrinters.map((printer) => printer.id));
+  const localAgentFallback = s.agentStatus?.hostname || t("desktop.agents.thisPc");
+  const printerAgentLabel = (printer: PrinterInfo) =>
+    printer.agentName ||
+    (printer.localObservedAt != null || registeredLocalIds.has(printer.id)
+      ? localAgentFallback
+      : t("printer.unknownAgent"));
   const pendingLocal = [...new Map(s.discoveredPrinters.map((p) => [p.id, p])).values()]
     .filter(isProductionPrinter)
     .filter((printer) => !registeredLocalIds.has(printer.id));
@@ -127,7 +133,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                       <div className="block max-w-full text-start text-base font-semibold text-ink [overflow-wrap:anywhere]">{name}</div>
                       {virtual && <VirtualBadge locale={locale} />}
                     </div>
-                    <div className="mt-1 text-xs text-ink-3">{p.agentName || t("printer.unknownAgent")}</div>
+                    <div className="mt-1 text-xs text-ink-3">{printerAgentLabel(p)}</div>
                   </div>
                 </div>
                 <div className="mt-2.5 flex min-w-0 flex-wrap gap-1.5">
@@ -151,7 +157,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                 const virtual = isVirtualPrinter(p);
                 return (
                 <tr key={p.id} className="border-b border-edge last:border-0 hover:bg-surface-2/50 transition-colors">
-                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><PrinterAvatar name={name} size="lg" tone={view.tone} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => s.setSelectedPrinter(p)} aria-label={`${t("desktop.printers.details")} — ${name}`} className="max-w-full break-words text-start text-base font-semibold text-ink hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{name}</button>{virtual && <VirtualBadge locale={locale} />}</div><div className="mt-0.5 text-xs text-ink-3">{p.agentName || t("printer.unknownAgent")}</div></div></div></td>
+                  <td className="px-5 py-3.5"><div className="flex items-center gap-3"><PrinterAvatar name={name} size="lg" tone={view.tone} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => s.setSelectedPrinter(p)} aria-label={`${t("desktop.printers.details")} — ${name}`} className="max-w-full break-words text-start text-base font-semibold text-ink hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35">{name}</button>{virtual && <VirtualBadge locale={locale} />}</div><div className="mt-0.5 text-xs text-ink-3">{printerAgentLabel(p)}</div></div></div></td>
                   <td className="px-4 py-3.5"><StatusBadge tone={view.tone} label={t(view.labelKey)} /><StatusDetailLine p={p} locale={locale} /></td>
                   <td className="px-5 py-3.5"><div className="flex flex-wrap items-center justify-end gap-1.5">
                      <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} aria-label={`${t("desktop.printers.details")} — ${name}`} icon={<Eye className="h-5 w-5" />}>{t("desktop.printers.details")}</Button>

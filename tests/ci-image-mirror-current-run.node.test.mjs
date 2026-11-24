@@ -114,9 +114,9 @@ test('Odoo CI tests the built hardened runtime by content ID with verified immut
   assert.ok(ci.includes('--addons-path=/opt/odoo/odoo/addons,/opt/odoo/addons,/opt/yaseir-addons'));
   // Runtime code and dependencies must come from the tested image itself.
   assert.doesNotMatch(ci, /odoo_image="(?:public\.ecr\.aws\/docker\/library\/)?odoo:/);
-  assert.doesNotMatch(ci, /-v "\$GITHUB_WORKSPACE\/odoo_addons:/);
+  assert.doesNotMatch(ci, /-v "\$GITHUB_WORKSPACE\/odoo_addons19:/);
   assert.ok(ci.includes('python3 scripts/verify-odoo-test-results.py'));
-  assert.ok(ci.includes('--tests-dir odoo_addons/print_gateway/tests'));
+  assert.ok(ci.includes('--tests-dir odoo_addons19/print_gateway/tests'));
   assert.ok(ci.includes('--log /tmp/odoo19_test.log'));
   assert.ok(!ci.includes('Expected at least 80 Odoo addon tests'));
   assert.equal(ci.split('image-ref: ${{ steps.hardened-image.outputs.image_id }}').length - 1, 2);

@@ -7,7 +7,7 @@ import pytest
 
 
 MIGRATION = Path(__file__).resolve().parents[1] / (
-    "odoo_addons/print_gateway/migrations/19.0.2.14.0/pre-migrate.py"
+    "odoo_addons19/print_gateway/migrations/19.0.2.14.0/pre-migrate.py"
 )
 
 

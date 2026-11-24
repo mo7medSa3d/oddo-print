@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 
-SECURITY = Path(__file__).resolve().parents[1] / "odoo_addons/print_gateway/security/security.xml"
+SECURITY = Path(__file__).resolve().parents[1] / "odoo_addons19/print_gateway/security/security.xml"
 RULES = ET.parse(SECURITY).findall("record[@model='ir.rule']")
 MODELS = sorted({rule.find("field[@name='model_id']").attrib["ref"] for rule in RULES})
 

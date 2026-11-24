@@ -1,7 +1,7 @@
 """O-1: Sale Details must preserve native fallback when enabled but unbound."""
 from pathlib import Path
 
-ADDON = Path(__file__).resolve().parent.parent / "odoo_addons" / "print_gateway"
+ADDON = Path(__file__).resolve().parent.parent / "odoo_addons19" / "print_gateway"
 
 
 def test_sale_details_native_falls_back_to_super():
