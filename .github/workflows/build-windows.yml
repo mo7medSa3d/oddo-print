@@ -217,6 +217,14 @@ jobs:
           key: ${{ runner.os }}-rust-tests-v3-1.98.1-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
           restore-keys: |
             ${{ runner.os }}-rust-tests-v3-1.98.1-
+      - name: Stage agent resource placeholders for the Tauri build script
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path agent | Out-Null
+          # The Tauri build script validates bundle resource paths; the real
+          # signed binaries are produced by the parallel release job.
+          "placeholder" | Set-Content agent\YaseirAgent.exe
+          "placeholder" | Set-Content agent\yaseir-agent-cli.exe
       - name: Rust unit tests (desktop)
         shell: pwsh
         run: |

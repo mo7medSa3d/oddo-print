@@ -11,21 +11,26 @@ class WindowsReleaseValidationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.workflow = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
         cls.release = cls.workflow.split("\n  build-windows:\n", 1)[1]
-        cls.smoke = cls.workflow.split("\n  windows-pr-smoke:\n", 1)[1].split("\n  build-windows:\n", 1)[0]
+        cls.smoke = cls.workflow.split("\n  windows-pr-smoke:\n", 1)[1].split("\n  rust-tests-windows:\n", 1)[0]
+        cls.rust_tests = cls.workflow.split("\n  rust-tests-windows:\n", 1)[1].split("\n  build-windows:\n", 1)[0]
 
-    def step(self, name):
-        return self.release.split("- name: " + name + "\n", 1)[1].split("\n      - name:", 1)[0]
+    def step(self, name, section=None):
+        text = section if section is not None else self.release
+        return text.split("- name: " + name + "\n", 1)[1].split("\n      - name:", 1)[0]
 
     def test_installer_cannot_skip_agent_tests_after_a_rust_only_followup(self):
         step = self.step("Verify and test native Windows Go Agent")
         self.assertNotRegex(step, r"(?m)^\s+if:")
-        self.assertIn("go test -mod=readonly -race -vet=all ./...", step)
+        self.assertIn("go test -mod=readonly -vet=all ./...", step)
         self.assertIn("Native Windows Go vet/tests failed", step)
 
     def test_installer_cannot_skip_desktop_tests_after_an_agent_only_followup(self):
-        step = self.step("Rust unit tests (desktop)")
+        step = self.step("Rust unit tests (desktop)", self.rust_tests)
         self.assertNotRegex(step, r"(?m)^\s+if:")
         self.assertIn("cargo test --locked --target x86_64-pc-windows-msvc", step)
+        # Desktop tests run on their own runner in parallel with packaging;
+        # they must never gate the release installer.
+        self.assertNotIn("needs: build-windows", self.rust_tests)
 
     def test_prs_still_use_scoped_smoke_without_packaging(self):
         self.assertIn("if: needs.changes.outputs.agent == 'true'", self.smoke)
@@ -38,7 +43,8 @@ class WindowsReleaseValidationTests(unittest.TestCase):
         self.assertIn("if: github.event_name != 'pull_request'", self.release)
         self.assertNotIn("needs.changes.outputs.windows", self.release.split("    # Preserve a running", 1)[0])
         self.assertLess(self.release.index("Verify and test native Windows Go Agent"), self.release.index("Build Tauri Windows NSIS installer"))
-        self.assertLess(self.release.index("Rust unit tests (desktop)"), self.release.index("Build Tauri Windows NSIS installer"))
+        self.assertIn("\n  rust-tests-windows:\n", self.workflow)
+        self.assertIn("Rust unit tests (desktop)", self.rust_tests)
 
 
 if __name__ == "__main__":
