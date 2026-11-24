@@ -339,10 +339,17 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '1'
+          # Public Ed25519 key compiled into YaseirAgent.exe so the released
+          # Windows app verifies Gateway license bundles signed by staging/prod.
+          YASEIR_LICENSE_PUBLIC_KEY_B64: ${{ secrets.YASEIR_LICENSE_PUBLIC_KEY_B64 }}
         run: |
           go mod verify
           if ($LASTEXITCODE -ne 0) { throw "Go module verification failed" }
-          go build -mod=readonly -trimpath -ldflags="-s -w" -o YaseirAgent.exe ./cmd/agent
+          $agentLdflags = "-s -w"
+          if (-not [string]::IsNullOrWhiteSpace($env:YASEIR_LICENSE_PUBLIC_KEY_B64)) {
+            $agentLdflags += " -X github.com/yaseir-agent/agent/internal/license.PinnedPublicKeyB64=$($env:YASEIR_LICENSE_PUBLIC_KEY_B64.Trim())"
+          }
+          go build -mod=readonly -trimpath -ldflags="$agentLdflags" -o YaseirAgent.exe ./cmd/agent
           if ($LASTEXITCODE -ne 0) { throw "Windows Agent release build failed" }
           go build -mod=readonly -trimpath -ldflags="-s -w" -o yaseir-agent-cli.exe ./cmd/cli
           if ($LASTEXITCODE -ne 0) { throw "Windows Agent CLI release build failed" }
