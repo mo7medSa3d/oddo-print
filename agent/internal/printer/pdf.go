@@ -137,26 +137,6 @@ func writeSecurePDFTemp(data []byte) (string, func(), error) {
 	return path, cleanup, nil
 }
 
-// printPDFBytesWithResult executes an in-memory PDF renderer directly on
-// doc.Data without round-tripping through a temporary file on disk, while
-// preserving deadline, validation, and job-ID outcome wrapping.
-func printPDFBytesWithResult(ctx context.Context, printerName string, doc Document, printFn func(ctx context.Context, printerName string, data []byte) (string, error)) (string, error) {
-	if err := ValidatePDF(doc.Data); err != nil {
-		return "", err
-	}
-	if err := ValidatePDFPrinterName(printerName); err != nil {
-		return "", fmt.Errorf("refusing to print PDF: %w", err)
-	}
-	if printFn == nil {
-		return "", fmt.Errorf("PDF print result function is nil")
-	}
-	printCtx, cancel := pdfPrintDeadlineContext(ctx)
-	defer cancel()
-
-	spoolerJobID, err := printFn(printCtx, printerName, doc.Data)
-	return finishPrintPDFResult(printerName, doc.JobID, len(doc.Data), spoolerJobID, err)
-}
-
 func pdfPrintDeadlineContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, assigned := ctx.Deadline(); assigned {
 		return context.WithCancel(ctx)

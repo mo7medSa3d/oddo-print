@@ -403,6 +403,26 @@ func platformPrintPDFWithJobID(ctx context.Context, printerName, pdfPath string)
 // before the rest of the synchronous GDI session finishes. onJobID runs in the
 // GDI worker goroutine immediately after StartDocW succeeds; it must be fast
 // and must not touch the HDC.
+// printPDFBytesWithResult executes an in-memory PDF renderer directly on
+// doc.Data without round-tripping through a temporary file on disk, while
+// preserving deadline, validation, and job-ID outcome wrapping.
+func printPDFBytesWithResult(ctx context.Context, printerName string, doc Document, printFn func(ctx context.Context, printerName string, data []byte) (string, error)) (string, error) {
+	if err := ValidatePDF(doc.Data); err != nil {
+		return "", err
+	}
+	if err := ValidatePDFPrinterName(printerName); err != nil {
+		return "", fmt.Errorf("refusing to print PDF: %w", err)
+	}
+	if printFn == nil {
+		return "", fmt.Errorf("PDF print result function is nil")
+	}
+	printCtx, cancel := pdfPrintDeadlineContext(ctx)
+	defer cancel()
+
+	spoolerJobID, err := printFn(printCtx, printerName, doc.Data)
+	return finishPrintPDFResult(printerName, doc.JobID, len(doc.Data), spoolerJobID, err)
+}
+
 func platformPrintPDFWithJobIDObserved(ctx context.Context, printerName, pdfPath string, onJobID func(uint32)) (string, error) {
 	data, err := os.ReadFile(pdfPath)
 	if err != nil {
