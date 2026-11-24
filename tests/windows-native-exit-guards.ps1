@@ -11,7 +11,9 @@ if ($sections.Count -ne 2) { throw "build-windows job definition was not found" 
 $release = $sections[1]
 
 function Get-WorkflowScript([string]$Name) {
-  $step = ($release -split ([regex]::Escape("- name: $Name`n")), 2)[1]
+  # Steps may live in the release job or in the parallel rust-tests-windows
+  # job; both use the same indentation and exit-propagation contract.
+  $step = ($workflow -split ([regex]::Escape("- name: $Name`n")), 2)[1]
   $step = ($step -split "`n      - name:", 2)[0]
   $body = ($step -split "run: \|\r?\n", 2)[1]
   return [scriptblock]::Create(($body -replace '(?m)^          ', ''))
