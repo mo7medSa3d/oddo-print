@@ -10,7 +10,6 @@ import { requireManagerActorInTransaction, ManagerMutationAuthorityChangedError 
 import { ThemeToggle } from "../components/ThemeToggle";
 import { MobileNavigation } from "../components/marketing/MobileNavigation";
 import { LandingMotion } from "../components/marketing/LandingMotion";
-import { SpotlightSurface } from "../components/marketing/SpotlightSurface";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import {
   ArrowRight,
@@ -144,26 +143,25 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
 
       <main id="main-content">
         {/* Hero */}
-        <section className="yw-hero relative isolate overflow-hidden pt-20 pb-20 sm:pt-28 sm:pb-24 lg:pt-32 lg:pb-28">
-          <div className="yw-hero-inner mx-auto flex w-full max-w-[820px] flex-col items-center px-5 text-center sm:px-8">
+        <section className="yw-hero relative isolate overflow-hidden pt-24 pb-14 sm:pt-32 sm:pb-16">
+          <div className="yw-hero-inner mx-auto flex w-full max-w-[900px] flex-col items-center px-5 text-center sm:px-8">
             <p
               data-yw-intro
-              className="glass-pill px-4 py-1.5 text-xs font-medium text-brand-subtle-text"
+              className="text-xs font-semibold uppercase tracking-[0.18em] text-brand"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden="true" />
               {isAr ? "بوابة التراخيص لطباعة أودو" : "Licensing Gateway for Odoo"}
             </p>
 
             <h1
               data-yw-intro
-              className="yw-hero-title mt-7 text-[clamp(2.25rem,5.4vw,3.625rem)] font-[500] leading-[1.08] tracking-tight text-ink"
+              className="yw-hero-title mt-5 text-[clamp(2.5rem,6vw,4rem)] font-[500] leading-[1.06] tracking-tight text-ink"
             >
               {isAr ? "تراخيص طباعة أودو. ببساطة." : "Odoo printing, licensed right."}
             </h1>
 
             <p
               data-yw-intro
-              className="mt-5 max-w-[540px] text-base leading-[1.7] text-ink-2 sm:text-lg"
+              className="mt-5 max-w-[620px] text-base leading-[1.7] text-ink-2 sm:text-lg"
             >
               {isAr
                 ? "بوابة تراخيص سحابية خفيفة تُفعّل الطباعة المباشرة بين أودو والطابعات المحلية دون أي وسيط سحابي."
@@ -224,7 +222,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                   hint: isAr ? "اطبع الفواتير والتقارير بحجم A4 الكامل" : "Print full-size invoices and reports on A4",
                 },
               ].map((clip) => (
-                <figure key={clip.src} data-yw-reveal className="glass-card overflow-hidden p-2 sm:p-3">
+                <figure key={clip.src} data-yw-reveal className="overflow-hidden rounded-2xl border border-edge-subtle bg-surface/40 p-1.5 sm:p-2">
                   <video
                     src={clip.src}
                     poster={clip.poster}
@@ -271,7 +269,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
           <div className="mx-auto w-full max-w-[1120px] px-5 sm:px-8 lg:px-10">
             <div
               data-yw-reveal
-              className="glass-card flex flex-col items-start justify-between gap-6 p-7 sm:p-10 lg:flex-row lg:items-center"
+              className="flex flex-col items-start justify-between gap-6 border-t border-edge-subtle pt-10 lg:flex-row lg:items-center"
             >
               <div className="max-w-[560px]">
                 <h2 className="text-2xl font-[500] leading-[1.18] text-ink">
@@ -305,7 +303,7 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
         </section>
 
         {/* Minimal Footer */}
-        <footer className="border-t border-edge-subtle bg-surface/60 py-10 backdrop-blur-md">
+        <footer className="border-t border-edge-subtle py-10">
           <div className="mx-auto flex w-full max-w-[1120px] flex-col items-center justify-between gap-5 px-5 sm:flex-row sm:px-8 lg:px-10">
             <BrandMark title="Yaseir" subtitle="Print Manager" size="sm" showWordmark />
             <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-ink-3">
@@ -385,13 +383,13 @@ function PillarCard({
   lead: string;
 }) {
   return (
-    <SpotlightSurface className="glass-card p-7 sm:p-8">
-      <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-brand/20 bg-brand-subtle text-brand">
+    <div className="border-t-2 border-brand/25 pt-5">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-subtle text-brand">
         {icon}
       </span>
-      <h2 className="mt-5 text-lg font-[500] text-ink">{title}</h2>
-      <p className="mt-2.5 text-sm leading-relaxed text-ink-2">{lead}</p>
-    </SpotlightSurface>
+      <h2 className="mt-4 text-lg font-[500] text-ink">{title}</h2>
+      <p className="mt-2 text-sm leading-relaxed text-ink-2">{lead}</p>
+    </div>
   );
 }
 

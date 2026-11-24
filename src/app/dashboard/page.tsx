@@ -9,8 +9,6 @@ import {
   Circle,
   CreditCard,
   KeyRound,
-  Settings,
-  Users,
 } from "lucide-react";
 import { db } from "../../db";
 import { apiKeys, odooInstallations, plans, tenantSubscriptions, tenantUsers, tenants } from "../../db/schema";
@@ -27,9 +25,7 @@ import { Button, PageContainer, PageHeader, StatusBadge, type Tone } from "../..
 import {
   DirectPrintHeroSvg,
   DirectTopologySvg,
-  LicenseShieldSvg,
   VisualArchitectureCard,
-  ZeroCloudRelaySvg,
 } from "../../components/DashboardVisuals";
 import { getServerLocale, makeT } from "../../i18n/server";
 
@@ -138,11 +134,9 @@ export default async function DashboardPage() {
     tenant,
     subscription,
     canBilling,
-    canTeam,
     plan,
     activeApiKeys,
     boundOdooDbs,
-    teamCount,
     subscriptionStatus,
   } = snapshot;
   const isActive = subscriptionStatus === "active";
@@ -172,37 +166,6 @@ export default async function DashboardPage() {
     { key: "odoodb", done: boundOdooDbs > 0, label: t("dashboard.checklist.odooBound"), href: boundOdooDbs === 0 ? "/api-keys" : null },
   ];
   const completedSteps = checklist.filter((item) => item.done).length;
-
-  const quickLinks = [
-    ...(canBilling
-      ? [{
-          href: "/billing",
-          icon: <CreditCard className="h-4 w-4" aria-hidden="true" />,
-          title: t("nav.billing"),
-          meta: isActive && plan?.name ? plan.name : t("billing.noPlanSelected"),
-        }]
-      : []),
-    {
-      href: "/api-keys",
-      icon: <KeyRound className="h-4 w-4" aria-hidden="true" />,
-      title: t("home.quickOdooTitle"),
-      meta: t("dashboard.metric.odooKeysValue", { keys: String(activeApiKeys), dbs: String(boundOdooDbs) }),
-    },
-    ...(canTeam
-      ? [{
-          href: "/team",
-          icon: <Users className="h-4 w-4" aria-hidden="true" />,
-          title: t("nav.team"),
-          meta: String(teamCount),
-        }]
-      : []),
-    {
-      href: "/settings",
-      icon: <Settings className="h-4 w-4" aria-hidden="true" />,
-      title: t("nav.settings"),
-      meta: roleLabel(claims.role, t),
-    },
-  ];
 
   return (
     <PageContainer>
@@ -303,31 +266,6 @@ export default async function DashboardPage() {
           </dl>
         </section>
 
-        {/* Quick Workspace Links */}
-        <section className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
-          {quickLinks.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group glass-card-interactive flex items-center justify-between gap-3 p-4 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/35 focus-visible:ring-offset-[3px] focus-visible:ring-offset-app"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-edge bg-surface-2 text-brand">
-                  {item.icon}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-ink">{item.title}</p>
-                  <p className="truncate text-xs tabular-nums text-ink-3">{item.meta}</p>
-                </div>
-              </div>
-              <ArrowRight
-                className="h-4 w-4 shrink-0 text-ink-3 transition-transform group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5"
-                aria-hidden="true"
-              />
-            </Link>
-          ))}
-        </section>
-
         {/* Readiness Checklist */}
         <section className="glass-card p-6">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-edge-subtle pb-4">
@@ -368,25 +306,13 @@ export default async function DashboardPage() {
           </ul>
         </section>
 
-        {/* Compact Direct-Print Architecture Reference */}
-        <section aria-label={t("dashboard.architecture.heading")} className="hidden gap-4 lg:grid lg:grid-cols-3">
-          <VisualArchitectureCard
-            illustration={<LicenseShieldSvg />}
-            badge={t("dashboard.architecture.offlineBadge")}
-            title={t("dashboard.architecture.offlineTitle")}
-            description={t("dashboard.architecture.offlineBody")}
-          />
+        {/* One clear explanation instead of repeating the same promise three times */}
+        <section aria-label={t("dashboard.architecture.heading")} className="grid gap-4">
           <VisualArchitectureCard
             illustration={<DirectTopologySvg />}
             badge={t("dashboard.architecture.directBadge")}
             title={t("dashboard.architecture.directTitle")}
             description={t("dashboard.architecture.directBody")}
-          />
-          <VisualArchitectureCard
-            illustration={<ZeroCloudRelaySvg />}
-            badge={t("dashboard.architecture.privacyBadge")}
-            title={t("dashboard.architecture.privacyTitle")}
-            description={t("dashboard.architecture.privacyBody")}
           />
         </section>
       </div>
