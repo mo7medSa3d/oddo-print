@@ -1,0 +1,250 @@
+package queue
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestCleanupTerminalRemovesOnlyTerminalJobs(t *testing.T) {
+	dbPath := t.TempDir() + "/agent.db"
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer q.Close()
+
+	// Rows that never carried an execution claim (Push-only history) are
+	// unacknowledged under the durable report contract and must be retained by
+	// cleanup. These two simulate a full delivery: execution claim granted by
+	// the Gateway, terminal status recorded, then the report acknowledged
+	// (claim_token cleared) — exactly the rows CleanupTerminal may delete.
+	if err := q.BeginPrint("success-job", "printer-1", []byte("payload"), "claim-success-job", false); err != nil {
+		t.Fatalf("BeginPrint(success-job) error = %v", err)
+	}
+	if err := q.UpdateStatus("success-job", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("success-job", "claim-success-job"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.BeginPrint("failed-job", "printer-1", []byte("payload"), "claim-failed-job", false); err != nil {
+		t.Fatalf("BeginPrint(failed-job) error = %v", err)
+	}
+	if err := q.UpdateStatus("failed-job", "failed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("failed-job", "claim-failed-job"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Push("queued-job", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push(%s) error = %v", "queued-job", err)
+	}
+	if err := q.Push("printing-job", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push(%s) error = %v", "printing-job", err)
+	}
+	if err := q.UpdateStatus("printing-job", "printing"); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := q.CleanupTerminal(0)
+	if err != nil {
+		t.Fatalf("CleanupTerminal() error = %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("CleanupTerminal() deleted = %d, want 2", deleted)
+	}
+
+	for _, id := range []string{"success-job", "failed-job"} {
+		if _, _, found, err := q.Get(id); err != nil {
+			t.Fatal(err)
+		} else if found {
+			t.Fatalf("terminal job %s still exists", id)
+		}
+	}
+	for _, id := range []string{"queued-job", "printing-job"} {
+		if _, _, found, err := q.Get(id); err != nil {
+			t.Fatal(err)
+		} else if !found {
+			t.Fatalf("active job %s was removed", id)
+		}
+	}
+}
+
+func TestCleanupTerminalPreservesPendingGatewayReports(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("pending-cleanup", "printer-1", []byte("payload"), "claim-pending", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateStatusWithError("pending-cleanup", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	deleted, err := q.CleanupTerminal(0)
+	if err != nil {
+		t.Fatalf("CleanupTerminal: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("CleanupTerminal deleted pending report row: %d", deleted)
+	}
+	if _, _, found, err := q.Get("pending-cleanup"); err != nil || !found {
+		t.Fatalf("pending Gateway report row was removed: found=%v err=%v", found, err)
+	}
+}
+
+// EVERY canonical unknown-outcome marker must survive cleanup: deleting a
+// row that carries any unknown-outcome marker destroys the duplicate-print
+// evidence base (the row is the local protection against reprinting a
+// possibly-already-printed document on a later duplicate delivery).
+func TestCleanupTerminalPreservesEveryUnknownOutcomeMarker(t *testing.T) {
+	if len(UnknownOutcomeMarkers) < 2 {
+		t.Fatalf("canonical marker list unexpectedly small: %v", UnknownOutcomeMarkers)
+	}
+	for _, marker := range UnknownOutcomeMarkers {
+		t.Run(marker, func(t *testing.T) {
+			dbPath := t.TempDir() + "/agent.db"
+			q, err := New(dbPath)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			defer q.Close()
+
+			id := "unknown-" + strings.ToLower(strings.ReplaceAll(marker, "_", "-"))
+			// The mark-bearing row must be a fully acknowledged terminal report
+			// (execution token retained, Gateway claim cleared): the strictest
+			// case, where only the unknown-outcome marker protects the row.
+			if err := q.BeginPrint(id, "printer-1", []byte("payload"), "claim-"+id, false); err != nil {
+				t.Fatalf("BeginPrint(%s) error = %v", id, err)
+			}
+			if err := q.UpdateStatusWithError(id, "failed", marker+": evidence detail"); err != nil {
+				t.Fatal(err)
+			}
+			if err := q.ClearClaimToken(id, "claim-"+id); err != nil {
+				t.Fatal(err)
+			}
+
+			deleted, err := q.CleanupTerminal(0)
+			if err != nil {
+				t.Fatalf("CleanupTerminal() error = %v", err)
+			}
+			if _, _, found, err := q.Get(id); err != nil {
+				t.Fatal(err)
+			} else if !found {
+				t.Fatalf("unknown-outcome evidence row %s was deleted by cleanup", id)
+			}
+			_ = deleted
+
+			n, err := q.CountOutcomeUnknown()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n < 1 {
+				t.Fatalf("CountOutcomeUnknown() = %d, want >= 1 for marker %s", n, marker)
+			}
+
+			purged, err := q.PurgeOutcomeUnknown()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if purged < 1 {
+				t.Fatalf("PurgeOutcomeUnknown() = %d, want >= 1 for marker %s", purged, marker)
+			}
+		})
+	}
+}
+
+func TestCleanupTerminalOlderThanPurgesAcknowledgedHistoryAfter48Hours(t *testing.T) {
+	q := newTestQueue(t)
+
+	// Only fully acknowledged terminal rows (execution token retained, Gateway
+	// claim cleared) are eligible for time-based retention. old-unknown is
+	// NOT removed: automatic retention never deletes unknown-outcome rows
+	// at any age (v3 rule) — only the operator purge, after physical
+	// reconciliation and Gateway acknowledgement, may remove that evidence.
+	for _, id := range []string{"old-success", "old-unknown", "recent-success", "active-old"} {
+		if id == "active-old" {
+			if err := q.Push(id, "printer-1", []byte("payload")); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := q.BeginPrint(id, "printer-1", []byte("payload"), "claim-"+id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.UpdateStatus("old-success", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatusWithError("old-unknown", "failed", "UNKNOWN_PARTIAL_DELIVERY: historical evidence"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatus("recent-success", "success"); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the execution claim while clearing the Gateway report claim: the
+	// terminal report was acknowledged and the physical attempt is provable.
+	for _, id := range []string{"old-success", "old-unknown", "recent-success"} {
+		if err := q.ClearClaimToken(id, "claim-"+id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := q.db.Exec(`UPDATE print_jobs SET updated_at = datetime('now', '-49 hours') WHERE id IN ('old-success','old-unknown','active-old')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET updated_at = datetime('now', '-47 hours') WHERE id = 'recent-success'`); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := q.CleanupTerminalOlderThan(48)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("CleanupTerminalOlderThan deleted %d, want 1", deleted)
+	}
+	for _, id := range []string{"old-success"} {
+		if _, _, found, err := q.Get(id); err != nil || found {
+			t.Fatalf("old terminal job %s was not removed: found=%v err=%v", id, found, err)
+		}
+	}
+	for _, id := range []string{"old-unknown", "recent-success", "active-old"} {
+		if _, _, found, err := q.Get(id); err != nil || !found {
+			t.Fatalf("job %s should remain: found=%v err=%v", id, found, err)
+		}
+	}
+}
+
+// Manual maintenance cannot erase a terminal report that has not yet been
+// acknowledged by the Gateway. On a reconnect that claim token is the sole
+// durable evidence needed to report the physical outcome without reprinting.
+func TestPurgeOutcomeUnknownPreservesUnacknowledgedReport(t *testing.T) {
+	q := newTestQueue(t)
+	for _, id := range []string{"pending-unknown", "acknowledged-unknown"} {
+		if err := q.BeginPrint(id, "printer-1", []byte("receipt"), "claim-"+id, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := q.UpdateStatusWithError(id, "failed", "UNKNOWN_PARTIAL_DELIVERY: outcome uncertain"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.ClearClaimToken("acknowledged-unknown", "claim-acknowledged-unknown"); err != nil {
+		t.Fatal(err)
+	}
+	purged, err := q.PurgeOutcomeUnknown()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if purged != 1 {
+		t.Fatalf("PurgeOutcomeUnknown removed %d, expected only acknowledged record", purged)
+	}
+	pending, err := q.PendingTerminalReports(10)
+	if err != nil || len(pending) != 1 || pending[0].ID != "pending-unknown" || pending[0].ClaimToken != "claim-pending-unknown" {
+		t.Fatalf("pending terminal report was erased or corrupted: %+v err=%v", pending, err)
+	}
+	if _, _, found, err := q.Get("acknowledged-unknown"); err != nil || found {
+		t.Fatalf("acknowledged record not purged: found=%v err=%v", found, err)
+	}
+	n, err := q.CountOutcomeUnknown()
+	if err != nil || n != 1 {
+		t.Fatalf("CountOutcomeUnknown = %d, %v; expected one pending record", n, err)
+	}
+}

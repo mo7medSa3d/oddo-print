@@ -1,0 +1,43 @@
+server:
+  # Remote Gateways MUST use HTTPS. An isolated development Agent may set
+  # YASEIR_AGENT_ALLOW_INSECURE_HTTP=1 to connect to a loopback HTTP URL only.
+  # The opt-in never permits remote plaintext credentials, including LAN IPs.
+  # Do not enable it on production services.
+  url: "https://your-print-gateway.example.com"
+
+agent:
+  id: ""
+  secret: ""
+  name: "Main Office Agent"
+  # Deprecated compatibility field: both false and legacy true forbid automatic
+  # reprinting of unknown output. Reconcile, then authorize a separate new job.
+  reprint_after_crash: false
+
+printers:
+  # Direct TCP jobs and local test prints require live SNMP Printer-MIB identity;
+  # an open TCP 9100 port alone does not authorize output. Use an installed
+  # Windows spooler queue when the printer cannot provide that identity.
+  - id: "printer_kitchen"
+    name: "Kitchen Printer"
+    type: "network"
+    endpoint: "192.168.1.50:9100"
+    protocol: "escpos"
+
+  # USB printers can be represented through the Windows spooler backend when a
+  # local Windows queue is available. Direct raw USB is intentionally not used
+  # as a network transport.
+  - id: "printer_receipt"
+    name: "Front Desk Printer"
+    type: "network"
+    endpoint: "192.168.1.51:9100"
+    protocol: "raw"
+
+  # Windows OS spooler printer example (A4 reports, laser, USB thermal via driver):
+  # - id: "printer_office_a4"
+  #   name: "Office Laser Printer"
+  #   type: "spooler"
+  #   connection_type: "spooler"
+  #   printer_type: "laser"
+  #   spooler_name: "HP LaserJet Pro MFP"
+  #   protocol: "windows_spooler"
+  #   enabled: true

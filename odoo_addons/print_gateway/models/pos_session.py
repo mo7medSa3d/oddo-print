@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""POS session entry points for client-rendered print paths."""
+
+from odoo import models, _
+from odoo.exceptions import ValidationError
+
+
+class PosSessionGatewayPrinting(models.Model):
+    _inherit = "pos.session"
+
+    def is_gateway_printing_enabled(self):
+        self.ensure_one()
+        self.check_access("read")
+        if self.company_id != self.env.company:
+            raise ValidationError(_("Gateway printing must use the active Odoo company."))
+        return bool(self.env["print_gateway.print_router"]._print_config(self.env.company))
+
+    def get_gateway_sale_details_geometry(self):
+        """Sale Details shares the same POS receipt printer binding."""
+        self.ensure_one()
+        self.check_access("read")
+        if self.company_id != self.env.company:
+            raise ValidationError(_("Gateway printing must use the active Odoo company."))
+        router = self.env["print_gateway.print_router"]
+        route = router.resolve_binding(
+            company=self.env.company,
+            document_type="receipt",
+            explicit_destination=self.config_id,
+            raise_if_not_found=False,
+        )
+        return router._receipt_geometry_for_route(route)
+
+    def action_print_gateway_sale_details(self, image, operation_id=None, geometry_fingerprint=None):
+        self.ensure_one()
+        self.check_access("read")
+        if not image:
+            raise ValidationError(_("The rendered Sale Details image is required."))
+        return self.env["print_gateway.print_router"].route_pos_sale_details(
+            self, image, idempotency_key=operation_id, geometry_fingerprint=geometry_fingerprint,
+        )

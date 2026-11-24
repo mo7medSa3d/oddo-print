@@ -1,0 +1,117 @@
+//go:build !windows
+
+package printer
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func discoverUSBPrinters() ([]DeviceInfo, error) {
+	log.Printf("[discovery] USB discovery: not available on non-Windows (requires SetupDi on Windows)")
+	return nil, nil
+}
+
+// USBPrinter on non-Windows platforms has no raw USB printing capability.
+// The truthful default is a failure. File writes happen only under the
+// explicit ODOO_PRINT_AGENT_ALLOW_SIMULATED_TRANSPORT=1 development opt-in.
+type USBPrinter struct {
+	ID             string
+	Name           string
+	VID            uint16
+	PID            uint16
+	SerialNumber   string
+	DevicePath     string
+	USBLocation    string
+	Protocol       string
+	SupportsESCPOS bool
+	Geometry       *Geometry
+}
+
+func (p *USBPrinter) Identify() string {
+	if p.SerialNumber != "" && p.SerialNumber != "0" {
+		return fmt.Sprintf("USB-SN:%s", p.SerialNumber)
+	}
+	if p.USBLocation != "" {
+		return fmt.Sprintf("USB-LOC:%s", p.USBLocation)
+	}
+	return fmt.Sprintf("USB-VIDPID:%04x:%04x", p.VID, p.PID)
+}
+
+func (p *USBPrinter) Print(ctx context.Context, data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("refusing to print empty payload")
+	}
+	if len(data) > maxPrintBytes {
+		return fmt.Errorf("payload %d exceeds %d limit", len(data), maxPrintBytes)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if simulatedTransportAllowed() && p.DevicePath != "" && filepath.IsAbs(p.DevicePath) {
+		if err := runDispatchAdmission(ctx); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p.DevicePath, data, 0600); err != nil {
+			return fmt.Errorf("SIMULATED_TRANSPORT: USB write to %s failed: %w", p.DevicePath, err)
+		}
+		return fmt.Errorf("SIMULATED_TRANSPORT: USB diagnostic file written; no physical printer submission occurred")
+	}
+	return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: direct USB printing is only available on Windows with a valid device path; install %s as a Windows spooler queue and route the job there; nothing was sent", p.Identify())
+}
+
+func (p *USBPrinter) Test(ctx context.Context) error {
+	return p.Print(ctx, []byte("USB Test Print"))
+}
+
+func (p *USBPrinter) Status() string {
+	// Unprovable from this platform.
+	return "unknown"
+}
+
+func (p *USBPrinter) SupportsKind(kind string) bool {
+	proto := strings.ToLower(strings.TrimSpace(p.Protocol))
+	switch NormalizeKind(kind) {
+	case KindRaw:
+		return proto == "raw" || proto == "escpos" || proto == "zpl" || proto == "tspl"
+	case KindESCPOS:
+		return proto == "escpos" && p.SupportsESCPOS
+	case KindZPL:
+		return proto == "zpl"
+	case KindTSPL:
+		return proto == "tspl"
+	case KindLabel:
+		return proto == "zpl" || proto == "tspl"
+	case KindImage:
+		return proto == "escpos" && rasterGeometryReady(p.Geometry)
+	default:
+		return false
+	}
+}
+
+func (p *USBPrinter) PrintDocument(ctx context.Context, doc Document) error {
+	if NormalizeKind(doc.Kind) == KindImage {
+		data, err := prepareESCPOSImageForDispatch(ctx, p.Protocol, p.Geometry, doc)
+		if err != nil {
+			return fmt.Errorf("render image for USB printer: %w", err)
+		}
+		return p.Print(ctx, data)
+	}
+	if !p.SupportsKind(doc.Kind) {
+		return CapabilityMismatchf("USB printer %s cannot render %s payloads", p.Name, NormalizeKind(doc.Kind))
+	}
+	return p.Print(ctx, doc.Data)
+}
+
+func (p *USBPrinter) PrinterGeometry(ctx context.Context) (*Geometry, error) {
+	if err := p.Geometry.Validate(); err != nil {
+		return nil, err
+	}
+	return p.Geometry, nil
+}

@@ -1,0 +1,2159 @@
+@import "tailwindcss";
+@import "../../typography/tokens.css";
+
+/* ============================================================
+   YASEIR / TAILGRIDS-INSPIRED VISUAL SYSTEM 3.0
+   One token layer for the Gateway console, the Platform control
+   plane, the auth/marketing surfaces, and the Desktop Manager.
+
+   Principles
+   - TailGrids-style composable cards, navigation, forms and status chips.
+   - Calm blue brand, soft dimensional surfaces and spacious typography.
+   - Ambient motion respects reduced-motion; product videos play independently of scroll.
+   - One shared token system for Gateway and Desktop, including RTL.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- Brand: Yaseir blue (brand identity blue; refreshed shell accent) ---------- */
+  /* Design Guide v2.1 primary: #0953DE (600 = primary). Ramp rebuilt
+     around it; white on --brand-solid is 6.36:1, on hover 8.39:1. */
+  --brand-50: #eef4ff;
+  --brand-100: #dce8ff;
+  --brand-200: #b9d0ff;
+  --brand-300: #8ab0ff;
+  --brand-400: #5a8dff;
+  --brand-500: #2e6be6;
+  --brand-600: #0953de;
+  --brand-700: #0744b5;
+  --brand-800: #06348e;
+  --brand-900: #0a2540;
+  --brand-950: #081a30;
+
+  --brand: #0953de;
+  --brand-hover: #0744b5;
+  --brand-active: #06348e;
+  /* Solid tints used behind white label text (primary buttons, step markers).
+     They are darker than --brand-hover so 1.4.3 stays satisfied at weight 560
+     (white on the selected blue must remain readable); every other brand use stays on --brand. */
+  --brand-solid: #0953de;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #eaf1fe;
+  --brand-subtle-hover: #dce8ff;
+  --brand-subtle-border: #b9d0ff;
+  --brand-subtle-text: #0743b8;
+  --brand-ring: rgba(9, 83, 222, 0.22);
+  /* Design Guide v2.1 secondaries — dark text ONLY on top (white on cyan
+     is 1.99:1; ink on cyan 9.42:1, on yellow 14.67:1, on pink 8.34:1). */
+  --secondary-cyan: #00c7fc;
+  --secondary-yellow: #ffe451;
+  --secondary-pink: #f48cc0;
+  /* Logo file colours — referenced for documentation only, never used as
+     UI paint and never recoloured. */
+  --mark-yaseir: #0059ff;
+  --mark-kun: #0f5cff;
+
+  /* ---------- Neutral surfaces ---------- */
+  --bg: #f5f7fa;
+  --bg-subtle: #fbfcfe;
+  --surface: #ffffff;
+  --surface-2: #f1f4f9;
+  --surface-3: #e6eaf2;
+  --surface-hover: #edf1f8;
+  --surface-accent: #eaf1fe;
+  --surface-accent-2: #dce8ff;
+  --surface-elevated: #ffffff;
+  --surface-overlay: rgba(255, 255, 255, 0.78);
+  --surface-glass: rgba(255, 255, 255, 0.68);
+  --surface-glass-border: rgba(255, 255, 255, 0.72);
+  --surface-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+
+  --border: #e2e7f0;
+  --border-strong: #c7cedd;
+  --border-accent: #b9d0ff;
+  --border-subtle: #edf0f7;
+  --divider: #e8ecf4;
+  /* Boundary of a form control. WCAG 2.2 SC 1.4.11 asks for 3:1 against the
+     surface a control sits on, which decorative separators do not have to
+     meet — so inputs, selects and checkboxes use this stronger edge instead of
+     --border-strong (3.9:1 on white, 3.4:1 on a raised panel). */
+  --control-border: #6b7280;
+
+  /* ---------- Ink ---------- */
+  --text: #101219;
+  --text-2: #3d4457;
+  /* Meta and hint tiers. Both clear 4.5:1 on every surface this product paints
+     (page, card, raised panel, brand tint) — measured 5.2:1 and 4.6:1 on the
+     darkest light surface (--surface-3). */
+  --text-3: #5a6376;
+  --text-4: #616876;
+  --text-on-brand: #ffffff;
+  --text-on-solid: #ffffff;
+  --text-display: #101219;
+
+  /* ---------- Semantic status ---------- */
+  /* WP2 strong semantic palette: saturated bg + strong border so a badge
+     never disappears on white. Text-on-bg ratios: success 6.62, warning
+     6.22, error 5.40, info 5.33 — all >= 4.5:1. Info is teal, deliberately
+     distinct from primary #0953DE where confusion is possible. */
+  --success: #145a32;
+  --success-solid: #1b7a43;
+  --success-bg: #cdeed6;
+  --success-border: #2e7d4f;
+
+  --warning: #7a4a00;
+  --warning-solid: #96630a;
+  --warning-bg: #ffe9a8;
+  --warning-border: #b77900;
+
+  --danger: #b42318;
+  --danger-solid: #c7351f;
+  --danger-bg: #fde3e0;
+  --danger-border: #d6453a;
+
+  --info: #0f6b7e;
+  --info-solid: #0e7c8e;
+  --info-bg: #ddf3f7;
+  --info-border: #2aa5b8;
+
+  --notice-bg: #ffe9a8;
+  --notice-border: #b77900;
+  --notice-text: #7a4a00;
+  --notice-icon: #96630a;
+
+  /* ---------- Focus / overlay ---------- */
+  /* Guide: focus ring 3px + 3px gap. */
+  --focus-ring: #0953de;
+  --focus-ring-shadow: 0 0 0 3px rgba(9, 83, 222, 0.25);
+  --focus-ring-inset: 0 0 0 3px rgba(255, 255, 255, 0.9);
+  --overlay: rgba(15, 18, 26, 0.4);
+  --overlay-soft: rgba(15, 18, 26, 0.16);
+
+  /* ---------- Radius scale — restrained operational geometry ---------- */
+  --r-xs: 6px;
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-2xl: 20px;
+  --r-3xl: 24px;
+  --r-pill: 9999px;
+
+  /* ---------- Elevation: layered and low-contrast ---------- */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 2px 4px rgba(16, 24, 40, 0.04), 0 6px 16px rgba(16, 24, 40, 0.07);
+  --shadow-lg: 0 4px 8px rgba(16, 24, 40, 0.05), 0 16px 32px rgba(16, 24, 40, 0.09);
+  --shadow-xl: 0 8px 16px rgba(16, 24, 40, 0.06), 0 28px 56px rgba(16, 24, 40, 0.12);
+  --shadow-2xl: 0 12px 24px rgba(16, 24, 40, 0.08), 0 40px 80px rgba(16, 24, 40, 0.16);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.03), 0 8px 24px rgba(16, 24, 40, 0.045);
+  --shadow-card-hover: 0 4px 12px rgba(16, 24, 40, 0.055), 0 18px 40px rgba(16, 24, 40, 0.075);
+  --shadow-glass: 0 1px 2px rgba(16, 24, 40, 0.03), 0 12px 32px -4px rgba(16, 24, 40, 0.06);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  /* ---------- Type scale ---------- */
+  /* Relative roles respect browser text preferences: primary copy 18px,
+     supporting copy 16px, and compact labels 14px at the default root size. */
+  /* Guide type scale: body 16px, fields/tables 14px, help 12px,
+     card 18px, section 24px, page title 32–40px; line-height 1.6–1.8. */
+  --fs-2xs: 0.75rem;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-body: 1rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-title: 1.125rem;
+  --fs-xl: 1.125rem;
+  --fs-2xl: 1.5rem;
+  --fs-3xl: 2rem;
+  --fs-display: 2.25rem;
+  --fs-display-lg: 2.5rem;
+
+  --lh-tight: 1.25;
+  --lh-snug: 1.5;
+  --lh-normal: 1.7;
+  --lh-relaxed: 1.8;
+
+  --tracking-tight: -0.012em;
+  --tracking-tighter: -0.022em;
+  --tracking-display: -0.028em;
+  --tracking-label: 0.045em;
+
+  /* ---------- Motion ---------- */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-normal: 220ms;
+  --dur-slow: 300ms;
+  --dur-slower: 420ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.32, 1.28, 0.62, 1);
+
+  /* ---------- Layout ---------- */
+  /* Guide sidebar: 272px full / 80px collapsed; desktop margins 24–40px;
+     sections 40–48px apart. */
+  --sidebar-width: 17rem;
+  --sidebar-collapsed: 5rem;
+  --header-height: 64px;
+  --content-max: 1440px;
+  --content-max-wide: 1680px;
+  --page-px: 24px;
+  --page-py: 40px;
+  --card-pad: 24px;
+
+  /* ---------- Control geometry ---------- */
+  /* Guide buttons: 44px standard, 48px marketing. */
+  --control-h-sm: 2.5rem;
+  --control-h-md: 2.75rem;
+  --control-h-lg: 3rem;
+
+  /* ---------- Platform (control plane) accent ---------- */
+  --platform-accent: #2563eb;
+  --platform-bg: #0b1018;
+  --platform-surface: #111824;
+  --platform-border: #202b3a;
+  --platform-text: #f4f7fb;
+  --platform-muted: #93a4b8;
+}
+
+/* Dark theme — bound to data-theme (see @custom-variant dark below),
+   never to prefers-color-scheme at the utility level. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --brand-50: #0c1729;
+  --brand-100: #10203a;
+  --brand-200: #142c50;
+  --brand-300: #1c3f70;
+  --brand-400: #2456a0;
+  --brand-500: #3b82f6;
+  --brand-600: #4f8ffa;
+  --brand-700: #1d64d8;
+  --brand-800: #1852b4;
+  --brand-900: #143f8c;
+  --brand-950: #0f2c63;
+
+  /* Dark link/text brand lightened for contrast (9.39:1 on #121417);
+     button solid stays saturated blue (white 4.77:1). Dark mode is an
+     explicit token set, never a filter inversion. */
+  --brand: #8dbbff;
+  --brand-hover: #a5c8ff;
+  --brand-active: #2b7de8;
+  --brand-solid: #1e6fe0;
+  --brand-contrast: #ffffff;
+  --brand-subtle: #10203a;
+  --brand-subtle-hover: #142a4b;
+  --brand-subtle-border: #1e4180;
+  --brand-subtle-text: #8fbaff;
+  --brand-ring: rgba(141, 187, 255, 0.34);
+  --secondary-cyan: #00c7fc;
+  --secondary-yellow: #ffe451;
+  --secondary-pink: #f48cc0;
+  --mark-yaseir: #0059ff;
+  --mark-kun: #0f5cff;
+
+  --bg: #08090c;
+  --bg-subtle: #0c0e12;
+  --surface: #121417;
+  --surface-2: #191c21;
+  --surface-3: #23272e;
+  --surface-hover: #191d22;
+  --surface-accent: #101c31;
+  --surface-accent-2: #142644;
+  --surface-elevated: #171a1f;
+  --surface-overlay: rgba(18, 20, 23, 0.76);
+  --surface-glass: rgba(20, 23, 28, 0.66);
+  --surface-glass-border: rgba(255, 255, 255, 0.09);
+  --surface-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+
+  --border: #24272e;
+  --border-strong: #33373f;
+  --border-accent: #1e4180;
+  --border-subtle: #1c1f25;
+  --divider: #22252b;
+  --control-border: #6b7178;
+
+  --text: #f3f4f6;
+  --text-2: #c8ccd4;
+  --text-3: #9aa0aa;
+  --text-4: #8b9199;
+  --text-on-brand: #ffffff;
+  --text-on-solid: #ffffff;
+  --text-display: #f8f9fb;
+
+  /* Dark semantic ratios (text on bg): success 8.21, warning 10.38, error 8.40, info 9.55. */
+  --success: #7ed492;
+  --success-solid: #1d8148;
+  --success-bg: #0f2e1c;
+  --success-border: #4caf6d;
+
+  --warning: #f5c86b;
+  --warning-solid: #9a6508;
+  --warning-bg: #2a1e05;
+  --warning-border: #d9a441;
+
+  --danger: #ff9a8a;
+  --danger-solid: #d0452e;
+  --danger-bg: #2b1513;
+  --danger-border: #e0685a;
+
+  --info: #7ed4e3;
+  --info-solid: #2f6fbf; /* white on solid 5.06:1 (was #3d7dcc at 4.20:1, below the 4.5:1 bar — Worker B conflict resolved, same value as Desktop) */
+  --info-bg: #0a242b;
+  --info-border: #3fa8b8;
+
+  --notice-bg: #2a1e05;
+  --notice-border: #d9a441;
+  --notice-text: #f5c86b;
+  --notice-icon: #e5a32b;
+
+  --focus-ring: #8dbbff;
+  --focus-ring-shadow: 0 0 0 3px rgba(141, 187, 255, 0.3);
+  --overlay: rgba(0, 0, 0, 0.62);
+  --overlay-soft: rgba(0, 0, 0, 0.4);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.42), 0 10px 22px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.46), 0 18px 38px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 6px 14px rgba(0, 0, 0, 0.5), 0 26px 56px rgba(0, 0, 0, 0.46);
+  --shadow-2xl: 0 10px 20px rgba(0, 0, 0, 0.5), 0 38px 76px rgba(0, 0, 0, 0.52);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.34), 0 10px 26px rgba(0, 0, 0, 0.28);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.42), 0 20px 42px rgba(0, 0, 0, 0.38);
+  --shadow-glass: 0 2px 6px rgba(0, 0, 0, 0.32), 0 16px 36px -6px rgba(0, 0, 0, 0.4);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --platform-accent: #5d99ff;
+  --platform-bg: #08090c;
+  --platform-surface: #121417;
+  --platform-border: #24272e;
+  --platform-text: #f3f4f6;
+  --platform-muted: #9aa0aa;
+}
+
+/* Theming hook for Tailwind utilities: `dark:` follows the app's
+   data-theme attribute (pre-paint script / ThemeToggle), not the OS at
+   paint time — the OS is already resolved into that attribute. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------- Tailwind theme bindings ----------
+   Plain @theme keeps utilities referencing var(--…), so flipping
+   data-theme at runtime repaints every surface. */
+@theme {
+  --color-app: var(--bg);
+  --color-app-subtle: var(--bg-subtle);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-accent: var(--surface-accent);
+  --color-surface-accent-2: var(--surface-accent-2);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-edge: var(--border);
+  --color-edge-strong: var(--border-strong);
+  --color-edge-accent: var(--border-accent);
+  --color-edge-subtle: var(--border-subtle);
+  --color-divider: var(--divider);
+  --color-control: var(--control-border);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-ink-4: var(--text-4);
+  --color-ink-display: var(--text-display);
+  --color-on-solid: var(--text-on-solid);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+  --color-brand-solid: var(--brand-solid);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-subtle-hover: var(--brand-subtle-hover);
+  --color-brand-subtle-text: var(--brand-subtle-text);
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+  --color-ok: var(--success);
+  --color-ok-solid: var(--success-solid);
+  --color-ok-bg: var(--success-bg);
+  --color-ok-edge: var(--success-border);
+  --color-warn: var(--warning);
+  --color-warn-solid: var(--warning-solid);
+  --color-warn-bg: var(--warning-bg);
+  --color-warn-edge: var(--warning-border);
+  --color-bad: var(--danger);
+  --color-bad-solid: var(--danger-solid);
+  --color-bad-bg: var(--danger-bg);
+  --color-bad-edge: var(--danger-border);
+  --color-info: var(--info);
+  --color-info-solid: var(--info-solid);
+  --color-info-bg: var(--info-bg);
+  --color-info-edge: var(--info-border);
+  --color-secondary-cyan: var(--secondary-cyan);
+  --color-secondary-yellow: var(--secondary-yellow);
+  --color-secondary-pink: var(--secondary-pink);
+
+  /* One family system for Web, Desktop and the Odoo add-on. Both faces carry
+     Latin glyphs, so the ORDER decides which one renders English text: the
+     Latin face leads in LTR and the Arabic face leads in RTL. The tokens
+     carry the var() fallbacks, so the stack stays valid where the Next.js
+     font variables are absent (Desktop, Odoo). */
+  --font-sans: var(--typo-font-stack-latin);
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* `sg` = the radius of an inset surface group (callout, notice, toolbar,
+     dialog section). Declared here because 55 call sites already use
+     `rounded-sg`; without the token Tailwind emits nothing and those surfaces
+     paint square corners next to 12px cards. */
+  --radius-sg: var(--r-lg);
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-3xl: var(--r-3xl);
+  --radius-card: var(--r-2xl);
+  --radius-panel: var(--r-3xl);
+  --radius-control: var(--r-md);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
+  --shadow-card: var(--shadow-card);
+
+  /* Type scale — every text-* utility resolves to one of these roles. */
+  --text-2xs: var(--fs-2xs);
+  --text-2xs--line-height: 1.6;
+  --text-xs: var(--fs-xs);
+  --text-xs--line-height: 1.6;
+  --text-sm: var(--fs-sm);
+  --text-sm--line-height: 1.65;
+  --text-base: var(--fs-body);
+  --text-base--line-height: 1.7;
+  --text-md: var(--fs-md);
+  --text-md--line-height: 1.7;
+  --text-lg: var(--fs-lg);
+  --text-lg--line-height: 1.65;
+  --text-xl: var(--fs-title);
+  --text-xl--line-height: 1.5;
+  --text-2xl: var(--fs-2xl);
+  --text-2xl--line-height: 1.4;
+  --text-3xl: var(--fs-3xl);
+  --text-3xl--line-height: 1.3;
+  --text-4xl: var(--fs-display);
+  --text-4xl--line-height: 1.15;
+  --text-5xl: var(--fs-display-lg);
+  --text-5xl--line-height: 1.08;
+
+  /* Print scale — the same six roles as typography/tokens.css, in the screen
+     (px) equivalent. Components reference these instead of a raw size. */
+  --text-print-display: var(--typo-fs-display-px);
+  --text-print-display--line-height: var(--typo-lh-mixed);
+  --text-print-section: var(--typo-fs-section-px);
+  --text-print-section--line-height: var(--typo-lh-mixed);
+  --text-print-body: var(--typo-fs-body-px);
+  --text-print-body--line-height: var(--typo-lh-mixed);
+  --text-print-emphasis: var(--typo-fs-emphasis-px);
+  --text-print-emphasis--line-height: var(--typo-lh-mixed);
+  --text-print-label: var(--typo-fs-label-px);
+  --text-print-label--line-height: var(--typo-lh-mixed);
+  --text-print-footer: var(--typo-fs-footer-px);
+  --text-print-footer--line-height: var(--typo-lh-mixed);
+
+  --ease-out: var(--ease-out);
+  --ease-spring: var(--ease-spring);
+}
+
+/* ============================================================
+   Gateway font stack — SERVED THMANYAH (v9-font), via the shared spec.
+   Thmanyah Sans is served from this origin under the project's
+   purchased Thmanyah licence (owner-held; licence document is not
+   committed to the repo). next/font/local in layout.tsx emits the
+   @font-face rules for ./fonts/thmanyah/*.woff2 under the
+   --font-thmanyah variable. Since v10-exact, the shared
+   typography/tokens.css itself leads both stacks with Thmanyah
+   (served OFL-licensed IBM Plex second as fallback, literal
+   "Thmanyah Sans" covering the variable-absent case), so no Gateway
+   :root override is needed anymore — the import at the top of this
+   file carries the stack, and Desktop/Odoo consume the same spec.
+   No external font CDN is used: every face is served from this
+   origin (the CSP already allows font-src 'self').
+   ============================================================ */
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+
+  html {
+    background: var(--bg);
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--fs-body);
+    line-height: var(--lh-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Served primary is Thmanyah; these stylistic sets apply when the
+       IBM Plex fallback renders. A Thmanyah face ignores feature tags
+       it does not define, and the RTL body rule below still forces
+       normal for Arabic. */
+    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+  }
+
+  html[dir="rtl"] {
+    /* Right-to-left documents lead with the Arabic face. */
+    --font-sans: var(--typo-font-stack-arabic);
+  }
+
+  html[dir="rtl"] body {
+    font-family: var(--font-sans);
+    font-feature-settings: normal;
+  }
+
+  /* Arabic letterforms should keep their native joins; negative tracking that
+     looks polished in Latin can visibly damage Arabic word shapes. */
+  html[dir="rtl"] h1,
+  html[dir="rtl"] h2,
+  html[dir="rtl"] h3,
+  html[dir="rtl"] h4,
+  html[dir="rtl"] h5,
+  html[dir="rtl"] h6 {
+    letter-spacing: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--text-display);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
+  /* One display voice: page titles. Section titles use `text-lg`+. */
+  h1 {
+    font-size: var(--fs-display);
+    line-height: var(--lh-tight);
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+  h2 {
+    font-size: var(--fs-2xl);
+    line-height: var(--lh-tight);
+  }
+  h3 {
+    font-size: var(--fs-xl);
+    line-height: var(--lh-snug);
+  }
+  h4 {
+    font-size: var(--fs-md);
+    line-height: var(--lh-snug);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  a {
+    text-underline-offset: 2px;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: var(--brand-200);
+    color: var(--brand-900);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--r-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-4);
+    background-clip: content-box;
+  }
+
+  /* ---------- Motion primitives ---------- */
+  @keyframes yz-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes yz-rise-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes yz-scale-in {
+    from { opacity: 0; transform: scale(0.985); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes yz-slide-in-right {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes yz-slide-in-left {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes yz-toast-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes yz-menu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes yz-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes yz-pulse-ring {
+    0% { transform: scale(0.85); opacity: 0.55; }
+    70% { transform: scale(2.1); opacity: 0; }
+    100% { transform: scale(2.1); opacity: 0; }
+  }
+  @keyframes yz-breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  @keyframes yz-indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(320%); }
+  }
+  @keyframes yz-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .yz-fade-in { animation: yz-fade-in var(--dur-fast) var(--ease-out) both; }
+  .yz-rise-in { animation: yz-rise-in var(--dur-normal) var(--ease-out) both; }
+  .yz-scale-in { animation: yz-scale-in var(--dur-normal) var(--ease-out) both; }
+  .yz-slide-in-right { animation: yz-slide-in-right var(--dur-slow) var(--ease-out) both; }
+  .yz-slide-in-left { animation: yz-slide-in-left var(--dur-slow) var(--ease-out) both; }
+  .yz-toast-in { animation: yz-toast-in var(--dur-slow) var(--ease-spring) both; }
+  .yz-menu-in { animation: yz-menu-in var(--dur-fast) var(--ease-out) both; transform-origin: top right; }
+  .yz-breathe { animation: yz-breathe 2.4s var(--ease-in-out) infinite; }
+
+  /* Legacy aliases kept so existing screens animate identically. */
+  .pg-fade-in { animation: yz-fade-in var(--dur-fast) var(--ease-out) both; }
+  .pg-rise-in { animation: yz-rise-in var(--dur-normal) var(--ease-out) both; }
+  .pg-scale-in { animation: yz-scale-in var(--dur-normal) var(--ease-out) both; }
+  .pg-slide-in-right { animation: yz-slide-in-right var(--dur-slow) var(--ease-out) both; }
+  .pg-toast-in { animation: yz-toast-in var(--dur-slow) var(--ease-spring) both; }
+
+  .page-transition {
+    animation: yz-rise-in var(--dur-normal) var(--ease-out) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ============================================================
+   Components — the shared visual vocabulary
+   ============================================================ */
+
+@layer components {
+  /* ---------- Surfaces ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-elevated {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Flat grouping surface: for content inside a card or on the app
+     background where a second shadow would add noise. */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+  }
+
+  .billing-premium {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .balance-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .section-rule {
+    border-top: 1px solid var(--divider);
+  }
+
+  .inset-panel {
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-lg);
+  }
+
+  .surface-accent {
+    background: var(--surface-accent);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--r-lg);
+  }
+
+  .card-interactive {
+    transition:
+      transform var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      border-color var(--dur-normal) var(--ease-out),
+      background-color var(--dur-normal) var(--ease-out);
+  }
+
+  .card-interactive:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .brand-hairline {
+    position: relative;
+  }
+  .brand-hairline::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--brand), transparent);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .canvas-wash {
+    background: var(--bg);
+  }
+
+  /* Quiet ambient light behind shell surfaces. Deliberately below the
+     threshold of "decoration": one soft brand-tinted glow, no banding. */
+  .ambient-surface {
+    position: relative;
+    background: var(--bg);
+  }
+  .ambient-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, var(--surface-accent) 0, transparent 28%);
+    opacity: 0.32;
+  }
+
+  .glass-chrome {
+    background: var(--surface-overlay);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+  }
+
+  /* iOS 27 translucent glass surfaces — luminous, calm, high-contrast safe. */
+  .glass-card {
+    background: var(--surface-glass);
+    border: 1px solid color-mix(in srgb, var(--border) 78%, var(--surface-glass-border));
+    border-radius: var(--r-2xl);
+    box-shadow: var(--shadow-glass), var(--surface-glass-highlight);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+
+  .glass-card-interactive {
+    background: var(--surface-glass);
+    border: 1px solid color-mix(in srgb, var(--border) 78%, var(--surface-glass-border));
+    border-radius: var(--r-2xl);
+    box-shadow: var(--shadow-glass), var(--surface-glass-highlight);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    transition:
+      transform var(--dur-normal) var(--ease-out),
+      border-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      background-color var(--dur-normal) var(--ease-out);
+  }
+
+  .glass-card-interactive:hover {
+    transform: translateY(-2px);
+    background: var(--surface-overlay);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-card-hover), var(--surface-glass-highlight);
+  }
+
+  .glass-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: var(--r-pill);
+    border: 1px solid color-mix(in srgb, var(--border) 80%, var(--surface-glass-border));
+    background: var(--surface-glass);
+    box-shadow: var(--shadow-xs), var(--surface-glass-highlight);
+    backdrop-filter: blur(18px) saturate(165%);
+    -webkit-backdrop-filter: blur(18px) saturate(165%);
+  }
+
+  .page-header {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-overlay);
+    backdrop-filter: blur(12px);
+  }
+
+  .menu-surface {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .menu-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--control-h-md);
+    border-radius: var(--r-sm);
+    padding: 8px 10px;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  }
+  .menu-item:hover,
+  .menu-item[data-highlighted] {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .menu-item[data-variant="danger"] {
+    color: var(--danger);
+  }
+  .menu-item[data-variant="danger"]:hover {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+
+  /* ---------- Typography helpers ---------- */
+  .label-caps {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .text-display {
+    color: var(--text-display);
+    font-size: var(--fs-3xl);
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: var(--lh-tight);
+  }
+
+  .text-eyebrow {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .text-meta {
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+  }
+
+  .text-financial {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .text-financial-lg {
+    font-variant-numeric: tabular-nums;
+    font-size: var(--fs-3xl);
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.1;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .kbd {
+    display: inline-flex;
+    min-width: 20px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: var(--r-xs);
+    background: var(--surface-2);
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--text-3);
+  }
+
+  /* ---------- Focus ---------- */
+  .focusable {
+    outline: none;
+  }
+  .focusable:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+  .ring-focus:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring-shadow);
+    border-color: var(--brand);
+  }
+
+  /* ---------- Loading ---------- */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--surface-2) 25%,
+      var(--surface-3) 37%,
+      var(--surface-2) 63%
+    );
+    background-size: 200% 100%;
+    animation: yz-shimmer 1.5s linear infinite;
+    border-radius: var(--r-sm);
+  }
+
+  @keyframes pg-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .skeleton-card {
+    height: 120px;
+    border-radius: var(--r-2xl);
+  }
+  .skeleton-line {
+    height: 14px;
+    border-radius: var(--r-sm);
+  }
+  .skeleton-line-sm {
+    height: 10px;
+    border-radius: var(--r-xs);
+  }
+
+  .progress-track {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface-3);
+    border-radius: var(--r-pill);
+  }
+  .progress-bar {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--brand);
+    transition: width var(--dur-slower) var(--ease-out);
+  }
+  .progress-indeterminate::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 30%;
+    border-radius: inherit;
+    background: var(--brand);
+    animation: yz-indeterminate 1.4s var(--ease-in-out) infinite;
+  }
+
+  /* ---------- Status ---------- */
+  .status-dot {
+    position: relative;
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-dot[data-live="true"]::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.4;
+    animation: yz-pulse-ring 2.2s var(--ease-out) infinite;
+  }
+
+  .status-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--success-border);
+    background: var(--success-bg);
+    color: var(--success);
+    border-radius: var(--r-sm);
+    padding: 2px 8px;
+    font-size: var(--fs-2xs);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+
+  /* ---------- Sidebar navigation ---------- */
+  .sidebar {
+    background: var(--surface);
+    border-inline-end: 1px solid var(--border);
+  }
+
+  .sidebar-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .sidebar-item:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .sidebar-item:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+
+  .sidebar-item-active {
+    background: var(--brand-subtle);
+    color: var(--brand-subtle-text);
+    font-weight: 500;
+  }
+  .sidebar-item-active:hover {
+    background: var(--brand-subtle-hover);
+    color: var(--brand-subtle-text);
+  }
+
+  /* ---------- Tables ---------- */
+  .table-head {
+    background: var(--surface-2);
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    letter-spacing: normal;
+  }
+
+  .table-row {
+    transition: background-color var(--dur-fast) var(--ease-in-out);
+  }
+  .table-row + .table-row {
+    border-top: 1px solid var(--border-subtle);
+  }
+  .table-row:hover {
+    background: var(--surface-hover);
+  }
+
+  .row-hover {
+    transition: background-color var(--dur-fast) var(--ease-in-out);
+  }
+  .row-hover:hover {
+    background: var(--surface-hover);
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .data-table thead {
+    background: var(--surface-2);
+  }
+  .data-table th {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    text-align: start;
+    white-space: nowrap;
+  }
+  .data-table td,
+  .data-table th {
+    border-bottom: 1px solid var(--border-subtle);
+    /* Let larger primary/meta lines breathe while retaining table scanning. */
+    padding: 13px 16px;
+    vertical-align: middle;
+  }
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .data-table tbody tr {
+    transition: background-color var(--dur-fast) var(--ease-in-out);
+  }
+  .data-table tbody tr:hover {
+    background: var(--surface-hover);
+  }
+
+  @media (max-width: 720px) {
+    .data-table td,
+    .data-table th {
+      padding: 12px;
+    }
+  }
+
+  /* Operational records retain their headers/table semantics while each row
+     becomes a labeled stack on phones. Outcomes and controls stay in view. */
+  .data-table-label { display: none; }
+  @media (max-width: 767.98px) {
+    .operational-table,
+    .operational-table tbody {
+      display: block;
+      min-width: 0;
+      width: 100%;
+    }
+    .operational-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .operational-table tbody tr {
+      display: block;
+      padding: 16px;
+      border-block-end: 1px solid var(--border);
+    }
+    .operational-table tbody tr:last-child { border-block-end: 0; }
+    .operational-table tbody td {
+      display: block;
+      width: 100%;
+      max-width: none;
+      padding: 0;
+      border: 0;
+      white-space: normal;
+    }
+    .operational-table tbody td + td { margin-block-start: 12px; }
+    .operational-table .data-table-label {
+      display: block;
+      margin-block-end: 4px;
+      color: var(--text-3);
+      font-size: var(--fs-xs);
+      font-weight: 500;
+    }
+    .operational-table button { min-height: 44px; }
+  }
+}
+
+/* ==========================================================================
+   Right-to-left support
+   --------------------------------------------------------------------------
+   Direction comes from <html dir> (set pre-paint by the locale script in
+   src/app/layout.tsx and kept in sync by I18nProvider). Components use logical
+   Tailwind utilities (ps/pe, ms/me, start/end, text-start/text-end,
+   border-s/border-e), so nothing here has to undo a physical value — this
+   block only covers the cases CSS cannot express per-utility:
+     - animations that enter from a physical edge
+     - bidirectional content that must stay readable (identifiers, numbers,
+       emails, URLs) without being mirrored
+   ========================================================================== */
+
+@layer utilities {
+  /* Flip directional glyphs (chevrons, back/forward arrows) when the whole UI
+     mirrors. Apply to icons that carry meaning through direction only. */
+  [dir="rtl"] .rtl-flip {
+    transform: scaleX(-1);
+  }
+
+  /* The mobile navigation sheet enters from the inline-start edge, which is the
+     right in Arabic; reuse the mirrored keyframes instead of translating. */
+  [dir="rtl"] .pg-slide-in-left,
+  [dir="rtl"] .yz-slide-in-left {
+    animation-name: yz-slide-in-right;
+  }
+
+  [dir="rtl"] .pg-slide-in-right,
+  [dir="rtl"] .yz-slide-in-right {
+    animation-name: yz-slide-in-left;
+  }
+
+  [dir="rtl"] .yz-menu-in {
+    transform-origin: top left;
+  }
+
+  /* Utility-layer override so Tailwind tracking-* classes never break Arabic joins in RTL. */
+  [dir="rtl"] :is(h1, h2, h3, h4, h5, h6, .tg-sidebar-label, .tg-panel-title, .tg-page-title, .tg-action-button, .tg-status-pill, .status-live, .tg-breadcrumb [aria-current="page"], .yw-fleet-kpis > .grid > div > :nth-child(2)) {
+    letter-spacing: 0;
+  }
+}
+
+@layer components {
+  /* Technical identifiers — printer ids, job ids, claim tokens, IP addresses,
+     ports, hashes, payload snippets — are Latin strings. Forcing them into RTL
+     reorders their punctuation and makes them impossible to compare or search,
+     so they keep left-to-right direction and are isolated from the surrounding
+     Arabic text with `unicode-bidi: isolate` (the surrounding sentence is
+     unaffected). */
+  [dir="rtl"] .font-mono,
+  [dir="rtl"] .tabular {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* Arabic labels should read as Arabic, not as a simulated Latin eyebrow.
+     Uppercasing has no semantic value in Arabic and letter-spacing separates
+     connected glyphs visually, so keep the same hierarchy with weight/size. */
+  [dir="rtl"] .label-caps,
+  [dir="rtl"] .text-eyebrow {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 700;
+  }
+
+  /* Form fields whose content is inherently Latin: an email, a URL or a phone
+     number is typed left-to-right even in an Arabic form. `text-align: start`
+     resolves to the start edge of the element's OWN direction (ltr here), so
+     the value hugs the side it grows from. */
+  [dir="rtl"] input[type="email"],
+  [dir="rtl"] input[type="url"],
+  [dir="rtl"] input[type="tel"],
+  [dir="rtl"] input[type="number"] {
+    direction: ltr;
+    text-align: start;
+  }
+
+  /* Tables stay readable: headers follow the writing direction and cells never
+     clip Arabic diacritics by shrinking below the text height. */
+  [dir="rtl"] .data-table th {
+    text-align: start;
+  }
+
+  /* Inline code and keyboard hints inside translated copy. */
+  [dir="rtl"] code,
+  [dir="rtl"] kbd,
+  [dir="rtl"] pre {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: start;
+  }
+}
+
+/* Small-viewport resilience: keep long printer identifiers and translated labels
+   inside their own layout tracks, while preserving fixed/portal popovers. */
+@layer base {
+  html, body { max-width: 100%; }
+
+  /* The console's document scrollbar is visual chrome, not a progress
+     indicator. Hide ONLY the outer viewport track while preserving native
+     wheel, touch, keyboard, anchor and programmatic scrolling. Other pages
+     (auth, marketing, desktop) and independently scrollable menus/tables
+     keep their original scrollbar behavior. */
+  html:has(.tg-console-content),
+  html:has(.tg-console-content) body {
+    scrollbar-width: none;
+  }
+  html:has(.tg-console-content)::-webkit-scrollbar,
+  html:has(.tg-console-content) body::-webkit-scrollbar {
+    display: none;
+  }
+
+  @media (max-width: 767.98px) {
+    html, body { overflow-x: clip; }
+  }
+}
+@layer components {
+  .card { min-width: 0; }
+  .data-table td { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  [dir="rtl"] .data-table .font-mono { unicode-bidi: isolate; direction: ltr; }
+}
+
+
+/* ============================================================
+   TailGrids-inspired application shell, navigation and feedback.
+   Original Yaseir implementation; TailGrids code is not bundled.
+   Components are shared by the Gateway and the Windows Desktop UI.
+   ============================================================ */
+@layer components {
+  .tg-shell-root {
+    background:
+      radial-gradient(ellipse 56% 43% at 92% 0%, color-mix(in srgb, var(--brand) 5%, transparent), transparent 72%),
+      var(--bg);
+  }
+
+  /* Give Gateway and Platform pages a single uninterrupted canvas. The
+     ambient shell wash is useful for login/marketing, but behind a transparent
+     heading it looked like a second rectangular header surface. */
+  .tg-console-content {
+    min-height: 100vh;
+    background: var(--bg);
+  }
+
+  /* Gateway and Platform navigation floats within the desktop viewport.
+     Keep a real, inset card with a visible outer edge and calm elevation.
+     Its placement uses logical properties to remain correct for RTL/LTR. */
+  .tg-console-rail {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* The Windows desktop keeps its separate floating rail treatment. */
+  .tg-desktop-rail {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Windows Desktop keeps its floating topbar. The legacy console topbar
+     selector remains for compatibility, but Gateway/Platform have no
+     separate top navbar; their floating navigation lives in the sidebar. */
+  .tg-console-topbar,
+  .tg-desktop-topbar {
+    background: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(20px) saturate(165%);
+    backdrop-filter: blur(20px) saturate(165%);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2xl);
+    box-shadow: var(--shadow-md);
+  }
+
+  .tg-sidebar-label {
+    color: var(--text-4);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: 0.025em;
+  }
+
+  .tg-nav-item {
+    min-height: 44px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    transition:
+      background-color var(--dur-normal) var(--ease-out),
+      border-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      color var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-nav-item:hover:not([data-active="true"]) {
+    transform: translateX(2px);
+    background: var(--surface-2);
+  }
+
+  [dir="rtl"] .tg-nav-item:hover:not([data-active="true"]) {
+    transform: translateX(-2px);
+  }
+
+  .tg-nav-item[data-active="true"] {
+    background: var(--brand-subtle);
+    border-color: var(--border-accent);
+    color: var(--brand-subtle-text);
+    box-shadow: inset 3px 0 0 var(--brand), 0 2px 9px var(--brand-ring);
+  }
+
+  [dir="rtl"] .tg-nav-item[data-active="true"] {
+    box-shadow: inset -3px 0 0 var(--brand), 0 2px 9px var(--brand-ring);
+  }
+
+  .tg-nav-item[data-active="true"] .tg-nav-icon {
+    background: var(--surface);
+    color: var(--brand);
+    border-color: var(--border-accent);
+  }
+
+  .tg-nav-item:hover .tg-nav-icon {
+    background: var(--surface);
+    color: var(--brand);
+  }
+
+  .tg-search-trigger:hover {
+    box-shadow: 0 3px 14px var(--brand-ring);
+  }
+
+  .tg-breadcrumb [aria-current="page"] {
+    letter-spacing: -0.012em;
+  }
+
+  .tg-mobile-sheet {
+    box-shadow: var(--shadow-2xl);
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .tg-breadcrumb-bar {
+    background: color-mix(in srgb, var(--surface) 92%, var(--brand) 8%);
+  }
+
+  /* No floating card, accent wash or horizontal rule around ordinary page
+     headings. Only explicitly sticky headings get glass chrome and a rule. */
+  .tg-page-heading:not(.glass-chrome) {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .tg-view-reveal {
+    animation: yz-rise-in 280ms var(--ease-out) both;
+  }
+
+  .tg-tab-list {
+    width: fit-content;
+    max-width: 100%;
+    margin-block: 7px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .tg-tab-trigger {
+    border-radius: var(--r-md);
+    transition:
+      color var(--dur-normal) var(--ease-out),
+      background-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-tab-trigger[data-active="true"] {
+    background: var(--surface);
+    color: var(--brand-subtle-text);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .tg-tab-trigger:hover:not([data-active="true"]) {
+    color: var(--text);
+    background: var(--surface-hover);
+  }
+
+  .tg-card-root {
+    transition:
+      border-color var(--dur-normal) var(--ease-out),
+      box-shadow var(--dur-normal) var(--ease-out),
+      transform var(--dur-normal) var(--ease-out);
+  }
+
+  .tg-card-root:focus-within {
+    border-color: var(--border-accent);
+  }
+
+  .tg-action-button {
+    transition:
+      transform var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
+  }
+
+  .tg-action-button:not(:disabled):active {
+    transform: translateY(1px);
+  }
+
+  .tg-action-button[data-appearance="outline"] {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+  }
+
+  .tg-status-pill {
+    border-radius: 9999px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.005em;
+    box-shadow: 0 1px 2px rgba(24, 40, 80, 0.03);
+  }
+
+  .tg-panel-title {
+    letter-spacing: -0.017em;
+  }
+}
+
+/* Keep the header compact on narrow screens without sharp corners. */
+@media (max-width: 639.98px) {
+  .tg-console-topbar,
+  .tg-desktop-topbar {
+    border-radius: var(--r-lg);
+  }
+}
+
+@media (min-width: 1024px) {
+  .tg-console-rail {
+    inset-block: 12px;
+    inset-inline-start: 12px;
+    border-radius: var(--r-2xl);
+    overflow: hidden;
+  }
+  .tg-console-content {
+    padding-inline-start: calc(var(--nav-w) + 12px);
+  }
+  .tg-desktop-rail {
+    inset-block: 12px;
+    inset-inline-start: 12px;
+    border-radius: var(--r-2xl);
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-view-reveal,
+  .skeleton,
+  .progress-indeterminate::after,
+  .status-dot[data-live="true"]::after {
+    animation: none !important;
+  }
+  .tg-nav-item:hover:not([data-active="true"]),
+  [dir="rtl"] .tg-nav-item:hover:not([data-active="true"]),
+  .card-interactive:hover,
+  .tg-action-button:not(:disabled):active,
+  .tg-mobile-appbar-button:active,
+  .yw-pipeline-node:hover,
+  .yw-editorial-card:hover {
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   Operational responsive refinements — shared Gateway / Platform / Desktop
+   ============================================================ */
+@layer components {
+  /* Side rails behave like a readable sheet on phones, including short
+     viewports and devices with home-indicator/safe-area insets. */
+  @media (max-width: 1023.98px) {
+    .tg-mobile-sheet,
+    .tg-desktop-rail {
+      max-height: 100dvh;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      overscroll-behavior: contain;
+    }
+    .tg-console-content { padding-inline-start: 0; }
+  }
+
+  /* The phone toolbar has a single predictable row. Rare controls move to
+     its accessible overflow menu; Arabic titles must never lose their row. */
+  @media (max-width: 639.98px) {
+    .tg-desktop-topbar.tg-desktop-header {
+      position: sticky;
+      top: 0;
+      margin: 0 0 12px;
+      min-height: calc(64px + env(safe-area-inset-top, 0px));
+      padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+      flex-wrap: nowrap;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      box-shadow: none;
+    }
+    .tg-desktop-header-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .tg-desktop-header-actions {
+      flex: 0 0 auto;
+      width: auto;
+      padding: 0;
+      border: 0;
+    }
+  }
+
+  @media (max-width: 479.98px) {
+    .tg-page-actions > :is(button, a) {
+      min-height: 44px;
+      max-width: 100%;
+    }
+    .tg-page-actions > :is(button, a):only-child { flex: 1 1 auto; }
+    .tg-page-actions > :is(button, a) { white-space: normal; text-align: center; }
+  }
+
+  /* Active horizontal filters and overflowed data remain discoverable
+     without clipping translations, long IDs, or focused controls. */
+  .tg-tab-list { scroll-padding-inline: 8px; }
+  .data-table :is(th, td) { min-width: 0; }
+  .data-table td :is(code, pre) { overflow-wrap: anywhere; }
+  .tg-mobile-sheet :is(a, button):focus-visible,
+  .tg-desktop-rail :is(a, button):focus-visible { outline-offset: -2px; }
+
+  @media (pointer: coarse) and (max-width: 1023.98px) {
+    .tg-mobile-sheet .tg-nav-item,
+    .tg-desktop-rail .tg-nav-item { min-height: 48px; }
+    .tg-mobile-sheet :is(button[aria-label], a[aria-label]) { min-height: 44px; }
+  }
+}
+
+/* Unified mobile navigation chrome: unlike a detached floating hamburger,
+   this never covers page content, respects notches, and remains stable in RTL. */
+@layer components {
+  @media (max-width: 1023.98px) {
+    .tg-mobile-appbar {
+      padding-top: env(safe-area-inset-top, 0px);
+      -webkit-backdrop-filter: blur(18px) saturate(150%);
+      backdrop-filter: blur(18px) saturate(150%);
+      box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 3%, transparent);
+    }
+    .tg-mobile-appbar-inner { width: 100%; }
+    .tg-mobile-appbar-button:active { transform: scale(0.97); }
+    .tg-mobile-appbar + main,
+    .tg-mobile-appbar + .page-transition { min-width: 0; }
+  }
+  @media (max-width: 639.98px) {
+    /* The page heading is a secondary layer under the app bar: no competing
+       giant hero/padding on 320–390px phones. Desktop headings are unchanged. */
+    .tg-page-heading > div { padding-block: 16px 18px; }
+    .tg-page-heading .tg-page-eyebrow,
+    .tg-page-heading .tg-page-icon { display: none; }
+    .tg-page-heading .tg-page-title { font-size: clamp(1.625rem, 6vw, 2rem); }
+    .tg-page-heading .tg-page-description {
+      font-size: var(--fs-sm);
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+
+/* ============================================================
+   Yaseir experience layer — token-driven, contrast-safe, RTL aware.
+   Shared by the public landing, Gateway and Windows desktop UI.
+   Source: original Park UI-inspired component recipes, not vendor CSS.
+   ============================================================ */
+@layer components {
+  .yw-marketing { --yw-accent-wash: color-mix(in srgb, var(--brand) 10%, transparent); }
+  .yw-public-header {
+    background: color-mix(in srgb, var(--surface) 91%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(145%);
+    backdrop-filter: blur(16px) saturate(145%);
+  }
+  /* Print Gateway lockups (WP6-BRANDING, v11-darklogo): exactly one of
+     four images shows, chosen by [dir] (LTR/RTL) x [data-theme]
+     (light/dark) — the theme attribute lives on <html> (pre-paint
+     script + ThemeToggle), so a live theme toggle repaints the swap
+     with no React state and no server/client mismatch. Light lockups
+     carry black text; dark lockups carry white text with the same
+     icon and proportions. The inactive images are display:none, so
+     they are also hidden from assistive technology. The icon-only
+     fallback inside BrandMark stays hidden except in the narrow public
+     header below. */
+  .brand-lockup-ltr { display: inline-block; }
+  .brand-lockup-rtl { display: none; }
+  .brand-lockup-ltr-dark { display: none; }
+  .brand-lockup-rtl-dark { display: none; }
+  [dir="rtl"] .brand-lockup-ltr { display: none; }
+  [dir="rtl"] .brand-lockup-rtl { display: inline-block; }
+  [data-theme="dark"] .brand-lockup-ltr { display: none; }
+  [data-theme="dark"] .brand-lockup-rtl { display: none; }
+  [data-theme="dark"] .brand-lockup-ltr-dark { display: inline-block; }
+  [data-theme="dark"] .brand-lockup-rtl-dark { display: none; }
+  [dir="rtl"][data-theme="dark"] .brand-lockup-ltr-dark { display: none; }
+  [dir="rtl"][data-theme="dark"] .brand-lockup-rtl-dark { display: inline-block; }
+  .brand-mark-icon-fallback { display: none; }
+  /* Keep the brand glyph visible at 320px: a full lockup plus language,
+     theme and mobile-menu touch targets would otherwise overflow, so the
+     public header falls back to the icon-only mark at this width. */
+  @media (max-width: 399.98px) {
+    .yw-public-brand-mark .brand-lockup-chip { display: none; }
+    .yw-public-brand-mark .brand-mark-icon-fallback { display: inline-block; }
+  }
+  .yw-hero {
+    background:
+      radial-gradient(ellipse 70% 55% at 50% -10%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 72%),
+      radial-gradient(ellipse 45% 40% at 88% 35%, color-mix(in srgb, var(--brand) 5%, transparent), transparent 70%),
+      var(--bg);
+  }
+  .yw-hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, transparent 60%, var(--bg) 100%);
+  }
+  .yw-hero-inner { position: relative; }
+  .yw-hero-title {
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+  .yw-hero-eyebrow {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 13px;
+    border: 1px solid var(--border-accent);
+    border-radius: 999px;
+    background: var(--brand-subtle);
+    color: var(--brand-subtle-text);
+  }
+  .yw-hero-eyebrow::before {
+    content: "";
+    height: 7px;
+    width: 7px;
+    border-radius: 100%;
+    background: var(--brand);
+    box-shadow: 0 0 0 4px var(--brand-ring);
+    flex-shrink: 0;
+  }
+  .yw-hero-stage {
+    min-width: 0;
+    box-shadow: var(--shadow-xl), 0 32px 90px color-mix(in srgb, var(--brand) 8%, transparent);
+    background: var(--surface);
+    isolation: isolate;
+  }
+  .yw-hero-stage::before {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    z-index: -1;
+    inset: -60% -40% 20%;
+    background: radial-gradient(ellipse, color-mix(in srgb, var(--brand) 11%, transparent), transparent 70%);
+  }
+  .yw-hero-stage-header { min-height: 76px; }
+  .yw-hero-pipeline { position: relative; }
+  .yw-hero-pipeline::before {
+    content: "";
+    position: absolute;
+    top: 21px;
+    bottom: 21px;
+    inset-inline-start: 34px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--border-accent), var(--brand), var(--border-accent));
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .yw-hero-step {
+    position: relative;
+    min-height: 71px;
+    box-shadow: var(--shadow-xs);
+    transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+  .yw-hero-step:hover, .yw-hero-step:focus-within {
+    background: var(--surface-hover);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-sm);
+  }
+  .yw-hero-step-number {
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--border-accent);
+  }
+  .yw-marketing #product,
+  .yw-marketing #reliability {
+    background: var(--surface);
+  }
+  .yw-flow-row {
+    transition: background-color 170ms ease;
+  }
+  .yw-flow-row:hover { background: var(--surface-hover); }
+  .yw-showcase-container {
+    box-shadow:
+      0 0 0 1px var(--border-accent),
+      0 24px 60px -15px color-mix(in srgb, var(--brand) 18%, transparent),
+      0 40px 100px -20px color-mix(in srgb, var(--text) 12%, transparent);
+    transition: box-shadow 300ms ease, border-color 300ms ease;
+  }
+  .yw-showcase-container:hover {
+    box-shadow:
+      0 0 0 1px var(--brand),
+      0 32px 80px -15px color-mix(in srgb, var(--brand) 24%, transparent),
+      0 50px 120px -20px color-mix(in srgb, var(--text) 16%, transparent);
+  }
+  .yw-pipeline-node {
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms ease, box-shadow 220ms ease;
+  }
+  .yw-pipeline-node:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-md), 0 10px 24px -8px color-mix(in srgb, var(--brand) 12%, transparent);
+  }
+  .yw-editorial-card {
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms ease, box-shadow 220ms ease;
+  }
+  .yw-editorial-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-lg), 0 12px 30px -10px color-mix(in srgb, var(--brand) 10%, transparent);
+  }
+  .yw-final-cta-v2 {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 60%),
+      radial-gradient(ellipse at 0% 100%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 60%),
+      var(--surface);
+    border: 1px solid var(--border-accent);
+    box-shadow: var(--shadow-xl), 0 20px 60px -15px color-mix(in srgb, var(--brand) 12%, transparent);
+    border-radius: var(--r-3xl);
+  }
+  .yw-spotlight-card {
+    --yw-pointer-x: 50%;
+    --yw-pointer-y: 15%;
+    transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+  }
+  .yw-spotlight-card::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(380px circle at var(--yw-pointer-x) var(--yw-pointer-y), color-mix(in srgb, var(--brand) 11%, transparent), transparent 76%);
+    transition: opacity 220ms ease;
+  }
+  .yw-spotlight-card > * { position: relative; }
+  .yw-spotlight-card:hover,
+  .yw-spotlight-card:focus-within {
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-3px);
+  }
+  .yw-spotlight-card:hover::before, .yw-spotlight-card:focus-within::before { opacity: 1; }
+  .yw-final-cta {
+    background:
+      radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--brand) 13%, transparent), transparent 55%),
+      var(--surface-2);
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-md);
+  }
+  .yw-mobile-nav-link {
+    display: flex;
+    min-height: 50px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--r-lg);
+    color: var(--text);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .yw-mobile-nav-link:hover, .yw-mobile-nav-link:focus-visible {
+    color: var(--brand-subtle-text);
+    background: var(--brand-subtle);
+    box-shadow: inset 0 0 0 1px var(--border-accent);
+  }
+  .yw-mobile-nav-cta {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: var(--r-lg);
+    background: var(--brand-solid);
+    color: var(--brand-contrast);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .yw-mobile-nav-cta:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+  .yw-nav-panel { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .yw-nav-overlay[data-state="open"] { animation: yw-overlay-in 180ms ease both; }
+  .yw-nav-panel[data-state="open"] { animation: yw-panel-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes yw-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes yw-panel-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+  [dir="rtl"] .yw-nav-panel[data-state="open"] { animation-name: yw-panel-in-rtl; }
+  @keyframes yw-panel-in-rtl { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
+
+  /* Operational surfaces remain calm and do not intercept native scrolling. */
+  .tg-console-rail, .tg-desktop-rail {
+    box-shadow: 0 12px 48px color-mix(in srgb, var(--text) 9%, transparent), var(--shadow-sm);
+    border-color: var(--border);
+  }
+  .tg-console-rail .tg-sidebar-label, .tg-desktop-rail .tg-sidebar-label {
+    padding-block: 4px 8px;
+  }
+  .tg-nav-item { font-weight: 500; }
+  .tg-nav-item[data-active="true"] { font-weight: 500; }
+  .tg-console-rail .sidebar-item,
+  .tg-desktop-rail .sidebar-item { isolation: isolate; }
+  .tg-desktop-topbar { box-shadow: var(--shadow-sm); }
+  .yw-agent-overview .tg-card-root {
+    border-radius: var(--r-xl);
+  }
+  .yw-agent-overview .tg-card-root:focus-within { border-color: var(--border-accent); }
+}
+
+@media (max-width: 639.98px) {
+  .yw-hero-title { font-size: clamp(2.4rem, 11.5vw, 3.4rem); }
+  .yw-hero-stage { border-radius: 20px; }
+  .yw-hero-step { padding-inline: 12px; }
+  .yw-marketing :is(#product,#how-it-works,#reliability,#security) { scroll-margin-top: 78px; }
+  .yw-nav-panel { width: min(360px, 92vw); }
+  .yw-hero-video { width: calc(100% + 2.5rem); margin-inline: -1.25rem; border-radius: 0; }
+  .yw-a4-video { width: calc(100% + 3rem); margin-inline: -1.5rem; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .yw-marketing *, .yw-marketing *::before, .yw-marketing *::after,
+  .yw-nav-overlay, .yw-nav-panel, .yw-spotlight-card {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .yw-spotlight-card:hover, .yw-spotlight-card:focus-within, .glass-card-interactive:hover { transform: none; }
+}
+
+/* Public landing header and navigation. */
+@layer components {
+  .yw-public-site { background: var(--bg); color: var(--text); }
+  .yw-public-header {
+    padding-top: env(safe-area-inset-top);
+    background: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(24px) saturate(185%);
+    backdrop-filter: blur(24px) saturate(185%);
+  }
+  .yw-public-nav-link {
+    display: inline-flex;
+    min-height: 40px;
+    align-items: center;
+    border-radius: var(--r-sm);
+    padding-inline: 8px;
+    color: var(--text-2);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+  .yw-public-nav-link:hover { background: var(--surface-2); color: var(--text); }
+  .yw-public-nav-link:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+  .yw-nav-panel { max-height: calc(100svh - 84px - env(safe-area-inset-top)); }
+}
+
+
+/* Operational dashboards — high-density with deliberate information hierarchy. */
+@layer components {
+  .yw-throughput-plot {
+    container-type: inline-size;
+    container-name: platform-throughput;
+    font-size: var(--fs-xs);
+  }
+  .yw-throughput-axis {
+    position: relative;
+    min-height: 2.9em;
+    line-height: 1.45;
+  }
+  .yw-throughput-tick {
+    position: absolute;
+    inset-block-start: 0;
+    display: none;
+    width: max-content;
+    max-width: 50%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .yw-throughput-tick[data-axis-caption="edge"] { display: block; }
+  .yw-throughput-tick[data-axis-caption="middle"] { max-width: 25%; }
+  /* Relative query lengths use the container's own caption font size, so a
+     narrow card or enlarged text retains sparse, readable axis captions. */
+  @container platform-throughput (min-width: 28em) {
+    .yw-throughput-tick[data-axis-caption="middle"] { display: block; }
+  }
+
+  .yw-gateway-dashboard .yw-fleet-board {
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    border-color: var(--border);
+  }
+  .yw-gateway-dashboard .yw-fleet-board::before {
+    content: "";
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--brand), color-mix(in srgb, var(--brand) 45%, transparent));
+    pointer-events: none;
+  }
+  .yw-fleet-kpis > .grid > div {
+    min-height: 120px;
+    gap: 9px;
+    padding: 19px 18px;
+    background: var(--surface);
+    transition: background-color 180ms ease;
+  }
+  .yw-fleet-kpis > .grid > div:hover { background: var(--surface-hover); }
+  .yw-fleet-kpis > .grid > div > :nth-child(2) {
+    font-size: clamp(1.65rem, 2.1vw, 2rem);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.045em;
+  }
+  .yw-gateway-dashboard > .tg-card-root,
+  .yw-agent-overview .tg-card-root {
+    border-radius: var(--r-xl);
+  }
+  .yw-agent-stats {
+    padding: 2px;
+    border-radius: var(--r-xl);
+    background: linear-gradient(125deg, var(--border-accent), var(--border), var(--border-accent));
+  }
+  .yw-agent-status > * { border-radius: var(--r-xl); }
+  .yw-agent-overview .data-table :is(th, td) { padding-block: 14px; }
+  .yw-gateway-dashboard .data-table :is(th, td) { padding-block: 13px; }
+  .yw-gateway-dashboard .card,
+  .yw-agent-overview .card { min-width: 0; }
+  @media (max-width: 639.98px) {
+    .yw-fleet-kpis > .grid > div { min-height: 108px; padding: 15px 13px; }
+    .yw-fleet-kpis > .grid > div > :nth-child(2) { font-size: 1.5rem; }
+  }
+}
+
+/* ============================================================
+   PRINT
+   Document output uses the shared print scale: pt on paper,
+   the px equivalents on screen. Every value comes from
+   typography/tokens.css — never a raw size here.
+   ============================================================ */
+
+@media print {
+  html,
+  body {
+    font-family: var(--typo-font-stack-latin);
+    font-size: var(--typo-fs-body);
+    line-height: var(--typo-lh-mixed);
+    color: var(--typo-color-primary);
+    background: #fff;
+  }
+
+  /* Arabic needs more vertical room for diacritics. */
+  html[dir="rtl"],
+  html[dir="rtl"] body {
+    font-family: var(--typo-font-stack-arabic);
+    line-height: var(--typo-lh-arabic);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--typo-font-stack);
+    color: var(--typo-color-primary);
+    letter-spacing: 0;
+  }
+
+  h1 {
+    font-size: var(--typo-fs-display);
+    font-weight: var(--typo-weight-bold);
+    line-height: var(--typo-lh-mixed);
+  }
+
+  h2,
+  h3 {
+    font-size: var(--typo-fs-section);
+    font-weight: var(--typo-weight-semibold);
+    line-height: var(--typo-lh-mixed);
+  }
+
+  p,
+  li,
+  dd,
+  dt,
+  td,
+  th,
+  label,
+  .data-table td,
+  .data-table th {
+    font-size: var(--typo-fs-body);
+    line-height: var(--typo-lh-mixed);
+  }
+
+  .data-table tr > td,
+  .data-table tr > th,
+  table tr > td,
+  table tr > th {
+    padding-top: var(--typo-space-table-row);
+    padding-bottom: var(--typo-space-table-row);
+  }
+
+  strong,
+  b,
+  .font-semibold {
+    font-weight: var(--typo-weight-semibold);
+  }
+
+  .print-secondary,
+  .text-secondary {
+    color: var(--typo-color-secondary);
+  }
+
+  /* Numerals, currency and English codes inside an Arabic sentence keep their
+     own direction so they stay readable. */
+  bdi,
+  .font-mono {
+    unicode-bidi: isolate;
+    direction: ltr;
+  }
+}

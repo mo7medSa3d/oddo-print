@@ -1,0 +1,440 @@
+name: Docker
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  push:
+    branches: [main, test/http-server-ready]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 0'  # Weekly pinned-image vulnerability scan
+
+
+permissions:
+  contents: read
+
+env:
+  POSTGRES_PASSWORD: ci-only-bootstrap-0123456789abcdef0123456789abcdef
+  # Isolated ephemeral CI fixtures only. Production secrets are independent.
+  POSTGRES_OWNER_PASSWORD: ci-only-owner-0123456789abcdef0123456789abcdef
+  POSTGRES_RUNTIME_PASSWORD: ci-only-runtime-fedcba9876543210fedcba9876543210
+  GATEWAY_JWT_SECRET: ci-only-jwt-secret-012345678901234567890123456789
+  MANAGER_PASSWORD_HASH: ci-salt:0123456789012345678901234567890123456789012345678901234567890123
+  TRUST_PROXY_SECRET: ci-only-proxy-secret-012345678901234567890123456789
+  ODOO_DATABASE_NAME: app_db
+  GATEWAY_DOMAIN: "http://print.example.com"
+  APP_BASE_URL: https://print.example.com
+  PLATFORM_TENANT_ID: ci-platform-tenant
+  # Compose overlays only the registry; versions and sha256 digests stay pinned.
+  COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
+
+# A new main push cancels the obsolete running push verification for this workflow.
+# New PR revisions also cancel earlier attempts for that PR. Manual,
+# scheduled and merge-queue runs remain isolated by their unique run_id.
+concurrency:
+  group: docker-run-${{ github.event_name == 'push' && github.ref || github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      docker: ${{ steps.scope.outputs.docker }}
+      docker_scan: ${{ steps.scope.outputs.docker_scan }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
+  docker-image-scan:
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.docker_scan == 'true'
+    # Preserve running main image scans; supersede only outdated PR scans.
+    concurrency:
+      group: docker-scan-${{ matrix.variant }}-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [node, postgres, caddy]
+    steps:
+      - name: Checkout security baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build patched Go release binary
+        if: matrix.variant != 'node'
+        env:
+          PATCHED_VARIANT: ${{ matrix.variant }}
+        shell: bash
+        run: |
+          if [ "$PATCHED_VARIANT" != postgres ] && [ "$PATCHED_VARIANT" != caddy ]; then
+            exit 1
+          fi
+          docker build --file Dockerfile.secure-images --target "$PATCHED_VARIANT" --tag "yaseir-${PATCHED_VARIANT}:ci-go1.26.11" .
+          if [ "$PATCHED_VARIANT" = postgres ]; then
+            docker run --rm --entrypoint gosu yaseir-postgres:ci-go1.26.11 --version | grep -F go1.26.11
+          else
+            docker run --rm --entrypoint caddy yaseir-caddy:ci-go1.26.11 version
+            # Fail closed if the released runtime regains the vulnerable
+            # curl/libcurl packages (not just when the scanner DB catches up).
+            docker run --rm --entrypoint /bin/sh yaseir-caddy:ci-go1.26.11 -ec \
+              'if apk info --exists curl || apk info --exists libcurl; then echo "Unexpected curl/libcurl in Caddy runtime" >&2; exit 1; fi; test -s /etc/ssl/certs/ca-certificates.crt'
+          fi
+
+      - name: Build exact released Gateway image
+        if: matrix.variant == 'node'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The pinned Node parent contains npm-bundled vulnerabilities.
+          # Production removes npm entirely; scan the actual final runtime,
+          # NOT a parent image that is never shipped as-is.
+          docker build --file Dockerfile --target runtime --tag yaseir-gateway:ci-node24.22.1 .
+          docker run --rm --entrypoint /bin/sh yaseir-gateway:ci-node24.22.1 -ec \
+            'test ! -e /usr/local/lib/node_modules/npm && test ! -e /usr/local/bin/npm && test ! -e /usr/local/bin/npx && node --version'
+
+      - name: Scan upstream Node parent for retained advisory evidence
+        if: matrix.variant == 'node'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
+          format: 'sarif'
+          output: 'trivy-upstream-node.sarif'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          limit-severities-for-sarif: true
+          ignore-unfixed: false
+          exit-code: '0'
+
+      - name: Scan release image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.variant == 'node' && 'yaseir-gateway:ci-node24.22.1' || format('yaseir-{0}:ci-go1.26.11', matrix.variant) }}
+          format: 'sarif'
+          output: 'trivy.sarif'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          limit-severities-for-sarif: true
+          ignore-unfixed: false
+          # Retain every severity and unfixed advisory. The digest-bound,
+          # expiring review gate rejects every unreviewed finding.
+          exit-code: '0'
+
+      - name: Enforce reviewed release image vulnerability baseline
+        shell: bash
+        env:
+          PATCHED_VARIANT: ${{ matrix.variant }}
+        run: |
+          if [ "$PATCHED_VARIANT" != node ] && [ "$PATCHED_VARIANT" != postgres ] && [ "$PATCHED_VARIANT" != caddy ]; then
+            exit 1
+          fi
+          if [ "$PATCHED_VARIANT" = node ]; then
+            image='yaseir-gateway:ci-node24.22.1'
+          else
+            image="yaseir-${PATCHED_VARIANT}:ci-go1.26.11"
+          fi
+          python3 scripts/check-trivy-baseline.py trivy.sarif "$image"
+
+      # Code Scanning SARIF uploads are unavailable to this private repo.
+      # Preserve every report as an artifact, including failed baseline gates.
+      - name: Retain Trivy findings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: trivy-image-${{ matrix.variant }}
+          path: |
+            trivy.sarif
+            trivy-upstream-node.sarif
+          if-no-files-found: error
+          retention-days: 14
+
+  docker-compose-pr:
+    name: Docker Compose preflight (PR)
+    needs: changes
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.changes.outputs.docker == 'true'
+    # Cancel only an eligible duplicate job, never on an unrelated push.
+    concurrency:
+      group: docker-pr-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate complete Docker and release images (no redundant rebuild)
+        run: |
+          set -euo pipefail
+          docker compose config --quiet
+          python3 scripts/check-compose-build-contexts.py
+          bash -n scripts/ci-postgres.sh
+          # Building/migrating the application is already verified in CI's
+          # App / Gateway job. Full Compose startup, auth WS and backup-restore
+          # remain required on main and explicit release/merge-queue runs.
+
+  docker-build-runtime:
+    needs:
+      - changes
+      - docker-image-scan
+    if: >-
+      ${{
+        always() &&
+        github.event_name != 'pull_request' &&
+        needs.changes.result == 'success' &&
+        (
+          needs.changes.outputs.docker == 'true' ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/test/http-server-ready')
+        ) &&
+        (
+          needs.docker-image-scan.result == 'success' ||
+          (needs.docker-image-scan.result == 'skipped' && needs.changes.outputs.docker_scan != 'true')
+        )
+      }}
+    # Runtime acceptance must pass the image-security scan when that gate is selected.
+    concurrency:
+      group: docker-runtime-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    env:
+      YASEIR_DEPLOYMENT_ID: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate Compose configuration
+        run: python3 scripts/check-compose-build-contexts.py
+
+      - name: Set up Buildx with GitHub Actions cache support
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Build Gateway image for Compose runtime tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          build-args: |
+            YASEIR_DEPLOYMENT_ID=${{ github.sha }}
+          tags: localhost/yaseir-gateway:${{ github.sha }}
+          cache-from: type=gha,scope=yaseir-gateway
+          cache-to: type=gha,mode=max,scope=yaseir-gateway
+
+      - name: Build hardened PostgreSQL image for Compose runtime tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.secure-images
+          target: postgres
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: localhost/yaseir-postgres:${{ github.sha }}
+          cache-from: type=gha,scope=yaseir-postgres
+          cache-to: type=gha,mode=max,scope=yaseir-postgres
+
+      - name: Build hardened Caddy image for Compose runtime tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.secure-images
+          target: caddy
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: localhost/yaseir-caddy:${{ github.sha }}
+          cache-from: type=gha,scope=yaseir-caddy
+          cache-to: type=gha,mode=max,scope=yaseir-caddy
+
+      - name: Generate CI-only license signing key
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm ED25519 -out /tmp/ci-license.pem
+          {
+            echo 'LICENSE_SIGNING_PRIVATE_KEY_PEM<<EOF'
+            cat /tmp/ci-license.pem
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Start stack
+        run: |
+          set -euo pipefail
+          # Use the identical upstream sha256-pinned Docker Hub images as
+          # production. Never retry a build/runtime error as registry failure.
+          docker compose up --no-build -d postgres
+          docker compose up --no-build migrate
+          docker compose up --no-build -d gateway caddy
+
+      - name: Verify migration and gateway health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          migration_container="$(docker compose ps -aq migrate)"
+          if [ -z "$migration_container" ]; then
+            echo "Migration container was not created" >&2
+            docker compose ps -a >&2
+            exit 1
+          fi
+
+          migration_exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$migration_container")"
+          echo "Migration exit code: $migration_exit_code"
+          if [ "$migration_exit_code" != "0" ]; then
+            echo "Migration service did not exit successfully" >&2
+            docker compose logs --no-color migrate >&2 || true
+            exit 1
+          fi
+
+          healthy=0
+          for i in $(seq 1 60); do
+            if docker compose exec -T gateway node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose ps -a
+          if [ "$healthy" -ne 1 ]; then
+            echo "Gateway did not become healthy within 120 seconds" >&2
+            exit 1
+          fi
+          docker compose exec -T gateway node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"
+
+      - name: Phase 0 served security headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'SERVED_SECURITY_HEADERS_BEGIN'
+          docker compose exec -T gateway node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const proxySecret = fs.readFileSync("/run/secrets/trust_proxy_secret", "utf8").trim();
+          const response = await fetch("http://127.0.0.1:3000/", {
+            headers: { "x-gateway-proxy-token": proxySecret },
+          });
+          const body = await response.text();
+          const csp = response.headers.get("content-security-policy") || "";
+          const cspMatch = csp.match(/script-src[^;]*'nonce-([^']+)'/);
+          const scriptMatch = body.match(/<script[^>]*nonce=["']([^"']+)["']/i);
+          const cspNonce = cspMatch ? cspMatch[1] : "";
+          const htmlNonce = scriptMatch ? scriptMatch[1] : "";
+          console.log("HTTP_STATUS=" + response.status);
+          for (const [name, value] of response.headers) console.log(name + ": " + value);
+          console.log("CSP_SCRIPT_NONCE=" + cspNonce);
+          console.log("HTML_SCRIPT_NONCE=" + htmlNonce);
+           const scriptSrc = (csp.match(/script-src[^;]+;/i) || [""])[0];
+           const unsafeInline = /unsafe-inline/i.test(scriptSrc);
+          console.log("NONCE_MATCH=" + String(Boolean(cspNonce && cspNonce === htmlNonce)));
+           console.log("SCRIPT_SRC_UNSAFE_INLINE=" + String(unsafeInline));
+          console.log("BODY_BYTES=" + Buffer.byteLength(body, "utf8"));
+           if (unsafeInline) process.exit(2);
+          if (!response.ok || !cspNonce || cspNonce !== htmlNonce) process.exit(1);
+          NODE
+          echo 'SERVED_SECURITY_HEADERS_END'
+
+      - name: Verify Caddy configuration and proxy trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+
+
+          echo "CADDY_HTTP_RESPONSE:"
+          curl --silent --show-error --head --max-time 10             -H 'Host: print.example.com'             http://127.0.0.1/api/live
+
+          # Verify the real Caddy-to-Gateway trust boundary with TWO HTTP
+          # requests: absent client token and forged client token. Both must
+          # reach authenticated Gateway and return its exact JSON 401. A proxy
+          # that forwards a forged token, a 502, or a generic 401 fails closed.
+          # Never send the private proxy token from the test client.
+          echo "CADDY_PROXY_TOKEN_RESPONSE:"
+          python3 scripts/check-proxy-boundary.py http://127.0.0.1 print.example.com
+
+      - name: Verify backup and restore round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exercise scripts/postgres-backup.sh semantics inside the postgres
+          # container (custom-format dump + SHA-256 sidecar), restore into a
+          # scratch database, and prove row-level equivalence before dropping
+          # the scratch copy. A backup that has never been restored is not
+          # considered verified (see DEPLOYMENT.md).
+          docker compose exec -T postgres sh -c 'set -eu
+            export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+            pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /tmp/verify.dump
+            sha256sum /tmp/verify.dump | tee /tmp/verify.dump.sha256
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM tenants" > /tmp/verify.source_count
+          '
+          docker compose exec -T postgres sh -c 'set -eu
+            export PGPASSWORD="$(cat /run/secrets/postgres_password)"
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE DATABASE restore_verify"
+            pg_restore -U "$POSTGRES_USER" -d restore_verify --single-transaction /tmp/verify.dump
+            psql -U "$POSTGRES_USER" -d restore_verify -tAc "SELECT count(*) FROM tenants" > /tmp/verify.restored_count
+            psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DROP DATABASE restore_verify"
+          '
+          source_count="$(docker compose exec -T postgres cat /tmp/verify.source_count | tr -d '[:space:]')"
+          restored_count="$(docker compose exec -T postgres cat /tmp/verify.restored_count | tr -d '[:space:]')"
+          echo "BACKUP_TENANT_ROWS source=$source_count restored=$restored_count"
+          if [ "$source_count" != "$restored_count" ]; then
+            echo "Restored row count differs from source" >&2
+            exit 1
+          fi
+          docker compose exec -T postgres rm -f /tmp/verify.dump /tmp/verify.dump.sha256 /tmp/verify.source_count /tmp/verify.restored_count
+
+      - name: Publish the exact tested images to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/test/http-server-ready'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tested immutable staging image tags
+        if: github.event_name == 'push' && github.ref == 'refs/heads/test/http-server-ready'
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for image in yaseir-gateway yaseir-postgres yaseir-caddy; do
+            docker tag "localhost/${image}:${RELEASE_SHA}" "ghcr.io/mohamed-saad-edu/${image}:${RELEASE_SHA}"
+            docker push "ghcr.io/mohamed-saad-edu/${image}:${RELEASE_SHA}"
+          done
+
+      - name: Verify published immutable registry manifests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/test/http-server-ready'
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for image in yaseir-gateway yaseir-postgres yaseir-caddy; do
+            docker buildx imagetools inspect "ghcr.io/mohamed-saad-edu/${image}:${RELEASE_SHA}" >/dev/null
+          done
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

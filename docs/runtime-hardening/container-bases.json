@@ -1,0 +1,23 @@
+{
+  "scope": "Verified public registry input identities; no image execution or vulnerability claim",
+  "images": [
+    {
+      "image": "odoo",
+      "registry": "https://registry-1.docker.io/v2/library/odoo",
+      "platform": "linux/amd64",
+      "manifestDigest": "sha256:08af340902122af116a92c917359cd8bb411ca6960c0b4877dc636423a8d5b26",
+      "configDigest": "sha256:400a621198ea355394df4a328b0f65043ffd1f4e79a5025ba16edf03cb26893d",
+      "manifestAndConfigBytesSha256Verified": true,
+      "verifiedDate": "2026-10-24"
+    },
+    {
+      "image": "python",
+      "registry": "https://registry-1.docker.io/v2/library/python",
+      "platform": "linux/amd64",
+      "manifestDigest": "sha256:dc0705844ae55b4c07e4c06de75c4e706ca7debfbb9ce017bdceeb3922ea5c29",
+      "configDigest": "sha256:48580e0af113d396e56c287feb21b44edd7fdd5195ad151c51c8dadf818cadfc",
+      "manifestAndConfigBytesSha256Verified": true,
+      "verifiedDate": "2026-10-24"
+    }
+  ]
+}

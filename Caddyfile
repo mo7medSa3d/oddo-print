@@ -1,0 +1,58 @@
+{
+	admin 127.0.0.1:2019
+}
+
+{$GATEWAY_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 8MiB
+	}
+
+	# v3: security headers on Caddy-generated responses too. The Gateway
+	# (server.ts / api-defaults.ts) stamps these headers on app responses,
+	# but Caddy error pages (e.g. 502 while the gateway is down) previously
+	# carried none of them. CSP is intentionally NOT duplicated here: the
+	# per-request nonce CSP can only be minted by the Gateway itself, so
+	# Caddy error pages still carry no CSP; production must run via
+	# server.ts, never plain `next start` (which also emits no CSP).
+	# TLS relies on Caddy automatic HTTPS for {$GATEWAY_DOMAIN}; no
+	# trusted_proxies directive is set on purpose (see reverse_proxy below).
+	handle_errors {
+		header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		header X-Content-Type-Options "nosniff"
+		header Referrer-Policy "strict-origin-when-cross-origin"
+		header X-Frame-Options "DENY"
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		header -Server
+	}
+
+	# The Gateway trusts forwarded client identity only after verifying the
+	# private proxy token. X-Forwarded-For is overwritten here with the
+	# actual client address: reverse_proxy would otherwise append it to any
+	# client-supplied value, letting an attacker rotate the Gateway's
+	# per-IP rate-limit buckets with spoofed leftmost entries.
+	reverse_proxy gateway:3000 {
+		# Absolute container path: compose mounts the secret at
+		# /run/secrets/trust_proxy_secret, independent of Caddy's cwd.
+		header_up X-Gateway-Proxy-Token {file./run/secrets/trust_proxy_secret}
+		header_up X-Forwarded-For {http.request.remote.host}
+		header_up -X-Real-Ip
+		# v5: header_down is a reverse_proxy subdirective only — the
+		# previous site-level copies made stock Caddy (2.9.1 and the
+		# pinned 2.11.7) refuse the whole Caddyfile. Same headers,
+		# now applied to proxied responses where the directive is valid.
+		header_down Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		header_down X-Content-Type-Options "nosniff"
+		header_down Referrer-Policy "strict-origin-when-cross-origin"
+		header_down X-Frame-Options "DENY"
+		header_down Cross-Origin-Opener-Policy "same-origin"
+		header_down Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		header_down -Server
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 60s
+		}
+	}
+}

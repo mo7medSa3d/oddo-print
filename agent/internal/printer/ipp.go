@@ -1,0 +1,927 @@
+package printer
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"maps"
+	"math"
+	"mime"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/yaseir-agent/agent/internal/config"
+)
+
+// IPPPrinter implements IPP/IPPS printing via HTTP POST to the printer URI.
+// Supports ipp://, ipps://, http://, https:// with path /ipp/print etc.
+//
+// IPP is a document transport, not a raw spooler. The Agent queries
+// actual formats, media and resolution to select native PDF or an advertised
+// Windows PDF -> PWG Raster / one-page JPEG conversion before submission.
+// Raw ESC/POS/ZPL data and POS JPEG input are not accepted by this backend.
+// Devices outside the supported advertised formats require a compatible driver.
+// IPP printers are local network peers, not cloud services. Go's default HTTP
+// transport honors HTTP_PROXY/HTTPS_PROXY; routing receipt documents through
+// a host-level proxy would leak print data and can break local connectivity.
+// Keep direct dial, normal TLS validation, bounded setup, and connection reuse.
+// This transport is safe for concurrent requests (net/http guarantee).
+var ippDirectTransport = &http.Transport{
+	Proxy:               nil,
+	DialContext:         (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 20 * time.Second}).DialContext,
+	TLSHandshakeTimeout: 5 * time.Second,
+	MaxIdleConns:        32,
+	MaxIdleConnsPerHost: 4,
+	IdleConnTimeout:     30 * time.Second,
+	DisableCompression:  true,
+}
+
+const maxIPPResponseDrainBytes = 64 * 1024
+
+func drainAndCloseIPPBody(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxIPPResponseDrainBytes))
+	_ = body.Close()
+}
+
+type IPPPrinter struct {
+	URL                  string // normalized http(s) transport URL, always credential-free
+	PrinterURI           string // credential-free URI carried in the IPP printer-uri attribute
+	Name                 string
+	testPaperMM          int           // explicitly selected 58/80mm diagnostic stock only
+	creds                *url.Userinfo // optional basic-auth from the configured URL
+	statusMu             sync.RWMutex
+	lastStatusDetail     string
+	geometryConfig       config.PrinterConfig
+	lastAttributes       map[string]string
+	attributesGeneration uint64
+	boundUUID            string
+	identityPersistence  func(string) error
+}
+
+func (p *IPPPrinter) setStatusDetail(detail string) {
+	p.statusMu.Lock()
+	p.lastStatusDetail = detail
+	p.statusMu.Unlock()
+}
+
+// StatusDetail exposes the most recent protocol-level reason without changing
+// the canonical health enum. The Agent heartbeat carries it as diagnostic
+// capability metadata so Gateway/UI can distinguish administrative stop/reject
+// from physical offline while keeping routing based on the status enum.
+func (p *IPPPrinter) StatusDetail() string {
+	p.statusMu.RLock()
+	defer p.statusMu.RUnlock()
+	return p.lastStatusDetail
+}
+
+func NewIPPPrinter(rawURL, name string) (*IPPPrinter, error) {
+	if rawURL == "" {
+		return nil, fmt.Errorf("IPP printer URL required")
+	}
+	u, err := normalizeIPPURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	creds := u.User
+	transportURL := *u
+	transportURL.User = nil
+
+	// The HTTP(S) URL is only the wire transport. RFC 8010 section 5
+	// requires the IPP printer-uri operation attribute to use ipp(s) even
+	// when an operator configured the endpoint as http(s). Keep the SAME
+	// actual destination: explicit port 80/443 is necessary for a bare
+	// http(s) URL, because ipp(s) defaults to 631 instead.
+	printerURIURL := transportURL
+	if transportURL.Scheme == "https" {
+		printerURIURL.Scheme = "ipps"
+	} else {
+		printerURIURL.Scheme = "ipp"
+	}
+	if printerURIURL.Port() == "" {
+		defaultPort := "80"
+		if transportURL.Scheme == "https" {
+			defaultPort = "443"
+		}
+		printerURIURL.Host = net.JoinHostPort(printerURIURL.Hostname(), defaultPort)
+	}
+	printerURI := printerURIURL.String()
+
+	return &IPPPrinter{
+		URL:        transportURL.String(),
+		PrinterURI: printerURI,
+		Name:       name,
+		creds:      creds,
+	}, nil
+}
+
+func normalizeIPPURL(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("empty IPP URL")
+	}
+	if !strings.Contains(raw, "://") {
+		if _, _, err := net.SplitHostPort(raw); err == nil {
+			raw = "http://" + raw + "/ipp/print"
+		} else if net.ParseIP(strings.Trim(raw, "[]")) != nil {
+			raw = "http://" + net.JoinHostPort(strings.Trim(raw, "[]"), "631") + "/ipp/print"
+		} else if strings.Contains(raw, ".") && !strings.Contains(raw, "/") {
+			raw = "http://" + raw + ":631/ipp/print"
+		} else if !strings.HasPrefix(strings.ToLower(raw), "http") {
+			raw = "http://" + raw
+		}
+	}
+	lower := strings.ToLower(raw)
+	wasIPP := strings.HasPrefix(lower, "ipp://")
+	wasIPPS := strings.HasPrefix(lower, "ipps://")
+	if wasIPP {
+		raw = "http://" + raw[6:]
+	} else if wasIPPS {
+		raw = "https://" + raw[7:]
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		// url.Parse errors can echo the supplied userinfo. IPP credentials
+		// may be configured in the URL for authenticated printers, so never
+		// put the raw input (or the wrapped parser error) in logs/UI errors.
+		return nil, fmt.Errorf("invalid IPP URL syntax")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("IPP URL scheme must be http/https/ipp/ipps, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("IPP URL host missing")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("IPP URL must not carry a query or fragment")
+	}
+	if (wasIPP || wasIPPS) && u.Port() == "" {
+		u.Host = net.JoinHostPort(u.Hostname(), "631")
+	}
+	// A bare address without a scheme was already given /ipp/print above.
+	// An explicit IPP URL at the root must keep that exact execution path.
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u, nil
+}
+
+func (p *IPPPrinter) requestURL() string {
+	u, err := url.Parse(p.URL)
+	if err != nil {
+		return p.URL
+	}
+	u.User = nil
+	return u.String()
+}
+
+func (p *IPPPrinter) Print(ctx context.Context, data []byte) error {
+	// A bare Print with no document kind is treated as a PDF submission and
+	// is validated as such — IPP never silently byte-spools unknown formats.
+	if err := ValidatePDF(data); err != nil {
+		return err
+	}
+	return p.printPDFWithFormatNegotiation(ctx, data)
+}
+
+func (p *IPPPrinter) PrintDocument(ctx context.Context, doc Document) error {
+	kind := NormalizeKind(doc.Kind)
+	format, ok := ippDocumentFormatFor(kind)
+	if !ok {
+		return CapabilityMismatchf("IPP printer %s cannot render %s payloads", p.URL, kind)
+	}
+	if kind == KindPDF {
+		if err := ValidatePDF(doc.Data); err != nil {
+			return err
+		}
+	}
+	if len(doc.Data) == 0 {
+		return fmt.Errorf("refusing to print empty payload")
+	}
+	if len(doc.Data) > maxPrintBytes {
+		return fmt.Errorf("payload %d exceeds %d limit", len(doc.Data), maxPrintBytes)
+	}
+	if format == ippFormatPDF {
+		return p.printPDFWithFormatNegotiation(ctx, doc.Data)
+	}
+	return p.printDocument(ctx, doc.Data, format)
+}
+
+func (p *IPPPrinter) SupportsKind(kind string) bool {
+	_, ok := ippDocumentFormatFor(NormalizeKind(kind))
+	return ok
+}
+
+func ippDocumentFormatFor(kind string) (string, bool) {
+	switch kind {
+	case KindPDF:
+		return ippFormatPDF, true
+	default:
+		return "", false
+	}
+}
+
+// preDispatchIRErr reports whether a transport error proves the IPP request
+// never left the machine (safe retry classification).
+func preDispatchIRErr(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
+}
+
+func (p *IPPPrinter) printDocument(ctx context.Context, data []byte, documentFormat string) error {
+	return p.printDocumentWithOptions(ctx, data, documentFormat, nil)
+}
+
+func (p *IPPPrinter) printDocumentWithOptions(ctx context.Context, data []byte, documentFormat string, options *ippJobOptions) (retErr error) {
+	// Capture the complete Print-Job request/response time; success here is
+	// verified IPP submission evidence, not confirmation of paper output.
+	startedAt := time.Now()
+	defer func() {
+		log.Printf("print.trace ipp_submission latency_ms=%d success=%t", time.Since(startedAt).Milliseconds(), retErr == nil)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	ippReq := buildIPPPrintJobWithOptions(p.PrinterURI, data, documentFormat, options)
+	req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
+	if err != nil {
+		return fmt.Errorf("IPP create request for %s: %w", p.URL, err)
+	}
+	req.Header.Set("Content-Type", "application/ipp")
+	req.Header.Set("Accept", "application/ipp")
+	req.Header.Set("Expect", "")
+	if p.creds != nil {
+		if !allowIPPCredentialsOverTransport(req.URL) {
+			return fmt.Errorf("IPP credentials require TLS (ipps:// or https://) for non-loopback endpoint %s", p.URL)
+		}
+		if pass, ok := p.creds.Password(); ok {
+			req.SetBasicAuth(p.creds.Username(), pass)
+		}
+	}
+	client := &http.Client{
+		Transport: ippDirectTransport,
+		Timeout:   15 * time.Second,
+		// IPP print submissions contain the complete document. Never follow a
+		// redirect because it could resend the payload to an unintended host.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		// Honor the print budget: a large/slow IPP transfer legitimately
+		// outlives the 15s stall floor, and the budget context already
+		// bounds the whole job. Without this, slow-but-progressing jobs
+		// are killed at 15s despite a multi-minute budget.
+		if timeout := time.Until(deadline); timeout > 0 {
+			client.Timeout = timeout
+		}
+	}
+	if err := runDispatchAdmission(ctx); err != nil {
+		return fmt.Errorf("IPP print admission refused: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		if preDispatchIRErr(err) {
+			// Never transmitted: a clean, safely retryable failure.
+			return fmt.Errorf("IPP printer %s unreachable (request not sent): check TCP connectivity to the configured IPP endpoint from the Windows Agent, and confirm it supports IPP: %w", p.URL, err)
+		}
+		// The request may already have reached the device and created a
+		// spooled job; the physical outcome is genuinely unknown.
+		return fmt.Errorf("%s: IPP submission to %s failed after transmission may have occurred: %w", ErrOutcomeUnknown, p.URL, err)
+	}
+	defer drainAndCloseIPPBody(resp.Body)
+	// Read one byte beyond the budget so a complete-looking prefix at the
+	// boundary cannot hide trailing/truncated response data.
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxIPPPrintResponseBytes+1))
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			// CheckRedirect deliberately stops a second print submission, but
+			// the original endpoint already received the request. An HTTP 3xx
+			// response is not correlated IPP refusal evidence: a physical job
+			// might already exist. Never classify it as safe to auto-retry.
+			return MarkUnknown("IPP printer %s redirected Print-Job with HTTP %d after submission; output may exist", p.URL, resp.StatusCode)
+		}
+		// RFC 8010 permits IPP response semantics only with HTTP 200.
+		// Every non-200 — including 401/403/404 — keeps the unknown
+		// outcome: after transmission, no HTTP-layer refusal is treated
+		// as safe-to-retry evidence (pinned by
+		// TestIPPPrintJobRequiresHTTP200EvidenceWithoutRetry).
+		return MarkUnknown("IPP printer %s returned HTTP %d after Print-Job; no correlated IPP result is available and output may exist", p.URL, resp.StatusCode)
+	}
+	mediaType, _, mediaErr := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if mediaErr != nil || mediaType != "application/ipp" {
+		return MarkUnknown("IPP response from %s has an invalid Content-Type after Print-Job; output may exist", p.URL)
+	}
+	if readErr != nil {
+		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %w", ErrOutcomeUnknown, p.URL, readErr)
+	}
+	if len(body) > maxIPPPrintResponseBytes {
+		return MarkUnknown("IPP response from %s exceeds the response budget (job state unknown)", p.URL)
+	}
+	status, msg := parseIPPStatus(body)
+	if status == 0xFFFF {
+		return fmt.Errorf("%s: IPP response from %s was truncated (job state unknown): %s", ErrOutcomeUnknown, p.URL, msg)
+	}
+	if status >= 0x0500 && status <= 0x05ff {
+		return fmt.Errorf("%s: IPP printer %s returned server error 0x%04x (%s); the job may be queued (physical outcome unknown)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
+	}
+	if status >= 0x0400 && status <= 0x04ff {
+		if envelopeErr := validateIPPPrintResponseEnvelope(body, binary.BigEndian.Uint32(ippReq[4:8])); envelopeErr != nil {
+			return MarkUnknown("IPP response from %s has unusable refusal evidence after submission: %v", p.URL, envelopeErr)
+		}
+		if status == 0x040A {
+			return fmt.Errorf("IPP printer %s rejected document-format %s (0x040A: %s): %s. Verify document-format-supported and use the Windows spooler driver if necessary", p.URL, documentFormat, ippStatusText(status), msg)
+		}
+		return fmt.Errorf("IPP printer %s returned client error 0x%04x (%s): %s", p.URL, status, ippStatusText(status), msg)
+	}
+	if status > 0x00ff {
+		return fmt.Errorf("%s: IPP printer %s returned unknown status 0x%04x (%s)", ErrOutcomeUnknown, p.URL, status, ippStatusText(status))
+	}
+	job, evidenceErr := parseIPPPrintJobEvidence(body, binary.BigEndian.Uint32(ippReq[4:8]))
+	if evidenceErr != nil {
+		// The document has already been transmitted. Incomplete, malformed,
+		// canceled or aborted Job evidence is never a safely retryable refusal.
+		return MarkUnknown("IPP response from %s has unusable submitted Job evidence: %v", p.URL, evidenceErr)
+	}
+	if options != nil && (status == 0x0001 || status == 0x0002) {
+		return MarkUnknown("IPP printer %s substituted or ignored requested attributes despite fidelity; job %d may exist, do not automatically reprint", p.URL, job.ID)
+	}
+	log.Printf("IPP accepted %d bytes (%s) at %s (IPP 0x%04x, job-id %d, state %d; physical output not confirmed)", len(data), documentFormat, p.URL, status, job.ID, job.State)
+	return nil
+}
+
+func (p *IPPPrinter) Test(ctx context.Context) error {
+	return p.PrintTestPage(ctx)
+}
+
+func (p *IPPPrinter) PrintTestPage(ctx context.Context) error {
+	attrs, err := p.getPrinterAttributes(ctx)
+	if err != nil {
+		return fmt.Errorf("IPP diagnostic needs actual media: %w", err)
+	}
+	media, err := ippAdvertisedMedia(attrs, true)
+	if err != nil {
+		return err
+	}
+	var selected *ippMedia
+	for _, m := range media {
+		if m.Width.Min != m.Width.Max || m.Height.Min != m.Height.Max {
+			continue
+		}
+		if p.testPaperMM > 0 && math.Abs(float64(m.Width.Min)/100-float64(p.testPaperMM)) > 0.25 {
+			continue
+		}
+		copy := m
+		selected = &copy
+		break
+	}
+	if selected == nil {
+		return fmt.Errorf("IPP diagnostic requires an advertised ready/default media matching the configured paper; no assumed paper was submitted")
+	}
+	width, height := float64(selected.Width.Min)*72/2540, float64(selected.Height.Min)*72/2540
+	data, err := diagnosticTestPDF(width, height)
+	if err != nil {
+		return err
+	}
+	return p.PrintDocument(ctx, Document{Kind: KindPDF, Data: data, JobID: "local-test"})
+}
+
+// Status differentiates transport failure from unsupported status and from
+// a genuinely responsive device. Probe failures or an answered query without
+// a usable printer-state map to "unknown", not physical offline or online.
+func (p *IPPPrinter) Status() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	attrs, err := p.getPrinterAttributes(ctx)
+	if err != nil {
+		// Probe/auth/protocol/transport failures are control-plane evidence only.
+		// They do not prove the physical device is offline.
+		p.setStatusDetail("probe_failed")
+		return "unknown"
+	}
+	if attrs == nil {
+		p.setStatusDetail("attributes_missing")
+		return "unknown"
+	}
+
+	status, detail := interpretIPPPrinterStatus(attrs)
+	p.setStatusDetail(detail)
+	return status
+}
+
+// interpretIPPPrinterStatus maps one Get-Printer-Attributes response to the
+// shared Gateway status vocabulary. It is a pure function of the attributes
+// so discovery-time classification and runtime Status() cannot diverge, and
+// discovery reuses its own probe response instead of issuing a second probe.
+func interpretIPPPrinterStatus(attrs map[string]string) (status, detail string) {
+	if attrs == nil {
+		return "unknown", "attributes_missing"
+	}
+	reasons := strings.ToLower(attrs["printer-state-reasons"])
+	if reasons != "" {
+		detail = reasons
+	} else {
+		detail = "none"
+	}
+	// RFC 8011 section 5.4.12: explicit report/warning reasons do not
+	// prevent a job completing. A warning on one output device or tray must
+	// not turn an otherwise idle/processing IPP Printer into a failed one.
+	// Retain unqualified legacy fault handling; many devices omit severity.
+	var blockingReasons []string
+	hasExplicitError := false
+	for _, reason := range strings.Split(reasons, ",") {
+		reason = strings.TrimSpace(reason)
+		if strings.HasSuffix(reason, "-warning") || strings.HasSuffix(reason, "-report") {
+			continue
+		}
+		hasExplicitError = hasExplicitError || strings.HasSuffix(reason, "-error")
+		blockingReasons = append(blockingReasons, reason)
+	}
+	reasons = strings.Join(blockingReasons, ",")
+	if reasons != "" && reasons != "none" {
+		for _, marker := range []string{"media-empty", "media-needed", "cover-open", "door-open", "toner-empty", "developer-empty", "marker-supply-empty", "jam", "interlock-open"} {
+			if strings.Contains(reasons, marker) {
+				return "error", detail
+			}
+		}
+		if strings.Contains(reasons, "offline") || strings.Contains(reasons, "shutdown") {
+			return "offline", detail
+		}
+		for _, marker := range []string{"paused", "moving-to-paused", "hold-new-jobs", "spool-area-full"} {
+			if strings.Contains(reasons, marker) {
+				return "error", detail
+			}
+		}
+	}
+
+	// A vendor-specific explicit error is still a failure even when its
+	// keyword is unknown to us; never turn contradictory evidence into ready.
+	if hasExplicitError {
+		return "error", detail
+	}
+	if state, ok := attrs["printer-state"]; ok {
+		switch state {
+		case "3":
+			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+				return "error", detail
+			}
+			return "online", detail
+		case "4":
+			if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+				return "error", detail
+			}
+			return "busy", detail
+		case "5":
+			// STOPPED is not synonymous with physical offline. Reasons above
+			// decide offline vs device/admin error when available.
+			return "error", detail
+		default:
+			return "unknown", detail
+		}
+	}
+	if accepting, ok := attrs["printer-is-accepting-jobs"]; ok && strings.EqualFold(accepting, "false") {
+		return "error", detail
+	}
+	return "unknown", detail
+}
+
+var errIPPStatusUnsupported = errors.New("get-printer-attributes unsupported")
+
+func (p *IPPPrinter) getPrinterAttributes(ctx context.Context) (attributes map[string]string, resultErr error) {
+	p.statusMu.Lock()
+	p.attributesGeneration++
+	generation := p.attributesGeneration
+	p.lastAttributes = nil
+	p.statusMu.Unlock()
+	defer func() {
+		p.statusMu.Lock()
+		defer p.statusMu.Unlock()
+		if generation != p.attributesGeneration {
+			return
+		}
+		p.lastAttributes = nil
+		if resultErr == nil {
+			p.lastAttributes = maps.Clone(attributes)
+		}
+	}()
+	// Defense-in-depth: never transmit Basic Auth credentials over non-TLS LAN transports.
+	client := &http.Client{
+		Transport: ippDirectTransport,
+		Timeout:   5 * time.Second,
+		// Status probes must stay bound to the configured printer endpoint.
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	stages := []struct {
+		version           [2]byte
+		includeMediaColDB bool
+	}{
+		{[2]byte{0x02, 0x00}, true},
+		{[2]byte{0x02, 0x00}, false},
+		{[2]byte{0x01, 0x01}, false},
+	}
+	var lastErr error
+	for idx, stage := range stages {
+		ippReq := buildIPPGetPrinterAttributesRequest(p.PrinterURI, stage.version, stage.includeMediaColDB)
+		req, err := http.NewRequestWithContext(ctx, "POST", p.requestURL(), bytes.NewReader(ippReq))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/ipp")
+		req.Header.Set("Accept", "application/ipp")
+		if p.creds != nil {
+			if !allowIPPCredentialsOverTransport(req.URL) {
+				return nil, fmt.Errorf("IPP credentials require TLS (ipps:// or https://) for non-loopback endpoint %s", p.URL)
+			}
+			if pass, ok := p.creds.Password(); ok {
+				req.SetBasicAuth(p.creds.Username(), pass)
+			}
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, readErr := func() ([]byte, error) {
+			defer drainAndCloseIPPBody(resp.Body)
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				return nil, fmt.Errorf("HTTP %d: %w", resp.StatusCode, errIPPStatusUnsupported)
+			}
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				return nil, fmt.Errorf("HTTP %d: %w", resp.StatusCode, errIPPStatusUnsupported)
+			}
+			if resp.StatusCode != http.StatusOK {
+				return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+			}
+			mediaType, _, mediaErr := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+			if mediaErr != nil || mediaType != "application/ipp" {
+				return nil, fmt.Errorf("IPP printer attributes response has an invalid Content-Type")
+			}
+			b, rerr := io.ReadAll(io.LimitReader(resp.Body, maxIPPAttributesBytes+1))
+			if rerr != nil {
+				return nil, rerr
+			}
+			if len(b) > maxIPPAttributesBytes {
+				return nil, fmt.Errorf("IPP printer attributes response exceeds %d-byte limit", maxIPPAttributesBytes)
+			}
+			return b, nil
+		}()
+		if readErr != nil {
+			return nil, readErr
+		}
+		attributes, err = parseIPPPrinterAttributes(body, binary.BigEndian.Uint32(ippReq[4:8]))
+		if err != nil {
+			lastErr = err
+			msg := err.Error()
+			if strings.Contains(msg, "truncated") || strings.Contains(msg, "size") || strings.Contains(msg, "document-format-supported") {
+				return nil, err
+			}
+			if strings.Contains(msg, "0x0401") || strings.Contains(msg, "0x0402") || strings.Contains(msg, "0x0403") || strings.Contains(msg, "0x0507") {
+				return nil, err
+			}
+			if idx == 0 && strings.Contains(msg, "0x0503") {
+				continue
+			}
+			if idx < len(stages)-1 && (errors.Is(err, errIPPStatusUnsupported) || (stage.includeMediaColDB && strings.Contains(msg, "collection"))) {
+				continue
+			}
+			return nil, err
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	if err := p.checkIPPIdentity(attributes); err != nil {
+		return nil, err
+	}
+	if err := p.PersistVerifiedIdentity(normalizedIPPPrinterUUID(attributes["printer-uuid"])); err != nil {
+		return nil, err
+	}
+	return attributes, nil
+}
+
+const (
+	ippFormatPDF = "application/pdf"
+)
+
+func buildIPPPrintJobWithFormat(printerURI string, document []byte, documentFormat string) []byte {
+	return buildIPPPrintJobWithOptions(printerURI, document, documentFormat, nil)
+}
+
+func buildIPPPrintJobWithOptions(printerURI string, document []byte, documentFormat string, options *ippJobOptions) []byte {
+	var buf bytes.Buffer
+	buf.Grow(len(document) + len(printerURI) + len(documentFormat) + 512)
+	buf.Write([]byte{0x02, 0x00})
+	binary.Write(&buf, binary.BigEndian, uint16(0x0002))
+	binary.Write(&buf, binary.BigEndian, uint32(1))
+	buf.WriteByte(0x01)
+	writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
+	writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
+	writeIPPAttribute(&buf, 0x45, "printer-uri", printerURI)
+	writeIPPAttribute(&buf, 0x42, "requesting-user-name", "odoo-agent")
+	writeIPPAttribute(&buf, 0x49, "document-format", documentFormat)
+	writeIPPAttribute(&buf, 0x42, "job-name", "Yaseir Print Job")
+	if options != nil {
+		writeIPPBinary(&buf, 0x22, "ipp-attribute-fidelity", []byte{1})
+		writeIPPJobOptions(&buf, options)
+	}
+	buf.WriteByte(0x03)
+	buf.Write(document)
+	return buf.Bytes()
+}
+
+func buildIPPGetPrinterAttributes(printerURI string) []byte {
+	return buildIPPGetPrinterAttributesRequest(printerURI, [2]byte{0x02, 0x00}, true)
+}
+
+func buildIPPGetPrinterAttributesRequest(printerURI string, version [2]byte, includeMediaColDB bool) []byte {
+	var buf bytes.Buffer
+	buf.Grow(len(printerURI) + 512)
+	buf.Write(version[:])
+	binary.Write(&buf, binary.BigEndian, uint16(0x000B))
+	binary.Write(&buf, binary.BigEndian, uint32(1))
+	buf.WriteByte(0x01)
+	writeIPPAttribute(&buf, 0x47, "attributes-charset", "utf-8")
+	writeIPPAttribute(&buf, 0x48, "attributes-natural-language", "en")
+	writeIPPAttribute(&buf, 0x45, "printer-uri", printerURI)
+	writeIPPAttribute(&buf, 0x42, "requesting-user-name", "odoo-agent")
+	writeIPPAttribute(&buf, 0x44, "requested-attributes", "printer-state")
+	writeIPPAttribute(&buf, 0x44, "", "printer-state-reasons")
+	writeIPPAttribute(&buf, 0x44, "", "printer-is-accepting-jobs")
+	writeIPPAttribute(&buf, 0x44, "", "document-format-supported")
+	writeIPPAttribute(&buf, 0x44, "", "document-format-default")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-type-supported")
+	writeIPPAttribute(&buf, 0x44, "", "pwg-raster-document-resolution-supported")
+	for _, name := range []string{"media-supported", "media-ready", "media-default", "media-col-default", "media-col-ready", "media-col-database", "printer-resolution-supported", "printer-resolution-default", "print-scaling-supported", "orientation-requested-supported", "printer-uuid", "printer-make-and-model"} {
+		if name == "media-col-database" && !includeMediaColDB {
+			continue
+		}
+		writeIPPAttribute(&buf, 0x44, "", name)
+	}
+	buf.WriteByte(0x03)
+	return buf.Bytes()
+}
+
+func writeIPPAttribute(buf *bytes.Buffer, tag byte, name, value string) {
+	var lenBuf [2]byte
+	buf.WriteByte(tag)
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(len(name)))
+	buf.Write(lenBuf[:])
+	buf.WriteString(name)
+	binary.BigEndian.PutUint16(lenBuf[:], uint16(len(value)))
+	buf.Write(lenBuf[:])
+	buf.WriteString(value)
+}
+
+// completeIPPResponse validates framing before a success status can be used
+// as submission evidence. A status header alone is not a complete response.
+func completeIPPResponse(data []byte) bool {
+	if len(data) < 9 || (data[0] != 1 && data[0] != 2) || binary.BigEndian.Uint32(data[4:8]) != 1 {
+		return false
+	}
+	inGroup := false
+	hasName := false
+	for i := 8; i < len(data); {
+		tag := data[i]
+		i++
+		if tag == 0x03 {
+			return i == len(data)
+		}
+		if tag <= 0x0f {
+			if tag == 0 {
+				return false
+			}
+			inGroup = true
+			hasName = false
+			continue
+		}
+		if !inGroup || i+2 > len(data) {
+			return false
+		}
+		nameLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if i+nameLen+2 > len(data) || (nameLen == 0 && !hasName) {
+			return false
+		}
+		hasName = true
+		i += nameLen
+		valueLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if i+valueLen > len(data) {
+			return false
+		}
+		i += valueLen
+	}
+	return false
+}
+
+func parseIPPStatus(data []byte) (uint16, string) {
+	if !completeIPPResponse(data) {
+		return 0xFFFF, "invalid or truncated IPP response"
+	}
+	status := binary.BigEndian.Uint16(data[2:4])
+	attrs := parseIPPAttributes(data)
+	if msg := attrs["status-message"]; msg != "" {
+		return status, msg
+	}
+	return status, ""
+}
+
+// logRecoveredIPPParse reports a panic recovered while parsing IPP attribute
+// bytes taken straight off the network. The recovery itself is deliberate
+// hardening — a malformed packet must not take down discovery — but it used to
+// be a bare `_ = recover()`, so a parser panic left no trace at all. Extracted
+// from the deferred closure so the reporting behaviour is directly testable.
+func logRecoveredIPPParse(dataLen int, recovered interface{}) {
+	log.Printf("WARNING: recovered from malformed IPP attributes (len=%d): %v", dataLen, recovered)
+}
+
+func parseIPPAttributes(data []byte) map[string]string {
+	out := make(map[string]string)
+	defer func() {
+		if r := recover(); r != nil {
+			logRecoveredIPPParse(len(data), r)
+		}
+	}()
+	if len(data) < 8 {
+		return out
+	}
+	i := 8
+	currentName := ""
+	collectionDepth := 0
+	for i < len(data) {
+		tag := data[i]
+		i++
+		if tag == 0x03 {
+			break
+		}
+		if tag <= 0x0F {
+			currentName = ""
+			collectionDepth = 0
+			continue
+		}
+		if i+2 > len(data) {
+			break
+		}
+		nameLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if nameLen < 0 || i+nameLen > len(data) {
+			break
+		}
+		if nameLen > 0 && collectionDepth == 0 {
+			currentName = string(data[i : i+nameLen])
+		}
+		i += nameLen
+		if i+2 > len(data) {
+			break
+		}
+		valueLen := int(binary.BigEndian.Uint16(data[i : i+2]))
+		i += 2
+		if valueLen < 0 || i+valueLen > len(data) {
+			break
+		}
+		raw := data[i : i+valueLen]
+		i += valueLen
+		if tag == 0x34 {
+			collectionDepth++
+			continue
+		}
+		if tag == 0x37 {
+			if collectionDepth > 0 {
+				collectionDepth--
+			}
+			continue
+		}
+		if collectionDepth > 0 || tag == 0x4A {
+			continue
+		}
+		if currentName == "" {
+			continue
+		}
+		val := decodeIPPValue(tag, raw)
+		if val == "" {
+			continue
+		}
+		if existing, ok := out[currentName]; ok && existing != "" {
+			out[currentName] = existing + "," + val
+		} else {
+			out[currentName] = val
+		}
+	}
+	return out
+}
+
+func decodeIPPValue(tag byte, raw []byte) string {
+	switch tag {
+	case 0x10, 0x12, 0x13:
+		return ""
+	case 0x21, 0x23:
+		if len(raw) != 4 {
+			return ""
+		}
+		return fmt.Sprintf("%d", int32(binary.BigEndian.Uint32(raw)))
+	case 0x22:
+		if len(raw) != 1 {
+			return ""
+		}
+		if raw[0] != 0 {
+			return "true"
+		}
+		return "false"
+	case 0x32: // resolution: 4-byte X, 4-byte Y, 1-byte units
+		if len(raw) != 9 {
+			return ""
+		}
+		x := binary.BigEndian.Uint32(raw[:4])
+		y := binary.BigEndian.Uint32(raw[4:8])
+		if x == 0 || y == 0 || x > 9600 || y > 9600 {
+			return ""
+		}
+		if raw[8] == 3 { // dots per inch
+			return fmt.Sprintf("%dx%ddpi", x, y)
+		}
+		if raw[8] == 4 { // dots per centimetre
+			return fmt.Sprintf("%dx%ddpcm", x, y)
+		}
+		return ""
+	case 0x30: // rangeOfInteger: 4-byte min int32, 4-byte max int32
+		if len(raw) != 8 {
+			return ""
+		}
+		minVal := int32(binary.BigEndian.Uint32(raw[:4]))
+		maxVal := int32(binary.BigEndian.Uint32(raw[4:8]))
+		return fmt.Sprintf("%d-%d", minVal, maxVal)
+	case 0x41, 0x42, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49:
+		return string(raw)
+	default:
+		for _, b := range raw {
+			if b < 0x20 || b > 0x7e {
+				return ""
+			}
+		}
+		return string(raw)
+	}
+}
+
+func ippStatusText(status uint16) string {
+	switch status {
+	case 0x0000:
+		return "successful-ok"
+	case 0x0001:
+		return "successful-ok-ignored-or-substituted-attributes"
+	case 0x0400:
+		return "client-error-bad-request"
+	case 0x0401:
+		return "client-error-forbidden"
+	case 0x0402:
+		return "client-error-not-authenticated"
+	case 0x0403:
+		return "client-error-not-authorized"
+	case 0x0404:
+		return "client-error-not-possible"
+	case 0x040A:
+		return "client-error-document-format-not-supported"
+	case 0x0500:
+		return "server-error-internal-error"
+	case 0x0501:
+		return "server-error-operation-not-supported"
+	case 0x0503:
+		return "server-error-version-not-supported"
+	default:
+		return fmt.Sprintf("unknown-0x%04x", status)
+	}
+}
+
+func allowIPPCredentialsOverTransport(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return true
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}

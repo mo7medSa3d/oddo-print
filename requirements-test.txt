@@ -1,0 +1,21 @@
+# Python verification environment, exercised with Python 3.12.
+# These are test/lint dependencies, not the Odoo production runtime.
+# Keep the complete resolved dependency set pinned so clean CI does not rely
+# on Requests, PyYAML or their transitive packages preinstalled on a runner.
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptography==50.0.2
+idna==3.20
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+pycparser==3.12
+pyflakes==4.0.2
+Pygments==2.21.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+PyYAML==6.0.3
+requests==2.34.2
+typing_extensions==4.16.0
+urllib3==2.8.0

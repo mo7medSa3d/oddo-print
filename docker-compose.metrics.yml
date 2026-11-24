@@ -1,0 +1,12 @@
+# Optional unattended read-only scraping. Supply an owned regular secret file;
+# the Gateway verifies it at startup and on every scrape without cache grace.
+# Append this file to the deployment's existing Compose file list.
+services:
+  gateway:
+    environment:
+      METRICS_SCRAPE_TOKEN_FILE: /run/secrets/metrics_scrape_token
+    secrets:
+      - metrics_scrape_token
+secrets:
+  metrics_scrape_token:
+    file: ${METRICS_SCRAPE_TOKEN_FILE:?Set METRICS_SCRAPE_TOKEN_FILE to the protected collector credential file}

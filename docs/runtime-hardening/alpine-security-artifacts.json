@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-10-24",
+  "scope": "Exact runtime Alpine branch and architecture packages; SHA-256 locks supplement native APK RSA signatures. No final-image execution is claimed.",
+  "indexes": [
+    {
+      "filename": "alpine-3.23-aarch64-main-APKINDEX.tar.gz",
+      "sha256": "b7d2c7d0fe80969b430bdff9ceab5e22cc14c7f436030c5ddc3103695c58f4d5"
+    },
+    {
+      "filename": "alpine-3.23-x86_64-main-APKINDEX.tar.gz",
+      "sha256": "0c8ba757e83936d34bea24a263832a64f249892603026d0b084e5a70b3ecb8e1"
+    },
+    {
+      "filename": "alpine-3.24-aarch64-main-APKINDEX.tar.gz",
+      "sha256": "2822e83c6dc363b1e0997a86a9c855484d2760e11d8c08da46d51e21f882472b"
+    },
+    {
+      "filename": "alpine-3.24-x86_64-main-APKINDEX.tar.gz",
+      "sha256": "a7f0c0024c4e2e810192016a1e9278d0c5ff6792390c87b13984af1872611780"
+    }
+  ],
+  "artifacts": [
+    {
+      "release": "3.23",
+      "architecture": "aarch64",
+      "package": "brotli-libs",
+      "version": "1.2.1-r0",
+      "filename": "brotli-libs-1.2.1-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/brotli-libs-1.2.1-r0.apk",
+      "bytes": 424994,
+      "sha256": "bec9ee522095e9fd01113d8732119847944e3152f228034246a33e2ab82e4195",
+      "index_checksum": "Q1p+QyiF9r1wFA3AiI8S+YO4QWerc=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/aarch64/brotli-libs-1.2.1-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "aarch64",
+      "package": "musl",
+      "version": "1.2.5-r24",
+      "filename": "musl-1.2.5-r24.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/musl-1.2.5-r24.apk",
+      "bytes": 416083,
+      "sha256": "d7043c549029c98d438e9bc94213b006e5c88540eb58d1f5b0f0d1d56dbf9c98",
+      "index_checksum": "Q1Gpmv84P2QM7qzmrxAM68h3dvVVQ=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/aarch64/musl-1.2.5-r24.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "aarch64",
+      "package": "musl-utils",
+      "version": "1.2.5-r24",
+      "filename": "musl-utils-1.2.5-r24.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/musl-utils-1.2.5-r24.apk",
+      "bytes": 16888,
+      "sha256": "df4a9a4bb81a76af36779d2c5ef28ac5a1778670788bb4cd152def522904df8f",
+      "index_checksum": "Q19Wb50/jiOW4Y3ETW/Ke1KcyIHgk=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/aarch64/musl-utils-1.2.5-r24.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "aarch64",
+      "package": "zlib",
+      "version": "1.4-r0",
+      "filename": "zlib-1.4-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/zlib-1.4-r0.apk",
+      "bytes": 55052,
+      "sha256": "c9bc3c75104ffba5785277b38eb83bf90ea83539e3bb26c617864fb78dcb4462",
+      "index_checksum": "+pAEttdu64vAw7DJWgzXpvQraUa8pwhxzCt282OaZ3U=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/aarch64/zlib-1.4-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "x86_64",
+      "package": "brotli-libs",
+      "version": "1.2.1-r0",
+      "filename": "brotli-libs-1.2.1-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/brotli-libs-1.2.1-r0.apk",
+      "bytes": 429434,
+      "sha256": "cf3dc08928958bb42fe71c07a179ca33adb9e2c341daa29d88777061956d84f5",
+      "index_checksum": "Q19jvU5Ja1fS3MA5klQ5vHfCtfut8=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/x86_64/brotli-libs-1.2.1-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "x86_64",
+      "package": "musl",
+      "version": "1.2.5-r24",
+      "filename": "musl-1.2.5-r24.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/musl-1.2.5-r24.apk",
+      "bytes": 414107,
+      "sha256": "d49d703392f1a6d2fe822db1b57e61735063077e1ad846d5f40d79fe507ec727",
+      "index_checksum": "Q1XUI1pl90RATg8vH/H5+0fF2ukao=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/x86_64/musl-1.2.5-r24.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "x86_64",
+      "package": "musl-utils",
+      "version": "1.2.5-r24",
+      "filename": "musl-utils-1.2.5-r24.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/musl-utils-1.2.5-r24.apk",
+      "bytes": 13596,
+      "sha256": "ee9a8106067ead36b8930f5ccdb3e515574871ac8e07f88cc7bab7049effc945",
+      "index_checksum": "Q1rtAC/LK9HesmJYexXp60XOc2Ii8=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/x86_64/musl-utils-1.2.5-r24.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.23",
+      "architecture": "x86_64",
+      "package": "zlib",
+      "version": "1.4-r0",
+      "filename": "zlib-1.4-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/zlib-1.4-r0.apk",
+      "bytes": 56762,
+      "sha256": "22ff5ae6b704ac1786d6565dcb3f5dde489e44a5038297a565382b76f656ee08",
+      "index_checksum": "kOe3uIFv9q++rM8+5quQyRYwF7zDQtdo7LwqBANq/wM=",
+      "profile": "caddy",
+      "destination": "/os-security/caddy/x86_64/zlib-1.4-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "aarch64",
+      "package": "musl",
+      "version": "1.2.6-r3",
+      "filename": "musl-1.2.6-r3.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/musl-1.2.6-r3.apk",
+      "bytes": 417730,
+      "sha256": "2e17864102278d9049c3a56f1bceed9e8cf287065617e579325123443daed8a5",
+      "index_checksum": "Q1LxWdAiUjx6a3hymmYymFy3cU++Y=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/aarch64/musl-1.2.6-r3.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "aarch64",
+      "package": "musl-utils",
+      "version": "1.2.6-r3",
+      "filename": "musl-utils-1.2.6-r3.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/musl-utils-1.2.6-r3.apk",
+      "bytes": 16883,
+      "sha256": "bb460bdc009e88989bd5adca8a7c8298c339cba99da11c6196c818e042fbaf49",
+      "index_checksum": "Q1w4Ehr//R8t12gfesZgWKPNcj0DA=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/aarch64/musl-utils-1.2.6-r3.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "aarch64",
+      "package": "zlib",
+      "version": "1.4-r0",
+      "filename": "zlib-1.4-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zlib-1.4-r0.apk",
+      "bytes": 55056,
+      "sha256": "d3e30d012a3445222b0b4a28f1d4d97ce67387f8b48561921111696da174f0de",
+      "index_checksum": "RYX1pLHxekjtmyUEiRyQYkScroD7P2Y18P7MG7G84Wk=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/aarch64/zlib-1.4-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+        "key_sha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "x86_64",
+      "package": "musl",
+      "version": "1.2.6-r3",
+      "filename": "musl-1.2.6-r3.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/musl-1.2.6-r3.apk",
+      "bytes": 415466,
+      "sha256": "e142255d0fa397f14318996bc10378093dcc069dc3dd1b6818c8f28a789c21da",
+      "index_checksum": "Q1dw6DBNlY3O2Y12mX356Podtcoy8=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/x86_64/musl-1.2.6-r3.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "x86_64",
+      "package": "musl-utils",
+      "version": "1.2.6-r3",
+      "filename": "musl-utils-1.2.6-r3.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/musl-utils-1.2.6-r3.apk",
+      "bytes": 13598,
+      "sha256": "47263d05842c5e12d01e0369e5b5bea51733323501c00ca21968a5102de137ca",
+      "index_checksum": "Q1UTctqvsjRkaWDspNehP3BjJPJNY=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/x86_64/musl-utils-1.2.6-r3.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    },
+    {
+      "release": "3.24",
+      "architecture": "x86_64",
+      "package": "zlib",
+      "version": "1.4-r0",
+      "filename": "zlib-1.4-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zlib-1.4-r0.apk",
+      "bytes": 56761,
+      "sha256": "7b05bc778b8b25cd880835b40114182bd4d1581717504d0129c810c0a14291cb",
+      "index_checksum": "zxlBydpVQAe+vDb5+uu74ElZMA+h0BL3m7HseAcSS2Q=",
+      "profile": "postgres",
+      "destination": "/os-security/postgres/x86_64/zlib-1.4-r0.apk",
+      "signature": {
+        "signature_key": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+        "key_sha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+        "signature_algorithm": "RSA-SHA1, APKv2 native format",
+        "verified": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+--- a/odoo/tools/pdf/__init__.py
++++ b/odoo/tools/pdf/__init__.py
+@@ -74 +74,4 @@
+-pypdf.filters.decompress = lambda data: decompressobj().decompress(data)
++# Keep modern pypdf's configured decompression bounds. The historical
++# workaround is needed only by the legacy PyPDF2 compatibility adapters.
++if pypdf.filters.__name__.startswith("PyPDF2."):
++    pypdf.filters.decompress = lambda data: decompressobj().decompress(data)

@@ -1,0 +1,443 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/yaseir-agent/agent/internal/agent"
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/license"
+	"github.com/yaseir-agent/agent/internal/printer"
+)
+
+func main() {
+	serverURL := flag.String("server", "", "Server URL (required for -pair), e.g. https://gateway.example.com")
+	pairingCode := flag.String("pair", "", "Pairing code from dashboard (prefer YASEIR_PAIRING_CODE env: argv is visible to local users)")
+	configPath := flag.String("config", config.DefaultConfigPath(), "Path to config file")
+	// Printer subcommands also support --json flag via manual parsing
+	flag.Parse()
+
+	// If subcommand style "printers ..." is used, handle before pairing check
+	args := flag.Args()
+	if len(args) > 0 {
+		if args[0] == "printers-share" {
+			if err := handlePrinterVisibility(args[1:], *configPath); err != nil {
+				fmt.Fprintln(os.Stderr, "printer sharing:", err)
+				os.Exit(1)
+			}
+			return
+		}
+		// Check for printers subcommand
+		if args[0] == "printers" {
+			handlePrintersSubcommand(args[1:], *configPath)
+			return
+		}
+
+		// The packaged desktop uses the paired Agent identity for Gateway
+		// console requests; it never needs a separate Manager login.
+		if args[0] == "gateway-request" {
+			handleGatewayRequest(args[1:], *configPath)
+			return
+		}
+		// Diagnostic mode: spooler/queue/device evidence, no secrets.
+		if args[0] == "diagnose" {
+			handleDiagnosePrinters(*configPath)
+			return
+		}
+		// Also support legacy flag style: -pair etc already handled, so unknown args => usage
+		fmt.Printf("Unknown command: %v\n", args)
+		printUsage()
+		os.Exit(1)
+	}
+
+	// Prefer the environment channel: CLI argv is visible to other local
+	// users (Task Manager, wmic process get CommandLine) and retained in
+	// EDR/4688 logs, while process environment is not. The flag remains as
+	// a fallback for scripts that already use it.
+	code := strings.TrimSpace(*pairingCode)
+	if code == "" {
+		code = strings.TrimSpace(os.Getenv("YASEIR_PAIRING_CODE"))
+	}
+	if code != "" {
+		if strings.TrimSpace(*serverURL) == "" {
+			log.Fatal("-server is required when pairing (e.g. -server https://gateway.example.com)")
+		}
+		if err := config.ValidateServerURL(*serverURL); err != nil {
+			log.Fatalf("Invalid -server: %v", err)
+		}
+		// Strict single-home: pair into the canonical config path only.
+		// A per-user fallback would split-brain pairing state away from
+		// the Windows Service (%PROGRAMDATA%). If the default path is not
+		// writable, elevate or pass an explicit -config in a writable
+		// location (the service itself always uses the canonical path).
+		if err := config.Ensure(*configPath); err != nil {
+			log.Fatalf("Failed to prepare protected service config %s: %v. Pairing on Windows must be performed from an elevated Administrator context.", *configPath, err)
+		}
+		if err := agent.Register(*serverURL, strings.ToUpper(code), *configPath); err != nil {
+			log.Fatalf("Pairing failed: %v", err)
+		}
+		os.Exit(0)
+	}
+
+	printUsage()
+}
+
+func printUsage() {
+	fmt.Println("Yaseir Agent CLI")
+	fmt.Println("")
+	fmt.Println("Pairing (one-time):")
+	fmt.Println("  yaseir-agent-cli.exe -pair <code> -server <url> [-config <path>]")
+	fmt.Println("  Prefer YASEIR_PAIRING_CODE env over -pair: argv is visible to local users.")
+	fmt.Println("  -server is required for pairing and must be http(s).")
+	fmt.Println("  Default config path:", config.DefaultConfigPath())
+	fmt.Println("")
+	fmt.Println("Gateway console (Agent-authenticated):")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/printers [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe gateway-request -method GET -path /api/jobs?limit=50 [-config <path>]")
+	fmt.Println("")
+	fmt.Println("Printer management:")
+	fmt.Println("  yaseir-agent-cli.exe printers list [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers-share --id <local-id> --shared <true|false> [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers discover [--json] [-config <path>]")
+	fmt.Println("  yaseir-agent-cli.exe printers test <printer-id> [-config <path>]  # transport/queue diagnostic; not proof of physical print")
+	fmt.Println("  yaseir-agent-cli.exe printers add --name <name> --type <network|usb|spooler|ipp> --endpoint <ip:port|spooler_name> [--protocol raw|escpos|ipp|spooler] [--spooler-name <name>] [--id <id>] [-config <path>]")
+	fmt.Println("    Optional: --device-class <thermal|laser|inkjet|label|unknown> --vid <hex> --pid <hex> --serial <serial> --enabled <true|false> --capabilities <json>")
+	fmt.Println("  yaseir-agent-cli.exe printers remove <printer-id> [-config <path>]")
+	fmt.Println("")
+	fmt.Println("Gateway inventory fields: id, name, printerType, deviceClass, connectionType, protocol, endpoint, spoolerName, status, capabilities")
+	fmt.Println("Examples:")
+	fmt.Println("  printers add --name \"Kitchen\" --type network --endpoint 192.168.1.50:9100 --protocol escpos")
+	fmt.Println("  printers add --name \"HP LaserJet\" --type spooler --spooler-name \"HP LaserJet\"")
+	fmt.Println("  printers add --name \"Label USB\" --type usb --vid 03f0 --pid 0c17 --serial CN123 --spooler-name \"Zebra\"")
+}
+
+func handlePrintersSubcommand(args []string, defaultConfigPath string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: printers <list|discover|test|add|remove> ...")
+		os.Exit(1)
+	}
+	cmd := args[0]
+	rest := args[1:]
+
+	// Parse --config and --json from rest
+	configPath := defaultConfigPath
+	jsonOutput := false
+	filtered := []string{}
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case "-config", "--config":
+			if i+1 >= len(rest) || rest[i+1] == "" || strings.HasPrefix(rest[i+1], "-") {
+				log.Fatal("-config requires a path")
+			}
+			configPath = rest[i+1]
+			i++
+		case "--json", "-json":
+			jsonOutput = true
+		case "--include-virtual":
+			log.Fatal("virtual printer discovery is no longer supported")
+		default:
+			// For 'test' and 'remove', the printer ID is positional
+			// For 'add', we keep all flags
+			filtered = append(filtered, rest[i])
+		}
+	}
+
+	switch cmd {
+	case "list":
+		handlePrintersList(configPath, jsonOutput)
+	case "discover":
+		handlePrintersDiscover(configPath, jsonOutput)
+	case "test":
+		if len(filtered) != 1 || strings.HasPrefix(filtered[0], "-") {
+			log.Fatal("printers test requires exactly one <printer-id> and no unsupported arguments")
+		}
+		handlePrintersTest(configPath, filtered[0])
+	case "add":
+		handlePrintersAdd(configPath, filtered)
+	case "remove":
+		if len(filtered) != 1 || strings.HasPrefix(filtered[0], "-") {
+			log.Fatal("printers remove requires exactly one <printer-id> and no unsupported arguments")
+		}
+		handlePrintersRemove(configPath, filtered[0])
+	default:
+		fmt.Printf("Unknown printers command: %s\n", cmd)
+		fmt.Println("Available: list, discover, test, add, remove")
+		os.Exit(1)
+	}
+}
+
+func loadConfigForCLI(configPath string) *struct {
+	cfg  *config.Config
+	path string
+} {
+	// Printer-management subcommands are independent of pairing, so they must
+	// fail closed when the protected config directory cannot be prepared.
+	// Ignoring Ensure() here previously allowed a permission/ACL failure to be
+	// misreported later as a missing or empty configuration.
+	if err := config.Ensure(configPath); err != nil {
+		log.Fatalf("Failed to prepare protected config %s: %v", configPath, err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config %s: %v", configPath, err)
+	}
+	return &struct {
+		cfg  *config.Config
+		path string
+	}{cfg: cfg, path: configPath}
+}
+
+func handlePrintersList(configPath string, jsonOutput bool) {
+	loaded := loadConfigForCLI(configPath)
+	registryPath := config.RegistryPath(loaded.path)
+	infos, err := printer.ListPrinters(loaded.cfg, registryPath)
+	if err != nil {
+		log.Fatalf("List failed: %v", err)
+	}
+	infos, err = printer.AnnotatePrinterVisibility(loaded.path, loaded.cfg, registryPath, infos)
+	if err != nil {
+		log.Fatalf("Read local printer sharing failed: %v", err)
+	}
+	if jsonOutput {
+		out, err := json.Marshal(infos)
+		if err != nil {
+			log.Fatalf("Failed to encode printer inventory: %v", err)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, string(out)); err != nil {
+			log.Fatalf("Failed to write printer inventory: %v", err)
+		}
+		return
+	}
+	if len(infos) == 0 {
+		fmt.Println("No printers discovered. Run 'printers discover' or 'printers add'.")
+		fmt.Println("Note: YAML printers: [] is not required; discovery and manual registration are the production paths.")
+		return
+	}
+	fmt.Printf("%-32s %-24s %-12s %-10s %-8s %-7s %s\n", "ID", "NAME", "TYPE", "PROTO", "STATUS", "ENABLED", "ENDPOINT/SPOOLER")
+	fmt.Println("--------------------------------------------------------------------------------------------------------------------------------")
+	for _, d := range infos {
+		endpoint := d.Endpoint
+		if d.SpoolerName != "" {
+			endpoint = d.SpoolerName
+		}
+		if endpoint == "" && d.NetworkAddress != "" {
+			if d.Port != 0 {
+				endpoint = fmt.Sprintf("%s:%d", d.NetworkAddress, d.Port)
+			} else {
+				endpoint = d.NetworkAddress
+			}
+		}
+		enabledStr := "true"
+		if !d.Enabled {
+			enabledStr = "false"
+		}
+		fmt.Printf("%-32s %-24s %-12s %-10s %-8s %-7s %s\n", d.ID, d.Name, d.ConnectionType, d.Protocol, d.Status, enabledStr, endpoint)
+	}
+}
+
+func handlePrintersDiscover(configPath string, jsonOutput bool) {
+	loaded := loadConfigForCLI(configPath)
+	registryPath := config.RegistryPath(loaded.path)
+	printers := discoverHelper(loaded.cfg, registryPath, jsonOutput)
+	printers, err := printer.AnnotatePrinterVisibility(loaded.path, loaded.cfg, registryPath, printers)
+	if err != nil {
+		log.Fatalf("Read local printer sharing failed: %v", err)
+	}
+	if jsonOutput {
+		type ownedPrinter struct {
+			printer.DeviceInfo
+			AgentID string `json:"agentId,omitempty"`
+		}
+		owned := make([]ownedPrinter, 0, len(printers))
+		for _, device := range printers {
+			owned = append(owned, ownedPrinter{DeviceInfo: device, AgentID: loaded.cfg.Agent.ID})
+		}
+		out, err := json.Marshal(owned)
+		if err != nil {
+			log.Fatalf("failed to encode discovery result: %v", err)
+		}
+		fmt.Println(string(out))
+		return
+	}
+	fmt.Printf("Discovery completed: %d printers found\n", len(printers))
+	for _, d := range printers {
+		fmt.Printf("  - %s\n", d.ID)
+	}
+	if len(printers) == 0 {
+		fmt.Println("No printers discovered. Try manual registration:")
+		fmt.Println("  yaseir-agent-cli.exe printers add --name \"My Printer\" --type spooler --spooler-name \"HP LaserJet\"")
+	}
+}
+
+// cliPrinterDiagnosticSuccess is deliberately precise about what the
+// shared TestPrinter check does per backend: a Windows spooler backend
+// submits a real test page, whereas a raw network backend may only prove
+// connectivity. Neither outcome proves a document was physically printed.
+func cliPrinterDiagnosticSuccess(printerID string) string {
+	return fmt.Sprintf("Printer diagnostic passed for %s. Depending on the backend this check may submit a real test page - check the printer for output. It is NOT proof that a document was physically printed; use the Gateway test-page job and verify printer output for end-to-end acceptance.", printerID)
+}
+
+func handlePrintersTest(configPath, printerID string) {
+	loaded := loadConfigForCLI(configPath)
+	dataDir := filepath.Dir(config.QueueDBPath(loaded.path))
+	guard, licErr := license.NewRuntimeGuardFromConfig(dataDir)
+	if licErr != nil {
+		log.Fatalf("License guard initialization failed: %v", licErr)
+	}
+	if licErr := guard.ApplyBundleFromEnv(); licErr != nil {
+		log.Fatalf("Printer diagnostic blocked by offline license bundle: %v", licErr)
+	}
+	if licErr := guard.CheckPrintAllowed(time.Now().UTC()); licErr != nil {
+		log.Fatalf("Printer diagnostic blocked by license guard: %v", licErr)
+	}
+	registryPath := config.RegistryPath(loaded.path)
+	fmt.Printf("Checking printer %s...\n", printerID)
+	if err := testPrinterHelper(loaded.cfg, registryPath, printerID); err != nil {
+		log.Fatalf("Printer diagnostic FAILED for %s: %v", printerID, err)
+	}
+	fmt.Println(cliPrinterDiagnosticSuccess(printerID))
+}
+
+func validateManualPrinterTransport(connectionType, endpoint, spoolerName string) error {
+	connection := strings.ToLower(strings.TrimSpace(connectionType))
+	ep := strings.TrimSpace(endpoint)
+	spooler := strings.TrimSpace(spoolerName)
+	if connection == "usb" && spooler == "" && ep == "" {
+		return fmt.Errorf("--endpoint is required for direct USB transport (Windows device path \\?\\... or \\.\\...); use --spooler-name for a Windows print queue")
+	}
+	if connection == "spooler" && spooler == "" && ep == "" {
+		return fmt.Errorf("--spooler-name or --endpoint is required for spooler printers")
+	}
+	if ep == "" && spooler == "" {
+		return fmt.Errorf("--endpoint or --spooler-name is required")
+	}
+	return nil
+}
+
+func handlePrintersAdd(configPath string, args []string) {
+	loaded := loadConfigForCLI(configPath)
+	registryPath := config.RegistryPath(loaded.path)
+	fs := flag.NewFlagSet("printers add", flag.ExitOnError)
+	name := fs.String("name", "", "Printer display name")
+	id := fs.String("id", "", "Stable printer ID (optional, auto-generated)")
+	typ := fs.String("type", "network", "Connection type: network/tcp/usb/spooler/ipp")
+	endpoint := fs.String("endpoint", "", "Endpoint: ip:port for network, spooler name for spooler, usb path for usb")
+	protocol := fs.String("protocol", "", "Protocol (REQUIRED for network/usb): raw/escpos/zpl/tspl/ipp/spooler/unknown. No default is guessed")
+	spoolerName := fs.String("spooler-name", "", "Windows spooler name (for spooler type)")
+	printerType := fs.String("device-class", "unknown", "Device class: thermal/laser/inkjet/label/unknown")
+	printerTypeAlias := fs.String("printer-type", "", "Alias for --device-class")
+	vid := fs.String("vid", "", "USB VID hex (e.g., 03f0)")
+	pid := fs.String("pid", "", "USB PID hex (e.g., 0c17)")
+	serial := fs.String("serial", "", "USB serial number")
+	enabledStr := fs.String("enabled", "true", "Enabled true/false")
+	capsJSON := fs.String("capabilities", "", "Capabilities JSON e.g., '{\"paper_widths\":[58,80]}'")
+	connectionTypeAlias := fs.String("connection-type", "", "Alias for --type")
+	fs.Parse(args)
+	if fs.NArg() != 0 {
+		log.Fatalf("printers add received unsupported arguments: %v", fs.Args())
+	}
+
+	// Both alias flags are read from the parsed flag set. The connection-type
+	// alias used to be handled by scanning the raw argument slice for the exact
+	// token "--connection-type", which silently ignored the equally valid
+	// "--connection-type=spooler" form: the flag was registered (so Parse
+	// accepted it and no error was raised) but its value was never applied, and
+	// the printer was stored with the --type default instead.
+	if *connectionTypeAlias != "" {
+		*typ = *connectionTypeAlias
+	}
+	if *printerTypeAlias != "" && (*printerType == "unknown" || *printerType == "") {
+		*printerType = *printerTypeAlias
+	}
+	if strings.TrimSpace(*name) == "" {
+		log.Fatal("--name is required for printers add")
+	}
+	// Generous bounds mirroring the desktop Rust trust boundary: no
+	// legitimate Windows spooler name (<=220 chars), IPP endpoint, or USB
+	// serial approaches these caps, but an unbounded value previously
+	// failed opaquely downstream or persisted an unbounded registry row.
+	// These are not Gateway field limits (which are not in this contract).
+	for field, value := range map[string]struct {
+		v string
+		m int
+	}{
+		"name": {*name, 512}, "endpoint": {*endpoint, 2048},
+		"spooler-name": {*spoolerName, 512}, "serial": {*serial, 1024},
+		"vid": {*vid, 64}, "pid": {*pid, 64},
+	} {
+		if len(value.v) > value.m {
+			log.Fatalf("--%s exceeds the %d-character limit", field, value.m)
+		}
+	}
+	if err := validateManualPrinterTransport(*typ, *endpoint, *spoolerName); err != nil {
+		log.Fatal(err)
+	}
+	effectiveEndpoint := *endpoint
+	if *spoolerName != "" && effectiveEndpoint == "" {
+		effectiveEndpoint = *spoolerName
+	}
+	enabledValue := strings.ToLower(strings.TrimSpace(*enabledStr))
+	if enabledValue != "true" && enabledValue != "false" {
+		log.Fatal("--enabled requires true or false")
+	}
+	enabled := enabledValue == "true"
+	var caps map[string]interface{}
+	if *capsJSON != "" {
+		// Parse JSON capabilities. An invalid document must not be persisted
+		// as {"_raw": <raw string>}: endpointToConfig copies unknown
+		// capability keys into the Gateway heartbeat config, so junk would
+		// leak into inventory. Warn and drop instead.
+		var parsed map[string]interface{}
+		if err := parseCapabilitiesJSON(*capsJSON, &parsed); err != nil {
+			log.Printf("WARNING: invalid capabilities JSON: %v (capabilities dropped)", err)
+			caps = nil
+		} else {
+			caps = parsed
+		}
+	}
+
+	info := struct {
+		ID             string
+		Name           string
+		ConnectionType string
+		PrinterType    string
+		Endpoint       string
+		Protocol       string
+		SpoolerName    string
+		USBVID         string
+		USBPID         string
+		USBSerial      string
+		Enabled        bool
+		Capabilities   map[string]interface{}
+	}{ID: *id, Name: *name, ConnectionType: *typ, PrinterType: *printerType, Endpoint: effectiveEndpoint, Protocol: *protocol, SpoolerName: *spoolerName, USBVID: *vid, USBPID: *pid, USBSerial: *serial, Enabled: enabled, Capabilities: caps}
+
+	if err := addPrinterHelper(loaded.cfg, registryPath, info); err != nil {
+		log.Fatalf("Failed to add printer: %v", err)
+	}
+	fmt.Printf("Printer registered: %s (%s) type=%s conn=%s enabled=%v\n", info.Name, info.ID, info.PrinterType, info.ConnectionType, info.Enabled)
+	if info.ID == "" {
+		fmt.Println("ID auto-generated deterministically; discover will not duplicate it.")
+	}
+	if strings.ToLower(info.ConnectionType) == "usb" && info.SpoolerName == "" {
+		fmt.Println("NOTE: direct USB uses the Windows device interface path from --endpoint; --vid/--pid identify the device but do not replace the required device path.")
+	}
+}
+
+func handlePrintersRemove(configPath, printerID string) {
+	loaded := loadConfigForCLI(configPath)
+	registryPath := config.RegistryPath(loaded.path)
+	if err := removePrinterHelper(registryPath, printerID); err != nil {
+		log.Fatalf("Failed to remove printer %q: %v", printerID, err)
+	}
+	fmt.Printf("Printer %q removed from registry.\n", printerID)
+}
+
+func parseCapabilitiesJSON(s string, out *map[string]interface{}) error {
+	return json.Unmarshal([]byte(s), out)
+}

@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Company/branch perimeters must intersect every role rule. Clear old
+         group membership explicitly so upgrades also make these global. -->
+    <record id="rule_gateway_config_company" model="ir.rule">
+        <field name="name">Print Service configuration company isolation</field>
+        <field name="model_id" ref="model_print_gateway_gateway_config"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_gateway_config_company_write" model="ir.rule">
+        <field name="name">Print Service configuration root company write isolation</field>
+        <field name="model_id" ref="model_print_gateway_gateway_config"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="False"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_runtime_assignment_company" model="ir.rule">
+        <field name="name">Runtime agent assignment company isolation</field>
+        <field name="model_id" ref="model_print_gateway_runtime_agent_assignment"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="domain_force">['|', '&amp;', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_binding_company" model="ir.rule">
+        <field name="name">Print binding company isolation</field>
+        <field name="model_id" ref="model_print_gateway_binding"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">['|', ('branch_id', 'in', company_ids), '&amp;', ('branch_id', '=', False), '|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_binding_company_write" model="ir.rule">
+        <field name="name">Print binding write company isolation</field>
+        <field name="model_id" ref="model_print_gateway_binding"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="False"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+        <field name="domain_force">['|', '&amp;', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_print_job_company" model="ir.rule">
+        <field name="name">Print job company isolation</field>
+        <field name="model_id" ref="model_print_gateway_print_job"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <!-- A print job is owned by the company of the record that produced
+             it, which may be a Branch of the root Company. A root-Company
+             operator must still be able to see (and reconcile) the print
+             activity of its own Branches, otherwise the documented recovery
+             path ("check Print Activity before retrying") silently shows an
+             empty list for exactly the failed Branch print that needs
+             attention. The second clause is limited to direct children of an
+             activated Company, so it never crosses into another Company's
+             Branches. -->
+        <field name="domain_force">['|', ('company_id', 'in', company_ids), ('company_id.parent_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_print_policy_company" model="ir.rule">
+        <field name="name">Print policy company isolation</field>
+        <field name="model_id" ref="model_print_gateway_policy"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="domain_force">['|', '&amp;', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_print_intent_company" model="ir.rule">
+        <field name="name">Print intent company isolation</field>
+        <field name="model_id" ref="model_print_gateway_intent"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <!-- Same scope as print jobs: a Branch-owned intent must be visible to
+             the root-Company operator, otherwise a permanently failed intent
+             cannot be found and re-armed from Automation Activity. -->
+        <field name="domain_force">['|', ('company_id', 'in', company_ids), ('company_id.parent_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_agent_company" model="ir.rule">
+        <field name="name">Print agent company isolation</field>
+        <field name="model_id" ref="model_print_gateway_agent"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_agent_company_write" model="ir.rule">
+        <field name="name">Print agent root company write isolation</field>
+        <field name="model_id" ref="model_print_gateway_agent"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="False"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_printer_company" model="ir.rule">
+        <field name="name">Print printer company isolation</field>
+        <field name="model_id" ref="model_print_gateway_printer"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]</field>
+    </record>
+
+    <record id="rule_printer_company_write" model="ir.rule">
+        <field name="name">Print printer root company write isolation</field>
+        <field name="model_id" ref="model_print_gateway_printer"/>
+        <field name="groups" eval="[(5, 0, 0)]"/>
+        <field name="perm_read" eval="False"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

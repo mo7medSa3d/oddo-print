@@ -1,0 +1,77 @@
+name: HTTPS Staging Security
+
+on:
+  push:
+    branches: [test/http-server-ready]
+  pull_request:
+    branches: [test/http-server-ready]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: https-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  https-contracts:
+    name: V4 HTTPS staging / auth / role isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Install pinned dependencies
+        run: npx --yes npm@12.2.1 ci --prefer-offline --no-audit --fund=false
+      - name: Validate staging Compose and shell
+        run: |
+          set -euo pipefail
+          bash -n deploy/domain-test/setup-domain-test.sh
+          bash -n deploy/domain-test/smoke-domain-test.sh
+          bash -n deploy/domain-test/reset-staging-workspace.sh
+          cp deploy/domain-test/.env.domain-test.example /tmp/yaseir-domain-test.env
+          docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config --quiet
+          docker compose --env-file /tmp/yaseir-domain-test.env -f deploy/domain-test/docker-compose.yml config --format json > /tmp/yaseir-domain-test-compose.json
+          node --input-type=module -e 'import fs from "node:fs";const s=JSON.parse(fs.readFileSync("/tmp/yaseir-domain-test-compose.json"));const e=s.services.gateway.environment;if(e.YASEIR_STAGING_SINGLE_WORKSPACE!=="1"||e.COOKIE_SECURE!=="1"||e.TRUST_PROXY!=="1")throw Error("staging security flags missing");if(s.services.gateway.secrets.some(x=>String(x.source).includes("postgres_password")&&!String(x.source).includes("runtime")))throw Error("Gateway received privileged bootstrap secret");if(!s.services.database_roles||!s.services.database_verify)throw Error("V4 DB role isolation missing");if(s.services.postgres.volumes.some(x=>x.source!=="staging_pg_data"))throw Error("Unexpected database volume");for(const name of ["postgres","database_roles","migrate","database_verify","gateway","caddy"])if(!s.services[name].logging||s.services[name].logging.driver!=="local")throw Error(name+" log rotation missing");'
+          # Staging never compiles images locally. All services use immutable GHCR tags;
+          # database roles and migrations share the already-tested Gateway runtime image.
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const s = JSON.parse(fs.readFileSync("/tmp/yaseir-domain-test-compose.json"));
+          const expected = {
+            postgres: "yaseir-postgres",
+            database_roles: "yaseir-gateway",
+            migrate: "yaseir-gateway",
+            database_verify: "yaseir-gateway",
+            gateway: "yaseir-gateway",
+            caddy: "yaseir-caddy",
+          };
+          for (const [name, imageName] of Object.entries(expected)) {
+            const service = s.services[name];
+            const expectedImage = "ghcr.io/mohamed-saad-edu/" + imageName + ":0000000000000000000000000000000000000000";
+            if (!service || service.build || service.image !== expectedImage) {
+              throw new Error(name + " must use its SHA-addressed GHCR runtime image and have no local build");
+            }
+          }
+          NODE
+      - name: Verify HTTPS auth, invitations and V4 runtime contracts
+        run: npx vitest run --config vitest.unit.config.mts tests/staging-single-workspace.test.ts tests/staging-email-capture.test.ts tests/domain-staging-deployment.contract.test.ts
+      - name: Verify native Agent transport security
+        working-directory: agent
+        run: go test -mod=readonly ./internal/config -count=1
+      - name: Verify actual SQL domain binding
+        run: bash tests/domain-staging-binding.integration.sh

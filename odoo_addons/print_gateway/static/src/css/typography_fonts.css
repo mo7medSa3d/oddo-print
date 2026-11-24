@@ -1,0 +1,123 @@
+/* ============================================================================
+   PRINT GATEWAY — typography fonts
+   ----------------------------------------------------------------------------
+   @font-face declarations for the shared IBM Plex families, shipped inside the
+   module so the Odoo server's PDF engine (wkhtmltopdf) can reach them.
+
+   The URLs are module-relative and resolve against the Odoo host, which is how
+   Odoo's own report assets are served: the PDF engine loads the report URL
+   with the session cookie, so the font request is authenticated too.
+
+   `font-display: block` is deliberate. A print-critical page must never be
+   rasterized or converted to PDF with a fallback face — the measured line
+   boxes would be the fallback's, not the font's.
+   ========================================================================= */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url("/print_gateway/static/fonts/ibm-plex-sans-variable.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Arabic";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("/print_gateway/static/fonts/ibm-plex-sans-arabic-400.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Arabic";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("/print_gateway/static/fonts/ibm-plex-sans-arabic-500.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Arabic";
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url("/print_gateway/static/fonts/ibm-plex-sans-arabic-600.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans Arabic";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("/print_gateway/static/fonts/ibm-plex-sans-arabic-700.ttf") format("truetype");
+}
+
+/* Opt-in for printable documents. A report that wants the shared system
+   adds this class; Odoo's own reports are left untouched. */
+.yaseir-typography {
+  font-family: var(--typo-font-stack-latin);
+  color: var(--typo-color-primary);
+}
+
+/* The family order follows the document direction: both faces carry Latin
+   glyphs, so the order decides which one renders English text. */
+html[dir="rtl"] .yaseir-typography,
+.yaseir-typography:dir(rtl) {
+  font-family: var(--typo-font-stack-arabic);
+}
+
+.yaseir-typography h1,
+.yaseir-typography h2,
+.yaseir-typography .yaseir-typography-display {
+  font-size: var(--typo-fs-display);
+  font-weight: var(--typo-weight-bold);
+  line-height: var(--typo-lh-mixed);
+}
+
+.yaseir-typography h3,
+.yaseir-typography .yaseir-typography-section {
+  font-size: var(--typo-fs-section);
+  font-weight: var(--typo-weight-semibold);
+  line-height: var(--typo-lh-mixed);
+}
+
+.yaseir-typography p,
+.yaseir-typography li,
+.yaseir-typography td,
+.yaseir-typography .yaseir-typography-body {
+  font-size: var(--typo-fs-body);
+  font-weight: var(--typo-weight-regular);
+  line-height: var(--typo-lh-mixed);
+}
+
+.yaseir-typography .yaseir-typography-emphasis {
+  font-size: var(--typo-fs-emphasis);
+  font-weight: var(--typo-weight-semibold);
+}
+
+.yaseir-typography .yaseir-typography-label {
+  font-size: var(--typo-fs-label);
+  font-weight: var(--typo-weight-medium);
+  color: var(--typo-color-secondary);
+}
+
+.yaseir-typography .yaseir-typography-footer {
+  font-size: var(--typo-fs-footer);
+  font-weight: var(--typo-weight-regular);
+  color: var(--typo-color-secondary);
+}
+
+.yaseir-typography table tr > td,
+.yaseir-typography table tr > th {
+  padding-top: var(--typo-space-table-row);
+  padding-bottom: var(--typo-space-table-row);
+}
+
+/* Numerals, currency and English codes inside an Arabic sentence stay
+   readable and keep their own direction. */
+.yaseir-typography .yaseir-typography-ltr,
+.yaseir-typography bdi {
+  unicode-bidi: isolate;
+  direction: ltr;
+}

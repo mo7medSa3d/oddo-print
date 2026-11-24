@@ -1,0 +1,1284 @@
+{
+  "version": 1,
+  "geometryCases": [
+    {
+      "name": "dot-only-verified-raster",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": true,
+      "physical": false,
+      "rasterWidth": 576
+    },
+    {
+      "name": "physical-384-dots-203-dpi-58-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 384,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "dpi_y": 203,
+        "paper_width_mm": 58
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 384
+    },
+    {
+      "name": "physical-512-dots-180-dpi-80-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 512,
+        "raster_command": "gs_v_0",
+        "dpi_x": 180,
+        "dpi_y": 180,
+        "paper_width_mm": 80
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 512
+    },
+    {
+      "name": "physical-576-dots-203-dpi-80-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "dpi_y": 203,
+        "paper_width_mm": 80
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 576
+    },
+    {
+      "name": "physical-832-dots-300-dpi-80-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 832,
+        "raster_command": "gs_v_0",
+        "dpi_x": 300,
+        "dpi_y": 300,
+        "paper_width_mm": 80
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 832
+    },
+    {
+      "name": "physical-850-dots-300-dpi-82-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 850,
+        "raster_command": "gs_v_0",
+        "dpi_x": 300,
+        "dpi_y": 300,
+        "paper_width_mm": 82
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 850
+    },
+    {
+      "name": "physical-1664-dots-600-dpi-80-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 1664,
+        "raster_command": "gs_v_0",
+        "dpi_x": 600,
+        "dpi_y": 600,
+        "paper_width_mm": 80
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 1664
+    },
+    {
+      "name": "physical-1700-dots-600-dpi-82-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 1700,
+        "raster_command": "gs_v_0",
+        "dpi_x": 600,
+        "dpi_y": 600,
+        "paper_width_mm": 82
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 1700
+    },
+    {
+      "name": "physical-1200-dots-300-dpi-104-mm",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 1200,
+        "raster_command": "gs_v_0",
+        "dpi_x": 300,
+        "dpi_y": 300,
+        "paper_width_mm": 104
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 1200
+    },
+    {
+      "name": "driver-mixed-axis-dpi",
+      "geometry": {
+        "version": 1,
+        "source": "windows_driver",
+        "validation": "observed",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "dpi_y": 600,
+        "paper_width_mm": 80,
+        "paper_height_mm": 120,
+        "printable_height_dots": 2400,
+        "offset_x_dots": 24,
+        "offset_y_dots": 12
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 576
+    },
+    {
+      "name": "ipp-source",
+      "geometry": {
+        "version": 1,
+        "source": "ipp",
+        "validation": "observed",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 300,
+        "dpi_y": 600,
+        "paper_width_mm": 80
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 576
+    },
+    {
+      "name": "one-device-pixel-rounding-tolerance",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "dpi_y": 203,
+        "paper_width_mm": 71.94581280788178
+      },
+      "valid": true,
+      "physical": true,
+      "rasterWidth": 576
+    },
+    {
+      "name": "timestamp-refresh-same-fingerprint",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:01:00.123456789Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": true,
+      "physical": false,
+      "rasterWidth": 576
+    },
+    {
+      "name": "future-geometry-version",
+      "geometry": {
+        "version": 2,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "wrong-printer-binding",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null,
+      "expected": {
+        "printerId": "another-printer"
+      }
+    },
+    {
+      "name": "stale-configuration-fingerprint",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null,
+      "expected": {
+        "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    {
+      "name": "missing-dots",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "zero-dots",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 0,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "negative-dots",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": -1,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "fractional-dots",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 575.5,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "width-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 16385,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "numeric-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 1e+100,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "numeric-string-no-coercion",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": "576",
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "boolean-no-coercion",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": true
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "null-is-not-unknown",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_y": null
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "invalid-dpi",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 0
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "dpi-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_y": 9601
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "physical-width-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 600,
+        "dpi_y": 600,
+        "paper_width_mm": 10
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "offset-width-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "paper_width_mm": 80,
+        "offset_x_dots": 100
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "physical-height-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_y": 203,
+        "paper_height_mm": 100,
+        "printable_height_dots": 1000
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "negative-offset",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "offset_x_dots": -1
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "negative-paper",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "paper_width_mm": -80
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "paper-overflow",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "paper_height_mm": 10001
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "invalid-source-validation",
+      "geometry": {
+        "version": 1,
+        "source": "ipp",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "unsupported-source",
+      "geometry": {
+        "version": 1,
+        "source": "guessed_roll",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "unsupported-raster-command",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "esc_star"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "malformed-fingerprint",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "not-a-hash",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "timestamp-invalid-calendar",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-02-30T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "timestamp-without-utc",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "unknown-property",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "guessed_dpi": 203
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "dot-only-no-command",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576
+      },
+      "valid": true,
+      "physical": false,
+      "rasterWidth": 576
+    },
+    {
+      "name": "raster-typography-dpi-with-unknown-paper",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 600,
+        "dpi_y": 300
+      },
+      "valid": true,
+      "physical": false,
+      "rasterWidth": 576
+    },
+    {
+      "name": "identity-over-120-utf8-bytes",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "identity-astral-over-120-utf8-bytes",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "identity-has-trailing-whitespace",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer ",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "identity-has-leading-whitespace",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": " receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "identity-has-control-character",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-\u0007printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false,
+      "physical": false,
+      "rasterWidth": null
+    },
+    {
+      "name": "identity-at-exact-120-utf8-byte-boundary",
+      "geometry": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": true,
+      "physical": false,
+      "rasterWidth": 576
+    }
+  ],
+  "profileCases": [
+    {
+      "name": "dot-only-profile",
+      "profile": {
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": true
+    },
+    {
+      "name": "physical-profile",
+      "profile": {
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0",
+        "dpi_x": 203,
+        "dpi_y": 203,
+        "paper_width_mm": 80
+      },
+      "valid": true
+    },
+    {
+      "name": "missing-dots",
+      "profile": {
+        "dpi_x": 203
+      },
+      "valid": false
+    },
+    {
+      "name": "fabricated-provenance",
+      "profile": {
+        "version": 1,
+        "source": "validated_profile",
+        "validation": "configured",
+        "observed_at": "2026-10-24T12:00:00Z",
+        "printer_id": "receipt-printer",
+        "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "printable_width_dots": 576,
+        "raster_command": "gs_v_0"
+      },
+      "valid": false
+    },
+    {
+      "name": "ambiguous-mm-as-dots-string",
+      "profile": {
+        "printable_width_dots": "80"
+      },
+      "valid": false
+    }
+  ],
+  "payloadCases": [
+    {
+      "name": "network-explicit-gs-v-0",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          },
+          "supported_protocols": [
+            "escpos",
+            "image"
+          ]
+        },
+        "config": {
+          "geometry_profile": {
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": true
+    },
+    {
+      "name": "usb-explicit-gs-v-0",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "usb",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          },
+          "supported_protocols": [
+            "escpos",
+            "image"
+          ]
+        },
+        "config": {
+          "geometry_profile": {
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": true
+    },
+    {
+      "name": "escpos-list-plus-explicit-command",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          },
+          "supported_protocols": [
+            "escpos"
+          ]
+        },
+        "config": {
+          "geometry_profile": {
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": true
+    },
+    {
+      "name": "escpos-label-alone-is-not-command",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "supported_protocols": [
+            "escpos"
+          ]
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "missing-image-fingerprint",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image"
+      },
+      "allowed": false
+    },
+    {
+      "name": "stale-image-fingerprint",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "allowed": false
+    },
+    {
+      "name": "image-bound-to-wrong-printer",
+      "printer": {
+        "id": "different-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "empty-explicit-capabilities",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          },
+          "supported_protocols": []
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "conflicting-explicit-capabilities",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          },
+          "supported_protocols": [
+            "pdf"
+          ]
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "missing-raster-command",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "network",
+        "protocol": "escpos",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "driver-image-needs-full-physical-profile",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "spooler",
+        "protocol": "spooler",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    },
+    {
+      "name": "driver-image-full-profile",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "spooler",
+        "protocol": "spooler",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0",
+            "dpi_x": 203,
+            "dpi_y": 203,
+            "paper_width_mm": 80
+          }
+        },
+        "config": {
+          "geometry_profile": {
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0",
+            "dpi_x": 203,
+            "dpi_y": 203,
+            "paper_width_mm": 80
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": true
+    },
+    {
+      "name": "driver-ordinary-pdf-measures-live",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "spooler",
+        "protocol": "spooler",
+        "capabilities": {}
+      },
+      "payload": {
+        "type": "pdf"
+      },
+      "allowed": true
+    },
+    {
+      "name": "ipp-ordinary-pdf-measures-live",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "ipp",
+        "protocol": "ipp",
+        "capabilities": {}
+      },
+      "payload": {
+        "type": "pdf"
+      },
+      "allowed": true
+    },
+    {
+      "name": "unsupported-direct-usb-raw-pdf",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "usb",
+        "protocol": "raw",
+        "capabilities": {}
+      },
+      "payload": {
+        "type": "pdf"
+      },
+      "allowed": false
+    },
+    {
+      "name": "unknown-usb-image",
+      "printer": {
+        "id": "receipt-printer",
+        "connectionType": "usb",
+        "protocol": "unknown",
+        "capabilities": {
+          "geometry": {
+            "version": 1,
+            "source": "validated_profile",
+            "validation": "configured",
+            "observed_at": "2026-10-24T12:00:00Z",
+            "printer_id": "receipt-printer",
+            "config_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "printable_width_dots": 576,
+            "raster_command": "gs_v_0"
+          }
+        }
+      },
+      "payload": {
+        "type": "image",
+        "geometry_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": false
+    }
+  ]
+}

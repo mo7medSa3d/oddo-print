@@ -1,0 +1,44 @@
+[package]
+name = "yaseir-manager"
+version = "1.0.0"
+description = "Yaseir Print Manager — desktop management for Yaseir Agent"
+authors = ["Yaseir"]
+license = "MIT"
+repository = "https://github.com/mohamed-saad-edu/Odoo-print-system"
+edition = "2024"
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "=2.12.4", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+url = "2.5.7"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+[features]
+default = [ "custom-protocol" ]
+custom-protocol = [ "tauri/custom-protocol" ]
+
+# Keep full runtime optimization but avoid slow whole-program fat LTO
+# during Windows releases. Preserve unwind panics for production logging.
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
+opt-level = 3
+debug = false
+
+# Preserve useful source line tables without generating huge full test PDBs.
+[profile.test]
+debug = 1
+
+# GTK 3 requires the GLib 0.18 API. These exact, verified backports retain that
+# API while fixing RUSTSEC-2024-0429 and replacing proc-macro-error.
+# Provenance, patch scope, verification and removal policy: vendor/README.md.
+[patch.crates-io]
+glib = { path = "vendor/glib" }
+glib-macros = { path = "vendor/glib-macros" }
+gtk3-macros = { path = "vendor/gtk3-macros" }

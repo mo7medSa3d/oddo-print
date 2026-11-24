@@ -1,0 +1,31 @@
+# Deliberately narrow historical false-positive exceptions, reviewed 2026-10-26.
+# Only these exact introducing commit + file + gitleaks rule + line combinations.
+# NEVER use path-wide exceptions, generic token patterns or commit-independent keys.
+# Real or newly introduced credentials remain CI-blocking.
+# Source review: security/REVIEWED_GITLEAKS_HISTORY.md.
+
+# A historical migration-name comment (not a credential); the HEAD already uses an innocuous comment.
+f9d6467b22df28203cefadb916f8a4acd9df0681:tests/password-auth-migration.integration.test.ts:generic-api-key:110
+
+# Public SHA-256 hashes of Alpine package signing public keys, not signing private keys.
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:38
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:57
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:76
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:95
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:114
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:133
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:152
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:171
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:190
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:209
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:228
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:247
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:266
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:docs/runtime-hardening/alpine-security-artifacts.json:generic-api-key:285
+
+# Fixed synthetic RFC 6455 handshake key used solely in a malformed-upgrade test.
+5bc060f79de4e1f72c7f1d360b3e6559cbed65a9:tests/ws-shutdown-drain.integration.test.ts:generic-api-key:35
+
+# Historical test-source self-check quoted that same synthetic RFC 6455 handshake key.
+# The introducing commit is immutable; only this exact file, rule and line are exempt.
+1c272b45e9067c50183ac991aae36679ccc0b1e7:tests/test_gitleaks_history_baseline.py:generic-api-key:21

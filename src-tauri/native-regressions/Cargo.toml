@@ -1,0 +1,40 @@
+[package]
+name = "yaseir-native-regressions"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+glib = "=0.18.5"
+gtk3-macros = "=0.18.2"
+
+[dev-dependencies]
+once_cell = "1"
+glib-macros = "=0.18.5"
+trybuild2 = "1.1"
+
+[[test]]
+name = "upstream_glib_macros"
+path = "../vendor/glib-macros/tests/test.rs"
+
+[[test]]
+name = "upstream_glib_clone"
+path = "../vendor/glib-macros/tests/clone.rs"
+
+[[test]]
+name = "upstream_glib_properties"
+path = "../vendor/glib-macros/tests/properties.rs"
+
+[[test]]
+name = "upstream_glib_value_delegate"
+path = "../vendor/glib-macros/tests/value_delegate_derive.rs"
+
+[patch.crates-io]
+glib = { path = "../vendor/glib" }
+glib-macros = { path = "../vendor/glib-macros" }
+gtk3-macros = { path = "../vendor/gtk3-macros" }
+
+[profile.release]
+opt-level = 3

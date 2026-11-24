@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_print_gateway_config_list" model="ir.ui.view">
+        <field name="name">print.gateway.config.list.direct</field>
+        <field name="model">print_gateway.gateway_config</field>
+        <field name="arch" type="xml">
+            <list string="Direct Print Services" class="o_pg_list">
+                <field name="company_id"/>
+                <field name="enabled" widget="boolean_toggle"/>
+                <field name="license_status" widget="badge"/>
+                <field name="license_plan"/>
+                <field name="license_usage_summary" optional="show"/>
+                <field name="license_expires_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_config_form" model="ir.ui.view">
+        <field name="name">print.gateway.config.form.direct</field>
+        <field name="model">print_gateway.gateway_config</field>
+        <field name="arch" type="xml">
+            <form string="Direct Odoo Print Service" class="o_pg_view o_pg_form">
+                <header>
+                    <button name="action_refresh_license" type="object" string="Activate / Refresh License" class="oe_highlight" groups="base.group_system"/>
+                    <button name="action_open_pairing_wizard" type="object" string="Assign Agent" groups="base.group_system"/>
+                    <button name="action_open_runtime_assignments" type="object" string="Agent Assignments" groups="base.group_system"/>
+                    <button name="action_open_destinations" type="object" string="Print Routing" groups="base.group_system"/>
+                    <button name="action_open_print_rules" type="object" string="Automatic Printing" groups="base.group_system"/>
+                </header>
+                <sheet>
+                    <div class="o_pg_step_card mb-3">
+                        <group>
+                            <field name="company_id" options="{'no_create': True}"/>
+                            <field name="enabled" widget="boolean_toggle"/>
+                        </group>
+                    </div>
+                    <div class="o_pg_step_card mb-3" groups="base.group_system">
+                        <group string="License &amp; Subscription">
+                            <group>
+                                <field name="license_server_url" placeholder="https://print.yaseir.cloud" class="o_pg_mono"/>
+                                <field name="license_api_key" password="True" placeholder="Paste your Yaseir API key"/>
+                            </group>
+                            <group>
+                                <field name="license_status"/>
+                                <field name="license_plan"/>
+                                <field name="license_limits"/>
+                                <field name="license_usage_summary"/>
+                                <field name="license_expires_at"/>
+                                <field name="odoo_db_uuid" class="o_pg_mono"/>
+                            </group>
+                        </group>
+                    </div>
+                    <div class="alert alert-info" role="status" aria-live="polite">
+                        Print jobs stay in your Odoo database. The assigned Print Agent connects directly to Odoo and sends output to its local printers. Yaseir Cloud handles subscription and license verification only.
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_print_gateway_config" model="ir.actions.act_window">
+        <field name="name">Direct Print Services</field>
+        <field name="res_model">print_gateway.gateway_config</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Configure direct Odoo printing</p>
+            <p>Activate your license, pair a local Print Agent, assign it to a company or branch, and create print routes.</p>
+        </field>
+    </record>
+
+</odoo>

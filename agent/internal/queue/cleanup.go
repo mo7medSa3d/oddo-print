@@ -1,0 +1,107 @@
+package queue
+
+import (
+	"strconv"
+	"strings"
+)
+
+// unknownMarkerSQL builds `last_error LIKE 'X%' OR last_error LIKE 'Y%' ...`
+// from UnknownOutcomeMarkers. Keeping ONE canonical list (queue.UnknownOutcomeMarkers)
+// prevents cleanup/purge from drifting behind the marker vocabulary: deleting
+// a row that carries ANY unknown-outcome marker destroys the evidence that a
+// document may have printed once already and lets a later duplicate delivery
+// reprint without local protection.
+func unknownMarkerSQL(column string) string {
+	clauses := make([]string, 0, len(UnknownOutcomeMarkers))
+	for _, marker := range UnknownOutcomeMarkers {
+		// marker values are compile-time constants from this package; the
+		// quote/percent escaping is therefore static and safe.
+		clauses = append(clauses, column+" LIKE '"+marker+"%'")
+	}
+	return strings.Join(clauses, " OR ")
+}
+
+// CleanupTerminal removes acknowledged terminal local records (submission
+// success or a plain failure); submission does not prove paper output. Rows carrying an
+// unknown-outcome marker are deliberately preserved: they are the evidence
+// that a document may have printed once already, and deleting them would let
+// a later duplicate delivery reprint without any local protection (and would
+// destroy the operator's reconciliation record).
+func (q *Queue) CleanupTerminal(retainDays int) (int, error) {
+	retainClause := ""
+	if retainDays > 0 {
+		retainClause = " AND updated_at <= datetime('now', '-" + strconv.Itoa(retainDays) + " days')"
+	}
+	result, err := q.db.Exec(`DELETE FROM print_jobs WHERE claim_token IS NULL
+		AND execution_claim_token IS NOT NULL AND execution_claim_token <> '' AND (status = 'success'
+		OR (status = 'failed' AND (last_error IS NULL
+			OR NOT (` + unknownMarkerSQL("last_error") + `))))` + retainClause)
+	if err != nil {
+		return 0, err
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+// CleanupTerminalOlderThan is the automatic storage-retention path. It
+// mirrors the operator-triggered CleanupTerminal: unknown-outcome rows are
+// NEVER removed automatically. Deleting them would destroy the evidence that
+// a document may have printed once already and let a later duplicate delivery
+// reprint without local protection; only the operator purge (after physical
+// reconciliation and Gateway acknowledgement) may remove them. Tokenless
+// historical rows do not prove acknowledgement.
+func (q *Queue) CleanupTerminalOlderThan(retainHours int) (int, error) {
+	if retainHours <= 0 {
+		return 0, nil
+	}
+	result, err := q.db.Exec(`DELETE FROM print_jobs
+		WHERE claim_token IS NULL
+		  AND execution_claim_token IS NOT NULL AND execution_claim_token <> ''
+		  AND status IN ('success', 'failed')
+		  AND NOT (status = 'failed' AND (` + unknownMarkerSQL("last_error") + `))
+		  AND updated_at <= datetime('now', '-` + strconv.Itoa(retainHours) + ` hours')`)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	// Fold committed WAL frames back into the main DB on the periodic retention sweep without blocking writers.
+	_, _ = q.db.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+	return int(count), nil
+}
+
+// CountOutcomeUnknown returns how many locally-kept rows carry an unknown
+// physical outcome (for operator reconciliation).
+func (q *Queue) CountOutcomeUnknown() (int, error) {
+	var n int
+	err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE status = 'failed' AND (
+		` + unknownMarkerSQL("last_error") + `)`).Scan(&n)
+	return n, err
+}
+
+// PurgeOutcomeUnknown removes unknown-outcome evidence only AFTER the operator
+// has explicitly reconciled the physical output AND the Gateway has accepted
+// the terminal report. An outstanding claim_token is the durable terminal
+// report outbox: purging it would lose the only replayable evidence after a
+// network outage. Even --include-unknown must never override that fence.
+func (q *Queue) PurgeOutcomeUnknown() (int, error) {
+	result, err := q.db.Exec(`DELETE FROM print_jobs
+		WHERE status = 'failed'
+		  AND claim_token IS NULL
+		  AND execution_claim_token IS NOT NULL AND execution_claim_token <> ''
+		  AND (` + unknownMarkerSQL("last_error") + `)`)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}

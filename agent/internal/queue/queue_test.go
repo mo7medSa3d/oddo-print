@@ -1,0 +1,977 @@
+package queue
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"runtime"
+	"sync"
+	"testing"
+)
+
+func TestQueueRejectsExistingDatabaseSymlinkBeforeSQLiteWrites(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "unrelated.db")
+	if err := os.WriteFile(target, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "agent")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "queue.db")
+	if err := os.Symlink(target, path); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("runner does not permit symlink creation: %v", err)
+		}
+		t.Fatal(err)
+	}
+	q, err := New(path)
+	if q != nil {
+		_ = q.Close()
+	}
+	if err == nil {
+		t.Error("queue initialization followed an existing database symlink")
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(data) != 0 {
+		t.Fatalf("queue initialization modified the unrelated symlink target (%d bytes)", len(data))
+	}
+}
+
+func TestQueueProtectsExistingDatabasePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode assertion; Windows protection uses the file DACL")
+	}
+	path := filepath.Join(t.TempDir(), "queue.db")
+	if err := os.WriteFile(path, nil, 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0666); err != nil {
+		t.Fatal(err)
+	}
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if err := q.Push("private-payload", "p1", []byte("confidential receipt")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("queue payload database mode = %04o, want 0600", got)
+	}
+}
+
+func TestQueueCreatesDatabaseWithPrivatePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode assertion; Windows protection uses the file DACL")
+	}
+	path := filepath.Join(t.TempDir(), "queue.db")
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("new queue payload database mode = %04o, want 0600", got)
+	}
+}
+
+func TestQueueRejectsSymlinkSidecarsBeforeSQLiteWrites(t *testing.T) {
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		t.Run(suffix, func(t *testing.T) {
+			root := t.TempDir()
+			target := filepath.Join(root, "unrelated")
+			original := []byte("unrelated confidential file")
+			if err := os.WriteFile(target, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, "queue.db")
+			if err := os.Symlink(target, path+suffix); err != nil {
+				if runtime.GOOS == "windows" {
+					t.Skipf("runner does not permit symlink creation: %v", err)
+				}
+				t.Fatal(err)
+			}
+			q, err := New(path)
+			if q != nil {
+				_ = q.Close()
+			}
+			if err == nil {
+				t.Error("queue initialization accepted a symlink sidecar")
+			}
+			data, readErr := os.ReadFile(target)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(data) != string(original) {
+				t.Fatalf("queue initialization modified the unrelated %s target", suffix)
+			}
+		})
+	}
+}
+
+func newTestQueue(t *testing.T) *Queue {
+	t.Helper()
+	q, err := New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = q.Close() })
+	return q
+}
+
+func TestQueueIdempotencyAndStatus(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+
+	id := "job_test123"
+	if err := q.Push(id, "printer_1", []byte("hello")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	// duplicate push is idempotent (INSERT OR IGNORE)
+	if err := q.Push(id, "printer_1", []byte("hello again")); err != nil {
+		t.Fatalf("second Push: %v", err)
+	}
+	// still not processed
+	if q.IsProcessed(id) {
+		t.Fatalf("should not be processed yet")
+	}
+	// Get
+	pid, status, found, err := q.Get(id)
+	if err != nil || !found {
+		t.Fatalf("Get failed: %v found=%v", err, found)
+	}
+	if pid != "printer_1" || status != "queued" {
+		t.Fatalf("unexpected Get: %s %s", pid, status)
+	}
+	// transition to printing then success
+	if err := q.UpdateStatus(id, "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if err := q.UpdateStatus(id, "success"); err != nil {
+		t.Fatalf("UpdateStatus success: %v", err)
+	}
+	if !q.IsProcessed(id) {
+		t.Fatalf("should be processed after success")
+	}
+	// reopen from same file survives restart
+	q2, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer q2.Close()
+	if !q2.IsProcessed(id) {
+		t.Fatalf("should survive reopen")
+	}
+	n, err := q2.CountByStatus("success")
+	if err != nil {
+		t.Fatalf("CountByStatus: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 success, got %d", n)
+	}
+}
+
+func TestTerminalStatusRetainsClaimTokenUntilGatewayAck(t *testing.T) {
+	q := newTestQueue(t)
+
+	if err := q.Push("success-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push success-token: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-claim-success", "success-token"); err != nil {
+		t.Fatalf("seed success claim token: %v", err)
+	}
+	if err := q.UpdateStatus("success-token", "success"); err != nil {
+		t.Fatalf("UpdateStatus success: %v", err)
+	}
+	if got := q.ClaimTokenFor("success-token"); got != "gateway-claim-success" {
+		t.Fatalf("terminal success must retain claim token until Gateway acknowledgement, got %q", got)
+	}
+	if err := q.ClearClaimToken("success-token", "gateway-claim-success"); err != nil {
+		t.Fatalf("ClearClaimToken(success-token): %v", err)
+	}
+	if got := q.ClaimTokenFor("success-token"); got != "" {
+		t.Fatalf("ClearClaimToken must clear acknowledged success token, got %q", got)
+	}
+
+	if err := q.Push("failed-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push failed-token: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-claim-failed", "failed-token"); err != nil {
+		t.Fatalf("seed failed claim token: %v", err)
+	}
+	if err := q.UpdateStatusWithError("failed-token", "failed", "UNKNOWN_PARTIAL_DELIVERY: ambiguous"); err != nil {
+		t.Fatalf("UpdateStatusWithError failed: %v", err)
+	}
+	if got := q.ClaimTokenFor("failed-token"); got != "gateway-claim-failed" {
+		t.Fatalf("terminal failure must retain claim token until Gateway acknowledgement, got %q", got)
+	}
+	if err := q.ClearClaimToken("failed-token", "gateway-claim-failed"); err != nil {
+		t.Fatalf("ClearClaimToken(failed-token): %v", err)
+	}
+}
+
+func TestMarkInterruptedPreservesClaimForRemoteRecovery(t *testing.T) {
+	q := newTestQueue(t)
+
+	if err := q.Push("crash-token", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("crash-token", "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "gateway-crash-token", "crash-token"); err != nil {
+		t.Fatalf("seed claim token: %v", err)
+	}
+
+	interrupted, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted: %v", err)
+	}
+	if len(interrupted) != 1 || interrupted[0].ClaimToken != "gateway-crash-token" {
+		t.Fatalf("crash recovery must retain the pre-read claim token for reporting, got %#v", interrupted)
+	}
+	if got := q.ClaimTokenFor("crash-token"); got != "gateway-crash-token" {
+		t.Fatalf("terminal interruption row must retain stored claim token for remote reporting, got %q", got)
+	}
+}
+
+func TestPendingTerminalReportsSurviveRestartUntilGatewayAck(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("pending-terminal", "printer-1", []byte("payload"), "claim-terminal", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateStatusWithError("pending-terminal", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	reports, err := q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "pending-terminal" || reports[0].ClaimToken != "claim-terminal" || reports[0].Status != "failed" {
+		t.Fatalf("unexpected pending terminal reports: %#v", reports)
+	}
+	if err := q.ClearClaimToken("pending-terminal", "claim-terminal"); err != nil {
+		t.Fatalf("ClearClaimToken: %v", err)
+	}
+	reports, err = q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports after ack: %v", err)
+	}
+	if len(reports) != 0 {
+		t.Fatalf("acknowledged terminal report still pending: %#v", reports)
+	}
+}
+
+func TestPendingTerminalReportPersistsSpoolerEvidenceAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox-evidence.db")
+	q, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := q.BeginPrint("spool-evidence", "printer-1", []byte("payload"), "claim-spool", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.UpdateTerminalWithEvidence("spool-evidence", "success", "", "741"); err != nil {
+		t.Fatalf("UpdateTerminalWithEvidence: %v", err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatalf("Close before restart: %v", err)
+	}
+
+	q, err = New(path)
+	if err != nil {
+		t.Fatalf("reopen queue: %v", err)
+	}
+	defer q.Close()
+	reports, err := q.PendingTerminalReports(8)
+	if err != nil {
+		t.Fatalf("PendingTerminalReports: %v", err)
+	}
+	if len(reports) != 1 || reports[0].ID != "spool-evidence" || reports[0].SpoolerJobID != "741" || reports[0].ClaimToken != "claim-spool" {
+		t.Fatalf("restart lost terminal spooler evidence: %#v", reports)
+	}
+}
+
+func TestQueueUpdateWithError(t *testing.T) {
+	dir := t.TempDir()
+	q, err := New(filepath.Join(dir, "x.db"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+	if err := q.Push("j1", "p1", []byte("data")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatusWithError("j1", "failed", "dial timeout"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	_, status, _, err := q.Get("j1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if status != "failed" {
+		t.Fatalf("expected failed, got %s", status)
+	}
+}
+
+// A job left in 'printing' by a crash must become a terminal local failure
+// carrying the interruption marker, so the ambiguity is explicit instead of
+// looking like a normal transient failure.
+func TestMarkInterruptedFlagsMidPrintJobs(t *testing.T) {
+	q := newTestQueue(t)
+
+	if err := q.Push("job_crash", "printer_1", []byte("data")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("job_crash", "printing"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	if err := q.Push("job_done", "printer_1", []byte("data")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("job_done", "success"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	interrupted, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted: %v", err)
+	}
+	if len(interrupted) != 1 || interrupted[0].ID != "job_crash" || interrupted[0].PrinterID != "printer_1" {
+		t.Fatalf("expected only job_crash to be interrupted, got %#v", interrupted)
+	}
+
+	_, status, found, err := q.Get("job_crash")
+	if err != nil || !found {
+		t.Fatalf("Get(job_crash): found=%v err=%v", found, err)
+	}
+	if status != "failed" {
+		t.Fatalf("interrupted job must be terminal locally, got %q", status)
+	}
+	if !q.WasInterrupted("job_crash") {
+		t.Fatal("interrupted job must be detectable via WasInterrupted")
+	}
+	if q.WasInterrupted("job_done") {
+		t.Fatal("a completed job must never be reported as interrupted")
+	}
+
+	// Idempotent: a second startup finds nothing left in 'printing'.
+	again, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted (2nd): %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second scan must find nothing, got %#v", again)
+	}
+}
+
+// The unknown-outcome marker TEXT is the contract between the agent, the
+// gateway (src/lib/job-status.ts: PHYSICAL_OUTCOME_UNKNOWN_MARKERS) and Odoo
+// (print_gateway.print_job._GATEWAY_UNKNOWN_MARKERS). WasOutcomeUnknown must
+// recognize every canonical marker: a locally-failed job carrying ANY of
+// them may have produced paper and must never be silently reprinted. This
+// locks the list against drift back to a subset.
+func TestUnknownOutcomeMarkersMatchCanonicalContract(t *testing.T) {
+	want := []string{
+		"AGENT_EXECUTION_TIMEOUT",
+		"AGENT_RESTART_DURING_PRINT",
+		"JOB_EXPIRED_DURING_PRINT",
+		"UNKNOWN_PARTIAL_DELIVERY",
+		"UNKNOWN_SUBMISSION_OUTCOME",
+	}
+	if len(UnknownOutcomeMarkers) != len(want) {
+		t.Fatalf("UnknownOutcomeMarkers = %v, want %v", UnknownOutcomeMarkers, want)
+	}
+	for i, marker := range want {
+		if UnknownOutcomeMarkers[i] != marker {
+			t.Fatalf("UnknownOutcomeMarkers[%d] = %q, want %q", i, UnknownOutcomeMarkers[i], marker)
+		}
+	}
+
+	q := newTestQueue(t)
+	for _, marker := range want {
+		id := "job_unknown_" + marker
+		if err := q.Push(id, "printer_1", []byte("x")); err != nil {
+			t.Fatalf("Push(%s): %v", id, err)
+		}
+		if err := q.UpdateStatusWithError(id, "failed", marker+": ambiguous physical outcome"); err != nil {
+			t.Fatalf("UpdateStatusWithError(%s): %v", id, err)
+		}
+		if !q.WasOutcomeUnknown(id) {
+			t.Fatalf("WasOutcomeUnknown(%s) = false, want true for marker %q", id, marker)
+		}
+	}
+	// A provably pre-dispatch failure stays reprintable: it must NOT be
+	// classified as an unknown outcome.
+	if err := q.Push("job_plain_fail", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push(job_plain_fail): %v", err)
+	}
+	if err := q.UpdateStatusWithError("job_plain_fail", "failed", "dial tcp: connection refused"); err != nil {
+		t.Fatalf("UpdateStatusWithError(job_plain_fail): %v", err)
+	}
+	if q.WasOutcomeUnknown("job_plain_fail") {
+		t.Fatal("WasOutcomeUnknown(job_plain_fail) = true, want false for a provably pre-dispatch failure")
+	}
+}
+
+// FIX-2 regression: BeginPrint must be state-safe at the PRIMITIVE level.
+// Terminal or unknown local ledger states must never be reopened into
+// 'printing' by the normal dispatch path - the duplicate-print defense may
+// not rely on callers (processJob) checking first.
+func TestBeginPrintCannotReopenTerminalOrUnknownStates(t *testing.T) {
+	dbPath := t.TempDir() + "/agent.db"
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+
+	settle := func(id, status, lastErr string) {
+		if err := q.Push(id, "printer-1", []byte("payload")); err != nil {
+			t.Fatalf("Push(%s): %v", id, err)
+		}
+		if _, err := q.db.Exec(`UPDATE print_jobs SET status = ?, last_error = ? WHERE id = ?`, status, lastErr, id); err != nil {
+			t.Fatalf("settle(%s): %v", id, err)
+		}
+	}
+
+	cases := []struct {
+		name        string
+		id          string
+		status      string // "" => brand-new row (no Push); otherwise settled state
+		lastErr     string
+		allowReopen bool
+		wantErr     bool
+		wantStatus  string
+	}{
+		{name: "new job begins", id: "bp_new", status: "", wantErr: false, wantStatus: "printing"},
+		{name: "queued begins", id: "bp_queued", status: "queued", wantErr: false, wantStatus: "printing"},
+		{name: "printing re-begins (in-session idempotency)", id: "bp_printing", status: "printing", wantErr: false, wantStatus: "printing"},
+		{name: "provable failure retries", id: "bp_failed_plain", status: "failed", lastErr: "paper jam before transmission", wantErr: false, wantStatus: "printing"},
+		{name: "success never reopens", id: "bp_success", status: "success", wantErr: true, wantStatus: "success"},
+		{name: "success never reopens even with reopen flag", id: "bp_success_flag", status: "success", allowReopen: true, wantErr: true, wantStatus: "success"},
+		{name: "unknown partial refuses normal path", id: "bp_unknown", status: "failed", lastErr: "UNKNOWN_PARTIAL_DELIVERY: write failed after 3/9 bytes", wantErr: true, wantStatus: "failed"},
+		{name: "restart interrupt refuses normal path", id: "bp_interrupt", status: "failed", lastErr: InterruptedMarker + ": process died mid-print", wantErr: true, wantStatus: "failed"},
+		{name: "unknown refuses legacy true", id: "bp_unknown_optin", status: "failed", lastErr: "UNKNOWN_PARTIAL_DELIVERY: ambiguous", allowReopen: true, wantErr: true, wantStatus: "failed"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.status != "" {
+				settle(tc.id, tc.status, tc.lastErr)
+			}
+			if tc.id == "bp_printing" {
+				if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = ? WHERE id = ?`, "token-"+tc.id, tc.id); err != nil {
+					t.Fatalf("seed live claim token: %v", err)
+				}
+			}
+			err := q.BeginPrint(tc.id, "printer-1", []byte("payload"), "token-"+tc.id, tc.allowReopen)
+			if tc.wantErr {
+				if !errors.Is(err, ErrTerminalState) {
+					t.Fatalf("BeginPrint error = %v, want ErrTerminalState", err)
+				}
+				// the row must be untouched: still terminal, still not printing
+				if _, status, found, err := q.Get(tc.id); err != nil || !found || status != tc.wantStatus {
+					t.Fatalf("after refusal row = %q found=%v err=%v, want unchanged %q", status, found, err, tc.wantStatus)
+				}
+				if claim := q.ClaimTokenFor(tc.id); claim == "token-"+tc.id {
+					t.Fatal("refused BeginPrint must not overwrite the stored claim token")
+				}
+				return
+			}
+			if tc.id == "bp_printing" {
+				if !errors.Is(err, ErrAlreadyPrinting) {
+					t.Fatalf("BeginPrint error = %v, want ErrAlreadyPrinting", err)
+				}
+			} else if err != nil {
+				t.Fatalf("BeginPrint: unexpected error %v", err)
+			}
+			if _, status, _, err := q.Get(tc.id); err != nil || status != "printing" {
+				t.Fatalf("after allow: status=%q err=%v, want printing", status, err)
+			}
+			if claim := q.ClaimTokenFor(tc.id); claim != "token-"+tc.id {
+				t.Fatalf("allowed BeginPrint must record the attempt's claim token, got %q", claim)
+			}
+		})
+	}
+}
+
+func TestBeginPrintRejectsDifferentClaimTokenWhilePrinting(t *testing.T) {
+	dbPath := t.TempDir() + "/agent.db"
+	q, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer q.Close()
+
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); err != nil {
+		t.Fatalf("initial BeginPrint: %v", err)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-B", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("different claim token must be rejected while printing, got %v", err)
+	}
+	if got := q.ClaimTokenFor("job_live"); got != "claim-A" {
+		t.Fatalf("rejected attempt must not replace live claim token, got %q", got)
+	}
+	if err := q.BeginPrint("job_live", "printer-1", []byte("payload"), "claim-A", false); !errors.Is(err, ErrAlreadyPrinting) {
+		t.Fatalf("same live claim must suppress duplicate physical dispatch, got %v", err)
+	}
+}
+
+func TestBeginPrintTokenlessRedeliveryPreservesStoredClaimToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("job_fenced", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claim_token = 'claim-live' WHERE id = 'job_fenced'`); err != nil {
+		t.Fatalf("stage stored claim: %v", err)
+	}
+	if err := q.BeginPrint("job_fenced", "printer-1", []byte("payload"), "", false); err != nil {
+		t.Fatalf("tokenless redelivery must be admitted under the stored fence, got %v", err)
+	}
+	if got := q.ClaimTokenFor("job_fenced"); got != "claim-live" {
+		t.Fatalf("stored claim token must survive tokenless redelivery, got %q", got)
+	}
+	if _, status, _, err := q.Get("job_fenced"); err != nil || status != "printing" {
+		t.Fatalf("redelivery must enter printing, status=%q err=%v", status, err)
+	}
+}
+
+func TestBeginPrintRejectsTokenedClaimAgainstLegacyTokenlessPrinting(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("legacy-printing", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("legacy-printing", "printing"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	if err := q.BeginPrint("legacy-printing", "printer-1", []byte("payload"), "new-token", false); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("tokened claimant must not steal tokenless printing row, got %v", err)
+	}
+	if got := q.ClaimTokenFor("legacy-printing"); got != "" {
+		t.Fatalf("legacy claim token must remain empty, got %q", got)
+	}
+}
+
+func TestBeginPrintSuccessIsTerminalEvenWhenReprintEnabled(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("success-terminal", "printer-1", []byte("payload")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.UpdateStatus("success-terminal", "printing"); err != nil {
+		t.Fatalf("UpdateStatus printing: %v", err)
+	}
+	if err := q.UpdateStatus("success-terminal", "success"); err != nil {
+		t.Fatalf("UpdateStatus success: %v", err)
+	}
+	if err := q.BeginPrint("success-terminal", "printer-1", []byte("payload"), "reprint-token", true); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("success must never reopen, got %v", err)
+	}
+}
+
+func TestBeginPrintUnknownOutcomeCannotReopenWithLegacyTrue(t *testing.T) {
+	for _, marker := range UnknownOutcomeMarkers {
+		for _, legacy := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/legacy=%v", marker, legacy), func(t *testing.T) {
+				q := newTestQueue(t)
+				if err := q.BeginPrint("unknown-terminal", "printer-1", []byte("original payload"), "original-token", false); err != nil {
+					t.Fatal(err)
+				}
+				if err := q.UpdateTerminalWithEvidence("unknown-terminal", "failed", marker+": physical outcome unknown", "741"); err != nil {
+					t.Fatal(err)
+				}
+				before, err := q.PendingTerminalReports(8)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := q.BeginPrint("unknown-terminal", "other-printer", []byte("replacement"), "replacement-token", legacy); !errors.Is(err, ErrTerminalState) {
+					t.Fatalf("unknown outcome must remain terminal for legacy=%v, got %v", legacy, err)
+				}
+				after, err := q.PendingTerminalReports(8)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(before, after) {
+					t.Fatalf("original fenced/spooler/outcome evidence changed: before=%#v after=%#v", before, after)
+				}
+				printerID, status, found, err := q.Get("unknown-terminal")
+				if err != nil || !found || printerID != "printer-1" || status != "failed" {
+					t.Fatalf("unknown row replaced: printer=%s status=%s found=%v err=%v", printerID, status, found, err)
+				}
+				var stored []byte
+				if err := q.db.QueryRow("SELECT payload FROM print_jobs WHERE id='unknown-terminal'").Scan(&stored); err != nil {
+					t.Fatal(err)
+				}
+				if string(stored) != "original payload" {
+					t.Fatal("unknown row payload replaced")
+				}
+			})
+		}
+	}
+}
+
+func TestBeginPrintConcurrentClaimersCannotStealToken(t *testing.T) {
+	q := newTestQueue(t)
+	const jobID = "concurrent-claim"
+	const attempts = 8
+	var wg sync.WaitGroup
+	results := make(chan error, attempts)
+	wg.Add(attempts)
+	for i := 0; i < attempts; i++ {
+		token := fmt.Sprintf("claim-%d", i)
+		go func() {
+			defer wg.Done()
+			results <- q.BeginPrint(jobID, "printer-1", []byte("payload"), token, false)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var success int
+	for err := range results {
+		if err == nil {
+			success++
+			continue
+		}
+		if !errors.Is(err, ErrTerminalState) {
+			t.Fatalf("unexpected concurrent BeginPrint error: %v", err)
+		}
+	}
+	if success != 1 {
+		t.Fatalf("expected exactly one claimant to own a new job, got %d", success)
+	}
+	owner := q.ClaimTokenFor(jobID)
+	if owner == "" {
+		t.Fatal("winning claim token must persist")
+	}
+}
+
+func TestTerminalStatusClearsClaimTimestampButRetainsReportToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("terminal-clear", "printer-1", []byte("payload"), "claim-terminal", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claimed_at = CURRENT_TIMESTAMP WHERE id = ?`, "terminal-clear"); err != nil {
+		t.Fatalf("seed claimed_at: %v", err)
+	}
+	if err := q.UpdateStatus("terminal-clear", "success"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	var token interface{}
+	var claimedAt interface{}
+	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear").Scan(&token, &claimedAt); err != nil {
+		t.Fatalf("read terminal row: %v", err)
+	}
+	if token != "claim-terminal" || claimedAt != nil {
+		t.Fatalf("terminal row should retain report token but clear lease timestamp: token=%v claimed_at=%v", token, claimedAt)
+	}
+}
+
+func TestTerminalStatusWithErrorClearsClaimTimestampButRetainsReportToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("terminal-clear-error", "printer-1", []byte("payload"), "claim-terminal-error", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET claimed_at = CURRENT_TIMESTAMP WHERE id = ?`, "terminal-clear-error"); err != nil {
+		t.Fatalf("seed claimed_at: %v", err)
+	}
+	if err := q.UpdateStatusWithError("terminal-clear-error", "failed", "paper jam before transmission"); err != nil {
+		t.Fatalf("UpdateStatusWithError: %v", err)
+	}
+	var token interface{}
+	var claimedAt interface{}
+	if err := q.db.QueryRow(`SELECT claim_token, claimed_at FROM print_jobs WHERE id = ?`, "terminal-clear-error").Scan(&token, &claimedAt); err != nil {
+		t.Fatalf("read terminal row: %v", err)
+	}
+	if token != "claim-terminal-error" || claimedAt != nil {
+		t.Fatalf("terminal row should retain report token but clear lease timestamp: token=%v claimed_at=%v", token, claimedAt)
+	}
+}
+
+func TestOldTerminalAcknowledgementCannotClearNewAttemptToken(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("reused-job", "p1", []byte("data")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.db.Exec(`UPDATE print_jobs SET status = 'failed', claim_token = 'new-token' WHERE id = 'reused-job'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("reused-job", "old-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("reused-job"); got != "new-token" {
+		t.Fatalf("stale ACK cleared the current attempt: %q", got)
+	}
+	if err := q.ClearClaimToken("reused-job", "new-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("reused-job"); got != "" {
+		t.Fatalf("matching ACK not cleared: %q", got)
+	}
+}
+
+func TestNonemptyLegacyQueueMigratesDurablyWithoutLosingRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacy, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = legacy.Exec(`CREATE TABLE print_jobs (id TEXT PRIMARY KEY, printer_id TEXT NOT NULL, payload BLOB NOT NULL, status TEXT NOT NULL, retries INTEGER NOT NULL DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP); INSERT INTO print_jobs (id, printer_id, payload, status) VALUES ('old', 'p1', X'61', 'success')`)
+	if err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if !q.IsProcessed("old") {
+		t.Fatal("migration lost terminal execution fence")
+	}
+	var durability int
+	if err := q.db.QueryRow(`PRAGMA synchronous`).Scan(&durability); err != nil || durability < 2 {
+		t.Fatalf("ledger lacks power-loss durability: %d %v", durability, err)
+	}
+	if err := q.Push("new", "p1", []byte("receipt")); err != nil {
+		t.Fatal(err)
+	}
+	var spoolerColumn int
+	if err := q.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('print_jobs') WHERE name = 'spooler_job_id'`).Scan(&spoolerColumn); err != nil || spoolerColumn != 1 {
+		t.Fatalf("legacy migration missing spooler_job_id column: count=%d err=%v", spoolerColumn, err)
+	}
+	var missing int
+	if err := q.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE updated_at IS NULL`).Scan(&missing); err != nil || missing != 0 {
+		t.Fatalf("legacy/new rows lack timestamps: %d %v", missing, err)
+	}
+	if err := q.BeginPrint("next", "p1", []byte("receipt"), "claim", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatus("next", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.BeginPrint("next", "p1", []byte("receipt"), "replacement", true); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("migration broke terminal idempotency: %v", err)
+	}
+}
+
+func TestLocalLedgerRejectsGatewayOnlyStatuses(t *testing.T) {
+	// The Gateway lifecycle (queued/claimed/printing/success/failed/expired)
+	// is wider than the local ledger (queued/printing/success/failed).
+	// Gateway `claimed`/`expired` must never be persisted locally: the CHECK
+	// is the enforcer and it fails closed. If this test fails because the
+	// CHECK was widened, the local writers must be re-audited first.
+	q := newTestQueue(t)
+	if err := q.Push("gw-state-guard", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	for _, status := range []string{"claimed", "expired"} {
+		if err := q.UpdateStatus("gw-state-guard", status); err == nil {
+			t.Fatalf("local ledger accepted Gateway-only status %q", status)
+		}
+		if err := q.UpdateStatusWithError("gw-state-guard", status, "x"); err == nil {
+			t.Fatalf("local ledger with error accepted Gateway-only status %q", status)
+		}
+		if err := q.UpdateTerminalWithEvidence("gw-state-guard", status, "x", ""); err == nil {
+			t.Fatalf("terminal evidence accepted Gateway-only status %q", status)
+		}
+	}
+}
+
+func TestRecordSpoolerJobIDDuringPrintingPhase(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("spool-early", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-early", "4242"); err == nil {
+		t.Fatal("must not record platform identity before the printing phase")
+	}
+	if err := q.BeginPrint("spool-early", "printer_1", []byte("x"), "claim-1", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-early", ""); err == nil {
+		t.Fatal("must refuse an empty platform identity")
+	}
+	if err := q.RecordSpoolerJobID("spool-early", "4242"); err != nil {
+		t.Fatalf("RecordSpoolerJobID: %v", err)
+	}
+	if err := q.UpdateStatusWithError("spool-early", "failed", "UNKNOWN_PARTIAL_DELIVERY: boom"); err != nil {
+		t.Fatalf("terminal write: %v", err)
+	}
+	// Terminal evidence is authoritative: a stale mid-phase observation must
+	// never overwrite it.
+	if err := q.RecordSpoolerJobID("spool-early", "9999"); err == nil {
+		t.Fatal("must not overwrite terminal platform evidence")
+	}
+	reports, err := q.PendingTerminalReports(32)
+	if err != nil {
+		t.Fatalf("PendingReports: %v", err)
+	}
+	found := false
+	for _, r := range reports {
+		if r.ID == "spool-early" {
+			found = true
+			if r.SpoolerJobID != "4242" {
+				t.Fatalf("terminal evidence lost the mid-phase identity: %q", r.SpoolerJobID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("terminal row missing from outbox reports")
+	}
+}
+
+func TestMarkInterruptedRetainsSpoolerJobID(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.Push("spool-crash", "printer_1", []byte("x")); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if err := q.BeginPrint("spool-crash", "printer_1", []byte("x"), "claim-9", false); err != nil {
+		t.Fatalf("BeginPrint: %v", err)
+	}
+	if err := q.RecordSpoolerJobID("spool-crash", "777"); err != nil {
+		t.Fatalf("RecordSpoolerJobID: %v", err)
+	}
+	// Simulate a crash between StartDoc and the terminal write: the process
+	// dies with the row still printing; recovery must keep the identity.
+	marked, err := q.MarkInterrupted()
+	if err != nil {
+		t.Fatalf("MarkInterrupted: %v", err)
+	}
+	if len(marked) != 1 || marked[0].ID != "spool-crash" {
+		t.Fatalf("expected one interrupted job, got %+v", marked)
+	}
+	if marked[0].SpoolerJobID != "777" {
+		t.Fatalf("crash recovery lost the platform identity: %q", marked[0].SpoolerJobID)
+	}
+}
+
+// A local reservation that has not crossed BeginPrint is provably free of
+// physical output, including after a process crash and SQLite reopen.
+func TestPreDispatchClaimOutboxSurvivesRestartWithoutUnknownOutcome(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "predispatch.db")
+	q, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ReserveBeforeDispatch("waiting", "p1", []byte("receipt"), "claim-before-crash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatal(err)
+	}
+	q, err = New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	interrupted, err := q.MarkInterrupted()
+	if err != nil || len(interrupted) != 0 {
+		t.Fatalf("waiting job must not be treated as physically unknown: %#v %v", interrupted, err)
+	}
+	_, status, found, err := q.Get("waiting")
+	if err != nil || !found || status != "queued" {
+		t.Fatalf("pre-dispatch crash must preserve queued status: found=%v status=%q err=%v", found, status, err)
+	}
+	pending, err := q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 1 || pending[0].ClaimToken != "claim-before-crash" {
+		t.Fatalf("original fenced pre-dispatch claim must survive restart: %#v %v", pending, err)
+	}
+	if err := q.ClearPreDispatchClaim("waiting", "wrong-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.ClaimTokenFor("waiting"); got != "claim-before-crash" {
+		t.Fatalf("wrong claim must not clear original fence: %q", got)
+	}
+	if err := q.ClearPreDispatchClaim("waiting", "claim-before-crash"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("acknowledged hand-back must leave no pending claim: %#v %v", pending, err)
+	}
+}
+
+func TestPreDispatchReservationCannotReopenTerminalOrPrinting(t *testing.T) {
+	q := newTestQueue(t)
+	for _, status := range []string{"printing", "success", "failed"} {
+		id := "protected-" + status
+		if err := q.BeginPrint(id, "p1", []byte("receipt"), "original-claim", false); err != nil {
+			t.Fatal(err)
+		}
+		if status != "printing" {
+			if err := q.UpdateStatusWithError(id, status, "UNKNOWN_PARTIAL_DELIVERY: previous device attempt"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := q.ReserveBeforeDispatch(id, "p1", []byte("new"), "new-claim"); err != nil {
+			t.Fatal(err)
+		}
+		_, got, _, err := q.Get(id)
+		if err != nil || got != status {
+			t.Fatalf("reservation changed %s to %s, err=%v", status, got, err)
+		}
+		if tok := q.ClaimTokenFor(id); tok != "original-claim" {
+			t.Fatalf("reservation replaced token for %s: %q", status, tok)
+		}
+	}
+}
+
+// A previously unsuccessful, provably zero-byte attempt is a valid retry. If
+// its next claim crashes while waiting on the printer mutex, startup must
+// hand back that NEW token rather than replaying the stale failed outcome.
+func TestRetryableFailureReservesNewPreDispatchClaim(t *testing.T) {
+	q := newTestQueue(t)
+	if err := q.BeginPrint("safe-retry", "p1", []byte("old"), "old-claim", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateStatusWithError("safe-retry", "failed", "network connection refused before bytes sent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ClearClaimToken("safe-retry", "old-claim"); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ReserveBeforeDispatch("safe-retry", "p1", []byte("old"), "new-claim"); err != nil {
+		t.Fatal(err)
+	}
+	_, status, _, err := q.Get("safe-retry")
+	if err != nil || status != "queued" {
+		t.Fatalf("safe retry must remain queued before hardware: %q %v", status, err)
+	}
+	if got := q.ClaimTokenFor("safe-retry"); got != "new-claim" {
+		t.Fatalf("new safe retry claim lost: %q", got)
+	}
+	unknown, err := q.MarkInterrupted()
+	if err != nil || len(unknown) != 0 {
+		t.Fatalf("pre-dispatch retry must never be classified physically UNKNOWN: %#v %v", unknown, err)
+	}
+	pending, err := q.PendingPreDispatchReturns(8)
+	if err != nil || len(pending) != 1 || pending[0].ID != "safe-retry" || pending[0].ClaimToken != "new-claim" {
+		t.Fatalf("the new retry token must be returned exactly: %#v %v", pending, err)
+	}
+}

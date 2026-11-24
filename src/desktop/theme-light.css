@@ -1,0 +1,222 @@
+/* Desktop Manager — iOS 27 Apple-Minimal Desktop Layer.
+   ----------------------------------------------------------------------------
+   This file is imported by src/desktop/main.tsx AFTER src/app/globals.css.
+   Shared colour, surface, semantic, focus and radius tokens are inherited from
+   src/app/globals.css so that globals.css is the single theme source across
+   Web and Desktop. Only Desktop-specific typography, self-hosted fonts,
+   Desktop-only tokens, and Desktop Apple-minimal component rules live here.
+
+   FONT — self-hosted, no external font CDN. The five Thmanyah OTFs live in
+   src/desktop/fonts/ and are bundled by Vite via relative ./fonts/ URLs.
+   This works in the Tauri WebView under `font-src 'self'` and ships inside
+   the packaged installer (permitted by the Thmanyah embedded-product license). */
+
+/* Shared print type tokens (Gateway-owned file; imported, not edited). The
+   --typo-font-* overrides below redirect its stacks to Thmanyah. */
+@import "../../typography/tokens.css";
+
+/* Thmanyah Sans, self-hosted. One family name, five weights; the weight
+   selects the face. `font-display: block` avoids fallback layout shift on
+   print-critical screens. */
+@font-face {
+  font-family: "Thmanyah Sans";
+  font-style: normal;
+  font-weight: 300;
+  font-display: block;
+  src: url("./fonts/thmanyahsans-Light.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Thmanyah Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./fonts/thmanyahsans-Regular.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Thmanyah Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("./fonts/thmanyahsans-Medium.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Thmanyah Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("./fonts/thmanyahsans-Bold.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Thmanyah Sans";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url("./fonts/thmanyahsans-Black.otf") format("opentype");
+}
+
+:root {
+  --font-thmanyah-sans: "Thmanyah Sans";
+
+  /* Redirect the shared stacks to self-hosted Thmanyah Sans, keeping IBM Plex
+     as fallback. */
+  --typo-font-latin: "Thmanyah Sans", "IBM Plex Sans";
+  --typo-font-arabic: "Thmanyah Sans", "IBM Plex Sans Arabic";
+
+  /* Desktop-only token for dark ink over light secondary accents. */
+  --text-on-secondary: #101219;
+
+  /* iOS 27 Apple-minimal glass & hairline tokens (WCAG AA preserved). */
+  --desktop-rail-bg: rgba(255, 255, 255, 0.82);
+  --desktop-rail-border: rgba(16, 18, 25, 0.08);
+  --desktop-card-shadow: 0 1px 2px rgba(16, 24, 40, 0.03), 0 8px 24px -4px rgba(16, 24, 40, 0.05);
+  --desktop-card-shadow-hover: 0 2px 6px rgba(16, 24, 40, 0.04), 0 14px 32px -6px rgba(16, 24, 40, 0.08);
+  --virtual-badge-bg: #eef2ff;
+  --virtual-badge-border: #c7d2fe;
+  --virtual-badge-text: #3730a3;
+}
+
+/* Desktop-only dark focus inset & dark glass tokens (globals.css defines the rest of dark mode). */
+:root[data-theme="dark"] {
+  --focus-ring-inset: 0 0 0 3px rgba(8, 9, 12, 0.9);
+  --desktop-rail-bg: rgba(18, 22, 31, 0.84);
+  --desktop-rail-border: rgba(255, 255, 255, 0.1);
+  --desktop-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 28px -6px rgba(0, 0, 0, 0.35);
+  --desktop-card-shadow-hover: 0 4px 10px rgba(0, 0, 0, 0.3), 0 18px 36px -6px rgba(0, 0, 0, 0.45);
+  --virtual-badge-bg: rgba(99, 102, 241, 0.18);
+  --virtual-badge-border: rgba(165, 180, 252, 0.38);
+  --virtual-badge-text: #e0e7ff;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--typo-font-stack-latin);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* The Desktop app switches the document direction with the operator's
+   language, so the family order follows it. Thmanyah leads both ways. */
+html[dir="rtl"],
+html[dir="rtl"] body {
+  font-family: var(--typo-font-stack-arabic);
+}
+
+/* Arabic letterforms must never be stretched, kashed or broken by spacing:
+   this unlayered rule beats the layered Tailwind tracking utilities on
+   headings in RTL. */
+html[dir="rtl"] h1,
+html[dir="rtl"] h2,
+html[dir="rtl"] h3,
+html[dir="rtl"] h4,
+html[dir="rtl"] h5,
+html[dir="rtl"] h6 {
+  letter-spacing: 0;
+}
+
+/* iOS 27 frosted glass navigation rail */
+.tg-desktop-rail {
+  background: var(--desktop-rail-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-color: var(--desktop-rail-border);
+  box-shadow: var(--desktop-card-shadow);
+}
+
+/* Guide button metrics, applied to the shared Button component inside the
+   Desktop bundle only: 44px minimum height, 24px horizontal padding, pill
+   radius. Icon-only buttons keep their !px-0/!py-0 and 44x44 size. */
+.tg-action-button {
+  min-height: 44px;
+  padding-inline: 24px;
+  border-radius: 999px;
+}
+
+/* Subtle Apple-minimal badge for first-class virtual printers (WCAG AA >= 7:1) */
+.virtual-printer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--virtual-badge-border);
+  background: var(--virtual-badge-bg);
+  color: var(--virtual-badge-text);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl, 18px);
+  box-shadow: var(--desktop-card-shadow);
+  transition: box-shadow 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--desktop-card-shadow-hover);
+  border-color: var(--border-strong);
+}
+
+.inset-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, 16px);
+}
+
+.table-head {
+  background: var(--surface-2);
+}
+
+.row-hover:hover {
+  background: var(--surface-hover);
+}
+
+.section-rule {
+  border-top: 1px solid var(--border);
+}
+
+.billing-premium {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2xl, 20px);
+  box-shadow: var(--desktop-card-shadow);
+}
+
+.billing-premium::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--brand);
+}
+
+/* Guide focus: 3px ring with a 3px gap. */
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

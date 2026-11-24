@@ -1,0 +1,64 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Africa/Cairo
+    open-pull-requests-limit: 5
+    groups:
+      npm-safe:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: gomod
+    directory: /agent
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: Africa/Cairo
+    open-pull-requests-limit: 5
+    groups:
+      go-safe:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Africa/Cairo
+    open-pull-requests-limit: 5
+    groups:
+      rust-safe:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Africa/Cairo
+    open-pull-requests-limit: 4
+  - package-ecosystem: docker
+    directory: /
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Africa/Cairo
+    open-pull-requests-limit: 3

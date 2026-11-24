@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_print_gateway_main" name="Direct Printing" sequence="90" action="action_print_gateway_jobs" web_icon="print_gateway,static/description/icon.png" groups="base.group_user"/>
+    <menuitem id="menu_print_gateway_config" name="Print Service" parent="menu_print_gateway_main" action="action_print_gateway_config" sequence="10" groups="base.group_system"/>
+    <menuitem id="menu_print_gateway_policies" name="Automatic Printing" parent="menu_print_gateway_main" action="action_print_gateway_policies" sequence="40" groups="base.group_system"/>
+    <menuitem id="menu_print_gateway_jobs" name="Print Activity" parent="menu_print_gateway_main" action="action_print_gateway_jobs" sequence="50" groups="base.group_user"/>
+    <menuitem id="menu_print_gateway_bindings" name="Print Routing" parent="menu_print_gateway_main" action="action_print_gateway_binding" sequence="20" groups="base.group_system"/>
+    <menuitem id="menu_print_gateway_assignments" name="Branch Devices" parent="menu_print_gateway_main" action="action_print_gateway_runtime_assignments" sequence="30" groups="base.group_system"/>
+    <menuitem id="menu_print_gateway_intents" name="Automation Activity" parent="menu_print_gateway_main" action="action_print_gateway_intents" sequence="60" groups="base.group_system"/>
+    <menuitem id="menu_print_gateway_agents" name="Direct Print Agents" parent="menu_print_gateway_main" action="action_print_gateway_agents" sequence="25" groups="base.group_system"/>
+</odoo>

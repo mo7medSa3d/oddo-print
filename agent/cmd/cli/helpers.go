@@ -1,0 +1,137 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"strconv"
+	"strings"
+
+	"github.com/yaseir-agent/agent/internal/config"
+	"github.com/yaseir-agent/agent/internal/printer"
+)
+
+func discoverHelper(cfg *config.Config, registryPath string, jsonOutput bool) []printer.DeviceInfo {
+	result := printer.DiscoverLive(cfg, registryPath)
+	allObserved := result.Printers
+	result.Printers = printer.RuntimeInventoryPrinters(allObserved)
+	if skipped := len(allObserved) - len(result.Printers); skipped > 0 {
+		log.Printf("Discovery: %d setup candidate(s) retained for explicit selection; they were not added to the main printer inventory", skipped)
+	}
+	if _, err := printer.ReconcileDiscoveryRegistry(registryPath, result.Printers, result.CompleteSources); err != nil {
+		log.Printf("Failed to persist discovery: %v", err)
+	}
+	// Discovery is the setup surface, so keep observations that are not main
+	// inventory admissions visible in its JSON/table response. List is the
+	// separate installed/registered fleet surface.
+	result.Printers = allObserved
+	for _, message := range result.Errors {
+		log.Printf("Discovery warning: %s", message)
+	}
+	if jsonOutput {
+		if result.Printers == nil {
+			return []printer.DeviceInfo{}
+		}
+		return result.Printers
+	}
+	fmt.Printf("%-32s %-24s %-12s %-10s %-8s %-7s %s\n", "ID", "NAME", "TYPE", "PROTO", "STATUS", "ENABLED", "ENDPOINT/SPOOLER")
+	fmt.Println("--------------------------------------------------------------------------------------------------------------------------------")
+	for _, d := range result.Printers {
+		endpoint := d.Endpoint
+		if d.SpoolerName != "" {
+			endpoint = d.SpoolerName
+		}
+		if endpoint == "" && d.NetworkAddress != "" {
+			if d.Port != 0 {
+				endpoint = fmt.Sprintf("%s:%d", d.NetworkAddress, d.Port)
+			} else {
+				endpoint = d.NetworkAddress
+			}
+		}
+		enabledStr := "true"
+		if !d.Enabled {
+			enabledStr = "false"
+		}
+		fmt.Printf("%-32s %-24s %-12s %-10s %-8s %-7s %s\n", d.ID, d.Name, d.ConnectionType, d.Protocol, d.Status, enabledStr, endpoint)
+		if d.NetworkAddress != "" {
+			fmt.Printf("    network=%s:%d\n", d.NetworkAddress, d.Port)
+		}
+		if d.USBVID != "" {
+			fmt.Printf("    usb vid=%s pid=%s serial=%s\n", d.USBVID, d.USBPID, d.USBSerial)
+		}
+		if len(d.Capabilities) > 0 {
+			if b, err := json.Marshal(d.Capabilities); err == nil {
+				fmt.Printf("    caps=%s\n", string(b))
+			}
+		}
+	}
+	if len(result.Errors) > 0 {
+		fmt.Println("Warnings:")
+		for _, e := range result.Errors {
+			fmt.Printf("  ! %s\n", e)
+		}
+	}
+	return result.Printers
+}
+
+func testPrinterHelper(cfg *config.Config, registryPath, printerID string) error {
+	return printer.TestPrinter(cfg, registryPath, printerID)
+}
+
+func addPrinterHelper(cfg *config.Config, registryPath string, info struct {
+	ID             string
+	Name           string
+	ConnectionType string
+	PrinterType    string
+	Endpoint       string
+	Protocol       string
+	SpoolerName    string
+	USBVID         string
+	USBPID         string
+	USBSerial      string
+	Enabled        bool
+	Capabilities   map[string]interface{}
+}) error {
+	di := printer.DeviceInfo{
+		ID:             info.ID,
+		Name:           info.Name,
+		DisplayName:    info.Name,
+		PrinterType:    info.PrinterType,
+		ConnectionType: info.ConnectionType,
+		Protocol:       info.Protocol,
+		Endpoint:       info.Endpoint,
+		SpoolerName:    info.SpoolerName,
+		USBVID:         info.USBVID,
+		USBPID:         info.USBPID,
+		USBSerial:      info.USBSerial,
+		Status:         "unknown",
+		Enabled:        info.Enabled,
+		Capabilities:   info.Capabilities,
+		Type:           info.ConnectionType,
+	}
+	if di.PrinterType == "" {
+		di.PrinterType = "unknown"
+	}
+	if di.ConnectionType == "spooler" && di.SpoolerName == "" {
+		di.SpoolerName = di.Endpoint
+	}
+	// Split a host:port endpoint into address + port so heartbeat payloads
+	// and diagnostics carry structured network identity instead of blanks.
+	if ep := strings.TrimSpace(info.Endpoint); ep != "" {
+		if host, portStr, err := net.SplitHostPort(ep); err == nil {
+			di.NetworkAddress = host
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				di.Port = p
+			}
+		} else if ip := net.ParseIP(ep); ip != nil {
+			di.NetworkAddress = ip.String()
+		}
+	}
+	_, err := printer.RegisterManual(registryPath, di)
+	return err
+}
+
+func removePrinterHelper(registryPath, printerID string) error {
+	return printer.RemoveFromRegistry(registryPath, printerID)
+}

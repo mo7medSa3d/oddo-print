@@ -1,0 +1,81 @@
+/* ============================================================================
+   UNIFIED TYPOGRAPHY SYSTEM — single source of truth
+   ----------------------------------------------------------------------------
+   Consumed by ALL three applications:
+     • Web      — src/app/globals.css            (@import "../../typography/tokens.css")
+     • Desktop  — src/desktop/theme-light.css    (@import "../../typography/tokens.css")
+     • Odoo     — odoo_addons/print_gateway/static/src/css/typography_tokens.css
+                  (byte-identical copy; scripts/check-typography-tokens.py fails
+                  the build if the two ever drift)
+
+   Print-first: sizes are declared in pt, with the screen equivalent (pt × 1.333)
+   next to each one. Nothing in a component, template or stylesheet may
+   hardcode a font family or a font size — reference these tokens.
+   ========================================================================= */
+
+:root {
+  /* ---------- Families -------------------------------------------------
+     Thmanyah Sans (Design Guide v2.1) leads both stacks: one family
+     carries Latin and Arabic glyphs, so unlike IBM Plex it needs no
+     per-script face. The served OFL-licensed IBM Plex families stay
+     second as the fallback if Thmanyah fails to load, and the literal
+     "Thmanyah Sans" name covers the case where the Next.js variable
+     is absent (Desktop @font-face, Odoo module). The ORDER of the
+     stack still decides which face renders English text where both
+     faces carry Latin glyphs: the Latin entry leads in LTR, the
+     Arabic entry leads in RTL. One list of families, two orderings. */
+  --typo-font-latin: var(--font-thmanyah, "Thmanyah Sans"), var(--font-ibm-plex-sans, "IBM Plex Sans");
+  --typo-font-arabic: var(--font-thmanyah, "Thmanyah Sans"), var(--font-ibm-plex-sans-arabic, "IBM Plex Sans Arabic");
+  --typo-font-fallbacks: "Noto Sans Arabic", "Noto Sans", Tahoma, Arial, sans-serif;
+
+  /* The specified stack: "Thmanyah Sans", "IBM Plex Sans" (Latin) /
+     "IBM Plex Sans Arabic" (Arabic),
+     "Noto Sans Arabic", "Noto Sans", Tahoma, Arial, sans-serif. */
+  --typo-font-stack: var(--typo-font-arabic), var(--typo-font-latin), var(--typo-font-fallbacks);
+  /* Same families, Latin first — for left-to-right documents. */
+  --typo-font-stack-latin: var(--typo-font-latin), var(--typo-font-arabic), var(--typo-font-fallbacks);
+  /* Same families, Arabic first — for right-to-left documents. */
+  --typo-font-stack-arabic: var(--typo-font-arabic), var(--typo-font-latin), var(--typo-font-fallbacks);
+
+  /* System-font-only variant. The Odoo POS receipt is rasterized with font
+     embedding disabled, so it must never depend on a web font; it uses the
+     local half of the same families. */
+  --typo-font-stack-system:
+    "Noto Sans Arabic",
+    "Noto Sans",
+    Tahoma,
+    Arial,
+    sans-serif;
+
+  /* ---------- Weights ---------------------------------------------------
+     Use Bold only for titles, totals and key values. A page may carry at
+     most three weights. */
+  --typo-weight-regular: 400;
+  --typo-weight-medium: 500;
+  --typo-weight-semibold: 600;
+  --typo-weight-bold: 700;
+
+  /* ---------- Type scale (print) ---------------------------------------
+     pt for print, px for screen (pt × 1.333). Never go below 8pt in
+     printed output. */
+  --typo-fs-display: 20pt;      --typo-fs-display-px: 26.667px;
+  --typo-fs-section: 14pt;      --typo-fs-section-px: 18.667px;
+  --typo-fs-body: 10.5pt;       --typo-fs-body-px: 14px;
+  --typo-fs-emphasis: 11pt;     --typo-fs-emphasis-px: 14.667px;
+  --typo-fs-label: 8.5pt;       --typo-fs-label-px: 11.333px;
+  --typo-fs-footer: 8pt;        --typo-fs-footer-px: 10.667px;
+
+  /* ---------- Line height ----------------------------------------------
+     Arabic needs more vertical room for diacritics. */
+  --typo-lh-arabic: 1.6;
+  --typo-lh-latin: 1.4;
+  --typo-lh-mixed: 1.5;
+
+  /* ---------- Spacing --------------------------------------------------- */
+  --typo-space-table-row: 4pt;
+
+  /* ---------- Contrast --------------------------------------------------
+     Secondary text keeps at least 7:1 against white. */
+  --typo-color-primary: #111827;
+  --typo-color-secondary: #4B5563;
+}

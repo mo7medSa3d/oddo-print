@@ -1,0 +1,216 @@
+import { db } from "../db";
+import { tenants, tenantUsers } from "../db/schema";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { authenticateCustomer, validateManager, validateManagerClaims, type ManagerRole, type ManagerClaims } from "./manager-auth";
+import { createHmac, createHash, timingSafeEqual } from "node:crypto";
+import { requiredRuntimeSecret } from "./runtime-secret";
+import { nanoid } from "./nanoid";
+import { requireActiveTenantOrNull, TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  refreshCookieHeader,
+  verifyAccessTokenSignature,
+  type SessionRequestContext,
+} from "./session-tokens";
+
+function getSecret(): string {
+  const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
+  if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
+  return s;
+}
+
+function b64urlEncode(buf: Buffer | string): string {
+  return Buffer.from(buf).toString("base64url");
+}
+
+function b64urlDecode(s: string): Buffer {
+  return Buffer.from(s, "base64url");
+}
+
+function compareStringsSafe(a: string, b: string): boolean {
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+type TenantSelectionClaims = {
+  jti: string;
+  iat: number;
+  exp: number;
+  sub: "tenant_selection";
+  userId: string;
+  email: string;
+  credentialVersion: string;
+};
+
+export async function createTenantSelectionToken(userId: string, email: string, credentialVersion: string): Promise<string> {
+  const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+  const now = Number(clock.rows[0]?.now_sec);
+  if (!Number.isSafeInteger(now)) throw new Error("Database clock is unavailable");
+  const claims: TenantSelectionClaims = {
+    jti: `tsel_${nanoid(20)}`,
+    iat: now,
+    exp: now + 5 * 60, // 5 minutes
+    sub: "tenant_selection",
+    userId,
+    email,
+    credentialVersion,
+  };
+  const header = b64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = b64urlEncode(JSON.stringify(claims));
+  const data = `${header}.${payload}`;
+  const sig = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+export async function verifyTenantSelectionToken(token: string): Promise<TenantSelectionClaims | null> {
+  if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [h, p, s] = parts;
+
+  try {
+    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg?: unknown; typ?: unknown };
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+  } catch {
+    return null;
+  }
+
+  const data = `${h}.${p}`;
+  const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  if (!compareStringsSafe(s, expected)) return null;
+
+  try {
+    const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<TenantSelectionClaims>;
+    if (
+      claims.sub !== "tenant_selection" ||
+      typeof claims.jti !== "string" ||
+      !claims.jti.startsWith("tsel_") ||
+      typeof claims.userId !== "string" ||
+      typeof claims.email !== "string" ||
+      typeof claims.credentialVersion !== "string" || !/^[0-9a-f]{64}$/.test(claims.credentialVersion) ||
+      typeof claims.iat !== "number" ||
+      typeof claims.exp !== "number" ||
+      !Number.isSafeInteger(claims.iat) ||
+      !Number.isSafeInteger(claims.exp)
+    ) {
+      return null;
+    }
+    const clock = await db.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()))::bigint AS now_sec`);
+    const now = Number(clock.rows[0]?.now_sec);
+    if (!Number.isSafeInteger(now)) return null;
+    if (claims.exp <= now || claims.iat > now + 60) return null;
+    return claims as TenantSelectionClaims;
+  } catch {
+    return null;
+  }
+}
+
+export async function issueCustomerSession(
+  userId: string,
+  tenantId: string,
+  role: ManagerRole,
+  context?: SessionRequestContext,
+  email?: string | null,
+  credentialVersion?: string,
+) {
+  const tenantLifecycle = await requireActiveTenantOrNull(tenantId);
+  if (!tenantLifecycle) return null;
+  try {
+    return await issueSessionPair({
+      kind: "customer",
+      userId,
+      tenantId,
+      role,
+      email: email ?? null,
+      credentialVersion,
+    }, context);
+  } catch (error) {
+    if (error instanceof TenantSuspendedError || error instanceof TenantDeletedError) return null;
+    throw error;
+  }
+}
+
+export function customerSessionCookie(session: { accessToken: string; accessExpiresAt: Date }) {
+  return accessCookieHeader("customer", session.accessToken, session.accessExpiresAt);
+}
+
+export function customerRefreshCookie(session: { refreshToken: string; refreshExpiresAt: Date }) {
+  return refreshCookieHeader("customer", session.refreshToken, session.refreshExpiresAt);
+}
+
+export function clearCustomerSessionCookie() {
+  return clearAccessCookieHeader("customer");
+}
+
+export function clearCustomerRefreshCookie() {
+  return clearRefreshCookieHeader("customer");
+}
+
+export async function validateCustomer(req: Request): Promise<ManagerClaims | null> {
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  if (customerToken) {
+    const versioned = verifyAccessTokenSignature(customerToken, "customer");
+    if (!versioned) return null;
+    // Fail closed if a future validator ever stops guaranteeing tenant
+    // presence for customer-kind claims (today it always does).
+    if (!versioned.tenantId) return null;
+
+    const claims: ManagerClaims = {
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "customer",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    };
+    return validateManagerClaims(claims);
+  }
+
+  // Legacy customer JWTs predate the explicit session kind and lived in the
+  // historical manager cookie/session table. Only a legacy token may use this
+  // compatibility path; a v2 manager/customer token in the wrong cookie is
+  // rejected rather than being silently cross-accepted.
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (!managerToken) return null;
+  if (verifyAccessTokenSignature(managerToken, ["manager", "customer"])) return null;
+  return validateManager(req);
+}
+
+export async function authenticateForTenant(email: string, password: string, tenantId?: string) {
+  const identity = await authenticateCustomer(email, password);
+  if (!identity) return null;
+  if (tenantId) {
+    const membership = await db.query.tenantUsers.findFirst({ where: and(eq(tenantUsers.userId, identity.userId), eq(tenantUsers.tenantId, tenantId)), columns: { tenantId: true, role: true } });
+    if (!membership) return null;
+    if (!(await requireActiveTenantOrNull(membership.tenantId))) return null;
+    return { ...identity, tenantId: membership.tenantId, role: membership.role as ManagerRole };
+  }
+  // Do not silently truncate workspace memberships. The chooser must expose
+  // every active workspace the authenticated user belongs to; an arbitrary cap would
+  // make valid memberships unreachable from the normal tenant-selection flow.
+  const memberships = await db.select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role, name: tenants.name })
+    .from(tenantUsers)
+    .innerJoin(tenants, eq(tenants.id, tenantUsers.tenantId))
+    .where(and(eq(tenantUsers.userId, identity.userId), eq(tenants.lifecycle, "active")))
+    .orderBy(asc(tenants.name), asc(tenants.id));
+  if (memberships.length === 0) {
+    return { ...identity, multipleTenants: false, memberships: [] };
+  }
+  if (memberships.length > 1) {
+    const selectionToken = await createTenantSelectionToken(identity.userId, identity.email, identity.credentialVersion);
+    return { ...identity, multipleTenants: true, selectionToken, memberships };
+  }
+  if (!(await requireActiveTenantOrNull(memberships[0].tenantId))) return null;
+  return { ...identity, tenantId: memberships[0].tenantId, role: memberships[0].role as ManagerRole };
+}
+

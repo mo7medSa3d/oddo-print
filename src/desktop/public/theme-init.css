@@ -1,0 +1,2 @@
+html, body { margin: 0; background-color: #f5f7fa; color: #16181d; }
+html[data-theme="dark"], html[data-theme="dark"] body { background-color: #08090c; color: #f3f4f6; }

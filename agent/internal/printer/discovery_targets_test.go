@@ -1,0 +1,180 @@
+package printer
+
+import (
+	"net"
+	"strings"
+	"testing"
+)
+
+func privateSubnet(t *testing.T, host, prefix string) *net.IPNet {
+	t.Helper()
+	_, parsed, err := net.ParseCIDR(prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.IP = net.ParseIP(host)
+	return parsed
+}
+
+func TestAutomaticDiscoverySharedSubnetDedupesByNetworkNotInterfaceAddress(t *testing.T) {
+	// Two interfaces can have separate local addresses on the same /24. A
+	// per-host IPNet.String key re-scanned every destination twice.
+	one := privateSubnet(t, "10.45.2.20", "10.45.2.0/24")
+	two := privateSubnet(t, "10.45.2.21", "10.45.2.0/24")
+	targets, truncated := privateDiscoveryTargetsWithBudget([]*net.IPNet{one, two}, maxAutomaticDiscoveryTargets)
+	// Two local addresses must both be removed, even though they share the /24.
+	if truncated || len(targets) != 252 {
+		t.Fatalf("duplicate adapter generated %d targets, truncated=%v", len(targets), truncated)
+	}
+	seen := map[string]bool{}
+	for _, target := range targets {
+		if seen[target] {
+			t.Fatalf("duplicate probe to %q", target)
+		}
+		seen[target] = true
+	}
+}
+
+// A host with two active NICs in the same /24 must never probe either of
+// its own addresses. The subnet is deduplicated, but ALL local addresses
+// still need to be excluded before the automatic discovery candidates are
+// queued; probing the second NIC can misclassify an Agent-side print service
+// as a separate printer.
+func TestAutomaticDiscoveryOmitsEveryLocalAdapterAddress(t *testing.T) {
+	one := privateSubnet(t, "10.45.2.20", "10.45.2.0/24")
+	two := privateSubnet(t, "10.45.2.21", "10.45.2.0/24")
+	overlap := privateSubnet(t, "10.45.2.25", "10.45.2.0/25")
+	hosts, truncated := privateDiscoveryTargetsWithBudget([]*net.IPNet{one, two, overlap}, maxAutomaticDiscoveryTargets)
+	if truncated || len(hosts) != 251 {
+		t.Fatalf("expected 251 unique remote hosts after excluding three local NICs: count=%d truncated=%v", len(hosts), truncated)
+	}
+	seen := make(map[string]bool, len(hosts))
+	for _, host := range hosts {
+		if host == "10.45.2.20" || host == "10.45.2.21" || host == "10.45.2.25" {
+			t.Fatalf("discovery probed its own address %s", host)
+		}
+		if seen[host] {
+			t.Fatalf("duplicate destination %s", host)
+		}
+		seen[host] = true
+	}
+	if !seen["10.45.2.22"] || !seen["10.45.2.254"] {
+		t.Fatalf("remote discovery coverage was lost: first=%v end=%v", seen["10.45.2.22"], seen["10.45.2.254"])
+	}
+}
+
+func TestAutomaticDiscoveryCapsCrossSubnetCostFairlyAndSignalsPartial(t *testing.T) {
+	subnets := []*net.IPNet{
+		privateSubnet(t, "10.45.2.20", "10.45.2.0/24"),
+		privateSubnet(t, "10.46.3.22", "10.46.3.0/24"),
+		privateSubnet(t, "10.47.4.24", "10.47.4.0/24"),
+		privateSubnet(t, "10.48.5.26", "10.48.5.0/24"),
+	}
+	hosts, truncated := privateDiscoveryTargetsWithBudget(subnets, maxAutomaticDiscoveryTargets)
+	if !truncated || len(hosts) != maxAutomaticDiscoveryTargets {
+		t.Fatalf("unbounded/misclassified probe set: count=%d partial=%v", len(hosts), truncated)
+	}
+	counts := map[string]int{}
+	for _, host := range hosts {
+		counts[strings.Join(strings.Split(host, ".")[:3], ".")]++
+	}
+	if len(counts) != 4 {
+		t.Fatalf("budget must reach all four subnets, counts=%v", counts)
+	}
+	for subnet, n := range counts {
+		if n < 120 || n > 130 {
+			t.Fatalf("unfair budget for %s: %d", subnet, n)
+		}
+	}
+}
+
+func TestAutomaticDiscoveryCompleteWhenNotTruncated(t *testing.T) {
+	subnets := []*net.IPNet{
+		privateSubnet(t, "10.45.2.20", "10.45.2.0/24"),
+		privateSubnet(t, "10.46.3.22", "10.46.3.0/24"),
+	}
+	hosts, truncated := privateDiscoveryTargetsWithBudget(subnets, maxAutomaticDiscoveryTargets)
+	if truncated || len(hosts) != 506 {
+		t.Fatalf("unexpected complete scan count=%d partial=%v", len(hosts), truncated)
+	}
+	if !strings.HasPrefix(hosts[0], "10.45.2.") || !strings.HasPrefix(hosts[1], "10.46.3.") {
+		t.Fatalf("interleaving unexpectedly changed: %v", hosts[:2])
+	}
+}
+
+func TestAutomaticDiscoveryClampsWideCIDRAroundActualHost(t *testing.T) {
+	target := privateSubnet(t, "10.45.188.22", "10.45.0.0/16")
+	hosts, truncated := privateDiscoveryTargetsWithBudget([]*net.IPNet{target}, maxAutomaticDiscoveryTargets)
+	if truncated || len(hosts) != 253 || hosts[0] != "10.45.188.1" {
+		t.Fatalf("wide subnet scanned wrong /24 or overran: len=%d partial=%v first=%v", len(hosts), truncated, hosts)
+	}
+}
+
+// RFC 3021 assigns both IPv4 addresses in a /31 to point-to-point peers.
+// The previous generic network/broadcast exclusion yielded zero candidates,
+// so a printer reachable across a two-host link was never discovered.
+func TestAutomaticDiscoveryHandlesPointToPoint31Peer(t *testing.T) {
+	for _, tc := range []struct{ local, peer string }{
+		{"10.45.2.10", "10.45.2.11"},
+		{"10.45.2.11", "10.45.2.10"},
+	} {
+		t.Run(tc.local, func(t *testing.T) {
+			nic := privateSubnet(t, tc.local, "10.45.2.10/31")
+			hosts, partial := privateDiscoveryTargetsWithBudget([]*net.IPNet{nic}, maxAutomaticDiscoveryTargets)
+			if partial || len(hosts) != 1 || hosts[0] != tc.peer {
+				t.Fatalf("/31 peer discovery missing or scanned own address: hosts=%v partial=%v", hosts, partial)
+			}
+		})
+	}
+}
+
+func TestAutomaticDiscoveryZeroBudgetIsPartialUnlessNoHosts(t *testing.T) {
+	subnet := privateSubnet(t, "10.45.2.20", "10.45.2.0/24")
+	hosts, partial := privateDiscoveryTargetsWithBudget([]*net.IPNet{subnet}, 0)
+	if len(hosts) != 0 || !partial {
+		t.Fatalf("zero budget should mark partial, count=%d partial=%v", len(hosts), partial)
+	}
+	hosts, partial = privateDiscoveryTargetsWithBudget(nil, 0)
+	if len(hosts) != 0 || partial {
+		t.Fatalf("empty scan should be complete, count=%d partial=%v", len(hosts), partial)
+	}
+}
+
+func TestAutomaticDiscoveryDeduplicatesOverlappingSubnetMasks(t *testing.T) {
+	// Multiple adapters may report overlapping CIDRs with different masks.
+	// A unique (network,prefix) key alone is insufficient to avoid probing
+	// the same host twice, wasting slots in the global discovery budget.
+	subnets := []*net.IPNet{
+		privateSubnet(t, "10.45.2.20", "10.45.2.0/24"),
+		privateSubnet(t, "10.45.2.25", "10.45.2.0/25"),
+	}
+	hosts, truncated := privateDiscoveryTargetsWithBudget(subnets, maxAutomaticDiscoveryTargets)
+	if truncated {
+		t.Fatal("overlapping networks must fit in budget")
+	}
+	seen := make(map[string]bool)
+	for _, host := range hosts {
+		if seen[host] {
+			t.Fatalf("same host targeted twice across overlapping CIDRs: %s", host)
+		}
+		seen[host] = true
+	}
+	if len(hosts) != 252 {
+		t.Fatalf("wanted 252 unique remote network hosts (two local interfaces removed), got %d", len(hosts))
+	}
+}
+
+func TestDiscoveryInterfaceExclusionShared(t *testing.T) {
+	excluded := []string{"veth1234", "docker0", "br-abc123", "tailscale0", "tap0", "tun0", "wg0", "WireGuard0", "utun3", "zt0", "VETH1", "Docker1", "Tailscale0"}
+	for _, name := range excluded {
+		if !isDiscoveryInterfaceExcluded(name) {
+			t.Errorf("interface %q must be excluded from discovery budget", name)
+		}
+	}
+	included := []string{"eth0", "Ethernet", "Wi-Fi", "wlan0", "en0", "Ethernet0"}
+	for _, name := range included {
+		if isDiscoveryInterfaceExcluded(name) {
+			t.Errorf("interface %q must remain eligible for discovery", name)
+		}
+	}
+}

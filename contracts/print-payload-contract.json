@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "encoding": "base64",
+  "maxPayloadBytes": 5242880,
+  "wireTypes": [
+    "raw",
+    "escpos",
+    "pdf",
+    "image"
+  ],
+  "rawProtocols": [
+    "raw",
+    "escpos",
+    "zpl",
+    "tspl"
+  ],
+  "escposProtocol": "escpos",
+  "peripherals": {
+    "drawer": [
+      "pin2",
+      "pin5",
+      "none"
+    ],
+    "cutter": [
+      "partial",
+      "full",
+      "none"
+    ],
+    "buzzer": [
+      "epson_pulse",
+      "star_bel",
+      "none"
+    ]
+  },
+  "signatures": {
+    "pdfPrefix": "%PDF-",
+    "jpegHexPrefix": "ffd8ff",
+    "pdfEOFMarker": "%%EOF",
+    "pdfEOFSearchLastBytes": 4096
+  },
+  "diagnosticPage": {
+    "inventoryEndpoint": "/api/odoo/printers",
+    "optionalCapability": "paper_width_mm",
+    "rollWidthsMM": [
+      58,
+      80
+    ],
+    "rollLengthMM": 100,
+    "source": "explicit paper_width_mm or one advertised paper_widths value; never infer physical media from printable dots, printer names or ambiguous multiple widths",
+    "producerConsumers": "Gateway test-print/certification, Odoo exact-binding document tests and explicit Agent local test commands use the selected document backend. Declared 58/80mm diagnostics retain 100mm source media; source metadata wraps inside its PDF. Agent negotiates Windows driver media and validates complete-page fit before submission",
+    "fallback": "Generic or office diagnostics retain their source format when no unambiguous roll is declared. Windows spooler diagnostics may defer missing or malformed roll metadata to the selected driver's validated current paper before StartDoc; direct IPP exact pos/pos_printer bindings whose current deviceClass is thermal still require declared integer 58/80mm before rendering/outbox. Names and document_type alone do not establish receipt purpose. ASCII office source is Letter; Unicode uses the existing Odoo report/company paperformat. Successful submission does not prove physical paper output",
+    "windowsPaperFit": "Ordinary PDF pages try their document form first, then the same selected driver's validated current media before StartDoc, with proportional fitting inside measured printable bounds. Profiled receipt images retain measured physical width and independent X/Y DPI on the selected driver form. Long narrow receipts divide into contiguous vertical page regions before StartDoc instead of shrinking width to fit height; total pages and each bitmap are bounded. Generated image geometry is rechecked against the actual DC; unknown or changed geometry fails before submission. Do not modify global defaults, change transport, or retry after possible submission",
+    "byteDiagnosticTemplates": {
+      "zpl": "^XA\n^FO4,4^A0N,12,12^FDTEST^FS\n^XZ\n",
+      "tspl": "SELFTEST\r\n"
+    }
+  },
+  "printerSharing": "Odoo selectors and new cloud jobs require the Agent-owned sharedWithGateway permission. Private exact bindings return PRINTER_NOT_SHARED without silent fallback; historical idempotency, terminal/outbox and physical UNKNOWN semantics remain. See printer-sharing-contract.json.",
+  "transportAdmission": "Installed USB/network/UNC/LPR/WSD Windows queues use the selected spooler and driver. Direct USB requires an explicit byte language and a current native USBPRINT interface/identity matching the configured path and VID/PID/optional serial before writable open; arbitrary device paths and another printer are never substituted. Direct network byte transport requires the matching declared raw/escpos/zpl/tspl language. Capability metadata cannot replace canonical execution identity. Optional usb_identity_verified is local discovery provenance only: automatic parent-ID metadata enrichment preserves the legacy printer ID, selected path and private sharing choice; every direct USB submission independently re-proves its native binding. Failed or partial ESC/POS inquiry writes cannot authorize payload transmission; unreadable replies remain unknown health. Post-payload stream errors preserve UNKNOWN without blind replay. Non-Windows file simulations are diagnostics and return SIMULATED_TRANSPORT rather than physical submission success. LPR/WSD/SNMP discovery does not create a direct dispatch backend. Wire types, statuses, claim fencing and idempotency remain unchanged.",
+  "discoveryReport": {
+    "endpoint": "/api/agent/discovery",
+    "identity": "Device IDs and stable identities are scoped by tenant and reporting Agent. Repeated local IDs on different Agents remain separate observations; approval and provisioning mutations require tenant, Agent and device ID. Existing IDs and runtime links are preserved.",
+    "optionalFields": "Omit absent port, manufacturer, capabilities, ipAddress and uri; do not send null or port 0.",
+    "protocolFallback": "unknown",
+    "devices": "array, including empty array",
+    "errors": {
+      "type": "string[]",
+      "optional": true,
+      "maxItems": 64,
+      "maxStringLength": 2048,
+      "persistedAt": "discovery_sessions.stats.errors"
+    },
+    "verification": "Gateway observations stay candidates until manager approval: agent-claimed verification/confidence is stored as candidate/low regardless of what the agent reported (a deliberate downgrade — observations are never trusted as verified)."
+  },
+  "imageGeometry": {
+    "field": "geometry_fingerprint",
+    "requiredFor": "new image admission; optional syntax preserves exact historical accepted-operation replay",
+    "format": "64 lowercase SHA256 hex",
+    "source": "capabilities.geometry.config_fingerprint",
+    "validation": "Must match current validated geometry for the exact execution printer, checked at Gateway admission and native execution; rerender after any change.",
+    "geometryContract": "printer-geometry-contract.json"
+  },
+  "canonicalBase64": "RFC4648 padded standard alphabet only: the wire data string must exactly equal re-encoding of its decoded bytes; reject CR/LF, alternate pad bits and noncanonical spelling before submission."
+}

@@ -1,0 +1,70 @@
+name: Native Backport Safety
+
+on:
+  push:
+    branches: [main, test/http-server-ready]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new main push cancels the obsolete running push verification for this workflow.
+# New PR revisions also cancel earlier attempts for that PR. Manual,
+# scheduled and merge-queue runs remain isolated by their unique run_id.
+concurrency:
+  group: native-backports-run-${{ github.event_name == 'push' && github.ref || github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+jobs:
+  gtk-backports:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Pinned Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
+        with:
+          toolchain: 1.98.1
+      - name: Refresh Ubuntu package indexes (bounded primary mirror)
+        id: apt_update_primary
+        timeout-minutes: 4
+        continue-on-error: true
+        run: |
+          timeout --signal=TERM --kill-after=10s 180s \
+            sudo apt-get -o Acquire::Retries=0 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 update
+      - name: Retry Ubuntu package indexes without the Azure mirror
+        if: steps.apt_update_primary.outcome != 'success'
+        timeout-minutes: 4
+        run: |
+          # GitHub-hosted Ubuntu 24.04 images can stall while trying this mirror.
+          # Keep the remaining official Ubuntu mirrors and retry once with a hard bound.
+          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          test -s /etc/apt/apt-mirrors.txt
+          if grep -q 'azure\.archive\.ubuntu\.com' /etc/apt/apt-mirrors.txt; then
+            echo "::error::Azure Ubuntu mirror is still present after removal"
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=10s 180s \
+            sudo apt-get -o Acquire::Retries=0 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 update
+      - name: Install native GLib test prerequisites
+        timeout-minutes: 5
+        run: |
+          timeout --signal=TERM --kill-after=10s 240s \
+            sudo apt-get -o Acquire::Retries=0 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              install --no-install-recommends -y libglib2.0-dev pkg-config
+      - name: Verify backport provenance and resolved local graph
+        run: python3 scripts/check-native-backports.py
+      - name: Optimized GLib behavior and upstream macro tests
+        run: cargo test --manifest-path src-tauri/native-regressions/Cargo.toml --locked --release --tests
+      - name: Real macro error diagnostics without abandoned packages
+        run: python3 scripts/test-native-macro-diagnostics.py

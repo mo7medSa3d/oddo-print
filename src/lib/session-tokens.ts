@@ -1,0 +1,1192 @@
+import { db, type DbTx } from "../db";
+import { refreshTokens, tenantUsers, tenants, users } from "../db/schema";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { requiredRuntimeSecret } from "./runtime-secret";
+import { requireActiveTenantInTransaction, TenantDeletedError, TenantSuspendedError } from "./tenant-guard";
+import { LEGACY_SESSION_MAX_AGE_SECONDS, sessionCookieName, sessionCookieSecure } from "./session-config";
+import { sendTransactionalEmail } from "./email";
+import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
+import { translate } from "../i18n/translate";
+import { writeAuditEvent } from "./audit";
+import { logError, logWarn } from "./log";
+import { preparePlatformSessionInTransaction, isPlatformSessionAssured, PLATFORM_SESSION_TTL_MS } from "./platform-session-security";
+import type { ManagerClaims } from "./manager-auth";
+import { credentialVersionFor } from "./session-credentials";
+export { credentialVersionFor } from "./session-credentials";
+import { persistWorkspaceSessionInTransaction, prepareWorkspaceSessionInTransaction,
+  readWorkspaceSessionState, WORKSPACE_ABSOLUTE_MS } from "./workspace-session-security";
+
+type SessionKind = "manager" | "platform" | "customer";
+
+type SessionKindConfig = {
+  sub: "manager" | "platform_owner";
+  accessCookieName: string;
+  refreshCookieName: string;
+  refreshCookiePath: string;
+};
+
+const CONFIG: Record<SessionKind, SessionKindConfig> = {
+  manager: {
+    sub: "manager",
+    accessCookieName: "mgr_session",
+    refreshCookieName: "mgr_refresh",
+    refreshCookiePath: "/api/auth/manager",
+  },
+  customer: {
+    sub: "manager",
+    accessCookieName: "cust_session",
+    refreshCookieName: "cust_refresh",
+    refreshCookiePath: "/api/auth",
+  },
+  platform: {
+    sub: "platform_owner",
+    accessCookieName: "plt_session",
+    refreshCookieName: "plt_refresh",
+    refreshCookiePath: "/api/platform/auth",
+  },
+};
+
+const ACCESS_TOKEN_VERSION = 2 as const;
+export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+export const REFRESH_FAMILY_TTL_MS = WORKSPACE_ABSOLUTE_MS;
+export const REFRESH_ROTATION_GRACE_MS = 5_000;
+
+export type SharedSessionPrincipal = {
+  kind: SessionKind;
+  tenantId?: string | null;
+  userId?: string | null;
+  role?: string | null;
+  email?: string | null;
+  /** Internal credential proof from password verification; never serialized as session claims. */
+  credentialVersion?: string;
+  /** Snapshot of an actually verified, explicitly enabled environment login. */
+  environmentCredentialVersion?: string;
+  /** Original password check time from a verified, short-lived workspace chooser. */
+  passwordVerifiedAtMs?: number;
+};
+
+export type SessionRequestContext = {
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  /**
+   * Language for any email this session flow sends. Optional: callers outside
+   * a request (tests, scripts) simply get the default.
+   */
+  locale?: Locale | null;
+  /** Presented selectors only; never persisted, serialized or logged. Full
+   * authentication must succeed before issuance may revoke their old family. */
+  replaceCurrent?: { accessToken: string | null; refreshToken: string | null };
+  /** Existing exact session used for workspace selection, never fresh proof. */
+  continueWorkspace?: ManagerClaims;
+};
+
+type SharedSessionClaims = {
+  ver: 2;
+  kind: SessionKind;
+  jti: string;
+  sid: string;
+  familyId: string;
+  iat: number;
+  exp: number;
+  sub: "manager" | "platform_owner";
+  tenantId?: string;
+  userId?: string;
+  role?: string;
+  email?: string;
+};
+
+export type SessionPair = {
+  accessToken: string;
+  accessJti: string;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  accessExpiresAt: Date;
+  refreshExpiresAt: Date;
+};
+
+export type RefreshResult =
+  | { status: "rotated"; pair: SessionPair }
+  | { status: "invalid" }
+  | {
+      status: "reused";
+      familyId: string;
+      notificationEmail: string | null;
+      tenantId: string | null;
+      userId: string | null;
+      kind: SessionKind;
+    };
+
+/**
+ * Machine-readable refresh-failure codes returned on the wire next to the
+ * English `error` string (routes answer 401 with `{ error, code }`). These
+ * describe only the REPORTED reason: revocation, grace, successor handling
+ * and audit/email behaviour are unchanged from `rotateRefreshToken`.
+ * `REFRESH_TOKEN_REQUIRED` is route-level only (no token was presented, so
+ * rotation never ran); `rotateRefreshTokenDetailed` never returns it.
+ */
+export type RefreshFailureCode =
+  | "REFRESH_TOKEN_REQUIRED"
+  | "REFRESH_TOKEN_INVALID"
+  | "REFRESH_TOKEN_REVOKED"
+  | "REFRESH_TOKEN_REUSED"
+  | "REFRESH_TOKEN_EXPIRED"
+  | "TENANT_SUSPENDED"
+  | "TENANT_DELETED"
+  | "PRINCIPAL_INVALID"
+  | "SESSION_IDLE_EXPIRED"
+  | "WORKSPACE_SESSION_EXPIRED"
+  | "PLATFORM_SESSION_EXPIRED";
+
+/** `RefreshResult` with the failure reason attached to `invalid` outcomes. */
+type DetailedRefreshResult =
+  | { status: "rotated"; pair: SessionPair }
+  | { status: "invalid"; code: RefreshFailureCode }
+  | Extract<RefreshResult, { status: "reused" }>;
+
+/** Map a detailed rotation outcome to its wire code, or `null` on success. */
+export function refreshFailureCode(outcome: DetailedRefreshResult): RefreshFailureCode | null {
+  if (outcome.status === "rotated") return null;
+  if (outcome.status === "reused") return "REFRESH_TOKEN_REUSED";
+  return outcome.code;
+}
+
+/** Translate a persisted `revoked_reason` into the reported failure code. */
+function refreshRevokedCode(revokedReason: string | null): RefreshFailureCode {
+  switch (revokedReason) {
+    case "tenant_suspended": return "TENANT_SUSPENDED";
+    case "refresh_reuse_detected": return "REFRESH_TOKEN_REUSED";
+    case "workspace_session_expired": return "WORKSPACE_SESSION_EXPIRED";
+    case "principal_invalid": return "PRINCIPAL_INVALID";
+    case "absolute_expired": return "REFRESH_TOKEN_EXPIRED";
+    default: return "REFRESH_TOKEN_REVOKED";
+  }
+}
+
+/**
+ * Read-only idle diagnostic for a policy row. Returns true only when the
+ * family's policy row exists with `last_seen_at` already past the 30-minute
+ * fence (same DB-clock comparison as the policy readers). No row locks, no
+ * writes: the family advisory lock is already held and the revocation the
+ * caller performs afterwards is unchanged. Idle alone is sufficient to kill
+ * the session, so a stale `last_seen_at` is reported as idle even if another
+ * policy condition also fails; anything else stays merged under the
+ * workspace/platform session-expired code.
+ */
+async function workspaceSessionIdleExpired(tx: DbTx, familyId: string): Promise<boolean> {
+  const result = await tx.execute(sql`SELECT 1 FROM workspace_session_security
+    WHERE family_id = ${familyId} AND last_seen_at <= clock_timestamp() - interval '30 minutes'`);
+  return result.rows.length > 0;
+}
+
+async function platformSessionIdleExpired(tx: DbTx, familyId: string): Promise<boolean> {
+  const result = await tx.execute(sql`SELECT 1 FROM platform_session_security
+    WHERE family_id = ${familyId} AND last_seen_at <= clock_timestamp() - interval '30 minutes'`);
+  return result.rows.length > 0;
+}
+
+function getSecret(): string {
+  const secret = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
+  if (secret.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
+  return secret;
+}
+
+function configFor(kind: SessionKind): SessionKindConfig {
+  return { ...CONFIG[kind], accessCookieName: sessionCookieName(kind), refreshCookieName: sessionCookieName(kind, true),
+    refreshCookiePath: process.env.NODE_ENV === "production" ? "/" : CONFIG[kind].refreshCookiePath };
+}
+
+export function hashRefreshToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+export class AuthenticationChangedError extends Error {
+  constructor() {
+    super("Authentication changed; sign in again");
+    this.name = "AuthenticationChangedError";
+  }
+}
+
+export async function assertSessionCredentialInTransaction(
+  tx: DbTx, userId: string, credentialVersion: string,
+): Promise<void> {
+  // Password reset takes this same user lock before updating credentials and
+  // revoking families. Recheck AFTER acquiring it, then keep it through insert.
+  const result = await tx.execute(sql`
+    SELECT id, password_hash AS "passwordHash", email_verified_at AS "emailVerifiedAt"
+    FROM users WHERE id = ${userId} FOR UPDATE
+  `);
+  const user = result.rows[0] as { passwordHash?: string; emailVerifiedAt?: Date } | undefined;
+  if (!user?.passwordHash || !user.emailVerifiedAt ||
+      !compareStringsSafe(credentialVersion, credentialVersionFor(userId, user.passwordHash))) {
+    throw new AuthenticationChangedError();
+  }
+}
+
+function compareStringsSafe(a: string, b: string): boolean {
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+function encode(value: Buffer | string): string {
+  return Buffer.from(value).toString("base64url");
+}
+
+function decode(value: string): Buffer {
+  return Buffer.from(value, "base64url");
+}
+
+function signAccessToken(claims: SharedSessionClaims): string {
+  const header = encode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = encode(JSON.stringify(claims));
+  const data = `${header}.${payload}`;
+  const signature = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  return `${data}.${signature}`;
+}
+
+function verifySignatureShape(token: string): SharedSessionClaims | null {
+  if (typeof token !== "string" || token.length < 80 || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [headerPart, payloadPart, signature] = parts;
+
+  try {
+    const header = JSON.parse(decode(headerPart).toString("utf8")) as { alg?: unknown; typ?: unknown };
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+
+    const claims = JSON.parse(decode(payloadPart).toString("utf8")) as Partial<SharedSessionClaims>;
+    if (
+      claims.ver !== ACCESS_TOKEN_VERSION ||
+      (claims.kind !== "manager" && claims.kind !== "platform" && claims.kind !== "customer") ||
+      typeof claims.jti !== "string" ||
+      claims.jti.length < 16 || claims.jti.length > 128 ||
+      typeof claims.sid !== "string" ||
+      claims.sid.length < 16 || claims.sid.length > 128 ||
+      typeof claims.familyId !== "string" ||
+      claims.familyId.length < 16 || claims.familyId.length > 128 ||
+      typeof claims.iat !== "number" || !Number.isSafeInteger(claims.iat) ||
+      typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp) ||
+      claims.exp <= claims.iat ||
+      claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS
+    ) return null;
+
+    const config = configFor(claims.kind);
+    if (claims.sub !== config.sub) return null;
+
+    if (claims.kind === "platform") {
+      if (
+        typeof claims.userId !== "string" ||
+        claims.userId.length < 1 ||
+        typeof claims.email !== "string" ||
+        claims.email.length < 3 ||
+        claims.email.length > 320 ||
+        claims.tenantId !== undefined ||
+        claims.role !== undefined
+      ) return null;
+    } else {
+      if (
+        typeof claims.tenantId !== "string" ||
+        claims.tenantId.length < 1 ||
+        claims.tenantId.length > 128 ||
+        typeof claims.role !== "string" ||
+        claims.role.length < 1 ||
+        claims.role.length > 64
+      ) return null;
+      if (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128)) return null;
+      if (claims.email !== undefined && (typeof claims.email !== "string" || claims.email.length < 3 || claims.email.length > 320)) return null;
+    }
+
+    const expected = createHmac("sha256", getSecret()).update(`${headerPart}.${payloadPart}`).digest("base64url");
+    if (!compareStringsSafe(signature, expected)) return null;
+    return claims as SharedSessionClaims;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyAccessTokenSignature(
+  token: string,
+  expectedKinds: SessionKind | readonly SessionKind[],
+): SharedSessionClaims | null {
+  const claims = verifySignatureShape(token);
+  if (!claims) return null;
+  const allowed = Array.isArray(expectedKinds) ? expectedKinds : [expectedKinds];
+  return allowed.includes(claims.kind) ? claims : null;
+}
+
+function normalizeContext(context?: SessionRequestContext): SessionRequestContext {
+  return {
+    ipAddress: context?.ipAddress?.trim().slice(0, 128) || null,
+    userAgent: context?.userAgent?.trim().slice(0, 1024) || null,
+  };
+}
+
+async function lockRefreshFamily(tx: DbTx, familyId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${familyId}, 0))`);
+}
+
+function validatePrincipal(principal: SharedSessionPrincipal): void {
+  if (principal.kind === "platform") {
+    if (!principal.userId || !principal.email || principal.tenantId || principal.role) {
+      throw new Error("Invalid platform session principal");
+    }
+    return;
+  }
+  if (!principal.tenantId || !principal.role) {
+    throw new Error("Invalid tenant session principal");
+  }
+}
+
+/* SessionTx folded into the canonical DbTx from src/db (single definition). */
+
+async function dbNowMsInTransaction(tx: DbTx): Promise<number> {
+  const result = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+  const raw = (result.rows[0] as { now_ms?: number | string } | undefined)?.now_ms;
+  const nowMs = Number(raw);
+  if (!Number.isFinite(nowMs)) throw new Error("Database clock is unavailable");
+  return nowMs;
+}
+
+function makeClaims(
+  principal: SharedSessionPrincipal,
+  accessJti: string,
+  refreshTokenId: string,
+  familyId: string,
+  nowSec: number,
+): SharedSessionClaims {
+  return {
+    ver: ACCESS_TOKEN_VERSION,
+    kind: principal.kind,
+    jti: accessJti,
+    sid: refreshTokenId,
+    familyId,
+    iat: nowSec,
+    exp: nowSec + ACCESS_TOKEN_TTL_SECONDS,
+    sub: configFor(principal.kind).sub,
+    ...(principal.tenantId ? { tenantId: principal.tenantId } : {}),
+    ...(principal.userId ? { userId: principal.userId } : {}),
+    ...(principal.role ? { role: principal.role } : {}),
+    ...(principal.email ? { email: principal.email } : {}),
+  };
+}
+
+async function insertInitialPair(
+  tx: DbTx,
+  principal: SharedSessionPrincipal,
+  context?: SessionRequestContext,
+): Promise<SessionPair> {
+  validatePrincipal(principal);
+  if (principal.kind !== "platform") {
+    await requireActiveTenantInTransaction(tx, principal.tenantId!);
+  }
+  if (principal.kind === "platform" && !principal.credentialVersion) throw new AuthenticationChangedError();
+  if (principal.credentialVersion) {
+    if (!principal.userId) throw new AuthenticationChangedError();
+    await assertSessionCredentialInTransaction(tx, principal.userId, principal.credentialVersion);
+  }
+
+  const nowMs = await dbNowMsInTransaction(tx);
+  const nowSec = Math.floor(nowMs / 1000);
+  const workspaceState = principal.kind === "platform" ? undefined
+    : await prepareWorkspaceSessionInTransaction(tx, principal, nowMs, context?.continueWorkspace);
+  let sessionEmail = principal.email ?? null;
+  if (!sessionEmail && principal.userId) {
+    const user = await tx.query.users.findFirst({
+      where: eq(users.id, principal.userId),
+      columns: { email: true },
+    });
+    sessionEmail = user?.email ?? null;
+  }
+  const resolvedPrincipal = sessionEmail === principal.email ? principal : { ...principal, email: sessionEmail };
+  const familyId = randomBytes(16).toString("hex");
+  const refreshTokenId = randomBytes(16).toString("hex");
+  const accessJti = randomBytes(16).toString("hex");
+  const refreshToken = randomBytes(32).toString("base64url");
+  const accessExpiresAt = new Date((nowSec + ACCESS_TOKEN_TTL_SECONDS) * 1000);
+  const refreshExpiresAt = new Date(workspaceState?.expiresAtMs ?? nowMs + PLATFORM_SESSION_TTL_MS);
+  if (principal.kind === "platform") await preparePlatformSessionInTransaction(tx, principal, familyId, nowMs);
+  const normalized = normalizeContext(context);
+  const accessToken = signAccessToken(makeClaims(resolvedPrincipal, accessJti, refreshTokenId, familyId, nowSec));
+
+  if (context?.replaceCurrent) await revokePresentedSessionInTransaction(tx, principal, context.replaceCurrent);
+
+  await tx.insert(refreshTokens).values({
+    id: refreshTokenId,
+    familyId,
+    kind: principal.kind,
+    tenantId: principal.tenantId ?? null,
+    userId: principal.userId ?? null,
+    role: principal.role ?? null,
+    email: sessionEmail,
+    tokenHash: hashRefreshToken(refreshToken),
+    issuedAt: new Date(nowMs),
+    familyCreatedAt: new Date(workspaceState?.createdAtMs ?? nowMs),
+    expiresAt: refreshExpiresAt,
+    ipAddress: normalized.ipAddress,
+    userAgent: normalized.userAgent,
+  });
+
+  if (workspaceState) await persistWorkspaceSessionInTransaction(tx, familyId, workspaceState);
+  return { accessToken, accessJti, refreshToken, refreshTokenId, familyId, accessExpiresAt, refreshExpiresAt };
+}
+
+export async function issueSessionPair(
+  principal: SharedSessionPrincipal,
+  context?: SessionRequestContext,
+): Promise<SessionPair> {
+  return db.transaction((tx) => insertInitialPair(tx, principal, context));
+}
+
+export async function issueSessionPairInTransaction(
+  tx: DbTx,
+  principal: SharedSessionPrincipal,
+  context?: SessionRequestContext,
+): Promise<SessionPair> {
+  return insertInitialPair(tx, principal, context);
+}
+
+async function refreshPrincipalStillValid(
+  tx: DbTx,
+  row: {
+    kind: SessionKind;
+    tenantId: string | null;
+    userId: string | null;
+    role: string | null;
+    email: string | null;
+  },
+): Promise<boolean> {
+  if (row.kind === "platform") {
+    if (!row.userId || !row.email) return false;
+    const user = await tx.query.users.findFirst({
+      where: eq(users.id, row.userId),
+      columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
+    });
+    return !!user && !!user.isPlatformOwner && !!user.emailVerifiedAt && user.email === row.email;
+  }
+
+  if (!row.tenantId || !row.role) return false;
+  const tenant = await tx.query.tenants.findFirst({
+    where: eq(tenants.id, row.tenantId),
+    columns: { id: true, lifecycle: true },
+  });
+  if (!tenant || tenant.lifecycle !== "active") return false;
+
+  if (!row.userId) return true;
+
+  const membership = await tx.query.tenantUsers.findFirst({
+    where: and(eq(tenantUsers.userId, row.userId), eq(tenantUsers.tenantId, row.tenantId)),
+    columns: { role: true },
+  });
+  if (!membership || membership.role !== row.role) return false;
+
+  const user = await tx.query.users.findFirst({
+    where: eq(users.id, row.userId),
+    columns: { id: true, email: true, emailVerifiedAt: true },
+  });
+  if (!user) return false;
+  if (row.email && user.email !== row.email) return false;
+  if (row.kind === "customer" && !user.emailVerifiedAt) return false;
+  return true;
+}
+
+async function rotateWithinFamily(
+  tx: DbTx,
+  row: {
+    familyId: string;
+    kind: SessionKind;
+    tenantId: string | null;
+    userId: string | null;
+    role: string | null;
+    email: string | null;
+    familyCreatedAtMs: number;
+    expiresAtMs?: number | string;
+  },
+  context: SessionRequestContext | undefined,
+  nowMs: number,
+): Promise<SessionPair> {
+  validatePrincipal({
+    kind: row.kind,
+    tenantId: row.tenantId,
+    userId: row.userId,
+    role: row.role,
+    email: row.email,
+  });
+
+  const nowSec = Math.floor(nowMs / 1000);
+  const familyCreatedAtMs = row.familyCreatedAtMs;
+  if (!Number.isFinite(familyCreatedAtMs)) throw new Error("Invalid persisted refresh family timestamp");
+
+  const absoluteExpiryMs = familyCreatedAtMs + (row.kind === "platform" ? PLATFORM_SESSION_TTL_MS : REFRESH_FAMILY_TTL_MS);
+  const persistedExpiryMs = row.expiresAtMs === undefined ? absoluteExpiryMs : Number(row.expiresAtMs);
+  if (!Number.isFinite(persistedExpiryMs)) throw new Error("Invalid persisted refresh expiry");
+  // A persisted shorter deadline is authoritative too. Neither ordinary
+  // refresh nor any later session operation may reset it to the full family TTL.
+  const refreshExpiresAt = new Date(Math.min(absoluteExpiryMs, persistedExpiryMs));
+  if (refreshExpiresAt.getTime() <= nowMs) throw new Error("REFRESH_FAMILY_EXPIRED");
+
+  const refreshTokenId = randomBytes(16).toString("hex");
+  const accessJti = randomBytes(16).toString("hex");
+  const refreshToken = randomBytes(32).toString("base64url");
+  const normalized = normalizeContext(context);
+  const accessToken = signAccessToken(
+    makeClaims(
+      {
+        kind: row.kind,
+        tenantId: row.tenantId,
+        userId: row.userId,
+        role: row.role,
+        email: row.email,
+      },
+      accessJti,
+      refreshTokenId,
+      row.familyId,
+      nowSec,
+    ),
+  );
+
+  await tx.insert(refreshTokens).values({
+    id: refreshTokenId,
+    familyId: row.familyId,
+    kind: row.kind,
+    tenantId: row.tenantId,
+    userId: row.userId,
+    role: row.role,
+    email: row.email,
+    tokenHash: hashRefreshToken(refreshToken),
+    issuedAt: new Date(nowMs),
+    familyCreatedAt: new Date(familyCreatedAtMs),
+    expiresAt: refreshExpiresAt,
+    ipAddress: normalized.ipAddress,
+    userAgent: normalized.userAgent,
+  });
+
+  return {
+    accessToken,
+    accessJti,
+    refreshToken,
+    refreshTokenId,
+    familyId: row.familyId,
+    accessExpiresAt: new Date((nowSec + ACCESS_TOKEN_TTL_SECONDS) * 1000),
+    refreshExpiresAt,
+  };
+}
+
+export async function isSessionFamilyActive(
+  familyId: string,
+  kind: SessionKind,
+  tenantId: string | null,
+  userId?: string,
+  tokenId?: string,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{32}$/.test(familyId)) return false;
+  if (kind !== "platform") return !!tenantId && !!await readWorkspaceSessionState({ familyId, kind, tenantId, userId, sid: tokenId });
+  if (kind === "platform" && (!userId || !(await isPlatformSessionAssured(familyId, userId)))) return false;
+  const row = await db.query.refreshTokens.findFirst({
+    where: and(
+      eq(refreshTokens.familyId, familyId),
+      eq(refreshTokens.kind, kind),
+      tenantId === null ? sql`${refreshTokens.tenantId} IS NULL` : eq(refreshTokens.tenantId, tenantId),
+      sql`${refreshTokens.revokedAt} IS NULL`,
+      sql`${refreshTokens.expiresAt} > clock_timestamp()`,
+      ...(userId ? [eq(refreshTokens.userId, userId)] : []),
+      ...(tokenId ? [eq(refreshTokens.id, tokenId)] : []),
+    ),
+    columns: { id: true },
+  });
+  return !!row;
+}
+
+export function readCookie(req: Request, name: string): string | null {
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  let found: string | null = null;
+  let matched = false;
+  for (const part of cookieHeader.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) {
+      // Ambiguous same-name cookies can be injected through a different path.
+      // Reject them rather than trusting order supplied by a user agent/proxy.
+      if (matched) return null;
+      matched = true;
+      let value = rest.join("=").trim();
+      if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+      try {
+        value = decodeURIComponent(value);
+      } catch {
+        // Malformed percent-encoding: return the raw value rather than throwing.
+      }
+      found = value || null;
+    }
+  }
+  return found;
+}
+
+export function isTrustedDesktopRequest(req: Request): boolean {
+  const origin = req.headers.get("origin") ?? "";
+  return req.headers.get("x-odoo-print-desktop") === "1"
+    && (origin === "tauri://localhost" || origin === "http://tauri.localhost");
+}
+
+export function getAccessTokenFromRequest(req: Request, kind: SessionKind): string | null {
+  // An explicit Authorization header states intent; prefer it over the ambient
+  // cookie so a stale cookie cannot shadow a valid Bearer token.
+  const authorization = req.headers.get("authorization");
+  const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() || null : null;
+  if (bearer) return bearer;
+  return readCookie(req, configFor(kind).accessCookieName);
+}
+
+export function getRefreshTokenFromRequest(req: Request, kind: SessionKind): string | null {
+  if (isTrustedDesktopRequest(req)) {
+    const headerToken = req.headers.get("x-refresh-token")?.trim();
+    if (headerToken) return headerToken;
+  }
+  return readCookie(req, configFor(kind).refreshCookieName);
+}
+
+export function sessionReplacementFromRequest(req: Request, kind: SessionKind): SessionRequestContext["replaceCurrent"] {
+  const accessToken = getAccessTokenFromRequest(req, kind);
+  const refreshToken = getRefreshTokenFromRequest(req, kind);
+  return accessToken || refreshToken ? { accessToken, refreshToken } : undefined;
+}
+
+/** Signature-only legacy selector for revocation AFTER fresh authentication.
+ * This never admits a legacy session or supplies authentication authority. */
+function legacyReplacementClaims(token: string, kind: SessionKind) {
+  if (token.length < 40 || token.length > 4096) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const [headerPart, payloadPart, signature] = parts;
+    const header = JSON.parse(decode(headerPart).toString("utf8"));
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+    const expected = createHmac("sha256", getSecret()).update(`${headerPart}.${payloadPart}`).digest("base64url");
+    if (!compareStringsSafe(signature, expected)) return null;
+    const claims = JSON.parse(decode(payloadPart).toString("utf8")) as {
+      ver?: unknown; kind?: unknown; sid?: unknown; familyId?: unknown; sub?: unknown;
+      jti?: unknown; iat?: unknown; exp?: unknown; userId?: unknown; tenantId?: unknown; role?: unknown;
+    };
+    if (claims.ver !== undefined || claims.kind !== undefined || claims.sid !== undefined || claims.familyId !== undefined ||
+        claims.sub !== configFor(kind).sub || typeof claims.jti !== "string" || claims.jti.length < 16 || claims.jti.length > 128 ||
+        typeof claims.iat !== "number" || typeof claims.exp !== "number" || !Number.isSafeInteger(claims.iat) || !Number.isSafeInteger(claims.exp) ||
+        claims.exp <= claims.iat || claims.exp - claims.iat > LEGACY_SESSION_MAX_AGE_SECONDS ||
+        (claims.userId !== undefined && (typeof claims.userId !== "string" || !claims.userId || claims.userId.length > 128))) return null;
+    if (kind === "platform" ? (!claims.userId || claims.tenantId !== undefined) :
+        (typeof claims.tenantId !== "string" || !claims.tenantId || typeof claims.role !== "string" || !claims.role)) return null;
+    return claims as { jti: string; userId?: string; tenantId?: string; role?: string; exp: number; iat: number };
+  } catch { return null; }
+}
+
+async function revokePresentedSessionInTransaction(
+  tx: DbTx, principal: SharedSessionPrincipal, presented: NonNullable<SessionRequestContext["replaceCurrent"]>,
+): Promise<void> {
+  // The new principal has already passed its credential check (and the
+  // locked password proof, where applicable). Never sweep a user's
+  // other devices, another cookie kind, tenant, or a different principal.
+  const userPredicate = principal.userId ? sql`user_id=${principal.userId}` : sql`user_id IS NULL`;
+  const tenantPredicate = principal.kind === "platform" ? sql`tenant_id IS NULL` : sql`tenant_id=${principal.tenantId}`;
+  const scope = sql`kind=${principal.kind} AND ${userPredicate} AND ${tenantPredicate}`;
+  const access = presented.accessToken ? verifyAccessTokenSignature(presented.accessToken, principal.kind) : null;
+  let familyId: string | undefined;
+  if (access && (access.userId ?? null) === (principal.userId ?? null) && (access.tenantId ?? null) === (principal.tenantId ?? null)) {
+    const result = await tx.execute(sql`SELECT family_id FROM refresh_tokens WHERE id=${access.sid}
+      AND family_id=${access.familyId} AND ${scope} AND revoked_at IS NULL AND expires_at>clock_timestamp()`);
+    familyId = result.rows[0]?.family_id as string | undefined;
+  }
+  if (!familyId && presented.accessToken) {
+    const legacy = legacyReplacementClaims(presented.accessToken, principal.kind);
+    if (legacy && (legacy.userId ?? null) === (principal.userId ?? null) && (legacy.tenantId ?? null) === (principal.tenantId ?? null)) {
+      const table = principal.kind === "platform" ? sql`platform_sessions` : sql`manager_sessions`;
+      const legacyScope = principal.kind === "platform" ? userPredicate : sql`${userPredicate} AND tenant_id=${principal.tenantId} AND role=${legacy.role}`;
+      const result = await tx.execute(sql`UPDATE ${table} SET revoked_at=clock_timestamp() WHERE jti=${legacy.jti}
+        AND ${legacyScope} AND revoked_at IS NULL AND expires_at>clock_timestamp()
+        AND FLOOR(EXTRACT(EPOCH FROM expires_at))=${legacy.exp} AND ${legacy.iat}<=EXTRACT(EPOCH FROM clock_timestamp())+60 RETURNING jti`);
+      if (result.rows.length) return;
+    }
+  }
+  if (!familyId && presented.refreshToken && /^[A-Za-z0-9_-]{43}$/.test(presented.refreshToken)) {
+    const result = await tx.execute(sql`SELECT family_id FROM refresh_tokens WHERE token_hash=${hashRefreshToken(presented.refreshToken)}
+      AND ${scope} AND revoked_at IS NULL AND expires_at>clock_timestamp()`);
+    familyId = result.rows[0]?.family_id as string | undefined;
+  }
+  if (!familyId) return;
+  await lockRefreshFamily(tx, familyId);
+  await tx.execute(sql`UPDATE refresh_tokens SET revoked_at=clock_timestamp(),revoked_reason='login_replaced'
+    WHERE family_id=${familyId} AND ${scope} AND revoked_at IS NULL`);
+  if (principal.kind === "platform") await tx.execute(sql`UPDATE platform_session_security SET revoked_at=clock_timestamp()
+    WHERE family_id=${familyId} AND user_id=${principal.userId} AND revoked_at IS NULL`);
+}
+
+export function accessCookieHeader(kind: SessionKind, token: string, expiresAt: Date): string {
+  const config = configFor(kind);
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.accessCookieName}=${token}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${expiresAt.toUTCString()}; Max-Age=${ACCESS_TOKEN_TTL_SECONDS}`;
+}
+
+export function refreshCookieHeader(kind: SessionKind, token: string, expiresAt: Date): string {
+  const config = configFor(kind);
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.refreshCookieName}=${token}; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict${secure}; Expires=${expiresAt.toUTCString()}; Max-Age=${(kind === "platform" ? PLATFORM_SESSION_TTL_MS : REFRESH_FAMILY_TTL_MS) / 1000}`;
+}
+
+export function clearAccessCookieHeader(kind: SessionKind): string {
+  const config = configFor(kind);
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.accessCookieName}=; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+}
+
+export function clearRefreshCookieHeader(kind: SessionKind): string {
+  const config = configFor(kind);
+  const secure = sessionCookieSecure() ? "; Secure" : "";
+  return `${config.refreshCookieName}=; Path=${config.refreshCookiePath}; HttpOnly; SameSite=Strict${secure}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
+}
+
+/**
+ * WP-A (S1) log-only session-anomaly classification. Compares the request
+ * context of an incoming refresh against the stored context of the token
+ * being rotated (the previous token in the same family). Each field is
+ * compared only when both sides carry a value, so a token issued without
+ * context — or a refresh without context — never produces a false change.
+ * Returns null when there is no baseline (first token in the family) or
+ * nothing changed. The caller writes at most ONE audit event for a
+ * non-null result; this function never blocks, revokes, or logs out.
+ */
+type SessionAnomalyKind = "ip_changed" | "device_changed";
+export function classifySessionAnomaly(
+  previous: { ipAddress?: string | null; userAgent?: string | null } | null | undefined,
+  incoming: { ipAddress?: string | null; userAgent?: string | null } | null | undefined,
+): { kind: SessionAnomalyKind; ipChanged: boolean; deviceChanged: boolean } | null {
+  if (!previous || !incoming) return null;
+  const ipChanged = Boolean(previous.ipAddress && incoming.ipAddress && previous.ipAddress !== incoming.ipAddress);
+  const deviceChanged = Boolean(previous.userAgent && incoming.userAgent && previous.userAgent !== incoming.userAgent);
+  if (!ipChanged && !deviceChanged) return null;
+  return { kind: ipChanged ? "ip_changed" : "device_changed", ipChanged, deviceChanged };
+}
+
+/**
+ * WP-A (S1): writes the single anomaly audit event for a successful
+ * rotation. Isolated behind a savepoint like the reuse audit: a failed
+ * audit statement rolls back to the savepoint only, so it can never abort
+ * the rotation transaction or fail the refresh. Metadata carries change
+ * flags only — never the raw IP or user-agent values.
+ */
+async function writeSessionAnomalyAudit(
+  tx: DbTx,
+  row: { familyId: string; kind: SessionKind; tenantId: string | null; userId: string | null },
+  anomaly: { kind: SessionAnomalyKind; ipChanged: boolean; deviceChanged: boolean },
+): Promise<void> {
+  await tx.execute(sql`SAVEPOINT refresh_anomaly_audit`);
+  try {
+    const actorType = row.kind === "platform" ? "platform" : row.userId ? "user" : "system";
+    await writeAuditEvent({
+      tenantId: row.tenantId,
+      actorType,
+      actorId: row.userId ?? null,
+      action: `auth.session.${anomaly.kind}`,
+      resourceType: "refresh_token_family",
+      resourceId: row.familyId,
+      metadata: { ipChanged: anomaly.ipChanged, deviceChanged: anomaly.deviceChanged },
+    }, tx);
+    await tx.execute(sql`RELEASE SAVEPOINT refresh_anomaly_audit`);
+  } catch (auditError) {
+    await tx.execute(sql`ROLLBACK TO SAVEPOINT refresh_anomaly_audit`);
+    logError("auth.session.anomaly_audit_failed", {
+      familyId: row.familyId,
+      error: auditError instanceof Error ? auditError.message : "unknown",
+    });
+  }
+}
+
+export async function rotateRefreshTokenDetailed(
+  kind: SessionKind,
+  token: string,
+  context?: SessionRequestContext,
+): Promise<DetailedRefreshResult> {
+  const tokenHash = hashRefreshToken(token);
+  const locale = context?.locale ?? DEFAULT_LOCALE;
+  const t = (key: Parameters<typeof translate>[1], vars?: Parameters<typeof translate>[2]) =>
+    translate(locale, key, vars);
+
+  const outcome = await db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      SELECT id, family_id AS "familyId", user_id AS "userId", tenant_id AS "tenantId", kind
+      FROM refresh_tokens
+      WHERE token_hash = ${tokenHash}
+    `);
+
+    const initial = result.rows[0] as {
+      id: string;
+      familyId: string;
+      userId: string | null;
+      tenantId: string | null;
+      kind: SessionKind;
+    } | undefined;
+
+    if (!initial || initial.kind !== kind) return { status: "invalid" as const, code: "REFRESH_TOKEN_INVALID" as const };
+
+    // Tenant -> principal -> family -> token matches lifecycle writers.
+    // Hold the shared lifecycle fence through insertion so suspension cannot
+    // revoke an older snapshot and miss this newly rotated token.
+    if (kind !== "platform") {
+      if (!initial.tenantId) return { status: "invalid" as const, code: "REFRESH_TOKEN_INVALID" as const };
+      try {
+        await requireActiveTenantInTransaction(tx, initial.tenantId);
+      } catch (error) {
+        if (error instanceof TenantSuspendedError) {
+          return { status: "invalid" as const, code: "TENANT_SUSPENDED" as const };
+        }
+        if (error instanceof TenantDeletedError) {
+          return { status: "invalid" as const, code: "TENANT_DELETED" as const };
+        }
+        throw error;
+      }
+    }
+
+    // Principal -> family -> token order matches reset and membership revocation.
+    if (initial.userId) await tx.execute(sql`SELECT id FROM users WHERE id = ${initial.userId} FOR UPDATE`);
+    await lockRefreshFamily(tx, initial.familyId);
+
+    const lockedRowResult = await tx.execute(sql`
+      SELECT
+        id,
+        family_id AS "familyId",
+        kind,
+        tenant_id AS "tenantId",
+        user_id AS "userId",
+        role,
+        email,
+        EXTRACT(EPOCH FROM family_created_at) * 1000 AS "familyCreatedAtMs",
+        EXTRACT(EPOCH FROM expires_at) * 1000 AS "expiresAtMs",
+        revoked_at AS "revokedAt",
+        revoked_reason AS "revokedReason",
+        ip_address AS "ipAddress",
+        user_agent AS "userAgent",
+        replaced_by AS "replacedBy",
+        EXTRACT(EPOCH FROM replaced_at) * 1000 AS "replacedAtMs"
+      FROM refresh_tokens
+      WHERE id = ${initial.id}
+      FOR UPDATE
+    `);
+    let row = lockedRowResult.rows[0] as {
+      id: string;
+      familyId: string;
+      kind: SessionKind;
+      tenantId: string | null;
+      userId: string | null;
+      role: string | null;
+      email: string | null;
+      familyCreatedAtMs: number | string;
+      expiresAtMs: number | string;
+      revokedAt: Date | string | null;
+      revokedReason: string | null;
+      ipAddress: string | null;
+      userAgent: string | null;
+      replacedBy: string | null;
+      replacedAtMs: number | string | null;
+    } | undefined;
+
+    if (!row || row.kind !== kind || row.familyId !== initial.familyId || row.revokedAt) {
+      // The recorded death reason is already selected above; reporting it
+      // changes no revocation. An unrevoked mismatch stays generic invalid.
+      return row?.revokedAt
+        ? { status: "invalid" as const, code: refreshRevokedCode(row.revokedReason) }
+        : { status: "invalid" as const, code: "REFRESH_TOKEN_INVALID" as const };
+    }
+    if (kind === "platform" && (!row.userId || !(await isPlatformSessionAssured(row.familyId, row.userId, false, tx)))) {
+      const idle = await platformSessionIdleExpired(tx, row.familyId);
+      const code: RefreshFailureCode = idle ? "SESSION_IDLE_EXPIRED" : "PLATFORM_SESSION_EXPIRED";
+      return { status: "invalid" as const, code };
+    }
+    const nowMs = await dbNowMsInTransaction(tx);
+    const familyCreatedAtMs = Number(row.familyCreatedAtMs);
+    const expiresAtMs = Number(row.expiresAtMs);
+    if (!Number.isFinite(familyCreatedAtMs) || !Number.isFinite(expiresAtMs)) throw new Error("Invalid persisted refresh timestamp");
+
+    if (nowMs >= familyCreatedAtMs + (kind === "platform" ? PLATFORM_SESSION_TTL_MS : REFRESH_FAMILY_TTL_MS)) {
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET revoked_at = clock_timestamp(), revoked_reason = 'absolute_expired'
+        WHERE family_id = ${row.familyId} AND revoked_at IS NULL
+      `);
+      return { status: "invalid" as const, code: "REFRESH_TOKEN_EXPIRED" as const };
+    }
+
+    if (nowMs >= expiresAtMs) return { status: "invalid" as const, code: "REFRESH_TOKEN_EXPIRED" as const };
+
+    const principalValid = await refreshPrincipalStillValid(tx, row);
+    if (!principalValid) {
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET revoked_at = clock_timestamp(), revoked_reason = 'principal_invalid'
+        WHERE family_id = ${row.familyId} AND revoked_at IS NULL
+      `);
+      return { status: "invalid" as const, code: "PRINCIPAL_INVALID" as const };
+    }
+    // Preserve the established explicit-expiry and principal-invalid reasons.
+    // The additional policy fence still runs under the same locks before any
+    // refresh consumption or successor issuance, including grace-window reuse.
+    if (kind !== "platform" && (!row.tenantId || !(await readWorkspaceSessionState({ familyId: row.familyId, kind,
+      tenantId: row.tenantId, userId: row.userId, sid: row.id, role: row.role ?? undefined }, tx)))) {
+      // Read-only idle diagnostic before the unchanged family revocation:
+      // `readWorkspaceSessionState` returns null for missing rows, idle
+      // staleness, policy expiry and credential mismatch alike, so only a
+      // stale `last_seen_at` earns the idle code; the rest stay merged.
+      const idle = await workspaceSessionIdleExpired(tx, row.familyId);
+      await tx.execute(sql`UPDATE refresh_tokens SET revoked_at=clock_timestamp(),revoked_reason='workspace_session_expired'
+        WHERE family_id=${row.familyId} AND revoked_at IS NULL`);
+      const code: RefreshFailureCode = idle ? "SESSION_IDLE_EXPIRED" : "WORKSPACE_SESSION_EXPIRED";
+      return { status: "invalid" as const, code };
+    }
+
+    // WP-A (S1): compare the incoming refresh context against the stored
+    // context of the token being rotated. Computed once here; both success
+    // paths below write at most one audit event for it, never blocking.
+    const anomaly = classifySessionAnomaly(
+      { ipAddress: row.ipAddress, userAgent: row.userAgent },
+      normalizeContext(context),
+    );
+
+    if (row.replacedBy) {
+      const replacedAtMs = row.replacedAtMs === null ? null : Number(row.replacedAtMs);
+      if (replacedAtMs !== null && Number.isFinite(replacedAtMs) && nowMs <= replacedAtMs + REFRESH_ROTATION_GRACE_MS) {
+        try {
+          const pair = await rotateWithinFamily(tx, { ...row, familyCreatedAtMs: Number(row.familyCreatedAtMs) }, context, nowMs);
+          // v3: revoke the previously issued successor. Previously both the
+          // first successor and this new successor stayed live, forking a
+          // persistent independent session chain from one token presented
+          // inside the 5s grace window. Point the presented row at the
+          // newest successor (keeping the original replaced_at, so the
+          // grace window is not extended) so a later presentation of the
+          // old token trips the reuse detector below instead of forking.
+          await tx.execute(sql`
+            UPDATE refresh_tokens
+            SET revoked_at = clock_timestamp(), revoked_reason = 'rotation_grace_superseded'
+            WHERE id = ${row.replacedBy} AND revoked_at IS NULL
+          `);
+          await tx.execute(sql`
+            UPDATE refresh_tokens
+            SET replaced_by = ${pair.refreshTokenId}
+            WHERE id = ${row.id}
+          `);
+          if (anomaly) await writeSessionAnomalyAudit(tx, row, anomaly);
+          return { status: "rotated" as const, pair };
+        } catch (error) {
+          if (error instanceof Error && error.message === "REFRESH_FAMILY_EXPIRED") return { status: "invalid" as const, code: "REFRESH_TOKEN_EXPIRED" as const };
+          throw error;
+        }
+      }
+
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET revoked_at = clock_timestamp(), revoked_reason = 'refresh_reuse_detected'
+        WHERE family_id = ${row.familyId} AND revoked_at IS NULL
+      `);
+
+      // The family revocation above is the security decision and must stay
+      // durable even if the optional audit write fails. In PostgreSQL a
+      // failed statement aborts the whole transaction, so catching the
+      // application exception alone cannot preserve the revocation: isolate
+      // the telemetry write behind a savepoint instead.
+      await tx.execute(sql`SAVEPOINT refresh_reuse_audit`);
+      try {
+        const actorType = row.kind === "platform" ? "platform" : row.userId ? "user" : "system";
+        await writeAuditEvent({
+          tenantId: row.tenantId,
+          actorType,
+          actorId: row.userId ?? null,
+          action: "auth.refresh.reuse_detected",
+          resourceType: "refresh_token_family",
+          resourceId: row.familyId,
+          metadata: {
+            refreshTokenId: row.id,
+            revokedReason: "refresh_reuse_detected",
+          },
+        }, tx);
+        await tx.execute(sql`RELEASE SAVEPOINT refresh_reuse_audit`);
+      } catch (auditError) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT refresh_reuse_audit`);
+        logError("auth.refresh.reuse_audit_failed", {
+          familyId: row.familyId,
+          error: auditError instanceof Error ? auditError.message : "unknown",
+        });
+      }
+
+      return {
+        status: "reused" as const,
+        familyId: row.familyId,
+        notificationEmail: row.email,
+        tenantId: row.tenantId,
+        userId: row.userId,
+        kind: row.kind,
+      };
+    }
+
+    try {
+      const pair = await rotateWithinFamily(tx, { ...row, familyCreatedAtMs: Number(row.familyCreatedAtMs) }, context, nowMs);
+      await tx.execute(sql`
+        UPDATE refresh_tokens
+        SET replaced_by = ${pair.refreshTokenId}, replaced_at = clock_timestamp()
+        WHERE id = ${row.id}
+      `);
+      if (anomaly) await writeSessionAnomalyAudit(tx, row, anomaly);
+      return { status: "rotated" as const, pair };
+    } catch (error) {
+      if (error instanceof Error && error.message === "REFRESH_FAMILY_EXPIRED") return { status: "invalid" as const, code: "REFRESH_TOKEN_EXPIRED" as const };
+      throw error;
+    }
+  });
+
+  if (outcome.status === "reused") {
+    if (outcome.notificationEmail) {
+      try {
+        await sendTransactionalEmail({
+          to: outcome.notificationEmail,
+          subject: t("mail.tokenReuse.subject"),
+          html: `<p>${t("mail.tokenReuse.body")}</p>`,
+          text: t("mail.tokenReuse.body"),
+        });
+      } catch (error) {
+        logError("auth.refresh.reuse_notification_failed", {
+          familyId: outcome.familyId,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    } else {
+      logWarn("auth.refresh.reuse_notification_unavailable", {
+        familyId: outcome.familyId,
+        reason: "no email address stored for session family",
+      });
+    }
+  }
+
+  return outcome;
+}
+
+/**
+ * Legacy shape of `rotateRefreshTokenDetailed`: `invalid` outcomes carry no
+ * code, so existing callers and their exact-shape assertions keep working.
+ * New callers (the refresh routes) use `rotateRefreshTokenDetailed` plus
+ * `refreshFailureCode` instead. Rotation, grace, revocation, audit and email
+ * behaviour are identical — this only strips the reported code.
+ */
+export async function rotateRefreshToken(
+  kind: SessionKind,
+  token: string,
+  context?: SessionRequestContext,
+): Promise<RefreshResult> {
+  const outcome = await rotateRefreshTokenDetailed(kind, token, context);
+  if (outcome.status === "invalid") return { status: "invalid" };
+  return outcome;
+}
+
+export async function revokeSessionFamilyInTransaction(
+  tx: DbTx,
+  familyId: string,
+  reason = "logout",
+): Promise<void> {
+  if (!/^[0-9a-f]{32}$/.test(familyId)) throw new Error("Invalid session family id");
+  await lockRefreshFamily(tx, familyId);
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE family_id = ${familyId} AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeUserRefreshFamiliesInTransaction(
+  tx: DbTx,
+  userId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE user_id = ${userId} AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeUserTenantRefreshFamiliesInTransaction(
+  tx: DbTx,
+  userId: string,
+  tenantId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE user_id = ${userId}
+      AND tenant_id = ${tenantId}
+      AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeTenantRefreshFamiliesInTransaction(
+  tx: DbTx,
+  tenantId: string,
+  reason: string,
+): Promise<void> {
+  await tx.execute(sql`
+    UPDATE refresh_tokens
+    SET revoked_at = clock_timestamp(), revoked_reason = ${reason}
+    WHERE tenant_id = ${tenantId} AND revoked_at IS NULL
+  `);
+}
+
+export async function revokeRefreshTokenFamily(
+  kind: SessionKind,
+  token: string,
+  reason = "logout",
+): Promise<boolean> {
+  const tokenHash = hashRefreshToken(token);
+  const result = await db.transaction(async (tx) => {
+    // Read the family id WITHOUT locking the row: lock order must stay
+    // advisory-family-lock → row locks (as in rotateRefreshToken). Taking a
+    // row lock here first inverts that order and deadlocks (40P01) against a
+    // concurrent rotation of the same token. family_id is immutable for a
+    // row, so an unlocked read is sufficient; revokeSessionFamilyInTransaction
+    // takes the family advisory lock before its UPDATE takes row locks.
+    const found = await tx.execute(sql`
+      SELECT family_id AS "familyId"
+      FROM refresh_tokens
+      WHERE token_hash = ${tokenHash} AND kind = ${kind}
+    `);
+    const familyId = (found.rows[0] as { familyId?: string } | undefined)?.familyId;
+    if (!familyId) return false;
+    await revokeSessionFamilyInTransaction(tx, familyId, reason);
+    return true;
+  });
+  return result;
+}
+
+export async function revokeSessionFamily(familyId: string, reason = "logout"): Promise<void> {
+  await db.transaction((tx) => revokeSessionFamilyInTransaction(tx, familyId, reason));
+}
+
+export async function cleanupExpiredRefreshTokens(limit = 500): Promise<number> {
+  // Policy rows contain no bearer material, but still need bounded retention.
+  // Refresh ledgers remain authoritative until their own expiry/cleanup.
+  await db.execute(sql`DELETE FROM workspace_session_security WHERE family_id IN (
+    SELECT family_id FROM workspace_session_security WHERE expires_at<=clock_timestamp()
+    ORDER BY expires_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+  )`);
+  await db.execute(sql`DELETE FROM platform_session_security WHERE family_id IN (
+    SELECT family_id FROM platform_session_security WHERE expires_at<=clock_timestamp()
+    ORDER BY expires_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+  )`);
+  const result = await db.execute(sql`
+    WITH candidates AS (
+      SELECT id
+      FROM refresh_tokens
+      WHERE expires_at <= clock_timestamp()
+      ORDER BY expires_at ASC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM refresh_tokens AS rt
+    USING candidates
+    WHERE rt.id = candidates.id
+    RETURNING rt.id
+  `);
+  return result.rows.length;
+}

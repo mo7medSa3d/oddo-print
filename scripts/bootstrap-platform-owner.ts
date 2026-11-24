@@ -1,0 +1,179 @@
+import { db, pool } from "../src/db";
+import { users, auditEvents, emailVerificationTokens, passwordResetTokens } from "../src/db/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { hashPassword, normalizeEmail, validEmail } from "../src/lib/password";
+import { passwordScreeningFailure, screenNewPassword } from "../src/lib/password-screening";
+import { isValidNewPasswordLength } from "../src/lib/new-password-policy";
+import { nanoid } from "../src/lib/nanoid";
+import { revokeLegacyManagerSessionsForUserInTransaction } from "../src/lib/manager-auth";
+import { revokeLegacyPlatformSessionsForUserInTransaction } from "../src/lib/platform-auth";
+import { revokeUserRefreshFamiliesInTransaction } from "../src/lib/session-tokens";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import fs from "fs";
+import readline from "readline";
+
+async function promptPasswordInteractive(promptText: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = function _writeToOutput(s: string) {
+      if (s.includes("\n") || s.includes("\r")) {
+        process.stdout.write("\n");
+      }
+    };
+
+    process.stdout.write(promptText);
+    rl.question("", (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+export async function main() {
+  const args = process.argv.slice(2);
+  let email = process.env.PLATFORM_OWNER_EMAIL?.trim() ?? "";
+  let password = process.env.PLATFORM_OWNER_PASSWORD ?? "";
+  let force = process.env.ALLOW_PLATFORM_BOOTSTRAP_FORCE === "1";
+
+  const passwordFile = process.env.PLATFORM_OWNER_PASSWORD_FILE?.trim();
+  if (!password && passwordFile && fs.existsSync(passwordFile)) {
+    try {
+      // A secret file may have one line terminator, but spaces are password
+      // data and must match subsequent login verification byte-for-byte.
+      password = fs.readFileSync(passwordFile, "utf8").replace(/\r?\n$/, "");
+    } catch (err) {
+      console.error(`Error reading PLATFORM_OWNER_PASSWORD_FILE at ${passwordFile}:`, err);
+      process.exit(1);
+    }
+  }
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--email" && args[i + 1]) {
+      email = args[i + 1].trim();
+      i++;
+    } else if (args[i] === "--force") {
+      force = true;
+    }
+  }
+
+
+  if (!email && process.stdin.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    email = await new Promise<string>((res) => {
+      rl.question("Enter Platform Owner Email: ", (ans) => {
+        rl.close();
+        res(ans.trim());
+      });
+    });
+  }
+
+  if (!password && process.stdin.isTTY) {
+    password = await promptPasswordInteractive("Enter Platform Owner Password: ");
+  }
+
+  if (!email || !password) {
+    console.error("Usage: npx tsx scripts/bootstrap-platform-owner.ts [--email <email>] [--force]");
+    console.error("Set PLATFORM_OWNER_EMAIL and PLATFORM_OWNER_PASSWORD environment variables or run in interactive TTY.");
+    process.exit(1);
+  }
+
+  const normalized = normalizeEmail(email);
+  if (!validEmail(normalized)) {
+    console.error("Error: Invalid email address provided.");
+    process.exit(1);
+  }
+
+  if (!isValidNewPasswordLength(password)) {
+    console.error("Error: Platform Owner password must contain at least 12 Unicode characters and at most 4096 UTF-16 code units.");
+    process.exit(1);
+  }
+
+  const passwordFailure = passwordScreeningFailure(await screenNewPassword(password));
+  if (passwordFailure) throw new Error(passwordFailure.body.error);
+  const passwordHash = await hashPassword(password);
+
+  const success = await db.transaction(async (tx) => {
+    // Transaction-level PostgreSQL advisory lock on fixed key.
+    // Serializes bootstrap executions globally even on a fresh DB with zero rows.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('platform_bootstrap_lock'))`);
+
+    const existing = await tx.execute(sql`
+      SELECT id, email FROM users WHERE is_platform_owner = true FOR UPDATE
+    `);
+
+    if (existing.rows.length > 0 && !force) {
+      console.log(`Platform Owner already exists (${existing.rows.length} owner(s) found). First-boot bootstrap skipped.`);
+      console.log("Use --force or set ALLOW_PLATFORM_BOOTSTRAP_FORCE=1 if you explicitly intend to promote or reset an owner.");
+      return false;
+    }
+
+    const userMatch = await tx.execute(sql`
+      SELECT id FROM users WHERE email = ${normalized} FOR UPDATE
+    `);
+
+    let uId: string;
+    if (userMatch.rows.length > 0) {
+      uId = String((userMatch.rows[0] as { id: string }).id);
+      await tx
+        .update(users)
+        .set({
+          isPlatformOwner: true,
+          passwordHash,
+          emailVerifiedAt: sql`clock_timestamp()`,
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(eq(users.id, uId));
+      // Promotion/password replacement must close every earlier login and recovery proof.
+      await revokeLegacyManagerSessionsForUserInTransaction(tx, uId);
+      await revokeLegacyPlatformSessionsForUserInTransaction(tx, uId);
+      await revokeUserRefreshFamiliesInTransaction(tx, uId, "platform_bootstrap");
+      await tx.update(passwordResetTokens)
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(eq(passwordResetTokens.userId, uId), isNull(passwordResetTokens.consumedAt)));
+      await tx.update(emailVerificationTokens)
+        .set({ consumedAt: sql`clock_timestamp()` })
+        .where(and(eq(emailVerificationTokens.userId, uId), isNull(emailVerificationTokens.consumedAt)));
+      console.log(`Successfully promoted existing user (${normalized}) to Platform Owner.`);
+    } else {
+      uId = `usr_${nanoid(18)}`;
+      await tx.insert(users).values({
+        id: uId,
+        email: normalized,
+        passwordHash,
+        isPlatformOwner: true,
+        emailVerifiedAt: sql`clock_timestamp()`,
+      });
+      console.log(`Successfully created new Platform Owner account (${normalized}).`);
+    }
+
+    // Atomic Audit Event insertion inside the SAME transaction boundary.
+    await tx.insert(auditEvents).values({
+      id: `audit_${nanoid(14)}`,
+      tenantId: null,
+      actorType: "platform",
+      actorId: uId,
+      action: "platform.bootstrap",
+      resourceType: "platform_owner",
+      resourceId: uId,
+      metadata: { email: normalized, forced: force },
+    });
+
+    return true;
+  });
+
+  if (success) {
+    console.log("Platform Owner bootstrap completed and audit log committed successfully.");
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()
+  .catch((err) => {
+    console.error("Platform Owner bootstrap failed:", err);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());

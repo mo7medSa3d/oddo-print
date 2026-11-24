@@ -1,0 +1,256 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { validatePrintJobPayload, buildTestPrintPayload, buildTestPdfPayload, printJobPayloadSchema } from "../src/lib/payload";
+
+describe("payload", () => {
+  it("wire payload types are identical in TypeScript, Go and Odoo (no jpeg/raster drift)", () => {
+    // The ONLY legal wire types. "jpeg"/"raster_jpeg" are internal column
+    // names on the Odoo side, never payload types: a drift here means a
+    // valid persisted Odoo job 422s at the Gateway (or vice versa).
+    const tsTypes = (printJobPayloadSchema.shape.type as unknown as { options: string[] }).options;
+    expect([...tsTypes].sort()).toEqual(["escpos", "image", "pdf", "raw"]);
+    const go = readFileSync("agent/internal/payload/payload.go", "utf8");
+    for (const decl of ['TypeRaw    Type = "raw"', 'TypeESCPOS Type = "escpos"', 'TypePDF    Type = "pdf"', 'TypeImage  Type = "image"']) {
+      expect(go).toContain(decl);
+    }
+    expect(go).not.toContain('"jpeg"');
+    expect(go).not.toContain('"raster_jpeg"');
+    const odoo = readFileSync("odoo_addons/print_gateway/models/print_job.py", "utf8");
+    const mapBlock = odoo.slice(odoo.indexOf("_PAYLOAD_TYPE_MAP = {"), odoo.indexOf("}", odoo.indexOf("_PAYLOAD_TYPE_MAP = {")));
+    // The map KEYS must be exactly the four wire types (values are the
+    // internal payload_type column names, which legitimately differ).
+    const mapKeys = [...mapBlock.matchAll(/"(\w+)":/g)].map((m) => m[1]);
+    expect(mapKeys.sort()).toEqual(["escpos", "image", "pdf", "raw"]);
+    // And the payload body field is always "data" (no "base64" alias).
+    expect(odoo).not.toContain('payload.get("base64")');
+  });
+  it("validates raw and escpos", () => {
+    const raw = { type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("hello").toString("base64") };
+    expect(validatePrintJobPayload(raw).type).toBe("raw");
+    const esc = buildTestPrintPayload("Printer1", "Agent1");
+    expect(validatePrintJobPayload(esc).type).toBe("escpos");
+  });
+  it("rejects oversized", () => {
+    const huge = Buffer.alloc(6 * 1024 * 1024).toString("base64");
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: huge })).toThrow();
+  });
+  it("validates pdf payload type only when bytes carry a PDF signature", () => {
+    const pdf = { type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4\n%%EOF\n").toString("base64") };
+    expect(validatePrintJobPayload(pdf).type).toBe("pdf");
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("%PDF-1.4").toString("base64") })).toThrow(/%%EOF/);
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("hello").toString("base64") })).toThrow(/PDF payload/);
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
+    expect(() => validatePrintJobPayload({ type: "escpos", protocol: "escpos", encoding: "base64", data: Buffer.from("%PDF-1.7").toString("base64") })).toThrow(/PDF bytes/);
+    expect(() => validatePrintJobPayload({ type: "pdf", encoding: "base64", data: Buffer.from("\n%PDF-1.7").toString("base64") })).toThrow(/start with/);
+    expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: Buffer.from("label %PDF- text").toString("base64") }).type).toBe("raw");
+  });
+  it("rejects bad type", () => {
+    expect(() => validatePrintJobPayload({ type: "badtype", encoding: "base64", data: "aGVsbG8=" })).toThrow();
+  });
+  it("rejects non-canonical base64 the Go agent would also reject", () => {
+    // Missing padding — Node's Buffer.from tolerates it, StdEncoding does not.
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8" })).toThrow();
+    // Out-of-alphabet characters (whitespace, stray symbols) are skipped by
+    // Buffer.from but rejected by the agent's strict decoder.
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: " aGVsbG8= " })).toThrow();
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=!@#" })).toThrow();
+    expect(() => validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVs\nbG8=" })).toThrow();
+  });
+  it("accepts canonical base64 with padding", () => {
+    expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGVsbG8=" }).data).toBe("aGVsbG8=");
+    expect(validatePrintJobPayload({ type: "raw", protocol: "raw", encoding: "base64", data: "aGk=" }).data).toBe("aGk=");
+  });
+  it("supports verified non-standard receipt widths and rejects invalid PDF media", () => {
+    const pdf = buildTestPdfPayload("Receipt", "Agent", "stable-operation", 79.5);
+    const box = pdf.match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/)!;
+    expect(Number(box[1]) * 25.4 / 72).toBeCloseTo(79.5, 2);
+    expect(Number(box[2]) * 25.4 / 72).toBeCloseTo(100, 2);
+    for (const invalid of [39.9, 120.1, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => buildTestPdfPayload("Receipt", "Agent", "stable-operation", invalid)).toThrow(/40 and 120 mm/);
+    }
+  });
+
+  it("escapes PDF literal-string syntax in generated diagnostics", () => {
+    const pdf = buildTestPdfPayload("Receipt) Tj /Injected", "Agent\\Backslash");
+    expect(pdf).toContain("(Printer: Receipt\\) Tj /Injected)");
+    expect(pdf).toContain("(Agent: Agent\\\\Backslash)");
+  });
+
+  it("sizes document test pages to a declared receipt roll with wrapped text and valid PDF offsets", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    for (const mm of [58, 80] as const) {
+      const payload = buildTestPrintPayloadForPrinter("Receipt)".repeat(7), "Agent\\Backslash".repeat(4), {
+        connectionType: "spooler", protocol: "spooler", capabilities: { paper_width_mm: mm },
+      }, "stable-operation");
+      expect(validatePrintJobPayload(payload).type).toBe("pdf");
+      const pdf = Buffer.from(payload.data, "base64").toString("utf8");
+      const box = pdf.match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/)!;
+      expect(Number(box[1]) * 25.4 / 72).toBeCloseTo(mm, 2);
+      expect(Number(box[2]) * 25.4 / 72).toBeCloseTo(100, 2);
+      expect(pdf).toContain("Receipt\\)");
+      expect(pdf).toContain("Agent\\\\Backslash");
+      const xrefOffset = Number(pdf.match(/startxref\n(\d+)/)![1]);
+      expect(pdf.slice(xrefOffset)).toMatch(/^xref\n0 6\n/);
+      for (const [index, match] of [...pdf.matchAll(/^(\d{10}) 00000 n /gm)].entries()) {
+        expect(pdf.slice(Number(match[1]))).toMatch(new RegExp(`^${index + 1} 0 obj\\n`));
+      }
+      const content = pdf.match(/<< \/Length (\d+) >>\nstream\n([\s\S]*?)\nendstream/)!;
+      expect(Buffer.byteLength(content[2])).toBe(Number(content[1]));
+    }
+  });
+
+  it("uses configured single-roll metadata and retains office media without guessing from dots", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const printer = { connectionType: "spooler", protocol: "spooler" };
+    const build = (extra: Parameters<typeof buildTestPrintPayloadForPrinter>[2]) => Buffer.from(
+      buildTestPrintPayloadForPrinter("Queue", "Agent", { ...printer, ...extra }, "stable-op").data, "base64",
+    ).toString("utf8");
+    expect(build({ config: { paper_widths: [80] } })).toContain("/MediaBox [0 0 226.772 283.465]");
+    expect(build({ capabilities: { max_paper_width: 512 } })).toContain("/MediaBox [0 0 612 792]");
+    expect(build({ capabilities: { paper_widths: [58, 80] } })).toContain("/MediaBox [0 0 612 792]");
+    expect(build({ capabilities: { paper_width_mm: 58 } })).toBe(build({ capabilities: { paper_width_mm: 58 } }));
+  });
+
+  it("uses only explicitly selected sheet media for PDF diagnostics", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const source = (extra: Parameters<typeof buildTestPrintPayloadForPrinter>[2]) =>
+      Buffer.from(buildTestPrintPayloadForPrinter("Office", "Agent", {
+        connectionType: "ipp", protocol: "ipp", ...extra,
+      }, "stable-operation").data, "base64").toString("utf8");
+    expect(source({ capabilities: { selected_paper: " A4 " } })).toContain("/MediaBox [0 0 595.276 841.89]");
+    expect(source({ config: { paper_format: "Legal" } })).toContain("/MediaBox [0 0 612 1008]");
+    expect(source({ capabilities: { supported_papers: ["A4", "Letter"] } })).toContain("/MediaBox [0 0 612 792]");
+    expect(source({ capabilities: { selected_paper: "../A3" } })).toContain("/MediaBox [0 0 612 792]");
+    expect(source({ capabilities: { selected_paper: "A4", paper_width_mm: 80 } })).toContain("/MediaBox [0 0 226.772 283.465]");
+  });
+
+  it("test ticket follows the declared ZPL/TSPL protocol", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = buildTestPrintPayloadForPrinter("Zebra", "Agent", {
+      connectionType: "network",
+      protocol: "zpl",
+      capabilities: null,
+    });
+    expect(zpl.type).toBe("raw");
+    expect(zpl.protocol).toBe("zpl");
+    expect(Buffer.from(zpl.data, "base64").toString("utf8")).toContain("^XA");
+
+    const tspl = buildTestPrintPayloadForPrinter("TSC", "Agent", {
+      connectionType: "network",
+      protocol: "tspl",
+      capabilities: null,
+    });
+    expect(tspl.type).toBe("raw");
+    expect(tspl.protocol).toBe("tspl");
+    expect(Buffer.from(tspl.data, "base64").toString("utf8")).toBe("SELFTEST\r\n");
+  });
+
+  it("keeps ZPL and TSPL diagnostic commands independent of untrusted names", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    const zpl = Buffer.from(buildTestPrintPayloadForPrinter("A^FS~JA", "B^XZ", { protocol: "zpl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(zpl).not.toContain("A^FS~JA");
+    expect(zpl.match(/\^XZ/g)).toHaveLength(1);
+
+    const tspl = Buffer.from(buildTestPrintPayloadForPrinter('A"\nPRINT 9,9', 'B\\"', { protocol: "tspl", connectionType: "network" }).data, "base64").toString("utf8");
+    expect(tspl).not.toContain('A"');
+    expect(tspl).toBe("SELFTEST\r\n");
+    expect(tspl).not.toMatch(/SIZE|GAP|CLS|PRINT|INITIALPRINTER/);
+  });
+
+  it("refuses a conflicting explicit protocol capability instead of inventing another byte language", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {
+      connectionType: "network",
+      protocol: "raw",
+      capabilities: { supported_protocols: ["zpl"] },
+    })).toThrow(/no supported test ticket format/i);
+    expect(() => buildTestPrintPayloadForPrinter("Zebra", "Agent", {
+      connectionType: "network",
+      protocol: "zpl",
+      capabilities: { supported_protocols: ["escpos"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("keeps unknown byte-stream printers dark even when capabilities name a language", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Unknown", "Agent", {
+      connectionType: "network",
+      protocol: "unknown",
+      capabilities: { supported_protocols: ["zpl"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("does not fabricate a document test for a byte-stream printer with PDF-only capabilities", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("RAW", "Agent", {
+      connectionType: "network",
+      protocol: "raw",
+      capabilities: { supported_protocols: ["pdf"] },
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("does not invent a test protocol for an unknown byte-stream printer", async () => {
+    const { buildTestPrintPayloadForPrinter } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Unknown", "Agent", {
+      connectionType: "network",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+    expect(() => buildTestPrintPayloadForPrinter("Unknown USB", "Agent", {
+      connectionType: "usb",
+      protocol: "unknown",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+  });
+
+  it("never fabricates a Windows driver queue from a network spooler label", async () => {
+    const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
+    expect(() => buildTestPrintPayloadForPrinter("Untrusted TCP Label", "Agent", {
+      connectionType: "network",
+      protocol: "windows_spooler",
+      capabilities: null,
+    })).toThrow(/no supported test ticket format/i);
+    // A real installed Windows spooler queue and legacy USB-backed queue
+    // remain valid document transports.
+    for (const connectionType of ["spooler", "usb"] as const) {
+      const payload = buildTestPrintPayloadForPrinter("Office Queue", "Agent", {
+        connectionType,
+        protocol: "windows_spooler",
+        capabilities: null,
+      });
+      expect(payload.type).toBe("pdf");
+      expect(payload.protocol).toBeUndefined();
+      expect(validatePrintJobPayload(payload).type).toBe("pdf");
+    }
+  });
+
+  it("routes network IPP test tickets to PDF instead of a byte-stream format", async () => {
+    const { buildTestPrintPayloadForPrinter, validatePrintJobPayload } = await import("../src/lib/payload");
+    const payload = buildTestPrintPayloadForPrinter("IPP Printer", "Agent", {
+      connectionType: "network",
+      protocol: "ipp",
+      capabilities: null,
+    });
+    expect(payload.type).toBe("pdf");
+    expect(payload.protocol).toBeUndefined();
+    expect(validatePrintJobPayload(payload).type).toBe("pdf");
+  });
+
+  it("test payload is decodable and does not assume cutter support", () => {
+    const p = buildTestPrintPayload("Receipt", "Main");
+    const decoded = Buffer.from(p.data, "base64").toString("binary");
+    expect(decoded).toContain("Yaseir Agent");
+    expect(decoded).not.toContain("\x1d\x56");
+  });
+  it("test payload never embeds control bytes from user-controlled names", () => {
+    const p = buildTestPrintPayload("ACME\x1b@Corp\x00Ltd", 'Agent"\x1b');
+    const decoded = Buffer.from(p.data, "base64").toString("binary");
+    // Our own ticket sequences survive; the injected ones do not.
+    expect(decoded).toContain("Printer: ACME@CorpLtd");
+    expect(decoded).toContain('Agent: Agent"');
+    const stripped = decoded.replace(/\x1b\x40/g, "").replace(/\x1b\x61[\x00\x01]/g, "").replace(/\x1d\x56\x01/g, "");
+    // Newlines are the ticket's own formatting; every other C0 control
+    // (incl. ESC) injected via names must be gone.
+    expect(stripped).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f]/);
+  });
+});

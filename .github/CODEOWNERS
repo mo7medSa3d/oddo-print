@@ -1,0 +1,22 @@
+# Code owners for security-critical paths. Reviewers are requested
+# automatically; branch protection (if enabled) should require their review.
+
+# Authentication, tenant isolation, billing, real-time delivery, migrations
+/src/lib/*auth* @mohamed-saad-edu
+/src/lib/*session* @mohamed-saad-edu
+/src/lib/tenant* @mohamed-saad-edu
+/src/lib/entitlement* @mohamed-saad-edu
+/src/lib/stripe* @mohamed-saad-edu
+/src/app/api/billing/* @mohamed-saad-edu
+/src/app/api/auth/* @mohamed-saad-edu
+/src/app/api/platform/* @mohamed-saad-edu
+/src/server/* @mohamed-saad-edu
+/src/app/api/agent/* @mohamed-saad-edu
+/drizzle/* @mohamed-saad-edu
+/src/db/* @mohamed-saad-edu
+/agent/internal/agent/* @mohamed-saad-edu
+/odoo_addons/print_gateway/models/crypto.py @mohamed-saad-edu
+/odoo_addons/print_gateway/models/gateway_config.py @mohamed-saad-edu
+Dockerfile @mohamed-saad-edu
+Caddyfile @mohamed-saad-edu
+docker-compose.yml @mohamed-saad-edu

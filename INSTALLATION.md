@@ -1,0 +1,133 @@
+# Installation
+
+The system has three runtime components: Gateway, Windows Agent/Desktop Manager, and the Odoo integration addon.
+
+
+### Gateway connection
+
+The Odoo addon uses HTTPS for Gateway communication by default. The `gateway_api_key` is stored as authenticated AES-256-GCM ciphertext using a deployment-managed key external to the Odoo database. The Odoo server rejects loopback, private, link-local and metadata Gateway destinations by default; request-time DNS resolution rejects hosts resolving to those addresses. For a trusted privately hosted Gateway (including a deliberately local development instance), explicitly set `YASEIR_GATEWAY_ALLOWED_ORIGINS=https://print.internal.example:8443` **in the Odoo server environment**, with the exact scheme, hostname and port from the Odoo configuration. An allowlist is restrictive: when set, every configured Gateway origin must be listed (include **both old and new origins during a Gateway migration**, until the old endpoint is disabled). Metadata endpoint addresses remain forbidden even when allowlisted. The addon resolves and validates every address for each request, then connects directly to a validated numeric address while retaining the original TLS certificate hostname and SNI. It does **not** perform a second hostname lookup when connecting, so a DNS change between validation and transport cannot redirect that request. Keep a network egress firewall denying metadata endpoints as defense in depth; an exact-origin allowlist does not replace egress controls.
+
+Plain HTTP is restricted to loopback and needs **both** `YASEIR_GATEWAY_ALLOW_INSECURE_HTTP=1` and a matching loopback `YASEIR_GATEWAY_ALLOWED_ORIGINS=http://127.0.0.1:3000`. Remote HTTP is rejected even when the opt-in is present. Never use HTTP for production credentials.
+
+
+## 1. Gateway
+
+```bash
+git clone https://github.com/mohamed-saad-edu/Odoo-print-system.git
+cd Odoo-print-system
+npm ci
+cp .env.example .env
+npm run db:migrate  # initial empty deployment only; stop all old writers before upgrades
+npm run build
+npm start
+```
+
+> Production (`NODE_ENV=production`) refuses startup unless the
+> `[required in production]` variables in `.env.example` are set:
+> `PLATFORM_TENANT_ID`, `GATEWAY_JWT_SECRET` (≥32 chars),
+> `TRUST_PROXY=1` + `TRUST_PROXY_SECRET` (≥32 chars) behind the reverse
+> proxy, `APP_BASE_URL` (clean `https://` origin), and `COOKIE_SECURE=1`.
+> Follow [SERVER_FIRST_RUN.md](SERVER_FIRST_RUN.md) §3 for the full
+> first-deployment checklist instead of the abbreviated steps above.
+
+Configure PostgreSQL, manager authentication, and the production TLS reverse proxy according to deployment policy.
+
+Verify:
+
+```text
+GET /api/health -> {"ok":true}
+```
+
+## 2. Windows Agent
+
+### Linux desktop build prerequisites
+
+The Tauri desktop manager requires native GTK 3, GLib, WebKitGTK 4.1, and tray development libraries. Check the current machine before running Cargo:
+
+```bash
+npm run desktop:linux:deps
+```
+
+If modules are missing, print the distribution-specific command with `bash scripts/setup-tauri-linux.sh --print`, or install interactively with:
+
+```bash
+npm run desktop:linux:deps:install
+```
+
+The script supports Fedora/RHEL, Debian/Ubuntu, and Arch-family distributions and verifies `gdk-3.0`, `gobject-2.0`, and `webkit2gtk-4.1` through `pkg-config`.
+
+Install the Windows Agent/Desktop Manager bundle. Pair the Agent with the Gateway using the pairing flow exposed by the Gateway manager. The Agent owns local printer discovery, heartbeat, queueing and physical execution.
+
+The Gateway manager can inspect runtime agents/printers and their health. Odoo does not create or synchronize these resources.
+
+### PDF Printing in Windows Service (Session 0)
+
+The Windows Agent includes an embedded PDFium renderer running through WebAssembly/wazero. PDF pages are rendered in-process and printed through the Windows printer device context, so Session 0 does not require an interactive desktop, a PDF application, file associations, PATH configuration, or a separate PDF executable. The PDFium WebAssembly payload is embedded by the Go module and requires no runtime download or manual DLL installation.
+
+The renderer processes one page at a time and enforces bounded rendering dimensions to prevent pathological PDF pages from allocating unbounded bitmap memory.
+
+## 3. Gateway API key
+
+In the Gateway manager:
+
+1. Open **API Keys**.
+2. Select **Generate API Key**.
+3. Copy the raw key immediately.
+4. Store it in the Odoo Gateway Configuration screen.
+5. Revoke the key from the same Gateway screen when it is no longer trusted.
+
+The raw key is shown only once.
+
+## 4. Odoo addon
+
+Install/upgrade the addon:
+
+```bash
+cp -r odoo_addons/print_gateway /path/to/odoo/addons/
+odoo-bin -c /etc/odoo.conf -d <db> -i print_gateway --stop-after-init
+# later upgrades: -u print_gateway
+```
+
+Open **Print Gateway → Gateway Configuration** and enter only:
+
+- Gateway URL
+- API Key
+- Test Connection
+- Gateway Printing Enabled
+
+Then create **Print Bindings**:
+
+`Destination + Document Type -> Printer`
+
+The destination is an existing Odoo object such as POS configuration, warehouse operation type, report action, or company context. The printer is a Gateway runtime printer id.
+
+No Gateway branch identifier, Gateway destination object, Gateway document catalog, Agent record, or Gateway Printer record is configured in Odoo.
+
+## 5. Printing
+
+Use the normal Odoo Print action for supported backend reports.
+
+For POS, use the normal POS receipt/reprint/Print Bill controls. When Gateway printing is enabled, the addon intercepts the Odoo POS print service and queues the operation through the central router without browser printing.
+
+## 6. Upgrade
+
+Gateway: back up the database and schedule an admission outage. Build the new release before cutover. Stop ingress and drain **all** old Gateway instances and quota-admission writers before applying any forward-only migration, especially `0102` and `0103`; deploy only the matching new Gateway against the migrated schema. For the bundled Compose deployment, use `scripts/deploy-compose.sh` (with the reviewed `YASEIR_DEPLOYMENT_ID`), which enforces build → drain → role/migration/verification gates → restart. A failed gate leaves public ingress unavailable; never restart an old Gateway against a newer schema.
+Agent: install the new signed/approved Windows build according to deployment policy.
+Odoo: run `-u print_gateway`.
+
+## 7. Release validation
+
+A production release is not complete until CI, Odoo installation/upgrade, Gateway/Agent integration, and physical-printer staging tests are green. The repository does not claim physical E2E from source inspection alone.
+
+## Credential encryption prerequisite
+
+Before installing or upgrading `print_gateway` (the encryption cutover was introduced in `19.0.2.4.0`), provision the deployment-managed credential encryption root outside the repository:
+
+```text
+ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION=1
+ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64=<base64 of a random 32-byte key>
+# Or use a protected mounted secret file instead:
+# ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64_FILE=/run/secrets/odoo_print_gateway_credential_key_v1
+```
+
+The key must come from the deployment's protected secret-management mechanism (for example a KMS/Vault/secret-manager-backed secret injection). Do not commit it to source or place it in the PostgreSQL database. The addon fails closed if key material is missing or invalid. Existing `gateway_api_key` values are migrated to AES-256-GCM ciphertext by the `19.0.2.4.0` post-migration step. The same external root is used only as input to a separate HKDF derivation for direct Odoo Agent pairing-code HMACs; the derived pairing key is purpose-separated and is never stored in PostgreSQL. After installing this hardening update or rotating the credential root, generate a new Agent pairing code because any still-pending code hash is bound to the previous key.

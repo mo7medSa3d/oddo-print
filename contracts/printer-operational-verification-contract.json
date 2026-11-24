@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "capabilityField": "operational_verification",
+  "maxAgeSeconds": 300,
+  "maxFutureSkewSeconds": 60,
+  "requiredFields": [
+    "version",
+    "verified_at",
+    "printer_id",
+    "binding_digest",
+    "method",
+    "logical_queue_key",
+    "identity_strength",
+    "output_medium"
+  ],
+  "optionalFields": [
+    "physical_device_key"
+  ],
+  "methods": [
+    "windows_queue",
+    "ipp_attributes",
+    "usb_interface",
+    "snmp_printer"
+  ],
+  "identityStrengths": [
+    "queue",
+    "service",
+    "device"
+  ],
+  "outputMedia": [
+    "physical"
+  ],
+  "logicalIdentity": "In v1 logical_queue_key equals binding_digest: SHA256 of the Agent's canonical execution endpoint. It is scoped to tenant and Agent. IPP UUID identifies a service, never a physical chassis. Explicit verified endpoint changes retain the registration ID and history.",
+  "trustBoundary": "Only a successful live Agent probe may produce evidence. Manager input, configured capabilities, status, model names, geometry profiles, and TCP connection success are not operational proof. Gateway accepts evidence only for exact execution ID, current endpoint/protocol, and converged desired state; stores server receipt separately; and gates both timestamps.",
+  "unknownOutcomes": "Eligibility does not authorize reprinting an unknown outcome. Accepted exact durable operations are reconciled before current eligibility without mutation or new submission. Agent repeats operational verification before first bytes.",
+  "jobBinding": "Every new job stores the current verified binding_digest under the printer lock. Claims emit bindingDigest; all claim/execution gates require an exact current match. Missing legacy bindings stay ineligible; accepted terminal replay remains read-only.",
+  "methodIdentityStrength": {
+    "windows_queue": "queue",
+    "ipp_attributes": "service",
+    "usb_interface": "device",
+    "snmp_printer": "device"
+  }
+}

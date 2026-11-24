@@ -1,0 +1,223 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowRight, CornerDownLeft, Search } from "lucide-react";
+import { Kbd, useDialog } from "./ui";
+import { useI18n } from "../i18n/react";
+import { isNavItemActive } from "../lib/nav";
+
+export type CommandItem = {
+  id: string;
+  label: string;
+  group: string;
+  hint?: string;
+  keywords?: string;
+  href?: string;
+  onSelect?: () => void;
+};
+
+/**
+ * ⌘K / Ctrl-K command surface.
+ *
+ * Deliberately scoped to navigation and shell actions that already exist —
+ * it adds zero new data access and never runs a mutation without the operator
+ * explicitly choosing the item. No third-party command library: the whole
+ * surface is ~5 kB of local state.
+ */
+export function CommandPalette({
+  open,
+  onClose,
+  items,
+}: {
+  open: boolean;
+  onClose: () => void;
+  items: CommandItem[];
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { t } = useI18n();
+  const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [sessionOpen, setSessionOpen] = useState(open);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialog(open, onClose, panelRef);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const { results, groups } = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const pool = needle
+      ? items.filter((item) =>
+          `${item.label} ${item.group} ${item.keywords ?? ""} ${item.hint ?? ""}`
+            .toLowerCase()
+            .includes(needle),
+        )
+      : items;
+    // Keyboard selection must follow the grouped visual order, including when
+    // callers interleave groups. A Map also keeps group names as plain keys.
+    const grouped = new Map<string, CommandItem[]>();
+    for (const item of pool.slice(0, 24)) {
+      const group = grouped.get(item.group) ?? [];
+      group.push(item);
+      grouped.set(item.group, group);
+    }
+    return { results: [...grouped.values()].flat(), groups: [...grouped.entries()] };
+  }, [items, query]);
+
+  // Every opening is a new session: clear the previous search and highlight.
+  // Adjusting state during render keeps the first painted frame correct.
+  if (sessionOpen !== open) {
+    setSessionOpen(open);
+    if (open) {
+      setQuery("");
+      setCursor(0);
+    }
+  }
+
+  // Permissions/locale can replace the item list while the palette is open.
+  const activeCursor = Math.min(cursor, Math.max(0, results.length - 1));
+
+  const focusInput = useCallback(() => {
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 10);
+    return () => window.clearTimeout(focusTimer);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    return focusInput();
+  }, [open, focusInput]);
+
+  // Arrow-key navigation keeps the active option visible by adjusting only the internal list scroll,
+  // which can move an outer embedded viewport unexpectedly.
+  useEffect(() => {
+    if (!open) return;
+    const list = listRef.current;
+    const active = list?.querySelector<HTMLElement>('[data-option-index="' + activeCursor + '"]');
+    if (!list || !active) return;
+    const optionTop = active.offsetTop;
+    const optionBottom = optionTop + active.offsetHeight;
+    if (optionTop < list.scrollTop) list.scrollTop = optionTop;
+    else if (optionBottom > list.scrollTop + list.clientHeight) list.scrollTop = optionBottom - list.clientHeight;
+  }, [open, activeCursor, results.length]);
+
+  // Options are not focusable (focus stays in the search field for typing), so
+  // the active option is exposed through aria-activedescendant instead.
+  const activeOptionId = results.length > 0 ? `command-option-${activeCursor}` : undefined;
+
+
+  if (!open) return null;
+
+  const run = (item: CommandItem | undefined) => {
+    if (!item) return;
+    onClose();
+    if (item.onSelect) item.onSelect();
+    else if (item.href) router.push(item.href);
+  };
+
+  let flatIndex = -1;
+
+  return (
+    <div
+      data-dialog-root
+      className="fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[12vh]"
+      role="presentation"
+    >
+      <div
+        className="pg-fade-in fixed inset-0 backdrop-blur-[4px]"
+        style={{ backgroundColor: "var(--overlay)" }}
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("command.ariaLabel")}
+        className="pg-scale-in relative w-full max-w-[580px] overflow-hidden rounded-2xl border border-edge-strong bg-surface shadow-2xl"
+      >
+        <div className="flex items-center gap-2.5 border-b border-edge-subtle/80 px-4 py-3.5 focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-[var(--focus-ring)]">
+          <Search className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setCursor(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setCursor((activeCursor + 1) % Math.max(1, results.length));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setCursor((activeCursor - 1 + results.length) % Math.max(1, results.length));
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                run(results[activeCursor]);
+              }
+            }}
+            placeholder={t("command.placeholder")}
+            aria-label={t("command.searchAria")}
+            aria-controls="command-results"
+            aria-activedescendant={activeOptionId}
+            role="combobox"
+            aria-expanded
+            aria-autocomplete="list"
+            className="w-full bg-transparent text-base text-ink placeholder:text-ink-4 focus:outline-none"
+          />
+          <Kbd>{t("command.esc")}</Kbd>
+        </div>
+
+        <div ref={listRef} id="command-results" role="listbox" aria-label={t("command.resultsAria")} className="max-h-[52vh] overflow-y-auto p-2">
+          {results.length === 0 ? (
+            <p className="px-3 py-8 text-center text-sm text-ink-3">
+              {t("command.empty")}
+            </p>
+          ) : (
+            groups.map(([group, groupItems]) => (
+              <div key={group} className="mb-1.5">
+                <div className="label-caps px-3 pb-1 pt-2">{group}</div>
+                {groupItems.map((item) => {
+                  flatIndex += 1;
+                  const index = flatIndex;
+                  const selected = index === activeCursor;
+                  const isCurrentRoute = Boolean(item.href && pathname && isNavItemActive(pathname, item.href));
+                  return (
+                    <button
+                      key={item.id}
+                      id={`command-option-${index}`}
+                      data-option-index={index}
+                      data-active-route={isCurrentRoute || undefined}
+                      type="button"
+                      tabIndex={-1}
+                      role="option"
+                      aria-selected={selected}
+                      onMouseEnter={() => setCursor(index)}
+                      onClick={() => run(item)}
+                      className={`flex min-h-10 w-full items-center gap-2.5 rounded-xl px-3 py-2 text-start text-sm transition-colors duration-100 ${
+                        selected ? "bg-brand-subtle text-ink ring-1 ring-inset ring-edge-accent" : "text-ink-2 hover:bg-surface-2"
+                      }`}
+                    >
+                      {isCurrentRoute && (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
+                      )}
+                      <span className="min-w-0 flex-1 truncate font-[550]">{item.label}</span>
+                      {item.hint && <span className="shrink-0 text-xs text-ink-4">{item.hint}</span>}
+                      {selected ? (
+                        <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-ink-4" aria-hidden />
+                      ) : (
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-4 opacity-0 rtl:-scale-x-100" aria-hidden />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,261 @@
+// Package storage persists small secrets (for example the agent pairing
+// secret) next to the agent config file.
+//
+// On Windows values are sealed with DPAPI before they touch the disk
+// (secure_windows.go, CURRENT_USER + LOCAL_MACHINE scope so both the desktop
+// app and the LocalSystem service can read them). On other platforms a
+// base64 file with owner-only permissions is used as a development fallback
+// (secure_posix.go). The storage layer is platform-agnostic here and must
+// never reference platform-only types so that `go build ./...` succeeds for
+// every GOOS/GOARCH pair (this was a CI regression on windows-latest).
+package storage
+
+import (
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+const secretFile = "agent-secrets.dat"
+
+// IsUserDirectory checks if a path resides inside a user profile / local app data directory.
+func IsUserDirectory(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "appdata") || strings.Contains(lower, "users") || strings.Contains(lower, "userprofile") || strings.Contains(lower, "/home/")
+}
+
+// Store saves key/value secrets under Dir (the agent data directory, e.g.
+// C:\ProgramData\YaseirAgent).
+type Store struct {
+	Dir string
+}
+
+// NewStore returns a Store that persists secrets inside dir.
+func NewStore(dir string) *Store { return &Store{Dir: dir} }
+
+func (s *Store) path() (string, error) {
+	if strings.TrimSpace(s.Dir) == "" {
+		return "", errors.New("storage: Dir is empty")
+	}
+	return filepath.Join(s.Dir, secretFile), nil
+}
+
+func validKey(key string) bool {
+	if key == "" || len(key) > 64 {
+		return false
+	}
+	for _, c := range key {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '_' || c == '.' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// atRestWarningOnce ensures the platform residual-risk warning is loud but
+// not per-save noise.
+var atRestWarningOnce sync.Once
+
+// SaveSecret seals secret under key and rewrites the store file atomically.
+func (s *Store) SaveSecret(key, secret string) error {
+	if !validKey(key) {
+		return fmt.Errorf("storage: invalid key %q", key)
+	}
+	if w := platformAtRestWarning(); w != "" {
+		atRestWarningOnce.Do(func() { log.Printf("WARNING: storage at-rest secrecy: %s", w) })
+	}
+	p, err := s.path()
+	if err != nil {
+		return err
+	}
+	dense, err := platformEncrypt([]byte(secret))
+	if err != nil {
+		return fmt.Errorf("storage: encrypt %q: %w", key, err)
+	}
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("storage: create dir %s: %w", dir, err)
+	}
+	if err := EnsureSecureDirectoryACL(dir); err != nil {
+		return fmt.Errorf("storage: secure dir %s: %w", dir, err)
+	}
+	entries, err := readEntries(p)
+	if err != nil {
+		return err
+	}
+	encoded := base64.RawStdEncoding.EncodeToString(dense)
+	replaced := false
+	for i, e := range entries {
+		if e.Key == key {
+			entries[i].Value = encoded
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		entries = append(entries, entry{Key: key, Value: encoded})
+	}
+
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.Key)
+		b.WriteByte('=')
+		b.WriteString(e.Value)
+		b.WriteByte('\n')
+	}
+	// Unique temp file per save: a fixed "<name>.tmp" path collides when two
+	// saves interleave (the registry and desired-state writers already use
+	// os.CreateTemp for exactly this reason). CreateTemp files are 0600.
+	tmpFile, err := os.CreateTemp(filepath.Dir(p), ".secure-*.tmp")
+	if err != nil {
+		return fmt.Errorf("storage: create temp for %s: %w", p, err)
+	}
+	tmp := tmpFile.Name()
+	if _, err := tmpFile.Write([]byte(b.String())); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: write %s: %w", tmp, err)
+	}
+	// Flush to stable storage before the atomic rename: without Sync, a
+	// crash between write and flush can leave an empty/corrupt secrets file
+	// and the agent idles unpaired on next Load.
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: sync temp %s: %w", tmp, err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: close temp %s: %w", tmp, err)
+	}
+	// Protect the transient file before the atomic replace so a pre-existing
+	// Windows DACL can never survive on a security-sensitive child object.
+	if err := EnsureSecureFileACL(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: secure temp %s: %w", tmp, err)
+	}
+	if err := replaceFile(tmp, p); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("storage: replace %s: %w", p, err)
+	}
+	if err := EnsureSecureFileACL(p); err != nil {
+		return fmt.Errorf("storage: secure file %s: %w", p, err)
+	}
+	return nil
+}
+
+// GetSecret returns the secret stored under key. When the key has not been
+// configured yet it returns an error that callers can detect with
+// errors.Is(err, ErrNotFound).
+func (s *Store) GetSecret(key string) (string, error) {
+	// Warn on the READ path too. A pre-existing store file written by another
+	// process (or an earlier version) is never warned about by SaveSecret, so
+	// an agent that only ever loads a credential would otherwise treat a
+	// base64-framed file as if it were sealed.
+	if w := platformAtRestWarning(); w != "" {
+		atRestWarningOnce.Do(func() { log.Printf("WARNING: storage at-rest secrecy: %s", w) })
+	}
+	p, err := s.path()
+	if err != nil {
+		return "", err
+	}
+	entries, err := readEntries(p)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.Key != key {
+			continue
+		}
+		dense, err := base64.RawStdEncoding.DecodeString(e.Value)
+		if err != nil {
+			return "", fmt.Errorf("storage: decode %q: %w", key, err)
+		}
+		plain, err := platformDecrypt(dense)
+		if err != nil {
+			return "", fmt.Errorf("storage: decrypt %q: %w", key, err)
+		}
+		return string(plain), nil
+	}
+	return "", fmt.Errorf("storage: secret %q: %w", key, ErrNotFound)
+}
+
+// ErrNotFound is returned by GetSecret when no secret exists for a key.
+var ErrNotFound = errors.New("not found")
+
+type entry struct {
+	Key   string
+	Value string
+}
+
+const maxSecretStoreBytes = 1 << 20
+
+func readEntries(p string) ([]entry, error) {
+	lstatInfo, err := os.Lstat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("storage: stat %s: %w", p, err)
+	}
+	if !lstatInfo.Mode().IsRegular() || lstatInfo.Size() > maxSecretStoreBytes {
+		return nil, fmt.Errorf("storage: %s is not a bounded regular file", p)
+	}
+	if err := EnsureSecureDirectoryACL(filepath.Dir(p)); err != nil {
+		return nil, fmt.Errorf("storage: secure dir %s: %w", filepath.Dir(p), err)
+	}
+	if err := EnsureSecureFileACL(p); err != nil {
+		return nil, fmt.Errorf("storage: secure file %s: %w", p, err)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("storage: open %s: %w", p, err)
+	}
+	openInfo, statErr := f.Stat()
+	if statErr != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("storage: stat open %s: %w", p, statErr)
+	}
+	if !openInfo.Mode().IsRegular() || !os.SameFile(lstatInfo, openInfo) || openInfo.Size() > maxSecretStoreBytes {
+		_ = f.Close()
+		return nil, fmt.Errorf("storage: %s changed during open", p)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(f, maxSecretStoreBytes+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("storage: read %s: %w", p, readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("storage: close %s: %w", p, closeErr)
+	}
+	if len(data) > maxSecretStoreBytes {
+		return nil, fmt.Errorf("storage: %s exceeds %d bytes", p, maxSecretStoreBytes)
+	}
+	var entries []entry
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || !validKey(k) {
+			return nil, fmt.Errorf("storage: corrupt entry in %s", p)
+		}
+		entries = append(entries, entry{Key: k, Value: v})
+	}
+	return entries, nil
+}

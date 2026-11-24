@@ -1,0 +1,576 @@
+name: CI
+
+on:
+  push:
+    branches: [main, test/http-server-ready]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  workflow_dispatch:
+
+
+# A new main push cancels the obsolete running push verification for this workflow.
+# New PR revisions also cancel earlier attempts for that PR. Manual,
+# scheduled and merge-queue runs remain isolated by their unique run_id.
+concurrency:
+  group: ci-run-${{ github.event_name == 'push' && github.ref || github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      app: ${{ steps.scope.outputs.app }}
+      agent: ${{ steps.scope.outputs.agent }}
+      odoo: ${{ steps.scope.outputs.odoo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
+  agent:
+    name: Agent / Go
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.agent == 'true'
+    # Each main SHA needs its own verification queue. The GitHub Actions
+    # concurrency service replaces older PENDING jobs in a shared ref group
+    # even when cancel-in-progress is false; keep PR duplication grouped by ref.
+    concurrency:
+      group: ci-agent-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+      - name: Restore staticcheck cache
+        id: staticcheck-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/staticcheck
+          key: ${{ runner.os }}-staticcheck-v0.7.0
+      - name: Agent modules and format
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod verify
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo 'gofmt required on:'
+            printf '%s\n' "$unformatted"
+            # Include the exact canonical formatting delta in failed job logs.
+            # This remains a hard failure: no autofix and no scanner bypass.
+            gofmt -d . | sed -n '1,240p'
+            exit 1
+          fi
+      - name: Agent race tests and vet
+        working-directory: agent
+        run: go test -mod=readonly -race -vet=all ./...
+      - name: Agent dead-code scan
+        working-directory: agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          staticcheck="$(go env GOPATH)/bin/staticcheck"
+          if [ ! -x "$staticcheck" ]; then
+            go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          fi
+          "$staticcheck" -checks=U1000 ./...
+      - name: Save staticcheck cache
+        if: github.event_name != 'pull_request' && steps.staticcheck-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/staticcheck
+          key: ${{ runner.os }}-staticcheck-v0.7.0
+
+  app-quality:
+    name: App / Quality
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.app == 'true'
+    # Each main SHA needs its own verification queue. The GitHub Actions
+    # concurrency service replaces older PENDING jobs in a shared ref group
+    # even when cancel-in-progress is false; keep PR duplication grouped by ref.
+    concurrency:
+      group: ci-quality-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify relative imports only
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern="$(printf '\x40/')"
+          # Markdown is prose, not code: docs and audit logs must be free to
+          # discuss the forbidden pattern (two CI runs failed on a doc
+          # comment and a log line naming it). The tsconfig check below and
+          # the scan of every compiled source still enforce the rule where
+          # it matters.
+          if grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next --exclude='*.lock' --exclude='*.svg' --exclude='*.png' --exclude='*.ico' --exclude='*.md' "$pattern" .; then
+            echo "Path aliases are forbidden. Use relative imports."
+            exit 1
+          fi
+          if grep -nE '"baseUrl"|"paths"' tsconfig.json; then
+            echo "TypeScript path mapping is forbidden."
+            exit 1
+          fi
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npx --yes npm@12.2.1 ci --prefer-offline --no-audit --fund=false
+      - name: Cross-language production source inventory
+        run: python3 tests/production-source-audit.py --output production-source-audit.json
+      - name: Retain full dead-code and integrity candidate report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: production-source-audit
+          path: production-source-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: i18n catalog check (en/ar parity, tc() bases)
+        run: npm run i18n:check
+      - name: Native Node regressions (actual modules and contracts)
+        run: node --experimental-vm-modules --test tests/*.test.mjs
+      - name: Odoo translation catalog check
+        run: npm run i18n:odoo:check
+      - name: DB schema/migration/docs drift check
+        run: npm run db:docs:check
+      - name: Shared typography token drift check
+        run: npm run typography:check
+      - name: Validate Odoo 19 addon XML conventions
+        run: |
+          if grep -R -nE '<tree([[:space:]>])|attrs=|states=' odoo_addons/print_gateway/views; then
+            echo 'Odoo 19 incompatibility detected.'
+            exit 1
+          fi
+      - name: Verify Odoo Gateway icon is distinct from desktop Agent icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          odoo_icon="odoo_addons/print_gateway/static/description/icon.png"
+          agent_icon="src-tauri/icons/icon.png"
+          test -s "$odoo_icon" || { echo "Odoo Gateway icon is missing or empty."; exit 1; }
+          test -s "$agent_icon" || { echo "Desktop Agent icon is missing or empty."; exit 1; }
+          odoo_icon_sha="$(sha256sum "$odoo_icon" | awk '{print $1}')"
+          agent_icon_sha="$(sha256sum "$agent_icon" | awk '{print $1}')"
+          test "$odoo_icon_sha" != "$agent_icon_sha" || {
+            echo "Odoo Gateway and desktop Agent icons must remain separate brand assets."
+            exit 1
+          }
+          echo "Verified separate Odoo Gateway and desktop Agent icons."
+
+      - name: Install pinned Rust for Python native helper regressions
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.98.1
+        with:
+          toolchain: 1.98.1
+      - name: Run Odoo static contract tests (Python)
+        run: |
+          python3 -m pip install --break-system-packages -r requirements-test.txt
+          # Odoo __init__ modules intentionally import for registration.
+          find odoo_addons scripts tests -name '*.py' ! -name '__init__.py' -print0 | xargs -0 python3 -m pyflakes
+          pytest tests/test_*.py
+      - name: Run unit tests (no DB)
+        run: npm run test:unit
+
+  ci:
+    name: App / Gateway
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.app == 'true'
+    # Each main SHA needs its own verification queue. The GitHub Actions
+    # concurrency service replaces older PENDING jobs in a shared ref group
+    # even when cancel-in-progress is false; keep PR duplication grouped by ref.
+    concurrency:
+      group: ci-gateway-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start pinned PostgreSQL with rate-limit-only registry fallback
+        shell: bash
+        env:
+          CI_PG_USER: postgres
+          CI_PG_PASSWORD: postgres
+          CI_PG_DATABASE: app_db
+        run: bash scripts/ci-postgres.sh start
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npx --yes npm@12.2.1 ci --prefer-offline --no-audit --fund=false
+      - name: Build Next.js for production-server integration tests
+        run: npm run build
+      - name: Run Drizzle migrations
+        run: npm run db:migrate
+      - name: Verify final runtime-only schema
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            legacy_tables text[] := ARRAY['branches','destinations','document_types','local_networks','printer_bindings'];
+            legacy_columns text[] := ARRAY['branch_id','destination_id','local_network_id'];
+            table_name_value text;
+            column_name_value text;
+            expected record;
+          BEGIN
+            FOREACH table_name_value IN ARRAY legacy_tables LOOP
+              IF to_regclass('public.' || table_name_value) IS NOT NULL THEN
+                RAISE EXCEPTION 'legacy Gateway business table still exists: %', table_name_value;
+              END IF;
+            END LOOP;
+            FOREACH column_name_value IN ARRAY legacy_columns LOOP
+              IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND column_name=column_name_value
+                  AND table_name IN ('agents','printers','print_jobs','api_keys','discovery_sessions','discovered_devices')
+              ) THEN
+                RAISE EXCEPTION 'legacy Gateway ownership column still exists: %', column_name_value;
+              END IF;
+            END LOOP;
+            -- The License/WebSocket architecture does not deploy printing runtime
+            -- tables. Enforce their contract only when they are part of the schema.
+            IF to_regclass('public.print_jobs') IS NOT NULL THEN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='print_jobs' AND column_name='destination'
+            ) THEN RAISE EXCEPTION 'print_jobs.destination is missing'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='printers' AND column_name='printer_type'
+                AND (column_default IS NULL OR column_default NOT LIKE '%physical%')
+            ) THEN RAISE EXCEPTION 'printers.printer_type default does not match the application contract (physical)'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='printers' AND column_name='connection_type'
+                AND (column_default IS NULL OR column_default NOT LIKE '%network%')
+            ) THEN RAISE EXCEPTION 'printers.connection_type default does not match the application contract (network)'; END IF;
+            END IF; -- printing runtime schema contract
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='api_keys' AND column_name='read_only_until'
+            ) THEN RAISE EXCEPTION 'api_keys.read_only_until is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='api_keys_read_only_until_check' AND conrelid = 'public.api_keys'::regclass
+            ) THEN RAISE EXCEPTION 'Odoo key rotation state constraint is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='tenant_subscriptions' AND column_name='entitlement_blocked'
+            ) THEN RAISE EXCEPTION 'tenant_subscriptions.entitlement_blocked is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='tenant_subscriptions' AND column_name='entitlement_blocked_reason'
+            ) THEN RAISE EXCEPTION 'tenant_subscriptions.entitlement_blocked_reason is missing'; END IF;
+            IF to_regclass('public.printers') IS NOT NULL THEN
+            FOREACH column_name_value IN ARRAY ARRAY['management_source','desired_revision','applied_desired_revision','observed_device_class'] LOOP
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='printers' AND column_name=column_name_value
+              ) THEN RAISE EXCEPTION 'desired-state printer column is missing: %', column_name_value; END IF;
+            END LOOP;
+            IF EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='printers'
+                AND indexname='printers_gateway_id_global_unique'
+            ) THEN RAISE EXCEPTION 'global printer id uniqueness must not exist after tenant-scoped identity'; END IF;
+            -- Historical tables in legacy_printing intentionally retain
+            -- identically named *_pkey constraints. Only public runtime
+            -- relations are subject to the tenant-scope identity invariant.
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_pkey'
+                AND conrelid = 'public.printers'::regclass
+            ) THEN RAISE EXCEPTION 'printers must not have a global primary key on id'; END IF;
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='discovered_devices_pkey'
+                AND conrelid = 'public.discovered_devices'::regclass
+            ) THEN RAISE EXCEPTION 'discovered_devices must not have a global primary key on id'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_tenant_id_unique' AND conrelid = 'public.printers'::regclass
+            ) THEN RAISE EXCEPTION 'printers tenant-scoped identity unique constraint is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='printers'
+                AND indexname='printers_agent_lifecycle_desired_idx'
+            ) THEN RAISE EXCEPTION 'desired-state printer index is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname='printers_desired_revision_check' AND conrelid = 'public.printers'::regclass
+            ) THEN RAISE EXCEPTION 'desired-state printer revision constraint is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='discovery_sessions'
+                AND indexname='discovery_sessions_active_agent_unique'
+            ) THEN RAISE EXCEPTION 'running discovery session uniqueness index is missing'; END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='print_jobs'
+                AND indexname='print_jobs_tenant_idempotency_unique'
+            ) THEN RAISE EXCEPTION 'tenant-scoped print idempotency index is missing'; END IF;
+            END IF; -- printing runtime schema contract
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_indexes
+              WHERE schemaname='public' AND tablename='tenant_users'
+                AND indexname='tenant_users_single_owner_idx'
+            ) THEN RAISE EXCEPTION 'single tenant owner uniqueness index is missing'; END IF;
+            IF to_regclass('public.print_jobs') IS NOT NULL THEN
+            -- Verify every runtime cross-object relationship carries tenant
+            -- identity into the foreign key. Inspect pg_constraint metadata rather
+            -- than the formatted SQL text so harmless PostgreSQL formatting
+            -- differences cannot make the release gate flaky.
+            FOR expected IN
+              SELECT *
+              FROM (VALUES
+                ('printers', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovery_sessions', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'discovery_sessions', ARRAY['tenant_id','discovery_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('discovered_devices', 'printers', ARRAY['tenant_id','provisioned_printer_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('print_jobs', 'agents', ARRAY['tenant_id','agent_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                ('print_jobs', 'printers', ARRAY['tenant_id','printer_id']::text[], ARRAY['tenant_id','id']::text[], false),
+                -- Historical API-key ID no longer has a live-credential FK.
+                ('job_events', 'print_jobs', ARRAY['tenant_id','job_id']::text[], ARRAY['tenant_id','id']::text[], true)
+              ) AS v(child_table, parent_table, child_columns, parent_columns, require_cascade)
+            LOOP
+              IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class child ON child.oid = c.conrelid
+                JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
+                JOIN pg_class parent ON parent.oid = c.confrelid
+                JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+                WHERE c.contype = 'f'
+                  AND child_ns.nspname = 'public'
+                  AND parent_ns.nspname = 'public'
+                  AND child.relname = expected.child_table
+                  AND parent.relname = expected.parent_table
+                  AND c.conkey = (
+                    SELECT array_agg(att.attnum ORDER BY cols.ord)
+                    FROM unnest(expected.child_columns) WITH ORDINALITY AS cols(column_name, ord)
+                    JOIN pg_attribute att
+                      ON att.attrelid = child.oid
+                     AND att.attname = cols.column_name
+                  )
+                  AND c.confkey = (
+                    SELECT array_agg(att.attnum ORDER BY cols.ord)
+                    FROM unnest(expected.parent_columns) WITH ORDINALITY AS cols(column_name, ord)
+                    JOIN pg_attribute att
+                      ON att.attrelid = parent.oid
+                     AND att.attname = cols.column_name
+                  )
+                  AND (
+                    NOT expected.require_cascade
+                    OR c.confdeltype = 'c'
+                  )
+              ) THEN
+                RAISE EXCEPTION 'Missing tenant-scoped foreign key %.(%)->%.(%)',
+                  expected.child_table,
+                  array_to_string(expected.child_columns, ','),
+                  expected.parent_table,
+                  array_to_string(expected.parent_columns, ',');
+              END IF;
+            END LOOP;
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'print_jobs_tenant_id_api_key_id_api_keys_fk' AND conrelid = 'public.print_jobs'::regclass) THEN
+              RAISE EXCEPTION 'historical print_jobs.api_key_id must not block API key removal';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'print_jobs_api_key_tenant_insert_guard' AND tgrelid = 'public.print_jobs'::regclass AND NOT tgisinternal) THEN
+              RAISE EXCEPTION 'new job API-key tenant guard missing';
+            END IF;
+            END IF; -- printing runtime schema contract
+          END $$;
+          SQL
+      - name: Run integration tests (PostgreSQL)
+        env:
+          RUN_MULTI_INSTANCE_TEST: '1'
+        run: npm run test:integration
+      - name: Stop temporary CI PostgreSQL
+        if: always()
+        run: bash scripts/ci-postgres.sh stop
+
+  odoo19:
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.odoo == 'true'
+    # Each main SHA needs its own verification queue. The GitHub Actions
+    # concurrency service replaces older PENDING jobs in a shared ref group
+    # even when cancel-in-progress is false; keep PR duplication grouped by ref.
+    concurrency:
+      group: ci-odoo-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start pinned PostgreSQL with rate-limit-only registry fallback
+        shell: bash
+        env:
+          CI_PG_USER: odoo
+          CI_PG_PASSWORD: odoo
+          CI_PG_DATABASE: postgres
+        run: bash scripts/ci-postgres.sh start
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h 127.0.0.1 -p 5432 -U odoo -d postgres && break
+            sleep 1
+          done
+          pg_isready -h 127.0.0.1 -p 5432 -U odoo -d postgres
+      - name: Create Odoo test database
+        env:
+          PGPASSWORD: odoo
+        run: createdb -h 127.0.0.1 -U odoo odoo19_test
+      - name: Build the exact hardened Odoo 19 runtime
+        id: hardened-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform=linux/amd64 \
+            --file Dockerfile.odoo-hardened \
+            --iidfile "$RUNNER_TEMP/odoo-hardened.image-id" \
+            --tag "yaseir-odoo-hardened:${GITHUB_SHA}" .
+          test -s "$RUNNER_TEMP/odoo-hardened.image-id"
+          docker image inspect "$(cat "$RUNNER_TEMP/odoo-hardened.image-id")" \
+            --format '{{.Id}} {{.Config.User}}'
+          printf 'image_id=%s\n' "$(cat "$RUNNER_TEMP/odoo-hardened.image-id")" >> "$GITHUB_OUTPUT"
+      - name: Install and test addon in the exact hardened Odoo image
+        shell: bash
+        run: |
+          set -euo pipefail
+          credential_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
+          admin_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(40))')"
+          odoo_image="$(cat "$RUNNER_TEMP/odoo-hardened.image-id")"
+          # Test the built image by immutable local content ID. Its source,
+          # Python environment and addon are carried in the image itself.
+          rm -f /tmp/odoo19_test.log
+          # The released Odoo image retains a real HTTP HEALTHCHECK.
+          # During native tests, the database/registry is deliberately held
+          # by long transactions. Background /web/health requests then block
+          # for up to ~190s, pile up Odoo HTTP threads on a shared CI runner
+          # and starve the test's lock-observer thread. Disable the probe
+          # ONLY on this ephemeral test container; do not omit a single test.
+          timeout --signal=TERM --kill-after=30s 12m \
+            docker run --rm --no-healthcheck --network host --name odoo19_test_run \
+              -e PGHOST=127.0.0.1 \
+              -e PGPORT=5432 \
+              -e PGUSER=odoo \
+              -e PGPASSWORD=odoo \
+              -e PGDATABASE=odoo19_test \
+              -e ODOO_ADMIN_PASSWORD="$admin_password" \
+              -e ODOO_PRINT_GATEWAY_CREDENTIAL_ACTIVE_VERSION=1 \
+              -e ODOO_PRINT_GATEWAY_CREDENTIAL_KEY_V1_B64="$credential_key" \
+              -v "$GITHUB_WORKSPACE/agent:/opt/agent:ro" \
+              -v "$GITHUB_WORKSPACE/src:/opt/src:ro" \
+              "$odoo_image" \
+                --database=odoo19_test \
+                --addons-path=/opt/odoo/odoo/addons,/opt/odoo/addons,/opt/yaseir-addons \
+                --workers=0 --max-cron-threads=0 \
+                --without-demo=true \
+                --http-interface=127.0.0.1 \
+                --init=print_gateway \
+                --test-tags=/print_gateway \
+                --stop-after-init \
+                --log-level=test 2>&1 | tee /tmp/odoo19_test.log
+      - name: Assert the Odoo addon tests actually ran and passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-odoo-test-results.py \
+            --tests-dir odoo_addons/print_gateway/tests \
+            --log /tmp/odoo19_test.log
+      - name: Generate an SBOM for the tested Odoo image
+        if: ${{ !cancelled() && steps.hardened-image.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.hardened-image.outputs.image_id }}
+          format: cyclonedx
+          output: odoo-hardened.cdx.json
+          exit-code: '0'
+      - name: Scan the exact tested Odoo image
+        if: ${{ !cancelled() && steps.hardened-image.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.hardened-image.outputs.image_id }}
+          format: sarif
+          output: odoo-hardened.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          ignore-unfixed: false
+          # Preserve the full SARIF; the next fail-closed step permits only
+          # individually reviewed, time-bound findings for this exact image.
+          exit-code: '0'
+      - name: Enforce reviewed Odoo image findings
+        if: ${{ !cancelled() && steps.hardened-image.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The exception list is bound to the immutable Dockerfile and
+          # Python dependency locks that were reviewed. Any change requires
+          # a new security review rather than silently inheriting exceptions.
+          test "$(git hash-object Dockerfile.odoo-hardened)" = "c997c4a856ec78857df1ed8c91115db470f81845"
+          test "$(git hash-object docs/runtime-hardening/requirements-python312-linux-x86_64.lock)" = "cf95639c3a246d0bfb840f5b7526e0a8f13b899e"
+          test "$(git hash-object docs/runtime-hardening/build-tools.lock)" = "96b65dba00600b2c78b4af0ff5eaf2c83365c672"
+          test "$(git hash-object scripts/package-pillow-wheel-as-deb.py)" = "8debfa06e5117e0e35671bdd4ce37cae700ef603"
+          test "$(git hash-object scripts/apply-perl-podlators-security-fix.py)" = "2456807a457ef30c3842c817dd83d806463b5e96"
+          test -s odoo-hardened.sarif
+          python3 scripts/check-trivy-baseline.py odoo-hardened.sarif yaseir-odoo-hardened:review-20261105
+      - name: Retain exact Odoo image evidence
+        if: ${{ !cancelled() && steps.hardened-image.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: odoo-hardened-image
+          path: |
+            odoo-hardened.cdx.json
+            odoo-hardened.sarif
+            /tmp/odoo19_test.log
+            ${{ runner.temp }}/odoo-hardened.image-id
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop temporary CI PostgreSQL
+        if: always()
+        run: bash scripts/ci-postgres.sh stop

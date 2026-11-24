@@ -1,0 +1,250 @@
+# Troubleshooting Guide
+
+## Agent Issues
+
+### Agent not appearing on Gateway dashboard
+
+**Symptoms**: Agent is running but Gateway shows no agent.
+
+**Checklist**:
+1. Verify agent config has a valid `server.url` pointing to the Gateway
+2. Verify agent has been registered (has `agent.id` and `agent.secret`)
+3. Check agent logs for "Heartbeat rejected" or "WebSocket dial failed"
+4. Verify the Gateway URL is reachable from the agent machine
+5. Check the API key is valid and the tenant is `active`
+
+### Printers not appearing on Gateway
+
+**Symptoms**: Agent shows printers locally but Gateway shows none.
+
+**Cause**: Printers are reported via heartbeat (every 30s). After manual registration or discovery, wait up to 30 seconds.
+
+**Checklist**:
+1. Verify the agent heartbeat is succeeding (no "Heartbeat rejected" in logs)
+2. Check for "printer rejected by gateway" log entries
+3. Verify the agent is online on the Gateway dashboard
+4. Run discovery from the Desktop Manager to force a fresh scan
+
+### Discovery is stuck in running / only some printers appear
+
+**Cause**: A discovery scan may complete locally but fail to upload its observations
+if the Agent disconnects, the Gateway rejects a report, or a scan produces a
+large inventory. This is distinct from a printer being offline.
+
+**Resolution**:
+1. Check the Agent log for `[discovery]` page numbers, HTTP status, and the
+   `report incomplete` warning. Candidate reports are uploaded in sequential,
+   bounded chunks; the Gateway acknowledges each committed chunk, including
+   a replay of an already-committed final chunk after a lost HTTP response.
+2. If a report stops partway through, do **not** infer that a device disappeared.
+   Previously observed devices remain in the inventory, with individual
+   approval/verification rules unchanged.
+3. A scan with no committed progress for **10 minutes** is marked failed, or
+   partial when it has preserved observations. Expiration is performed when
+   the Agent polls or a manager starts/views discovery; it is not a continuous
+   background timer. This reclaims the one-active-scan slot without deleting
+   earlier observations.
+4. Investigate Agent/Gateway connectivity, authentication, source timeouts and
+   payload rejection before triggering a new scan. A restarted scan may report
+   a different set of devices; it does not silently resume an unfinished
+   snapshot from the previous scan.
+5. These controls are independently testable at the API and Agent boundaries;
+   end-to-end Windows discovery still requires staging hardware acceptance.
+
+### Print job stuck in "claimed" status
+
+**Cause**: The agent received the claim but did not report a terminal status.
+
+**Resolution**:
+- The gateway's stale-claim sweep runs every 30 seconds. Claims older than 90 seconds without delivery evidence are automatically requeued.
+- If a job is stuck longer, check agent logs for the job ID to see if printing is blocking.
+
+### Windows queue status is unavailable after a spooler probe timeout
+
+**Cause**: The Windows Spooler RPC did not respond within the bounded probe timeout. The current printer status remains `unknown`; a timeout diagnostic such as `spooler_rpc_unresponsive` is not evidence that the physical printer is offline.
+
+**Resolution**:
+1. Check if the Windows Print Spooler service is running
+2. Restart the Print Spooler service: `net stop spooler && net start spooler`
+3. Check if the printer driver is frozen or in an error state
+
+### Agent stops with "CRITICAL: Agent not registered"
+
+**Cause**: The agent config file has no `agent.id`. The agent stays alive waiting for pairing from the Desktop Manager.
+
+**Resolution**: Use the Desktop Manager to pair the agent with the Gateway, or run `agent register` via the CLI.
+
+## Gateway Issues
+
+### "Invalid or missing trust proxy secret" on startup
+
+**Cause**: `TRUST_PROXY_SECRET` is not set or is a known placeholder.
+
+**Resolution**: Set a random string ≥ 32 characters. Configure your reverse proxy to send it in the `X-Gateway-Proxy-Token` header.
+
+### Migration fails with "no unique constraint matching given keys"
+
+**Cause**: Missing `--> statement-breakpoint` separators in migration 0028.
+
+**Resolution**: This was fixed in migration 0041. Ensure all migrations through 0041 are present. See [MIGRATION.md](./MIGRATION.md).
+
+### Jobs delivered but never printed
+
+**Checklist**:
+1. Check the agent is online (heartbeat within last 90s)
+2. Inspect the printer's **fresh status evidence**. `unknown` after TCP/SNMP discovery means device readiness was not observed (not that the printer is necessarily offline); an explicit `offline` or `error` requires a protocol/queue check. An Agent being online does not prove the printer is ready.
+3. Check both counters: `delivery_attempts` may have reached the delivery ceiling, while `retries` may have reached the safe requeue ceiling
+4. Check agent logs for the specific job ID
+5. Verify the printer protocol matches the payload type (e.g., PDF cannot go to ESC/POS)
+
+### Local printer is missing from Gateway or reports `PRINTER_NOT_SHARED`
+
+Check the printer's Gateway-sharing control in the Agent. The local Administrator chooses whether that queue is published; Windows readiness and Windows network sharing are separate. Saving works offline, but cloud lists and tests update after the Agent reconnects and a newer inventory snapshot is accepted. A local-only printer remains available to Windows and visible locally. Sharing a per-user setup candidate does not make it accessible to the Windows service.
+
+If the protected sharing policy cannot be read, publication and new cloud execution fail closed. Restore a valid backed-up `printer-sharing.json` or repair its permissions as Administrator; removing the file deliberately restores legacy sharing defaults. Already admitted jobs and terminal/UNKNOWN outcomes continue to reconcile. The desktop refuses oversized local list responses above its bounded512KiB transport limit without truncating or claiming a successful refresh.
+
+When any printer has been made private, a new cloud-only Windows queue name must first be accepted locally on the selected Agent. Install that queue for its Windows account or register its exact destination with the existing local `printers add` command, then refresh and choose sharing in the Agent. A Gateway-provided UNC hostname alone cannot authorize an unknown destination. Remote queues already accepted locally remain supported; do not register a queue on a different computer merely because its Agent was selected in the Gateway.
+
+## Odoo Integration Issues
+
+### Odoo Agent/Printer dropdowns are empty
+
+**Cause**: The dropdowns call Gateway API endpoints (`/api/odoo/agents`, `/api/odoo/printers`).
+
+**Checklist**:
+1. Verify the Gateway Config has a valid URL and API key
+2. Test the connection using the "Test Connection" button on the Gateway Config form
+3. Verify the Gateway has registered agents (check Gateway dashboard)
+4. Check the browser console for API errors
+5. Verify the API key has not been revoked
+
+### Odoo login fails with "Session expired (invalid CSRF token)"
+
+**Possible causes**: A browser may omit the Odoo session cookie in an embedded or
+cross-site frame, or Odoo may receive an incorrect public origin/scheme behind a
+reverse proxy. The error alone does not prove either cause.
+
+**Troubleshooting**:
+1. Open Odoo in a top-level HTTPS tab. If this works but an embedded frame does
+   not, inspect the browser's third-party cookie and iframe restrictions.
+2. Verify the trusted proxy forwards the correct host/scheme and configure
+   Odoo's `proxy_mode = True` where appropriate for that deployment. This setting
+   does **not** by itself guarantee a `SameSite=None` session cookie.
+3. Inspect the actual login response `Set-Cookie` attributes (`SameSite`,
+   `Secure`, path/domain) and whether the subsequent login POST includes the
+   expected cookie. Test against the installed Odoo/browser versions.
+4. Prefer first-party, top-level login when third-party cookies are restricted.
+   `SameSite=None` requires HTTPS/`Secure` when supported, but do not assume a
+   proxy configuration automatically applies it. Do not disable Odoo's CSRF
+   protection as a workaround.
+
+### Report downloads PDF instead of printing via Gateway
+
+**Cause**: No binding exists for the report/destination/company/branch combination.
+
+**Resolution**:
+1. Create a binding matching the report, destination, company, and branch
+2. Verify the binding is enabled and has a valid agent + printer
+3. Check the `print_gateway.binding` list for the expected entry
+4. Check the browser console for interceptor errors
+
+### POS receipt printing fails silently
+
+**Checklist**:
+1. Verify `pos.session.is_gateway_printing_enabled` returns `true`
+2. Verify the POS order has been synced (has a server ID)
+3. Check if a binding exists for the POS config with document type "receipt"
+4. Check the Odoo server logs for `print_gateway.print_router` errors
+5. Verify the rendered receipt image is not empty
+
+### Diagnostic ticket format or printer transport is unsupported
+
+For a known thermal POS/kitchen binding, configure58mm or80mm on the exact selected Agent/Gateway printer and synchronize it before the Odoo document test. Missing or malformed selected media now fails before either PDF renderer or the outbox; do not infer paper from a POS80 name or printable dot width. Other generic/office diagnostics keep their existing document format.
+
+Windows document printing first requests the document form and otherwise uses the same selected driver's validated current paper, fitting the complete page inside printable bounds before `StartDocW`. If media is still rejected, compare `requested`, `driver physical`, `printable`, `DPI` and `offset`: an unusable driver/default or invalid geometry cannot be repaired by claiming success. A physical72.1mm width is the driver's reported sheet width, not proof of an80mm roll. Correct the supported Windows form/driver and retry only a proven pre-submission rejection. If pages may have been submitted, inspect the printer and retain `UNKNOWN` rather than blindly retrying. Direct printer-language/IPP jobs do not acquire Windows driver fitting; use an explicitly selected installed Windows queue when that rendering path is needed.
+
+**Cause**: The test-page producer emits byte tickets for `escpos`, `zpl`, `tspl`, and `raw`. For Windows Spooler and IPP/IPPS document transports, it instead builds a generated PDF test ticket (`type: pdf`, base64) to be rendered by the Agent/driver. A transport with neither supported bytes nor a document-print path cannot be automatically tested.
+
+**Resolution**: Verify the spooler queue's installed driver, PDF rendering support, Agent service-account access and IPP document-format capabilities, then send the generated PDF test ticket. Distinguish Gateway admission from confirmed driver acceptance and physical paper output. A Real document/report (for example, an Odoo invoice) and an observed physical print are still required for end-to-end acceptance, including Arabic fonts and page dimensions.
+
+## Performance
+
+### Agent startup takes 8-10 seconds
+
+**Cause**: Full network/USB discovery scans run asynchronously after startup. The initial 2-second delay is intentional.
+
+**Impact**: The agent is functional immediately (serves existing registered printers). New printers appear after discovery completes (~8-10s).
+
+### Heartbeat probe timeouts
+
+**Cause**: Status probes to offline printers may take up to 2 seconds each.
+
+**Impact**: Running, deferred or timed-out probes report `unknown` current health instead of refreshing cached ready/offline/fault evidence. The interface shows that the status is unavailable until a completed fresh read succeeds; inspect probe diagnostics separately. A timeout does not establish a physical printer fault.
+
+### IPP endpoint configuration or capability probe errors
+
+An invalid IPP URI produces a sanitized error; the Agent does not echo a malformed URI that may contain credentials. IPP addresses configured through the Agent must use an allowed private/link-local IP, an approved port and **no embedded user credentials**. Confirm the printer URI through the authorized console rather than pasting credentials into logs. Large or malformed IPP capability responses fail explicitly instead of being interpreted as a valid truncated response. These checks validate configuration/protocol evidence, **not** physical paper output.
+
+If `document-format-supported` cannot be verified (including denied authentication, a malformed response or absent formats), no document is submitted. Use the exact advertised queue URI or the installed Windows spooler queue; the Agent does not send PDF speculatively. A non200 or nonIPP response **after** Print-Job remains an unknown physical outcome and must not be retried blindly. See [IPP compatibility](docs/IPP_PRINT_COMPATIBILITY.md).
+
+## Windows deployment: IPP timeout and headless PDFium failures
+
+These two errors refer to different transports. Do **not** retry an ambiguous
+post-submission error just because a printer status screen later says `unknown`.
+
+### `IPP printer ...:631/ipp/print unreachable (request not sent)`
+
+This is a TCP **dial** failure, before document submission, so it proves only
+that this attempt did not send a Print-Job request. On the **Agent Windows PC**
+(not the Gateway server), run:
+
+```powershell
+Test-NetConnection 192.168.8.34 -Port 631  # substitute the configured printer address
+Test-NetConnection 192.168.8.34 -Port 9100 # diagnostic only, not permission to switch protocols
+```
+
+If 631 is closed or times out, verify the current printer IP, network/VLAN,
+firewall, IPP/IPP Everywhere support and **actual** advertised queue resource
+path. An open 631 port still needs a successful `Get-Printer-Attributes`
+response and a `document-format-supported` match. If this is an ESC/POS thermal
+printer that uses RAW TCP/9100 rather than IPP, configure the documented RAW or
+ESC/POS **byte** path and send compatible commands; do not send PDF to it. If
+Windows has an installed driver and the queue works for that service identity,
+select its Windows **spooler** transport instead. Do not silently change an
+existing printer or infer support from an open port.
+
+Agent IPP traffic uses direct TCP without inheriting HTTP proxy environment
+settings. Connection setup is bounded to five seconds; print submission still
+obeys its own document deadline. A timeout **after** submission might have
+reached the printer and therefore carries an unknown physical-outcome marker.
+
+### `PDFium ... GetFileType /dev/stdout: The handle is invalid`
+
+Windows services may have no valid standard output/error handles. The repaired
+PDFium WebAssembly pool explicitly sends WASM stdout/stderr to `io.Discard`; a
+subprocess regression exercises closed standard handles on every supported
+platform (on Windows it drives the production pool, elsewhere the identical
+shared configuration). This exact
+error strongly suggests an **older installed/running Agent executable** or an
+unverified runtime variant, not proof that the PDF or printer hardware is bad.
+
+From an elevated PowerShell, inspect the **service's actual executable path**
+(rather than an installer download or desktop shortcut):
+
+```powershell
+Get-CimInstance Win32_Service -Filter "Name='YaseirAgent'" |
+  Select-Object Name, State, ProcessId, PathName
+```
+
+The newly built executable supports `YaseirAgent.exe -version`; its output
+includes `feature=pdfium-headless-stdio-v1`. Run it using the **exact path** from
+`PathName`, respecting its command-line arguments and quoting. If the flag is
+absent, install the corrected build through the supported installer/upgrade
+flow and restart the owned `YaseirAgent` service. Verify the new process ID and
+`-version` output, then submit **one** controlled PDF test. A service restart
+without installing the corrected executable cannot apply a source-only fix.
+
+The Gateway timeline's `printing` stage is **admission pending**, not a
+successful spooler call or verified paper output. Preserve the original job
+error and evidence, and avoid automatically repeating attempts with an
+unknown physical outcome.

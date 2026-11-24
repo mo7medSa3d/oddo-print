@@ -1,0 +1,19 @@
+# Used only by scripts/acceptance/container-release.py with a fresh project,
+# generated synthetic secrets, loopback-only ports, and disposable volumes.
+services:
+  postgres:
+    image: ${YASEIR_ACCEPTANCE_POSTGRES_IMAGE:?exact PostgreSQL image ID required}
+  database_roles:
+    image: ${YASEIR_ACCEPTANCE_GATEWAY_IMAGE:?exact Gateway image ID required}
+  migrate:
+    image: ${YASEIR_ACCEPTANCE_GATEWAY_IMAGE:?exact Gateway image ID required}
+  database_verify:
+    image: ${YASEIR_ACCEPTANCE_GATEWAY_IMAGE:?exact Gateway image ID required}
+  gateway:
+    image: ${YASEIR_ACCEPTANCE_GATEWAY_IMAGE:?exact Gateway image ID required}
+    environment:
+      RESEND_API_KEY: ""
+  caddy:
+    image: ${YASEIR_ACCEPTANCE_CADDY_IMAGE:?exact Caddy image ID required}
+    volumes:
+      - ./scripts/acceptance/Caddyfile:/etc/caddy/Caddyfile:ro

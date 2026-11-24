@@ -1,0 +1,373 @@
+import { db, type DbTx } from "../db";
+import { platformSessions, users } from "../db/schema";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { requiredRuntimeSecret } from "./runtime-secret";
+import { verifyPassword, normalizeEmail, burnPasswordVerification } from "./password";
+import { verifyScryptPasswordHash } from "./manager-auth";
+import { LEGACY_SESSION_MAX_AGE_SECONDS } from "./session-config";
+import { databaseNowMs } from "./database-clock";
+import { isPlatformSessionAssured } from "./platform-session-security";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  issueSessionPair,
+  credentialVersionFor,
+  isSessionFamilyActive,
+  verifyAccessTokenSignature,
+  refreshCookieHeader,
+  ACCESS_TOKEN_TTL_SECONDS,
+  type SessionRequestContext,
+} from "./session-tokens";
+
+function getSecret(): string {
+  const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
+  if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
+  return s;
+}
+function b64urlDecode(value: string): Buffer {
+  return Buffer.from(value, "base64url");
+}
+
+function compareStringsSafe(a: string, b: string): boolean {
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+export type PlatformOwnerClaims = {
+  jti: string;
+  iat: number;
+  exp: number;
+  sub: "platform_owner";
+  userId: string;
+  email: string;
+  ver?: 2;
+  kind?: "platform";
+  sid?: string;
+  familyId?: string;
+};
+
+export class PlatformUnauthorizedError extends Error {
+  constructor(message = "Platform Owner authentication required") {
+    super(message);
+    this.name = "PlatformUnauthorizedError";
+  }
+}
+
+export class PlatformMutationAuthorityChangedError extends Error {
+  constructor() {
+    super("Your platform authorization changed. Sign in again.");
+    this.name = "PlatformMutationAuthorityChangedError";
+  }
+}
+
+/**
+ * Confidential Platform Owner reads need a live authorization fence through
+ * their final SELECT, not merely a preflight check. This read-only guard does
+ * NOT require mutation's five-minute password step-up. Lock ALL three durable
+ * authority rows together so revocation/ownership changes must serialize
+ * with the subsequent commercial-data SELECT in this same transaction.
+ */
+export async function requirePlatformReadAuthorityInTransaction(
+  tx: DbTx,
+  claims: PlatformOwnerClaims,
+): Promise<void> {
+  if (claims.ver !== 2 || claims.kind !== "platform" || !claims.familyId || !claims.sid) {
+    throw new PlatformUnauthorizedError();
+  }
+  // Writers lock the user before the session family and credentials. Keep
+  // reads in the same order to avoid deadlocks with password reset or logout.
+  const principal = await tx.execute(sql`
+    SELECT id, email, password_hash AS "passwordHash",
+      is_platform_owner AS "isPlatformOwner", email_verified_at AS "emailVerifiedAt"
+    FROM users WHERE id = ${claims.userId} FOR SHARE
+  `);
+  const user = principal.rows[0] as {
+    email?: string; passwordHash?: string; isPlatformOwner?: boolean;
+    emailVerifiedAt?: Date | string | null;
+  } | undefined;
+  if (!user || user.email !== claims.email || user.isPlatformOwner !== true ||
+      !user.emailVerifiedAt || typeof user.passwordHash !== "string") {
+    throw new PlatformUnauthorizedError();
+  }
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${claims.familyId}, 0))`);
+  const passwordVersion = createHash("sha256").update(user.passwordHash, "utf8").digest("hex");
+  // Both the refresh token AND the password-policy session must stay live
+  // until the caller's subsequent commercial SELECT commits. There is no
+  // password-freshness requirement on reads or on mutations: a live session
+  // (idle + absolute limits below) is sufficient.
+  const live = await tx.execute(sql`
+    SELECT r.id FROM refresh_tokens r
+    JOIN platform_session_security s ON s.family_id = r.family_id AND s.user_id = r.user_id
+    WHERE r.user_id = ${claims.userId}
+      AND r.family_id = ${claims.familyId}
+      AND r.id = ${claims.sid}
+      AND r.email = ${claims.email}
+      AND s.password_version = ${passwordVersion}
+      AND r.tenant_id IS NULL
+      AND r.kind = 'platform'
+      AND r.revoked_at IS NULL
+      AND r.expires_at > clock_timestamp()
+      AND ${claims.exp} > EXTRACT(EPOCH FROM clock_timestamp())
+      AND ${claims.iat} <= EXTRACT(EPOCH FROM clock_timestamp()) + 60
+      AND s.revoked_at IS NULL
+      AND s.expires_at > clock_timestamp()
+      AND s.last_seen_at > clock_timestamp() - interval '30 minutes'
+      AND s.last_seen_at <= clock_timestamp()
+      AND s.password_verified_at <= clock_timestamp()
+    FOR SHARE OF r, s
+  `);
+  if (live.rows.length !== 1) throw new PlatformUnauthorizedError();
+}
+/** Recheck admitted platform authority after resource locks and before mutation. */
+export async function requirePlatformActorInTransaction(
+  tx: DbTx,
+  claims: PlatformOwnerClaims,
+): Promise<void> {
+  // Reset and refresh also lock the user before session/family state. Keep
+  // this row locked through commit so owner/email changes cannot race writes.
+  const principal = await tx.execute(sql`
+    SELECT id, email, is_platform_owner AS "isPlatformOwner",
+      email_verified_at AS "emailVerifiedAt"
+    FROM users WHERE id = ${claims.userId} FOR UPDATE
+  `);
+  const user = principal.rows[0] as {
+    email?: string; isPlatformOwner?: boolean; emailVerifiedAt?: Date | string | null;
+  } | undefined;
+  if (!user || user.isPlatformOwner !== true || !user.emailVerifiedAt || user.email !== claims.email) {
+    throw new PlatformMutationAuthorityChangedError();
+  }
+
+  let active;
+  if (claims.ver === 2 && claims.kind === "platform" && claims.familyId && claims.sid) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${claims.familyId}, 0))`);
+    active = await tx.execute(sql`
+      SELECT id FROM refresh_tokens
+      WHERE family_id = ${claims.familyId} AND kind = 'platform'
+        AND id = ${claims.sid}
+        AND user_id = ${claims.userId} AND tenant_id IS NULL
+        AND email = ${claims.email} AND revoked_at IS NULL
+        AND expires_at > clock_timestamp()
+        AND ${claims.exp} > EXTRACT(EPOCH FROM clock_timestamp())
+        AND ${claims.iat} <= EXTRACT(EPOCH FROM clock_timestamp()) + 60
+        AND EXISTS (
+          SELECT 1 FROM platform_session_security s JOIN users u ON u.id = s.user_id
+          WHERE s.family_id = refresh_tokens.family_id AND s.user_id = refresh_tokens.user_id
+            AND s.password_version = encode(sha256(convert_to(u.password_hash, 'UTF8')), 'hex') AND s.revoked_at IS NULL
+            AND s.expires_at > clock_timestamp() AND s.last_seen_at > clock_timestamp() - interval '30 minutes'
+            AND s.last_seen_at <= clock_timestamp()
+            AND s.password_verified_at <= clock_timestamp()
+        )
+      FOR SHARE
+    `);
+  } else if (claims.ver === undefined && claims.kind === undefined && !claims.familyId && !claims.sid) {
+    // Legacy sessions have no durable password policy and cannot be promoted.
+    throw new PlatformMutationAuthorityChangedError();
+  } else {
+    throw new PlatformMutationAuthorityChangedError();
+  }
+  if (active.rows.length === 0) throw new PlatformMutationAuthorityChangedError();
+}
+
+function verifyLegacyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
+  if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [h, p, signature] = parts;
+  try {
+    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg?: unknown; typ?: unknown };
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+  } catch {
+    return null;
+  }
+  const data = h + "." + p;
+  const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  if (!compareStringsSafe(signature, expected)) return null;
+  try {
+    const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<PlatformOwnerClaims>;
+    if (
+      claims.sub !== "platform_owner" ||
+      typeof claims.userId !== "string" || claims.userId.length < 1 ||
+      typeof claims.email !== "string" || claims.email.length < 3 ||
+      typeof claims.jti !== "string" || claims.jti.length < 16 ||
+      typeof claims.iat !== "number" || !Number.isSafeInteger(claims.iat) ||
+      typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp) ||
+      claims.exp <= claims.iat || claims.exp - claims.iat > LEGACY_SESSION_MAX_AGE_SECONDS
+    ) return null;
+    return claims as PlatformOwnerClaims;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyPlatformTokenSignature(token: string): PlatformOwnerClaims | null {
+  const fresh = verifyAccessTokenSignature(token, "platform");
+  if (fresh) {
+    // Fail closed (do NOT fall through to the legacy verifier: a v2 token
+    // carries sub "platform_owner" too, so legacy shape checks would accept
+    // it while skipping family-revocation enforcement).
+    if (!fresh.userId || !fresh.email) return null;
+    return {
+      jti: fresh.jti, iat: fresh.iat, exp: fresh.exp, sub: "platform_owner",
+      userId: fresh.userId, email: fresh.email, ver: 2, kind: "platform",
+      sid: fresh.sid, familyId: fresh.familyId,
+    };
+  }
+  return verifyLegacyPlatformTokenSignature(token);
+}
+
+export async function createPlatformSession(
+  userId: string,
+  email: string,
+  context?: SessionRequestContext,
+  credentialVersion?: string,
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "platform",
+    userId,
+    credentialVersion,
+    email,
+    tenantId: null,
+    role: null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
+}
+
+export async function validatePlatformClaims(
+  claims: PlatformOwnerClaims | null,
+  touch = false,
+): Promise<PlatformOwnerClaims | null> {
+  if (!claims) return null;
+
+  if (claims.ver === 2 && claims.kind === "platform") {
+    const nowMs = await databaseNowMs().catch(() => null);
+    if (nowMs === null) return null;
+    const nowSec = Math.floor(nowMs / 1000);
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS) return null;
+    if (!claims.familyId || !claims.sid || !(await isSessionFamilyActive(claims.familyId, "platform", null, claims.userId, claims.sid))) return null;
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, claims.userId),
+      columns: { id: true, email: true, isPlatformOwner: true, emailVerifiedAt: true },
+    });
+    if (!user || !user.isPlatformOwner || !user.emailVerifiedAt || user.email !== claims.email) return null;
+    if (touch && !(await isPlatformSessionAssured(claims.familyId, claims.userId, true))) return null;
+    return claims;
+  }
+  // Legacy sessions lack the durable policy required by current sessions.
+  return null;
+
+}
+
+export async function validatePlatformOwner(req: Request): Promise<PlatformOwnerClaims | null> {
+  const token = getAccessTokenFromRequest(req, "platform");
+  if (!token) return null;
+  const claims = verifyPlatformTokenSignature(token);
+  const path = new URL(req.url).pathname;
+  const background = path === "/api/platform/auth/me" || path === "/api/platform/auth/refresh";
+  return claims ? validatePlatformClaims(claims, !background) : null;
+}
+
+export async function requirePlatformOwner(req: Request): Promise<PlatformOwnerClaims> {
+  const claims = await validatePlatformOwner(req);
+  if (!claims) {
+    throw new PlatformUnauthorizedError();
+  }
+  return claims;
+}
+
+export async function authenticatePlatformOwner(
+  emailInput: string,
+  passwordInput: string
+): Promise<{ userId: string; email: string; credentialVersion: string } | null> {
+  const normalized = normalizeEmail(emailInput);
+  if (!normalized || typeof passwordInput !== "string") return null;
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, normalized),
+    columns: { id: true, email: true, passwordHash: true, emailVerifiedAt: true, isPlatformOwner: true },
+  });
+  if (!user || !user.isPlatformOwner || !user.emailVerifiedAt) {
+    // Burn equal KDF work so response timing cannot confirm whether an owner
+    // account exists (OWASP Authentication Cheat Sheet).
+    await burnPasswordVerification(passwordInput);
+    return null;
+  }
+
+  const valid = user.passwordHash.startsWith("argon2id$")
+    ? await verifyPassword(passwordInput, user.passwordHash)
+    : await verifyScryptPasswordHash(passwordInput, user.passwordHash);
+
+  if (!valid) return null;
+  return { userId: user.id, email: user.email, credentialVersion: credentialVersionFor(user.id, user.passwordHash) };
+}
+
+/* LegacyPlatformAuthTx folded into the canonical DbTx from src/db (single definition). */
+
+export async function revokeLegacyPlatformSessionsForUserInTransaction(
+  tx: DbTx,
+  userId: string,
+): Promise<void> {
+  await tx.update(platformSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(and(eq(platformSessions.userId, userId), isNull(platformSessions.revokedAt)));
+}
+
+export async function revokePlatformSession(jti: string): Promise<void> {
+  await db
+    .update(platformSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(platformSessions.jti, jti));
+}
+
+export async function cleanupExpiredPlatformSessions(limit = 500): Promise<number> {
+  const result = await db.execute(sql`
+    WITH candidates AS (
+      SELECT jti
+      FROM platform_sessions
+      WHERE expires_at <= clock_timestamp()
+      ORDER BY expires_at ASC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM platform_sessions AS ps
+    USING candidates
+    WHERE ps.jti = candidates.jti
+    RETURNING ps.jti
+  `);
+  return result.rows.length;
+}
+
+export function platformCookieHeader(token: string, exp: Date): string {
+  return accessCookieHeader("platform", token, exp);
+}
+
+export function platformRefreshCookieHeader(token: string, exp: Date): string {
+  return refreshCookieHeader("platform", token, exp);
+}
+
+export function clearPlatformCookieHeader(): string {
+  return clearAccessCookieHeader("platform");
+}
+
+export function clearPlatformRefreshCookieHeader(): string {
+  return clearRefreshCookieHeader("platform");
+}

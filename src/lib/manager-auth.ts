@@ -1,0 +1,455 @@
+import { db, type DbTx } from "../db";
+import { managerSessions, tenants, tenantUsers, users } from "../db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
+import { requiredRuntimeSecret, runtimeSecret } from "./runtime-secret";
+import { databaseNowMs } from "./database-clock";
+import { hashPassword, verifyPassword, normalizeEmail, burnPasswordVerification } from "./password";
+import { isValidNewPasswordLength } from "./new-password-policy";
+import { requireActiveTenantOrNull } from "./tenant-guard";
+import { LEGACY_SESSION_MAX_AGE_SECONDS, sessionCookieName } from "./session-config";
+import {
+  accessCookieHeader,
+  clearAccessCookieHeader,
+  clearRefreshCookieHeader,
+  getAccessTokenFromRequest,
+  isSessionFamilyActive,
+  issueSessionPair,
+  credentialVersionFor,
+  verifyAccessTokenSignature,
+  refreshCookieHeader,
+  ACCESS_TOKEN_TTL_SECONDS,
+  type SessionRequestContext,
+} from "./session-tokens";
+
+const LEGACY_MAX_AGE_SECONDS = LEGACY_SESSION_MAX_AGE_SECONDS;
+
+function getSecret(): string {
+  const s = requiredRuntimeSecret("GATEWAY_JWT_SECRET");
+  if (s.length < 32) throw new Error("GATEWAY_JWT_SECRET must be >=32 chars");
+  return s;
+}
+function b64urlDecode(s: string): Buffer {
+  return Buffer.from(s, "base64url");
+}
+
+export type ManagerRole = "owner" | "admin" | "operator" | "viewer" | "integration_admin" | "billing_admin";
+export type ManagerClaims = {
+  jti: string; iat: number; exp: number; sub: "manager"; tenantId: string;
+  userId?: string; role: ManagerRole;
+  ver?: 2;
+  kind?: "manager" | "customer";
+  sid?: string;
+  familyId?: string;
+};
+type ValidationOptions = { propagateClockFailure?: true };
+
+function verifySignature(token: string): ManagerClaims | null {
+  if (typeof token !== "string" || token.length < 40 || token.length > 4096) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [h, p, s] = parts;
+
+  try {
+    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg?: unknown; typ?: unknown };
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+  } catch {
+    return null;
+  }
+
+  const data = `${h}.${p}`;
+  const expected = createHmac("sha256", getSecret()).update(data).digest("base64url");
+  if (!compareStringsSafe(s, expected)) return null;
+
+  try {
+    const claims = JSON.parse(b64urlDecode(p).toString("utf8")) as Partial<ManagerClaims>;
+    if (
+      claims.sub !== "manager" ||
+      claims.ver !== undefined ||
+      claims.kind !== undefined ||
+      claims.sid !== undefined ||
+      claims.familyId !== undefined ||
+      typeof claims.tenantId !== "string" ||
+      claims.tenantId.length < 1 ||
+      claims.tenantId.length > 128 ||
+      typeof claims.jti !== "string" ||
+      claims.jti.length < 16 ||
+      claims.jti.length > 128 ||
+      typeof claims.iat !== "number" ||
+      !Number.isSafeInteger(claims.iat) ||
+      typeof claims.exp !== "number" ||
+      !Number.isSafeInteger(claims.exp) ||
+      claims.exp <= claims.iat ||
+      claims.exp - claims.iat > LEGACY_MAX_AGE_SECONDS ||
+      typeof claims.role !== "string" ||
+      !(["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(claims.role) ||
+      (claims.userId !== undefined && (typeof claims.userId !== "string" || claims.userId.length < 1 || claims.userId.length > 128))
+    ) return null;
+    return claims as ManagerClaims;
+  } catch {
+    return null;
+  }
+}
+
+export function getManagerCookieName() {
+  return sessionCookieName("manager");
+}
+
+export async function verifyManagerToken(token: string, options?: ValidationOptions): Promise<ManagerClaims | null> {
+  const versioned = verifyAccessTokenSignature(token, "manager");
+  if (versioned) {
+    if (versioned.kind !== "manager") return null;
+    if (!versioned.tenantId) return null;
+    return validateManagerClaims({
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: "manager",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    }, options);
+  }
+
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy, options) : null;
+}
+
+export async function validateManagerClaims(claims: ManagerClaims | null, options?: ValidationOptions): Promise<ManagerClaims | null> {
+  if (!claims) return null;
+
+  if (claims.ver === 2 && (claims.kind === "manager" || claims.kind === "customer")) {
+    let nowMs: number;
+    try {
+      nowMs = await databaseNowMs();
+    } catch (error) {
+      if (options?.propagateClockFailure) throw error;
+      return null;
+    }
+    const nowSec = Math.floor(nowMs / 1000);
+    if (claims.exp <= nowSec || claims.iat > nowSec + 60 || claims.exp - claims.iat !== ACCESS_TOKEN_TTL_SECONDS) return null;
+    if (!claims.tenantId || !claims.role || !claims.familyId || !claims.sid) return null;
+
+    if (!(await isSessionFamilyActive(
+      claims.familyId,
+      claims.kind === "customer" ? "customer" : "manager",
+      claims.tenantId,
+      claims.userId,
+      claims.sid,
+    ))) return null;
+
+    if (claims.userId) {
+      const membership = await db.query.tenantUsers.findFirst({
+        where: and(eq(tenantUsers.userId, claims.userId), eq(tenantUsers.tenantId, claims.tenantId)),
+        columns: { role: true },
+      });
+      if (!membership || membership.role !== claims.role) return null;
+    }
+
+    const tenantLifecycle = await requireActiveTenantOrNull(claims.tenantId);
+    if (!tenantLifecycle) return null;
+    return claims;
+  }
+
+  return null;
+}
+
+/** Resolve the manager tenant from the explicit bootstrap env configuration. */
+export async function resolveManagerTenantId(_req?: Request): Promise<string | null> {
+  const configured = runtimeSecret("MANAGER_TENANT_ID")?.trim();
+  if (configured) {
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, configured), columns: { id: true } });
+    if (tenant) return tenant.id;
+  }
+
+  // Never infer the login tenant from the number of rows in the database.
+  return null;
+}
+
+export async function createManagerSession(
+  tenantId: string,
+  identity?: { userId?: string; role?: ManagerRole; credentialVersion?: string; environmentCredentialVersion?: string },
+  context?: SessionRequestContext & { email?: string | null },
+): Promise<{
+  token: string;
+  jti: string;
+  exp: Date;
+  refreshToken: string;
+  refreshTokenId: string;
+  familyId: string;
+  refreshExpiresAt: Date;
+}> {
+  const pair = await issueSessionPair({
+    kind: "manager",
+    tenantId,
+    userId: identity?.userId ?? null,
+    credentialVersion: identity?.credentialVersion,
+    environmentCredentialVersion: identity?.environmentCredentialVersion,
+    role: identity?.role ?? "owner",
+    email: context?.email ?? null,
+  }, context);
+  return {
+    token: pair.accessToken,
+    jti: pair.accessJti,
+    exp: pair.accessExpiresAt,
+    refreshToken: pair.refreshToken,
+    refreshTokenId: pair.refreshTokenId,
+    familyId: pair.familyId,
+    refreshExpiresAt: pair.refreshExpiresAt,
+  };
+}
+
+export async function validateManager(req: Request): Promise<ManagerClaims | null> {
+  const token = getAccessTokenFromRequest(req, "manager");
+  return token ? verifyManagerToken(token) : null;
+}
+
+export async function verifyWorkspaceToken(token: string, options?: ValidationOptions): Promise<ManagerClaims | null> {
+  const versioned = verifyAccessTokenSignature(token, ["manager", "customer"]);
+  if (versioned) {
+    if (!versioned.tenantId) return null;
+    return validateManagerClaims({
+      jti: versioned.jti,
+      iat: versioned.iat,
+      exp: versioned.exp,
+      sub: "manager",
+      tenantId: versioned.tenantId,
+      role: versioned.role as ManagerRole,
+      ...(versioned.userId ? { userId: versioned.userId } : {}),
+      ver: 2,
+      kind: versioned.kind as "manager" | "customer",
+      sid: versioned.sid,
+      familyId: versioned.familyId,
+    }, options);
+  }
+
+  const legacy = verifySignature(token);
+  return legacy ? validateManagerClaims(legacy, options) : null;
+}
+
+export async function validateWorkspaceManager(req: Request, options?: ValidationOptions): Promise<ManagerClaims | null> {
+  const managerToken = getAccessTokenFromRequest(req, "manager");
+  if (managerToken) {
+    const managerClaims = await verifyManagerToken(managerToken, options);
+    if (managerClaims) return managerClaims;
+  }
+
+  const customerToken = getAccessTokenFromRequest(req, "customer");
+  return customerToken ? verifyWorkspaceToken(customerToken, options) : null;
+}
+
+export async function verifyWorkspaceTokenFromCookieValues(
+  customerToken: string | null,
+  managerToken: string | null,
+): Promise<ManagerClaims | null> {
+  if (managerToken) {
+    const managerClaims = await verifyManagerToken(managerToken);
+    if (managerClaims) return managerClaims;
+  }
+
+  return customerToken ? verifyWorkspaceToken(customerToken) : null;
+}
+
+export async function revokeLegacyManagerSessionInTransaction(
+  tx: DbTx,
+  jti: string,
+): Promise<void> {
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.jti, jti));
+}
+
+export async function revokeLegacyManagerSessionsForUserInTransaction(
+  tx: DbTx,
+  userId: string,
+  tenantId?: string,
+): Promise<void> {
+  const predicates = tenantId
+    ? and(eq(managerSessions.userId, userId), eq(managerSessions.tenantId, tenantId))
+    : eq(managerSessions.userId, userId);
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(predicates);
+}
+
+export async function revokeLegacyManagerSessionsForTenantInTransaction(
+  tx: DbTx,
+  tenantId: string,
+): Promise<void> {
+  await tx.update(managerSessions)
+    .set({ revokedAt: sql`clock_timestamp()` })
+    .where(eq(managerSessions.tenantId, tenantId));
+}
+
+export async function revokeManagerSession(jti: string, tenantId?: string) {
+  const predicate = tenantId
+    ? and(eq(managerSessions.jti, jti), eq(managerSessions.tenantId, tenantId))
+    : eq(managerSessions.jti, jti);
+  await db.update(managerSessions).set({ revokedAt: sql`clock_timestamp()` }).where(predicate);
+}
+
+export async function cleanupExpiredManagerSessions(limit = 500): Promise<number> {
+  const result = await db.execute(sql`
+    WITH candidates AS (
+      SELECT jti
+      FROM manager_sessions
+      WHERE expires_at <= clock_timestamp()
+      ORDER BY expires_at ASC
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM manager_sessions AS ms
+    USING candidates
+    WHERE ms.jti = candidates.jti
+    RETURNING ms.jti
+  `);
+  return result.rows.length;
+}
+
+export function managerCookieHeader(token: string, exp: Date): string {
+  return accessCookieHeader("manager", token, exp);
+}
+
+export function managerRefreshCookieHeader(token: string, exp: Date): string {
+  return refreshCookieHeader("manager", token, exp);
+}
+
+export function clearManagerCookieHeader(): string {
+  return clearAccessCookieHeader("manager");
+}
+
+export function clearManagerRefreshCookieHeader(): string {
+  return clearRefreshCookieHeader("manager");
+}
+
+function compareStringsSafe(a: string, b: string): boolean {
+  // Hash both inputs to fixed-length SHA-256 digests before comparing,
+  // so no code path branches on secret length.
+  const digestA = createHash("sha256").update(a, "utf8").digest();
+  const digestB = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+function scryptAsync(password: string, salt: string, keylen: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keylen, (error, derivedKey) => {
+      if (error) return reject(error);
+      resolve(derivedKey);
+    });
+  });
+}
+
+export async function verifyManagerPassword(username: string, input: string): Promise<boolean> {
+  const expectedUser = runtimeSecret("MANAGER_USERNAME");
+  const expectedHash = runtimeSecret("MANAGER_PASSWORD_HASH");
+  const expectedPass = runtimeSecret("MANAGER_PASSWORD");
+  if (!expectedUser || typeof input !== "string") return false;
+
+  const userOk = compareStringsSafe(username, expectedUser);
+  if (!userOk) {
+    if (expectedHash?.includes(":")) {
+      const [salt] = expectedHash.split(":", 1);
+      if (salt) await scryptAsync(input, salt, 32).catch(() => undefined);
+    }
+    return false;
+  }
+
+  if (expectedHash && expectedHash.includes(":")) {
+    const [salt, hash] = expectedHash.split(":");
+    if (!salt || !hash || !/^[0-9a-fA-F]{64}$/.test(hash)) return false;
+    const derived = await scryptAsync(input, salt, 32);
+    return compareStringsSafe(derived.toString("hex"), hash.toLowerCase());
+  }
+
+  const nodeEnv = process.env.NODE_ENV;
+  const plaintextAllowedEnvironment = nodeEnv === "development" || nodeEnv === "test";
+  if (!plaintextAllowedEnvironment || process.env.ALLOW_PLAINTEXT_MANAGER_PASSWORD !== "1" || !expectedPass) return false;
+  return compareStringsSafe(input, expectedPass);
+}
+
+export async function verifyScryptPasswordHash(input: string, stored: string | null | undefined): Promise<boolean> {
+  if (!stored || !stored.includes(":")) return false;
+  const [salt, hash] = stored.split(":", 2);
+  if (!salt || !hash || !/^[0-9a-fA-F]{64}$/.test(hash)) return false;
+  const derived = await scryptAsync(input, salt, 32);
+  return compareStringsSafe(derived.toString("hex"), hash.toLowerCase());
+}
+
+export async function authenticateManagerUser(username: string, password: string, tenantId: string): Promise<{ userId: string; role: ManagerRole; credentialVersion: string } | null> {
+  const normalized = normalizeEmail(username);
+  if (!normalized || typeof password !== "string") return null;
+  const row = await db.query.users.findFirst({
+    where: eq(users.email, normalized),
+    columns: { id: true, passwordHash: true, emailVerifiedAt: true },
+  });
+  if (!row || !row.emailVerifiedAt) {
+    await burnPasswordVerification(password);
+    return null;
+  }
+  const valid = row.passwordHash.startsWith("argon2id$")
+    ? await verifyPassword(password, row.passwordHash)
+    : await verifyScryptPasswordHash(password, row.passwordHash);
+  if (!valid) return null;
+  if (!row.passwordHash.startsWith("argon2id$") && isValidNewPasswordLength(password)) {
+    const legacyHash = row.passwordHash;
+    const upgraded = await hashPassword(password);
+    const current = await db.query.users.findFirst({
+      where: eq(users.id, row.id),
+      columns: { passwordHash: true },
+    });
+    if (!current || current.passwordHash !== legacyHash) return null;
+    const upgradedRows = await db.update(users)
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
+      .returning({ id: users.id });
+    if (upgradedRows.length !== 1) return null;
+    row.passwordHash = upgraded;
+  }
+  const membership = await db.query.tenantUsers.findFirst({
+    where: and(eq(tenantUsers.userId, row.id), eq(tenantUsers.tenantId, tenantId)),
+    columns: { role: true },
+  });
+  if (!membership) return null;
+  if (!( ["owner", "admin", "operator", "viewer", "integration_admin", "billing_admin"] as string[]).includes(membership.role)) return null;
+  return { userId: row.id, role: membership.role as ManagerRole, credentialVersion: credentialVersionFor(row.id, row.passwordHash) };
+}
+
+export async function authenticateCustomer(email: string, password: string): Promise<{ userId: string; email: string; credentialVersion: string } | null> {
+  const normalized = normalizeEmail(email);
+  const row = await db.query.users.findFirst({
+    where: eq(users.email, normalized),
+    columns: { id: true, email: true, passwordHash: true, emailVerifiedAt: true },
+  });
+  if (!row || !row.emailVerifiedAt) {
+    await burnPasswordVerification(password);
+    return null;
+  }
+  const valid = row.passwordHash.startsWith("argon2id$")
+    ? await verifyPassword(password, row.passwordHash)
+    : await verifyScryptPasswordHash(password, row.passwordHash);
+  if (!valid) return null;
+  if (!row.passwordHash.startsWith("argon2id$") && isValidNewPasswordLength(password)) {
+    const legacyHash = row.passwordHash;
+    const upgraded = await hashPassword(password);
+    const current = await db.query.users.findFirst({
+      where: eq(users.id, row.id),
+      columns: { passwordHash: true },
+    });
+    if (!current || current.passwordHash !== legacyHash) return null;
+    const upgradedRows = await db.update(users)
+      .set({ passwordHash: upgraded, updatedAt: sql`now()` })
+      .where(and(eq(users.id, row.id), eq(users.passwordHash, legacyHash)))
+      .returning({ id: users.id });
+    if (upgradedRows.length !== 1) return null;
+    row.passwordHash = upgraded;
+  }
+  return { userId: row.id, email: row.email, credentialVersion: credentialVersionFor(row.id, row.passwordHash) };
+}
+
+export function getManagerUsername(): string | null {
+  return runtimeSecret("MANAGER_USERNAME") ?? null;
+}

@@ -1,0 +1,187 @@
+name: Static Security Gates
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main, test/http-server-ready]
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 4 * * 0'  # Weekly all-language CodeQL security sweep
+
+permissions:
+  contents: read
+
+
+# A new main push cancels the obsolete running push verification for this workflow.
+# New PR revisions also cancel earlier attempts for that PR. Manual,
+# scheduled and merge-queue runs remain isolated by their unique run_id.
+concurrency:
+  group: static-security-run-${{ github.event_name == 'push' && github.ref || github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Relevant change scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      codeql_js: ${{ steps.scope.outputs.codeql_js }}
+      codeql_py: ${{ steps.scope.outputs.codeql_py }}
+      codeql_go: ${{ steps.scope.outputs.codeql_go }}
+      language_matrix: ${{ steps.matrix.outputs.languages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - name: Classify changed files (fail open)
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci-change-scopes.sh
+      - name: Select only changed CodeQL languages
+        id: matrix
+        shell: bash
+        env:
+          CODEQL_JS: ${{ steps.scope.outputs.codeql_js }}
+          CODEQL_PY: ${{ steps.scope.outputs.codeql_py }}
+          CODEQL_GO: ${{ steps.scope.outputs.codeql_go }}
+        run: |
+          languages=()
+          [[ "$CODEQL_JS" == 'true' ]] && languages+=('{"language":"javascript-typescript","build-mode":"none"}')
+          [[ "$CODEQL_PY" == 'true' ]] && languages+=('{"language":"python","build-mode":"none"}')
+          [[ "$CODEQL_GO" == 'true' ]] && languages+=('{"language":"go","build-mode":"autobuild"}')
+          joined="$(IFS=,; echo "${languages[*]}")"
+          printf 'languages={"include":[%s]}\n' "$joined" >> "$GITHUB_OUTPUT"
+  codeql:
+    name: CodeQL / ${{ matrix.language }}
+    needs: changes
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (needs.changes.outputs.codeql_js == 'true' || needs.changes.outputs.codeql_py == 'true' || needs.changes.outputs.codeql_go == 'true')
+    # Preserve live main CodeQL analyses; cancel only older PR versions.
+    concurrency:
+      group: static-codeql-${{ matrix.language }}-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.language_matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Determine whether this language changed
+        id: scope
+        shell: bash
+        env:
+          CODEQL_LANGUAGE: ${{ matrix.language }}
+          JS_CHANGED: ${{ needs.changes.outputs.codeql_js }}
+          PY_CHANGED: ${{ needs.changes.outputs.codeql_py }}
+          GO_CHANGED: ${{ needs.changes.outputs.codeql_go }}
+        run: |
+          case "$CODEQL_LANGUAGE" in
+            javascript-typescript) run="$JS_CHANGED" ;;
+            python) run="$PY_CHANGED" ;;
+            go) run="$GO_CHANGED" ;;
+            *) echo "Unexpected CodeQL language $CODEQL_LANGUAGE" >&2; exit 1 ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "CodeQL $CODEQL_LANGUAGE: run=$run"
+      - name: Setup Go
+        if: matrix.language == 'go' && steps.scope.outputs.run == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: true
+          cache-dependency-path: agent/go.sum
+
+      - name: Initialize CodeQL
+        if: steps.scope.outputs.run == 'true'
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Autobuild compiled language
+        if: matrix.build-mode == 'autobuild' && steps.scope.outputs.run == 'true'
+        uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+
+      - name: Analyze
+        if: steps.scope.outputs.run == 'true'
+        id: analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}
+          # GitHub Code Security is not enabled on this private repository:
+          # still run CodeQL and keep the SARIF, but do not upload to an
+          # unavailable Code Scanning API.
+          upload: never
+          upload-database: false
+          output: ${{ runner.temp }}/codeql-sarif-${{ matrix.language }}
+
+      - name: Enforce high-severity CodeQL security findings
+        if: steps.scope.outputs.run == 'true'
+        run: python3 scripts/check-codeql-sarif.py "${{ steps.analyze.outputs.sarif-output }}"
+
+      - name: Retain CodeQL SARIF report
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: codeql-${{ matrix.language }}
+          path: ${{ steps.analyze.outputs.sarif-output }}
+          if-no-files-found: error
+          retention-days: 14
+
+  dependency-review:
+    name: Dependency Review
+    # Enable after Dependency Graph + Review API are available in repository settings.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && vars.ENABLE_DEPENDENCY_REVIEW == 'true'
+    # Cancel only an eligible duplicate job, never on an unrelated push.
+    concurrency:
+      group: static-deps-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  gitleaks:
+    name: Secret Scan
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Preserve full-history main secret scans until their exact SHA result exists.
+    concurrency:
+      group: static-secrets-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

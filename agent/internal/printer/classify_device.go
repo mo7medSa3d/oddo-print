@@ -1,0 +1,689 @@
+package printer
+
+import (
+	"fmt"
+	"strings"
+)
+
+/* ============================================================
+   Printer classification — physical vs virtual vs redirected
+   ------------------------------------------------------------
+   The Yaseir Gateway must only ever route production work to
+   REAL printing hardware. Windows, however, installs a software
+   print queue for a great many things that never touch paper:
+
+       Microsoft Print to PDF      (writes a .pdf file)
+       Microsoft XPS Document Writer (writes an .xps file)
+       OneNote / OneNote (Desktop) (sends the job to an app)
+       Fax / Microsoft Shared Fax  (dials a modem)
+       AnyDesk Printer, Foxit, CutePDF, PDF995, PDF24 … (file writers)
+       "HP LaserJet (redirected 3)" (RDP session virtual channel)
+
+   Matching printer NAMES is not enough: names are localised,
+   vendors ship new writers constantly, and a legitimately named
+   queue can sit on a virtual port. So classification is built
+   from device METADATA, in this order of authority:
+
+     1. port monitor      — PORTPROMPT:/XPSPORT:/FILE:/NUL:/SHRFAX:
+                            are output ports, never hardware
+     2. driver / PnP ids  — software writer families
+     3. session signals   — RDP / Citrix / VMware redirected queues
+     4. transport proof   — USB print class, USB VID/PID, network
+                            endpoint, IPP endpoint, hardware port
+                            (USB001, WSD…, IP_…, LPT1:, COM1:,
+                            host:port, IP)
+
+   Only a device classified `physical` becomes a managed printer.
+   `virtual` and `redirected` queues are kept in the local registry
+   (so nothing is destroyed and they can still be inspected) but
+   they are never listed, never registered with the Gateway and
+   never selectable for a binding or a job.
+
+   ------------------------------------------------------------
+   THE `unknown` POLICY
+   ------------------------------------------------------------
+   `unknown` means "no evidence either way": we could not attach
+   the queue to a transport AND we found no proof that it is
+   software. It is NOT treated as virtual.
+
+   Automatic discovery does not promote `unknown` to a production
+   printer, because a queue we cannot tie to any hardware is far
+   more likely to be a leftover software queue than a printer.
+   That decision is deliberate and conservative, and it is
+   recoverable rather than destructive:
+
+     * the record is never deleted — it is hidden but still on
+       disk, and a future classifier can promote it;
+     * explicit operator intent always wins. A device is surfaced
+       despite being `unknown` when it came from
+
+           registration_source = manual   (`printers add`)
+           registration_source = config   (config.yaml)
+           registration_source = registry (already persisted
+                                           locally by this agent)
+
+       so a printer an operator deliberately added, or one that a
+       previous version already stored, does not silently vanish
+       just because its Windows metadata is thin or unusual.
+
+   Crucially this rescue applies ONLY to `unknown`. Virtual and
+   redirected evidence is evaluated first and always rejects the
+   device, so none of the above lets an operator bypass the
+   safety check by registering "Microsoft Print to PDF" by hand,
+   and a stale virtual row in the registry stays hidden.
+
+   ------------------------------------------------------------
+   ORDER OF AUTHORITY (virtual beats physical)
+   ------------------------------------------------------------
+   ClassifyDevice evaluates redirect evidence first, then virtual
+   evidence, then physical evidence. Adding a permissive physical
+   rule can therefore never un-hide a software queue that carries
+   virtual evidence; it only stops real hardware from being
+   dropped for want of metadata.
+
+   Everything here is pure and platform independent, so the whole
+   matrix is unit-testable on any OS.
+   ============================================================ */
+
+// PrinterClass is the high-level kind of a printing device.
+type PrinterClass string
+
+const (
+	// ClassPhysical is real printing hardware we can send bytes to.
+	ClassPhysical PrinterClass = "physical"
+	// ClassVirtual is a software-only queue (file writer, fax, app target).
+	ClassVirtual PrinterClass = "virtual"
+	// ClassRedirected is a queue tunnelled from another session
+	// (Remote Desktop, Citrix, VMware …) — not a local device.
+	ClassRedirected PrinterClass = "redirected"
+	// ClassUnknown is a queue we could not attach to any transport.
+	ClassUnknown PrinterClass = "unknown"
+)
+
+// DeviceFacts is the normalized metadata classification is based on.
+type DeviceFacts struct {
+	Name        string
+	DisplayName string
+	DriverName  string
+	PortName    string
+	Comment     string
+	Location    string
+	ShareName   string
+
+	ConnectionType string
+	Protocol       string
+	Endpoint       string
+	SpoolerName    string
+	NetworkAddress string
+	Port           int
+
+	USBVID    string
+	USBPID    string
+	USBSerial string
+
+	DeviceID      string
+	DeviceClass   string
+	HardwareIDs   []string
+	CompatibleIDs []string
+
+	Capabilities map[string]interface{}
+}
+
+// DeviceClassification is the verdict for one device.
+type DeviceClassification struct {
+	Class        PrinterClass
+	IsVirtual    bool   // true for virtual AND redirected queues
+	IsRedirected bool   // true only for session-redirected queues
+	IsUnusable   bool   // true only for non-printable stubs (fax, blackhole/nul, redirected)
+	Confidence   string // high | low | none
+	Reasons      []string
+}
+
+// FactsFromDevice projects a DeviceInfo (plus its capability bag) onto the
+// normalized metadata classification consumes.
+func FactsFromDevice(d DeviceInfo) DeviceFacts {
+	f := DeviceFacts{
+		Name:           d.Name,
+		DisplayName:    d.DisplayName,
+		ConnectionType: d.ConnectionType,
+		Protocol:       d.Protocol,
+		Endpoint:       d.Endpoint,
+		SpoolerName:    d.SpoolerName,
+		NetworkAddress: d.NetworkAddress,
+		Port:           d.Port,
+		USBVID:         d.USBVID,
+		USBPID:         d.USBPID,
+		USBSerial:      d.USBSerial,
+		Capabilities:   d.Capabilities,
+	}
+	if f.Name == "" {
+		f.Name = d.DisplayName
+	}
+	if caps := d.Capabilities; caps != nil {
+		f.DriverName = capString(caps, "driver_name")
+		f.PortName = capString(caps, "port_name")
+		f.Comment = capString(caps, "comment")
+		f.Location = capString(caps, "location")
+		f.ShareName = capString(caps, "share_name")
+		f.DeviceID = capString(caps, "device_id")
+		f.DeviceClass = capString(caps, "class")
+		f.HardwareIDs = capStringSlice(caps, "hardware_ids")
+		f.CompatibleIDs = capStringSlice(caps, "compatible_ids")
+	}
+	// The Windows spooler path keeps queue transport identity in first-class
+	// fields (SpoolerPort/SpoolerDriver) as well as the legacy capability
+	// bag, and the top-level fields are the source of truth there. A row
+	// that carries only the top-level fields (legacy rows, detail-loss
+	// observations, rename reconciliation) must classify from them, not
+	// fall through to unknown for want of the redundant capability copy.
+	if f.PortName == "" {
+		f.PortName = d.SpoolerPort
+	}
+	if f.DriverName == "" {
+		f.DriverName = d.SpoolerDriver
+	}
+	if f.SpoolerName == "" && isSpoolerDevice(d) {
+		f.SpoolerName = d.Endpoint
+	}
+	return f
+}
+
+// ClassifyDeviceInfo classifies a discovery/normalization-layer DeviceInfo.
+func ClassifyDeviceInfo(d DeviceInfo) DeviceClassification {
+	facts := FactsFromDevice(d)
+	c := ClassifyDevice(facts)
+	// Explicit wire printer types are authoritative: a software-only
+	// capture with an unfamiliar name/driver must never be inferred as
+	// production hardware just because the registry is manually configured.
+	// Preserve the distinction between printable virtual writers, unusable
+	// fax/blackhole stubs, and redirected sessions.
+	switch strings.ToLower(strings.TrimSpace(d.PrinterType)) {
+	case "virtual":
+		if c.IsRedirected {
+			return c
+		}
+		return DeviceClassification{Class: ClassVirtual, IsVirtual: true, IsUnusable: c.IsUnusable, Confidence: "high", Reasons: []string{"declared-virtual-printer-type"}}
+	case "redirected":
+		return DeviceClassification{Class: ClassRedirected, IsVirtual: true, IsRedirected: true, IsUnusable: true, Confidence: "high", Reasons: []string{"declared-redirected-printer-type"}}
+	case "file":
+		if c.IsRedirected {
+			return c
+		}
+		return DeviceClassification{Class: ClassVirtual, IsVirtual: true, IsUnusable: c.IsUnusable, Confidence: "high", Reasons: []string{"file-output-virtual-printer"}}
+	}
+	// An explicitly flagged record (persisted by this or an older version)
+	// wins when the metadata alone is inconclusive.
+	if d.IsVirtual && c.Class != ClassVirtual && c.Class != ClassRedirected {
+		return DeviceClassification{
+			Class:      ClassVirtual,
+			IsVirtual:  true,
+			IsUnusable: false,
+			Confidence: "high",
+			Reasons:    []string{"device-flagged-virtual"},
+		}
+	}
+	return c
+}
+
+// IsVirtualDevice reports whether the device is a software/redirected queue
+// rather than printing hardware.
+func IsVirtualDevice(d DeviceInfo) bool {
+	return ClassifyDeviceInfo(d).IsVirtual
+}
+
+// IsProductionPrinter reports whether a device may be surfaced as a managed
+// printer: listed in the UI, registered with Odoo and selectable for bindings
+// and jobs. Both physical hardware and printable virtual printers (Microsoft
+// Print to PDF, XPS Document Writer, CUPS-PDF, Print to File, Save as PDF)
+// are first-class managed printers; only redirected, fax, and blackhole stubs
+// are excluded.
+func IsProductionPrinter(d DeviceInfo) bool {
+	c := ClassifyDeviceInfo(d)
+	switch c.Class {
+	case ClassRedirected:
+		return false
+	case ClassVirtual:
+		return !c.IsUnusable
+	case ClassPhysical:
+		return true
+	default:
+		// Unclassified: only operator-intent registrations are surfaced.
+		return IsExplicitlyRegistered(d)
+	}
+}
+
+// IsExplicitlyRegistered reports whether this device reached us through an
+// explicit operator action rather than through automatic discovery:
+//
+//	manual    — `printers add` / RegisterManual
+//	config    — a printer declared in config.yaml
+//	registry  — a record already persisted locally by this agent
+//
+// Such queues are trusted even when we cannot prove a transport.
+//
+// NOTE: this only ever rescues a device classified `unknown`. A device with
+// virtual or redirected evidence is rejected before this is consulted, so an
+// operator cannot bypass the safety check by registering "Microsoft Print to
+// PDF" by hand, and a stale virtual row in the registry stays hidden.
+func IsExplicitlyRegistered(d DeviceInfo) bool {
+	if d.Capabilities == nil {
+		return false
+	}
+	if b, ok := d.Capabilities["manual"].(bool); ok && b {
+		return true
+	}
+	if v, ok := d.Capabilities["registration_source"].(string); ok {
+		switch spoolerToLowerTrim(v) {
+		case "manual", "config", "registry":
+			return true
+		}
+	}
+	return false
+}
+
+/* ---------- Evidence tables ---------- */
+
+// virtualPortMonitors are Windows port monitors whose output never reaches
+// hardware: they write a file, discard the job or hand it to another app.
+// unusablePortMonitors are non-printable blackhole or fax-modem ports that
+// cannot produce a document or printed output.
+var unusablePortMonitors = []string{
+	"nul:",    // discard blackhole
+	"null:",   // discard blackhole
+	"shrfax:", // Windows Shared Fax
+	"fax:",
+	"brfax:", // Brother PC-FAX (software fax queue)
+}
+
+var virtualPortMonitors = []string{
+	"portprompt:", // Microsoft Print to PDF, "print to file" prompt
+	"xpsport:",    // Microsoft XPS Document Writer
+	"file:",       // print to file
+	"cups-pdf:",   // Linux/macOS CUPS-PDF backend
+	"nul:",        // discard
+	"null:",
+	"shrfax:", // Windows Shared Fax
+	"fax:",
+	"brfax:", // Brother PC-FAX (software fax queue, never physical paper)
+}
+
+// unusableWriterTokens identify fax-only software queues that cannot print
+// documents (PDF/XPS/Print-to-File virtual printers are first-class printable).
+var unusableWriterTokens = []string{
+	"microsoft shared fax",
+	"pc-fax",
+	"pc fax",
+	"pcfax",
+	"fax v.",
+	"fax driver",
+}
+
+// softwareWriterTokens mark driver/PnP/name families that only ever produce
+// a file or hand the job to an application. Every entry is matched against
+// the driver name, the device instance id, the hardware/compatible ids and
+// the printer name.
+var softwareWriterTokens = []string{
+	// ---- Microsoft in-box software writers ----
+	"microsoft print to pdf",
+	"microsoft xps document writer",
+	"microsoft shared fax",
+	"send to onenote",
+	"onenote",
+	// ---- Fax software queues (any vendor): PC-FAX dials a modem, never paper ----
+	"pc-fax",
+	"pc fax",
+	"pcfax",
+	"fax v.",
+	"fax driver",
+	// ---- Semantic families (language independent) ----
+	"document writer",
+	"documentwriter",
+	"print to pdf",
+	"save as pdf",
+	"print to file",
+	"cups-pdf",
+	"cups pdf",
+	"topdf",
+	"pdf writer",
+	"pdfwriter",
+	"pdf printer",
+	"pdf creator",
+	"pdf converter",
+	"pdf architect",
+	"virtual printer",
+	"software printer",
+	"image printer",
+	// ---- Widely deployed third-party software writers ----
+	"foxit",
+	"anydesk",
+	"cutepdf",
+	"pdf995",
+	"novapdf",
+	"bullzip",
+	"pdfcreator",
+	"pdfforge",
+	"doro pdf",
+	"biopdf",
+	"nitro pdf",
+	"adobe pdf",
+	"bluebeam",
+	"tinypdf",
+	"7-pdf",
+	"icecream pdf",
+	"pdf24",
+}
+
+// sessionRedirectTokens identify queues tunnelled from another session.
+var sessionRedirectTokens = []string{
+	"remote desktop easy print",
+	"terminal services easy print",
+	"ts easy print",
+	"easy print",
+	"citrix",
+	"vmware virtual print",
+	"vmware universal printer",
+	"thinprint",
+	"safeguard print",
+}
+
+/* ---------- Classifier ---------- */
+
+// ClassifyDevice is the single entry point: metadata in, verdict out.
+func ClassifyDevice(f DeviceFacts) DeviceClassification {
+	if reason, ok := redirectedEvidence(f); ok {
+		return DeviceClassification{
+			Class:        ClassRedirected,
+			IsVirtual:    true,
+			IsRedirected: true,
+			IsUnusable:   true,
+			Confidence:   "high",
+			Reasons:      []string{reason},
+		}
+	}
+	if reasons := virtualEvidence(f); len(reasons) > 0 {
+		return DeviceClassification{
+			Class:      ClassVirtual,
+			IsVirtual:  true,
+			IsUnusable: unusableVirtualEvidence(f),
+			Confidence: "high",
+			Reasons:    reasons,
+		}
+	}
+	if ok, reason, confidence := physicalEvidence(f); ok {
+		return DeviceClassification{
+			Class:      ClassPhysical,
+			Confidence: confidence,
+			Reasons:    []string{reason},
+		}
+	}
+	return DeviceClassification{
+		Class:      ClassUnknown,
+		Confidence: "none",
+		Reasons:    []string{"no-transport-evidence"},
+	}
+}
+
+// redirectedEvidence looks for Remote Desktop / Citrix / VMware tunnels.
+func redirectedEvidence(f DeviceFacts) (string, bool) {
+	// Windows names RDP-redirected queues "HP LaserJet (redirected 3)";
+	// Citrix uses "… (from WKS12) in session 4".
+	for _, label := range []string{f.Name, f.DisplayName, f.SpoolerName} {
+		name := spoolerToLowerTrim(label)
+		inSession := strings.Contains(name, "in session")
+		if strings.Contains(name, "(redirected") ||
+			strings.HasSuffix(name, "redirected)") ||
+			strings.Contains(name, " in session ") ||
+			(strings.Contains(name, "(from ") && inSession) {
+			return "redirected-printer-name", true
+		}
+	}
+	// Terminal Services port monitors are named TS001, TS002 …
+	port := portHead(f.PortName)
+	if len(port) > 2 && port[0] == 't' && port[1] == 's' && allDigits(port[2:]) {
+		return "terminal-services-port", true
+	}
+	if hay := identityHaystack(f); hay != "" {
+		for _, t := range sessionRedirectTokens {
+			if strings.Contains(hay, t) {
+				return "session-virtual-driver:" + t, true
+			}
+		}
+	}
+	return "", false
+}
+
+// virtualEvidence collects decisive proof that a queue is software-only.
+// FAX-only Windows queues from multifunction devices frequently share the
+// physical printer's USB/IP port. The port alone is NOT evidence that this
+// queue can print paper; a vendor FAX queue sends a facsimile instead.
+func vendorFaxQueue(f DeviceFacts) bool {
+	for _, label := range []string{f.DriverName, f.Name, f.DisplayName, f.SpoolerName} {
+		name := strings.ToLower(strings.TrimSpace(label))
+		if name == "fax" || strings.HasSuffix(name, " fax") ||
+			strings.HasSuffix(name, "-fax") || strings.HasSuffix(name, " (fax)") {
+			return true
+		}
+	}
+	return false
+}
+
+// unusableVirtualEvidence reports whether a virtual queue is a non-printable
+// fax or blackhole/null stub. Printable virtual printers (Microsoft Print to
+// PDF, XPS Document Writer, CUPS-PDF, Print to File, Save as PDF, etc.) return
+// false so they are managed as first-class printers.
+func unusableVirtualEvidence(f DeviceFacts) bool {
+	if vendorFaxQueue(f) {
+		return true
+	}
+	p := portHead(f.PortName)
+	for _, m := range unusablePortMonitors {
+		if p == m || spoolerHasPrefix(p, m) {
+			return true
+		}
+	}
+	hay := identityHaystack(f)
+	names := [3]string{spoolerToLowerTrim(f.Name), spoolerToLowerTrim(f.DisplayName), spoolerToLowerTrim(f.SpoolerName)}
+	for _, t := range unusableWriterTokens {
+		if strings.Contains(hay, t) {
+			return true
+		}
+		for _, name := range names {
+			if strings.Contains(name, t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func virtualEvidence(f DeviceFacts) []string {
+	var reasons []string
+	if vendorFaxQueue(f) {
+		reasons = append(reasons, "vendor-fax-output-queue")
+	}
+	if _, isVirtualPort := portKind(f.PortName); isVirtualPort {
+		reasons = append(reasons, "virtual-port-monitor:"+portHead(f.PortName))
+	}
+	hay := identityHaystack(f)
+	for _, t := range softwareWriterTokens {
+		if strings.Contains(hay, t) {
+			reasons = append(reasons, "software-writer-driver:"+t)
+		}
+	}
+	// A custom friendly label cannot erase known software evidence in the
+	// actual Windows queue name, including manual/configured registrations.
+	names := [3]string{spoolerToLowerTrim(f.Name), spoolerToLowerTrim(f.DisplayName), spoolerToLowerTrim(f.SpoolerName)}
+	for _, t := range softwareWriterTokens {
+		for _, name := range names {
+			if strings.Contains(name, t) {
+				reasons = append(reasons, "software-writer-name:"+t)
+				break
+			}
+		}
+	}
+	return reasons
+}
+
+// physicalEvidence looks for proof that real hardware is attached.
+func physicalEvidence(f DeviceFacts) (bool, string, string) {
+	if strings.TrimSpace(f.USBVID) != "" || strings.TrimSpace(f.USBSerial) != "" {
+		return true, "usb-identifiers", "high"
+	}
+	if isPrinterUSBDevice(f.HardwareIDs, f.CompatibleIDs, f.DeviceClass) {
+		return true, "usb-print-class", "high"
+	}
+	// A USB device path is proof that Plug and Play enumerated real hardware,
+	// even when the vendor's ids do not advertise the print class and no
+	// VID/PID/serial could be parsed from the instance id.
+	conn := spoolerToLowerTrim(f.ConnectionType)
+	if conn == "usb" && strings.TrimSpace(f.Endpoint) != "" {
+		return true, "usb-device-path", "high"
+	}
+	if strings.TrimSpace(f.NetworkAddress) != "" && f.Port != 0 {
+		return true, "network-endpoint", "high"
+	}
+	proto := spoolerToLowerTrim(f.Protocol)
+	if (conn == "ipp" || conn == "ipps" || proto == "ipp" || proto == "ipps") &&
+		strings.TrimSpace(f.Endpoint) != "" {
+		return true, "ipp-endpoint", "high"
+	}
+	if (conn == "network" || conn == "tcp") && strings.TrimSpace(f.NetworkAddress) != "" {
+		return true, "network-endpoint", "high"
+	}
+	kind, _ := portKind(f.PortName) // isVirtual is not relevant after virtual evidence was already evaluated.
+	switch kind {
+	case "usb", "wsd", "local", "network":
+		return true, "hardware-port:" + kind, "high"
+	case "other":
+		// A named-but-unrecognised port that is not a software output port is
+		// a vendor port monitor (Brother BRN_*, Canon BJNP_*, Samsung,
+		// Kyocera …) — those drive real devices, so keep them visible rather
+		// than hiding a working printer.
+		return true, "vendor-port-monitor", "low"
+	}
+	// A spooler queue enumerated by the Windows spooler is addressable
+	// through the spooler itself by queue name: the spooler IS the
+	// transport for spooler-type printers, and EnumPrinters only returns
+	// real configured queues (a queue whose port/driver details are
+	// unreadable is still a real queue — the registry's detail-loss
+	// reconciliation exists precisely for those observations). This runs
+	// only after virtual/redirected evidence was evaluated, so a software
+	// writer or session-redirected queue still classifies virtual/
+	// redirected, never physical; and admission still re-reads queue
+	// details before execution, so an unreadable-details queue cannot
+	// reach the print pipeline unchecked. Confidence stays low: the
+	// queue name alone proves addressability, not the backend hardware.
+	conn = spoolerToLowerTrim(f.ConnectionType)
+	proto = spoolerToLowerTrim(f.Protocol)
+	if (conn == "spooler" || conn == "windows_spooler" || proto == "spooler" || proto == "windows_spooler") &&
+		strings.TrimSpace(f.SpoolerName) != "" {
+		return true, "spooler-queue-name", "low"
+	}
+	// A non-spooler device with no port, endpoint, USB or network
+	// evidence is NOT transport proof: it stays unclassified.
+	// Operator-registered rows are still surfaced via
+	// IsExplicitlyRegistered, so this only keeps unproven discovery
+	// observations out of the production fleet.
+	return false, "", "none"
+}
+
+// identityHaystack is everything identifying the device, lowercased, so a
+// single substring scan covers driver, PnP ids and comment.
+func identityHaystack(f DeviceFacts) string {
+	parts := make([]string, 0, 6)
+	parts = append(parts, f.DriverName, f.DeviceID, f.Comment)
+	parts = append(parts, f.HardwareIDs...)
+	parts = append(parts, f.CompatibleIDs...)
+	return spoolerToLowerTrim(strings.Join(parts, " "))
+}
+
+// portHead returns the significant part of a Windows port name: lowercased,
+// trimmed and cut at the first comma ("IP_192.168.1.50,SNMP" → "ip_192.168.1.50").
+func portHead(port string) string {
+	if i := spoolerIndexComma(port); i >= 0 {
+		port = port[:i]
+	}
+	return spoolerToLowerTrim(port)
+}
+
+// portKind classifies a Windows port monitor.
+func portKind(port string) (kind string, isVirtual bool) {
+	p := portHead(port)
+	if p == "" {
+		return "none", false
+	}
+	for _, v := range virtualPortMonitors {
+		if p == v || spoolerHasPrefix(p, v) {
+			return "virtual", true
+		}
+	}
+	switch {
+	case spoolerHasPrefix(p, "usb"), spoolerHasPrefix(p, "dot4"):
+		return "usb", false
+	case spoolerHasPrefix(p, "wsd"):
+		return "wsd", false
+	case spoolerHasPrefix(p, "lpt"), spoolerHasPrefix(p, "com"):
+		return "local", false
+	case spoolerHasPrefix(p, "ip_"):
+		return "network", false
+	}
+	if _, _, err := spoolerSplitPort(p); err == nil {
+		return "network", false
+	}
+	if isIPLikePort(p) {
+		return "network", false
+	}
+	return "other", false
+}
+
+// isIPLikePort recognises raw IP ports and the Standard TCP/IP monitor's
+// "<ip>_<snmp index>" form.
+func isIPLikePort(p string) bool {
+	if spoolerIsIPLike(p) {
+		return true
+	}
+	if i := strings.LastIndex(p, "_"); i > 0 {
+		return spoolerIsIPLike(p[:i])
+	}
+	return false
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+/* ---------- Capability helpers ---------- */
+
+func capString(caps map[string]interface{}, key string) string {
+	v, ok := caps[key]
+	if !ok || v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
+}
+
+func capStringSlice(caps map[string]interface{}, key string) []string {
+	v, ok := caps[key]
+	if !ok || v == nil {
+		return nil
+	}
+	switch vv := v.(type) {
+	case []string:
+		return vv
+	case []interface{}:
+		out := make([]string, 0, len(vv))
+		for _, x := range vv {
+			out = append(out, fmt.Sprint(x))
+		}
+		return out
+	}
+	return nil
+}

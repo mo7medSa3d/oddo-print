@@ -1,0 +1,89 @@
+package config
+
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
+func parseServerOrigin(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil {
+		// Parsing errors can include the complete input, including credentials.
+		return nil, fmt.Errorf("server.url invalid")
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("server.url host is empty")
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") {
+		return nil, fmt.Errorf("server.url must not contain credentials, query strings, or fragments")
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("server.url scheme must be http or https")
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawPath != "" {
+		return nil, fmt.Errorf("server.url must use the origin root; Odoo base paths are not supported")
+	}
+	if strings.Contains(u.Hostname(), ":") && !strings.HasPrefix(u.Host, "[") {
+		return nil, fmt.Errorf("server.url IPv6 addresses must be enclosed in brackets")
+	}
+	if strings.Contains(u.Hostname(), "%") {
+		return nil, fmt.Errorf("server.url IPv6 zone identifiers are not supported")
+	}
+	if host := u.Hostname(); net.ParseIP(host) == nil {
+		if len(host) > 253 || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
+			return nil, fmt.Errorf("server.url host is invalid")
+		}
+		for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+			if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return nil, fmt.Errorf("server.url host is invalid")
+			}
+		}
+	}
+	if strings.HasSuffix(u.Host, ":") {
+		return nil, fmt.Errorf("server.url port is empty")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("server.url port must be between 1 and 65535")
+		}
+	}
+	u.Path = ""
+	return u, nil
+}
+
+// OdooOrigin canonicalizes an already authorized HTTP(S) origin. Startup
+// and pairing must still call ValidateServerURL to enforce the HTTP opt-in.
+func OdooOrigin(raw string) (string, error) {
+	u, err := parseServerOrigin(raw)
+	if err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+// OdooEndpoint resolves an API path without changing the configured origin
+// or retaining a trailing root slash. Callers own any endpoint query values.
+func OdooEndpoint(raw, apiPath string) (string, error) {
+	u, err := parseServerOrigin(raw)
+	if err != nil {
+		return "", err
+	}
+	ref, err := url.Parse(apiPath)
+	if err != nil || ref.IsAbs() || ref.Host != "" || ref.User != nil || ref.RawPath != "" ||
+		ref.Fragment != "" || strings.Contains(apiPath, "#") || strings.Contains(ref.Path, "\\") ||
+		strings.Contains(ref.Path, "//") || !strings.HasPrefix(ref.Path, "/api/") {
+		return "", fmt.Errorf("Odoo endpoint must be an absolute API path on the configured origin")
+	}
+	for _, segment := range strings.Split(ref.Path, "/") {
+		if segment == "." || segment == ".." {
+			return "", fmt.Errorf("Odoo endpoint must not contain path traversal")
+		}
+	}
+	return u.ResolveReference(ref).String(), nil
+}
