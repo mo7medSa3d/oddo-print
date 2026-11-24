@@ -1,7 +1,7 @@
 {
   "name": "yaseir-gateway",
   "version": "1.0.0",
-  "description": "Yaseir \u2014 Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
+  "description": "Yaseir — Cloud Printing Platform (Next.js + PostgreSQL + Drizzle), Windows Go agent, and Tauri desktop manager",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -53,29 +53,30 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "16.4.2",
     "@tailwindcss/postcss": "4.3.3",
     "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/cli": "2.11.4",
     "@types/node": "^26.6.5",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@typescript-eslint/parser": "8.70.0",
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.3",
     "axe-core": "^4.14.0",
     "drizzle-kit": "0.31.11",
     "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
     "jsdom": "^30.1.3",
+    "oxlint": "1.87.0",
     "postcss": "^8.5.30",
     "react-style-singleton": "2.2.3",
     "tailwindcss": "4.3.3",
     "typescript": "^5.7.2",
     "vite": "^8.3.4",
-    "vitest": "5.0.5",
-    "@next/eslint-plugin-next": "16.4.2",
-    "@typescript-eslint/parser": "8.70.0",
-    "eslint-plugin-react-hooks": "7.1.1",
-    "globals": "17.13.0",
-    "oxlint": "1.87.0"
+    "vitest": "5.0.5"
   },
   "overrides": {
     "brace-expansion@5.x": "5.0.12",

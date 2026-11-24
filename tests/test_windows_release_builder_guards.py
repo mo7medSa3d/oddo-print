@@ -121,7 +121,7 @@ def test_patched_manager_binary_receives_explicit_cli_signing_config_before_nsis
     assert '$env:TAURI_CONFIG' in build
     assert 'certificateThumbprint' in build
     assert 'tauri.windows.signing.json' in build
-    assert 'cargo tauri build --target x86_64-pc-windows-msvc --bundles nsis --config $signingConfig' in build
+    assert 'tauri build --target x86_64-pc-windows-msvc --bundles nsis --config $signingConfig' in build
     assert '--no-binary-patching' not in build
     verify = WORKFLOW.split("- name: Verify NSIS installer artifact", 1)[1].split("\n      - name:", 1)[0]
     assert "Get-AuthenticodeSignature -LiteralPath $exe[0].FullName" in verify
