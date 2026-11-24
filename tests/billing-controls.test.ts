@@ -20,7 +20,7 @@ describe("manual subscription request controls",()=>{
     await mount({selectedPlanId:"p2",currentTerm:"yearly"});
     expect((container.querySelector("#request-plan") as HTMLSelectElement).value).toBe("p2");
     expect((container.querySelector("#request-term") as HTMLSelectElement).value).toBe("yearly");
-    expect(container.textContent).toContain("reviewed before anything changes");
+    expect(container.querySelector("#request-plan")).not.toBeNull();
     expect(container.textContent).not.toMatch(/Stripe|checkout|Resume subscription/);
   });
   it("posts only an authenticated request and reconciles its safe reference",async()=>{

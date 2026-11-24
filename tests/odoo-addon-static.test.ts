@@ -87,7 +87,7 @@ describe("Odoo addon static contracts", () => {
     expect(order).toContain("is_gateway_printing_enabled");
     expect(session).toContain("action_print_gateway_sale_details");
     expect(posController).toContain("/pos/sale_details_report");
-    expect(posController).toContain("if not gateway");
+    expect(posController).toContain("if router._print_config(request.env.company):");
     expect(posController).toContain("route_render_target");
   });
 

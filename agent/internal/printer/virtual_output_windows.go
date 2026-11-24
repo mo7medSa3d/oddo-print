@@ -70,10 +70,10 @@ func resolveVirtualOutputPath(spoolerName, jobID string) (string, error) {
 	}
 	defer runtime.KeepAlive(namePtr)
 	var hPrinter syscall.Handle
-	ret, _ := defaultSpoolerSyscalls().openPrinterW(namePtr, &hPrinter)
+	ret, _ := defaultSpoolerSyscalls.openPrinterW(namePtr, &hPrinter)
 	if ret == 0 || hPrinter == 0 {
 		return "", nil
 	}
-	defer defaultSpoolerSyscalls().closePrinter(hPrinter)
+	defer defaultSpoolerSyscalls.closePrinter(hPrinter)
 	return resolveVirtualOutputPathForHandle(hPrinter, spoolerName, jobID)
 }

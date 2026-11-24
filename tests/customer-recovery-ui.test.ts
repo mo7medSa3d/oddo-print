@@ -98,7 +98,8 @@ describe("customer recovery feedback", () => {
 
 describe("legacy workspace onboarding routes into customer subscription management", () => {
   it.each(["en", "ar"] as const)("redirects the %s workspace member to billing without platform API requests", async locale => {
-    await render(h(OnboardingPage), locale);
+    // This legacy route is now an async Server Component that only redirects.
+    await OnboardingPage({});
     expect(navigation.redirect).toHaveBeenCalledWith("/billing");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(host.querySelector("form")).toBeNull();

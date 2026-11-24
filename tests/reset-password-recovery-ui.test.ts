@@ -9,7 +9,7 @@ import { fetchWithTimeout } from "../src/lib/fetch-timeout";
 const navigation = vi.hoisted(() => ({ search: "", replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => navigation, useSearchParams: () => new URLSearchParams(navigation.search) }));
 vi.mock("next/link", () => ({ default: ({ children, ...props }: Record<string, unknown>) => h("a", props, children as ReactNode) }));
-vi.mock("../src/components/AuthShell", () => ({ AuthShell: ({ children }: { children: ReactNode }) => h("main", null, children) }));
+vi.mock("../src/components/AuthShell", () => ({ AuthShell: ({ children, footer }: { children: ReactNode; footer?: ReactNode }) => h("main", null, children, footer) }));
 vi.mock("../src/lib/fetch-timeout", () => ({ fetchWithTimeout: vi.fn() }));
 
 const fetchMock = vi.mocked(fetchWithTimeout);

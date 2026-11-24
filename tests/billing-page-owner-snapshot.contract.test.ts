@@ -27,6 +27,6 @@ describe("server-rendered billing page owner privacy", () => {
     expect(page).toContain("error instanceof ManagerMutationAuthorityChangedError");
     expect(page).toContain("error instanceof TenantSuspendedError");
     expect(page).toContain("error instanceof TenantDeletedError");
-    expect(page).toContain("<BillingActions");
+    expect(page).toContain("<UnifiedBillingView");
   });
 });

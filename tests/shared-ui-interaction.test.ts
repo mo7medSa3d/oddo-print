@@ -8,7 +8,7 @@ import { LanguageSwitcher } from "../src/components/LanguageSwitcher";
 import { Menu, Modal } from "../src/components/ui";
 import { I18nProvider, useI18n, type I18nValue } from "../src/i18n/react";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/" }));
 
 let roots: Root[] = [];
 let restoreLocale: I18nValue["setLocale"] | null = null;

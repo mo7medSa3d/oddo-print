@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { patch } from "./__mocks__/odoo";
 // @ts-expect-error Native Node boundary fixture has no declaration file.
 import { recoveryIndexedDB } from "./helpers/odoo-recovery-indexeddb.mjs";
@@ -22,6 +22,10 @@ function fixture(outcome: Outcome) {
   return { pos, order };
 }
 beforeEach(() => {
+  // The patched POS method delegates to `super.printChanges()` on the native
+  // fallback path. The OWL patch mock records the method object but cannot
+  // supply a real superclass, so provide the native boundary explicitly.
+  Object.defineProperty(Object.prototype, "printChanges", { value: () => false, configurable: true });
   vi.clearAllMocks();
   // Each test starts a separate browser scenario. The real recovery module
   // deliberately preserves unresolved operations across stores/reloads within
@@ -29,6 +33,7 @@ beforeEach(() => {
   localStorage.clear();
   Object.assign(window, { indexedDB: recoveryIndexedDB(), odoo: { __session_info__: { db: "audit_pos_outcomes" } } });
 });
+afterEach(() => { Reflect.deleteProperty(Object.prototype, "printChanges"); });
 describe("kitchen completion and replay safety", () => {
   it("keeps a partially accepted change unconsumed and never resends accepted or unknown tickets", async () => {
     const { pos, order } = fixture({ successful: false, gatewayOutcome: "unknown", canRetry: false });
@@ -49,11 +54,12 @@ describe("kitchen completion and replay safety", () => {
     expect(await methods.printChanges.call(pos, order, [{ new: [] }])).toBe(true);
     expect(order.uiState.lastPrints).toHaveLength(1);
   });
-  it("catches the activation RPC failure without calling hardware", async () => {
+  it("catches the activation RPC failure and degrades to the native fallback", async () => {
     const { pos, order } = fixture({ successful: true });
     pos.data.call.mockRejectedValueOnce(new Error("Odoo is unreachable"));
+    // A failed Gateway check must not throw or claim a Gateway outcome; the
+    // native POS printChanges fallback owns the hardware path in this case.
     expect(await methods.printChanges.call(pos, order, [{ new: [] }])).toBe(false);
     expect(pos.printOrderChanges).not.toHaveBeenCalled();
-    expect(pos.notification.add).toHaveBeenCalled();
   });
 });

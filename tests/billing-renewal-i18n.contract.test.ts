@@ -32,7 +32,7 @@ describe("billing renewal localization contract", () => {
 
     expect(source).not.toContain('t("billing.renewsOn"');
     expect(source).toContain("currentPeriodEnd");
-    expect(source).toContain("BillingActions");
+    expect(source).toContain("UnifiedBillingView");
     expect(source).not.toContain('redirect("/platform/subscriptions")');
     const platform = readFileSync("src/components/platform/SubscriptionEditor.tsx", "utf8");
     // WP-G: updated for WP-B+C+F call-site unification (a() was literally t("v4.admin."+key));

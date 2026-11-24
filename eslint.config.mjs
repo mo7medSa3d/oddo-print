@@ -24,7 +24,7 @@ export default defineConfig([
   // Next's original Core Web Vitals config is global, including CommonJS.
   nextPlugin.configs["core-web-vitals"],
   {
-    files: ["odoo_addons/**/*.js"],
+    files: ["odoo_addons/**/*.js", "odoo_addons_20/**/*.js"],
     languageOptions: {
       globals: Object.fromEntries([
         "window", "document", "console", "crypto", "luxon", "XMLHttpRequest",

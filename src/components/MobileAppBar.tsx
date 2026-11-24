@@ -40,7 +40,7 @@ export function MobileAppBar({
           aria-expanded={navigationOpen}
           aria-controls={navigationId}
           onClick={onOpenNavigation}
-          className="tg-mobile-appbar-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-edge/80 bg-surface text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-[3px] focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-[3px]"
+          className="tg-mobile-appbar-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-edge/80 bg-surface text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-[3px] focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-[3px]"
         >
           <MenuIcon className="h-5 w-5" aria-hidden />
         </button>
@@ -62,7 +62,7 @@ export function MobileAppBar({
             aria-label={t("common.search")}
             title={t("common.search")}
             onClick={onSearch}
-            className="tg-mobile-appbar-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-[3px] focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-[3px]"
+            className="tg-mobile-appbar-button inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink-2 transition-colors hover:bg-surface-2 focus-visible:outline-[3px] focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-[3px]"
           >
             <Search className="h-5 w-5" aria-hidden />
           </button>

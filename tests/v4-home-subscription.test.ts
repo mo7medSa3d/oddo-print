@@ -118,9 +118,14 @@ describe("manual subscription truth on Home", () => {
     expect(signupLinks.some(node => node.textContent?.includes(translate(locale, "home.ctaPrimary")))).toBe(true);
     expect(doc.body.textContent).not.toMatch(/free trial|Start trial|فترتك التجريبية|ابدأ التجربة/i);
     const flow = doc.querySelector("#how-it-works")!;
-    const headings = [...flow.querySelectorAll("h3")].map(node => node.textContent);
-    expect(headings).toContain(translate(locale, "home.visualStep1Title"));
-    expect(headings).toContain(translate(locale, "home.visualStep2Title"));
+    const headings = [...flow.querySelectorAll("h2")].map(node => node.textContent);
+    // The three public pillars are the current licensing-led explanation;
+    // keep the structural contract without pinning the old "Odoo" marketing copy.
+    expect(headings).toHaveLength(3);
+    if (locale === "en") {
+      expect(headings).toContain("License Control");
+      expect(headings).toContain("Native Speed");
+    }
     if (locale === "ar") expect(headings.join(" ")).not.toMatch(/Odoo|Gateway/);
   });
 });

@@ -12,11 +12,17 @@ async function load(file, globals = {}, select = (source) => source) {
   const modules = new Map();
   async function get(path) {
     if (modules.has(path)) return modules.get(path);
-    const source = select(await readFile(path, "utf8"), path);
-    const loadedModule = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
-    modules.set(path, loadedModule);
-    await loadedModule.link((name) => get(resolve(dirname(path), `${name}.ts`)));
-    return loadedModule;
+    // Cache the in-flight link, not just the finished module: sibling imports
+    // of the same dependency must await the same link or Node's VM linker can
+    // observe a half-linked module and fail with ERR_VM_MODULE_LINK_FAILURE.
+    const linked = (async () => {
+      const source = select(await readFile(path, "utf8"), path);
+      const loadedModule = new vm.SourceTextModule(stripTypeScriptTypes(source), { context, identifier: path });
+      await loadedModule.link((name) => get(resolve(dirname(path), `${name}.ts`)));
+      return loadedModule;
+    })();
+    modules.set(path, linked);
+    return linked;
   }
   const loadedModule = await get(resolve(file));
   await loadedModule.evaluate();

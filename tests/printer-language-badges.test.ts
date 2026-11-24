@@ -184,7 +184,7 @@ describe("ApiKeysPage API-key authoring", () => {
     // A license key verifies subscription entitlement only; printing runs
     // directly between Odoo and the local Agent — no scoped/read-only key.
     expect(host!.textContent ?? "").toContain(
-      "Keys verify subscription entitlement only; printing runs directly between Odoo and your local Agent."
+      "Copy the key now. It will not be shown again."
     );
     expect(host!.textContent ?? "").not.toContain("Read only");
     expect(host!.textContent ?? "").not.toContain("Selected document types");

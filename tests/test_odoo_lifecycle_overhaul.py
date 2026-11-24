@@ -15,7 +15,6 @@ Tests:
 
 import ast
 import contextlib
-import importlib.util
 import inspect
 import json
 import sys

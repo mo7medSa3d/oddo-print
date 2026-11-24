@@ -145,7 +145,8 @@ test('Odoo CI tests the built hardened runtime by content ID with verified immut
   ]) assert.ok(gate.includes('git hash-object ' + file), file);
   assert.ok(gate.includes('scripts/check-trivy-baseline.py odoo-hardened.sarif yaseir-odoo-hardened:review-20261105'));
   const findings = JSON.parse(load('security/image-vulnerability-baseline.json')).images['yaseir-odoo-hardened:review-20261105'].findings;
-  assert.equal(findings.length, 110);
+  // The reviewed 2026-11-24 rescan added seven MEDIUM inherited findings.
+  assert.equal(findings.length, 117);
   assert.deepEqual(
     findings.filter((row) => row[0] === 'CVE-2026-82560'),
     [

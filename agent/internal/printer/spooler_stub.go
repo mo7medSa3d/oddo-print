@@ -35,7 +35,6 @@ type SpoolerPrinter struct {
 	statusDetail      atomic.Value // string
 }
 
-
 func tryPrintViaCUPS(ctx context.Context, queueName string, data []byte, raw bool) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return true, err

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(ROOT / "tests"))
 
-from test_odoo_lifecycle_overhaul import _FakeRecordSet, _install_odoo_stubs, _load_addon_package
+from test_odoo_lifecycle_overhaul import _install_odoo_stubs, _load_addon_package
 
 
 class _FakeICP:
