@@ -19,7 +19,7 @@ agent/odoo-agent-cli.exe
 !.env.example
 
 *.log
-odoo_addons_20/native_print/
+odoo_addons_20/native_print/*
 # Local agent runtime state
 agent/agent.db
 agent/agent.db-*
