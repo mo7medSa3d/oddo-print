@@ -40,9 +40,7 @@ export function BillingActions({
   externalRequest,
   onRequestCreated,
   currentTerm,
-  controlledPlanId,
   controlledTerm,
-  onPlanChange,
   onTermChange,
 }: {
   plans: SubscriptionPlanOption[];
@@ -55,14 +53,12 @@ export function BillingActions({
   externalRequest?: CustomerSubscriptionRequest | null;
   onRequestCreated?: (request: CustomerSubscriptionRequest) => void;
   currentTerm?: string | null;
-  controlledPlanId?: string;
   controlledTerm?: BillingTerm;
-  onPlanChange?: (planId: string) => void;
   onTermChange?: (term: BillingTerm) => void;
 }) {
   const { t, locale, formatNumber, formatDateTime } = useI18n();
   const router = useRouter();
-  const [internalPlanId, setInternalPlanId] = useState(() =>
+  const [planId, setPlanId] = useState(() =>
     plans.some(plan => plan.id === selectedPlanId)
       ? selectedPlanId!
       : plans.some(plan => plan.id === currentPlanId)
@@ -70,15 +66,7 @@ export function BillingActions({
         : plans[0]?.id ?? "",
   );
   const [internalTerm, setInternalTerm] = useState<BillingTerm>(currentTerm === "yearly" ? "yearly" : "monthly");
-  const planId = controlledPlanId !== undefined && plans.some(plan => plan.id === controlledPlanId)
-    ? controlledPlanId
-    : internalPlanId;
   const term: BillingTerm = controlledTerm ?? internalTerm;
-
-  const setPlanId = (next: string) => {
-    setInternalPlanId(next);
-    onPlanChange?.(next);
-  };
   const setTerm = (next: BillingTerm) => {
     setInternalTerm(next);
     onTermChange?.(next);

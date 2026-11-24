@@ -4,7 +4,6 @@ mod agent;
 mod agent_status;
 mod cleanup;
 mod commands;
-mod elevation;
 mod logging;
 mod paths;
 mod tray;
@@ -110,10 +109,6 @@ fn acquire_single_instance(wait_for_previous: bool) -> Result<Option<SingleInsta
 }
 
 fn main() {
-    // Track elevation status cleanly; when unelevated, the app opens ONLY to
-    // the locked Administrator-required screen and skips all privileged setup.
-    let _is_elevated = elevation::is_elevated();
-
     #[cfg(windows)]
     let elevated_relaunch =
         std::env::args_os().any(|arg| arg.to_string_lossy() == "--elevated-relaunch");

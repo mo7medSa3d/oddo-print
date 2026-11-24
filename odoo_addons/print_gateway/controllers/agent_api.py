@@ -79,28 +79,6 @@ def _authenticate_agent(cr):
     return {"id": row[0], "company_id": row[1], "agent_uid": row[2]}
 
 
-def _read_license_snapshot(cr):
-    cr.execute(
-        """
-        SELECT key, value
-          FROM ir_config_parameter
-         WHERE key IN ('database.uuid', 'print_gateway.signed_license_bundle')
-        """
-    )
-    params = {k: v for k, v in cr.fetchall()}
-    odoo_db_uuid = (params.get("database.uuid") or "").strip() or None
-    raw_bundle = params.get("print_gateway.signed_license_bundle")
-    license_bundle = None
-    if raw_bundle:
-        try:
-            parsed = json.loads(raw_bundle)
-            if isinstance(parsed, dict):
-                license_bundle = parsed
-        except (TypeError, ValueError):
-            license_bundle = None
-    return odoo_db_uuid, license_bundle
-
-
 class DirectAgentController(http.Controller):
     """Direct Odoo <-> Go Agent API. Odoo owns the print queue and outcomes."""
 
@@ -176,7 +154,7 @@ class DirectAgentController(http.Controller):
             """,
             (_hash_token(raw_token), str(data.get("agentVersion") or "")[:64], agent_id),
         )
-        odoo_db_uuid, license_bundle = _read_license_snapshot(cr)
+        odoo_db_uuid = (icp.get_param("database.uuid") or "").strip() or None
         return _json_response({
             "ok": True,
             "agentId": agent_uid,
@@ -184,7 +162,7 @@ class DirectAgentController(http.Controller):
             "token": raw_token,
             "secret": raw_token,
             "odooDbUuid": odoo_db_uuid,
-            "licenseBundle": license_bundle,
+            "licenseBundle": lic_bundle,
         })
 
     @http.route(["/print_gateway/agent/heartbeat", "/api/agent/heartbeat"], type="http", auth="none", methods=["POST"], csrf=False)
@@ -247,23 +225,33 @@ class DirectAgentController(http.Controller):
         lic_ok, lic_reason, license_bundle = verify_stored_license_bundle(icp)
         max_printers = int(((license_bundle or {}).get("payload") or {}).get("max_printers") or 0)
 
-        # Upsert printer inventory snapshot under advisory lock so concurrent
-        # heartbeats cannot overshoot max_printers or overwrite Odoo-side
-        # unshare choices back to TRUE.
-        cr.execute("SELECT pg_advisory_xact_lock(hashtext('print_gateway_printer_limit'))")
-        cr.execute(
-            """
-            SELECT count(*)
-              FROM print_gateway_printer pr
-              JOIN print_gateway_agent a ON a.id = pr.agent_id
-             WHERE a.active = TRUE
-               AND pr.available_to_odoo = TRUE
-            """
+        raw_hidden = data.get("privatePrinterIds")
+        hidden_ids = (
+            sorted({str(value)[:120] for value in raw_hidden[:500] if isinstance(value, str) and value.strip()})
+            if isinstance(raw_hidden, list)
+            else []
         )
-        current_active_printers = int(cr.fetchone()[0] or 0)
+        hidden_set = set(hidden_ids)
 
         printers = data.get("printers")
-        if isinstance(printers, list) and printers:
+        has_printers = isinstance(printers, list) and bool(printers)
+        if has_printers or hidden_ids:
+            # Serialize printer inventory mutations under advisory lock so concurrent
+            # heartbeats cannot overshoot max_printers or overwrite Odoo-side
+            # unshare choices back to TRUE.
+            cr.execute("SELECT pg_advisory_xact_lock(hashtext('print_gateway_printer_limit'))")
+
+        if has_printers:
+            cr.execute(
+                """
+                SELECT count(*)
+                  FROM print_gateway_printer pr
+                  JOIN print_gateway_agent a ON a.id = pr.agent_id
+                 WHERE a.active = TRUE
+                   AND pr.available_to_odoo = TRUE
+                """
+            )
+            current_active_printers = int(cr.fetchone()[0] or 0)
             cr.execute(
                 "SELECT printer_key FROM print_gateway_printer WHERE agent_id = %s",
                 (agent["id"],),
@@ -278,7 +266,10 @@ class DirectAgentController(http.Controller):
                 status = str(p.get("status") or "unknown").lower()
                 if status not in ("online", "busy", "offline", "error", "unknown"):
                     status = "unknown"
-                agent_wants_shared = bool(p.get("availableToOdoo", p.get("sharedWithGateway", True)))
+                raw_avail = p.get("availableToOdoo")
+                if raw_avail is None:
+                    raw_avail = p.get("sharedWithGateway")
+                agent_wants_shared = (printer_key not in hidden_set) and (True if raw_avail is None else bool(raw_avail))
                 if printer_key in existing_keys:
                     insert_available = agent_wants_shared
                 elif printer_key in batch_by_key:
@@ -370,20 +361,17 @@ class DirectAgentController(http.Controller):
                     ),
                 )
 
-        hidden_ids = data.get("privatePrinterIds")
-        if isinstance(hidden_ids, list):
-            hidden_ids = sorted({str(value)[:120] for value in hidden_ids[:500] if isinstance(value, str) and value.strip()})
-            if hidden_ids:
-                cr.execute(
-                    """
-                    UPDATE print_gateway_printer
-                       SET available_to_odoo = FALSE,
-                           write_date = clock_timestamp()
-                     WHERE agent_id = %s
-                       AND printer_key = ANY(%s)
-                    """,
-                    (agent["id"], hidden_ids),
-                )
+        if hidden_ids:
+            cr.execute(
+                """
+                UPDATE print_gateway_printer
+                   SET available_to_odoo = FALSE,
+                       write_date = clock_timestamp()
+                 WHERE agent_id = %s
+                   AND printer_key = ANY(%s)
+                """,
+                (agent["id"], hidden_ids),
+            )
 
         # Recount active shared printers after inventory updates and evaluate limit
         cr.execute(
@@ -434,7 +422,7 @@ class DirectAgentController(http.Controller):
         odoo_db_uuid = (icp.get_param("database.uuid") or "").strip() or None
         return _json_response({
             "ok": True,
-            "pendingJobs": pending_count if lic_ok else 0,
+            "pendingJobs": pending_count,
             "odooDbUuid": odoo_db_uuid,
             "licenseValid": lic_ok,
             "licenseReason": lic_reason,

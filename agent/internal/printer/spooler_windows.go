@@ -421,11 +421,17 @@ func executeSpoolerSessionWithSyscallsObserved(spoolerName string, data []byte, 
 	}
 	defer runtime.KeepAlive(dataType)
 	var outputFilePtr *uint16
-	if outPath := resolveVirtualOutputPathForHandle(hPrinter, spoolerName, ""); outPath != "" {
-		if ptr, ptrErr := syscall.UTF16PtrFromString(outPath); ptrErr == nil {
-			outputFilePtr = ptr
-			defer runtime.KeepAlive(outputFilePtr)
+	outPath, outErr := resolveVirtualOutputPathForHandle(hPrinter, spoolerName, "")
+	if outErr != nil {
+		return spoolerTaskResult{err: outErr}
+	}
+	if outPath != "" {
+		ptr, ptrErr := syscall.UTF16PtrFromString(outPath)
+		if ptrErr != nil {
+			return spoolerTaskResult{err: fmt.Errorf("invalid virtual output path %q: %w", outPath, ptrErr)}
 		}
+		outputFilePtr = ptr
+		defer runtime.KeepAlive(outputFilePtr)
 	}
 	di := docInfo1{pDocName: docName, pOutputFile: outputFilePtr, pDatatype: dataType}
 	jobID, err := sys.startDocPrinterW(hPrinter, &di)

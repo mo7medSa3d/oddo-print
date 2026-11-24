@@ -133,6 +133,7 @@ class PrintGatewayPolicy(models.Model):
 
         protocol = (protocol or self.raw_protocol or "").strip().lower()
         try:
+            import re
             import string
 
             # A raw-command template is an operator-authored printer program,
@@ -158,7 +159,6 @@ class PrintGatewayPolicy(models.Model):
                         raise ValidationError(_("Nested replacement fields inside format specifications are forbidden."))
                 # Python's string formatting can allocate gigabytes for a width
                 # such as :>999999999, even if the substituted value is tiny.
-                import re
                 for number in re.findall(r"[0-9]+", format_spec):
                     if int(number) > 4096:
                         raise ValidationError(_("Printer template format width/precision exceeds 4096."))
@@ -305,15 +305,6 @@ class PrintGatewayPolicy(models.Model):
                 policy.raw_protocol = False
             elif policy.action_type == "raw_template":
                 policy.report_id = False
-
-
-
-    @api.constrains("company_id", "branch_id", "binding_id")
-    def _check_binding_scope(self):
-        # The hierarchy validator is owned by the policy because it validates
-        # the policy's company/branch scope and its optional target binding.
-        # Keep this compatibility constraint as a single delegation point.
-        self._check_hierarchy()
 
     @api.constrains("action_type", "report_id", "raw_template", "raw_protocol", "domain_filter", "model_id", "event_type", "binding_id")
     def _check_action_configuration(self):

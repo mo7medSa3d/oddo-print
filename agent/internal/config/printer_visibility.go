@@ -530,17 +530,9 @@ func independentlyKnownSpoolerBinding(pc PrinterConfig) bool {
 	switch strings.ToLower(strings.TrimSpace(registration)) {
 	case "manual", "config":
 		return true
-	case "registry":
-		// A durable registry row is local registration evidence, not a
-		// cloud claim; only a setup-only candidate row stays excluded.
-		verification, _ := pc.Capabilities["verification"].(string)
-		switch strings.ToLower(strings.TrimSpace(verification)) {
-		case "candidate_only", "device_detected_only":
-			return false
-		default:
-			return true
-		}
 	}
+	// A durable registry or local discovery row is local evidence, not a
+	// cloud claim; only setup-only candidate rows stay excluded.
 	verification, _ := pc.Capabilities["verification"].(string)
 	switch strings.ToLower(strings.TrimSpace(verification)) {
 	case "candidate_only", "device_detected_only":

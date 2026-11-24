@@ -1,10 +1,9 @@
-
 import { derivePhysicalOutcome, PHYSICAL_OUTCOME_UNKNOWN_MARKERS, type PhysicalOutcome as GatewayPhysicalOutcome } from "../lib/job-status";
 import { parseDbTimeMs } from "../lib/database-timestamp";
 // ============================================================
 // Single source of truth for operator-facing status vocabulary.
 // Web console, desktop app and the Odoo screens must render the
-// SAME word for the SAME state. Backend states are the gateway
+// SAME word for the SAME state. Backend states are the canonical
 // job statuses plus the derived physical outcome. Gateway and UI now
 // import the same TypeScript definition; Go and Odoo are parity-tested.
 // ============================================================
@@ -27,8 +26,17 @@ export function parseSharedTimeMs(value: Date | string | null | undefined): numb
 
 export const UNKNOWN_OUTCOME_MARKERS = PHYSICAL_OUTCOME_UNKNOWN_MARKERS;
 
-
 type JobFailureKind = "capability_mismatch" | "unsupported_transport" | "unsupported_protocol" | "ipp_unreachable" | "pdfium_headless" | "spooler_session_busy" | "interactive_virtual_timeout";
+
+const JOB_FAILURE_MESSAGES: Record<JobFailureKind, readonly [MessageKey, MessageKey]> = {
+  capability_mismatch: ["errors.capabilityMismatch", "errors.capabilityMismatchAction"],
+  unsupported_transport: ["job.unsupportedTransport", "job.unsupportedTransportAction"],
+  unsupported_protocol: ["job.unsupportedProtocol", "job.unsupportedProtocolAction"],
+  ipp_unreachable: ["job.ippUnreachable", "job.ippUnreachableAction"],
+  pdfium_headless: ["job.pdfiumHeadless", "job.pdfiumHeadlessAction"],
+  spooler_session_busy: ["job.spoolerSessionBusy", "job.spoolerSessionBusyAction"],
+  interactive_virtual_timeout: ["job.interactiveVirtualTimeout", "job.interactiveVirtualTimeoutAction"],
+};
 
 export function classifyJobFailure(error?: string | null): JobFailureKind | null {
   const value = (error ?? "").toUpperCase();
@@ -56,56 +64,13 @@ export function jobFailurePresentation(
   locale: Locale = DEFAULT_LOCALE,
 ): { kind: JobFailureKind; title: string; guidance: string } | null {
   const kind = classifyJobFailure(error);
-  if (kind === "capability_mismatch") {
-    return {
-      kind,
-      title: translate(locale, "errors.capabilityMismatch"),
-      guidance: translate(locale, "errors.capabilityMismatchAction"),
-    };
-  }
-  if (kind === "unsupported_transport") {
-    return {
-      kind,
-      title: translate(locale, "job.unsupportedTransport"),
-      guidance: translate(locale, "job.unsupportedTransportAction"),
-    };
-  }
-  if (kind === "unsupported_protocol") {
-    return {
-      kind,
-      title: translate(locale, "job.unsupportedProtocol"),
-      guidance: translate(locale, "job.unsupportedProtocolAction"),
-    };
-  }
-  if (kind === "ipp_unreachable") {
-    return {
-      kind,
-      title: translate(locale, "job.ippUnreachable"),
-      guidance: translate(locale, "job.ippUnreachableAction"),
-    };
-  }
-  if (kind === "pdfium_headless") {
-    return {
-      kind,
-      title: translate(locale, "job.pdfiumHeadless"),
-      guidance: translate(locale, "job.pdfiumHeadlessAction"),
-    };
-  }
-  if (kind === "spooler_session_busy") {
-    return {
-      kind,
-      title: translate(locale, "job.spoolerSessionBusy"),
-      guidance: translate(locale, "job.spoolerSessionBusyAction"),
-    };
-  }
-  if (kind === "interactive_virtual_timeout") {
-    return {
-      kind,
-      title: translate(locale, "job.interactiveVirtualTimeout"),
-      guidance: translate(locale, "job.interactiveVirtualTimeoutAction"),
-    };
-  }
-  return null;
+  if (!kind) return null;
+  const [titleKey, guidanceKey] = JOB_FAILURE_MESSAGES[kind];
+  return {
+    kind,
+    title: translate(locale, titleKey),
+    guidance: translate(locale, guidanceKey),
+  };
 }
 
 export type ObservationFreshness = "fresh" | "stale" | "missing";
@@ -137,29 +102,28 @@ export function deriveOutcome(status: string, error?: string | null): PhysicalOu
 
 export function jobTone(status: string, outcome?: PhysicalOutcome): Tone {
   // A completed submission is informational until paper output is verified.
-  // Unknown failures still need attention without inviting an automatic retry.
-  if ((status.toLowerCase() === "failed" || status.toLowerCase() === "expired") && outcome === "unknown") return "warn";
-  switch (status.toLowerCase()) {
+  // Unknown outcomes (Odoo 'unknown' or failed/expired with unknown outcome)
+  // need attention without inviting an automatic retry.
+  const normalized = status.toLowerCase();
+  if (normalized === "unknown" || ((normalized === "failed" || normalized === "expired") && outcome === "unknown")) return "warn";
+  switch (normalized) {
     case "success":
       return outcome === "printed" ? "ok" : "info";
     case "failed":
-      return "bad";
     case "expired":
       return "bad";
     case "canceled":
-      return "neutral";
-    case "printing":
-      return "info";
-    case "claimed":
-      return "info";
     case "queued":
       return "neutral";
+    case "printing":
+    case "claimed":
+      return "info";
     default:
       return "neutral";
   }
 }
 
-/** Operator words for gateway job states. Never "Success" after only
+/** Operator words for job states. Never "Success" after only
  *  queueing, and never a plain "Failed" when paper may exist. */
 export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Locale = DEFAULT_LOCALE): string {
   const word = (key: MessageKey) => translate(locale, key);
@@ -167,7 +131,6 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Loca
     case "queued":
       return word("v4.experience.job.waiting");
     case "claimed":
-      return word("v4.experience.job.processing");
     case "printing":
       return word("v4.experience.job.processing");
     case "success":
@@ -176,6 +139,8 @@ export function jobLabel(status: string, outcome?: PhysicalOutcome, locale: Loca
       return outcome === "unknown" ? word("v4.experience.job.review") : word("v4.experience.job.failed");
     case "expired":
       return outcome === "unknown" ? word("v4.experience.job.review") : word("v4.experience.job.expired");
+    case "unknown":
+      return word("v4.experience.job.review");
     case "canceled":
       // v4: both cancel variants share one operator word. The queued
       // variant is provably not printed; the claimed variant is unknown —
@@ -213,14 +178,15 @@ export function jobDisplayLabel(
 /** One-sentence operator guidance for the current job state. */
 export function jobGuidance(status: string, outcome: PhysicalOutcome, locale: Locale = DEFAULT_LOCALE): string {
   const word = (key: MessageKey) => translate(locale, key);
-  if (status === "success") return word("job.guidance.success");
-  if (status === "canceled") return word("job.guidance.canceled");
-  if (status === "claimed") return word("job.guidance.claimed");
-  if (status === "printing") return word("job.guidance.printing");
-  if (outcome === "unknown") return word("job.guidance.unknown");
-  if (status === "expired") return word("job.guidance.expired");
-  if (status === "failed") return word("job.guidance.failed");
-  if (status === "queued") return word("job.guidance.queued");
+  const normalized = status.toLowerCase();
+  if (normalized === "success") return word("job.guidance.success");
+  if (normalized === "canceled") return word("job.guidance.canceled");
+  if (normalized === "claimed") return word("job.guidance.claimed");
+  if (normalized === "printing") return word("job.guidance.printing");
+  if (normalized === "unknown" || outcome === "unknown") return word("job.guidance.unknown");
+  if (normalized === "expired") return word("job.guidance.expired");
+  if (normalized === "failed") return word("job.guidance.failed");
+  if (normalized === "queued") return word("job.guidance.queued");
   return "";
 }
 
@@ -255,8 +221,6 @@ export function printerLabel(status: string, locale: Locale = DEFAULT_LOCALE): s
       return word("status.unknown");
   }
 }
-
-
 
 /** Heartbeat-derived truth: an agent that stopped reporting is NOT online,
  *  regardless of the last status row. Mirrors src/lib/agent-availability.ts.

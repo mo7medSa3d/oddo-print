@@ -75,8 +75,8 @@ func (a *Agent) isPrinterAvailableToOdoo(id string) bool {
 	}
 	snapshot := a.loadLocalPrinterVisibility()
 	if snapshot.err != nil {
-		log.Printf("Printer visibility configuration is unavailable; defaulting to available: %v", snapshot.err)
-		return true
+		log.Printf("Printer visibility configuration is unavailable; treating printer %s as unavailable: %v", id, snapshot.err)
+		return false
 	}
 	if !snapshot.policy.Present {
 		return true

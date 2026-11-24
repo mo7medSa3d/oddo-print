@@ -247,8 +247,9 @@ type Agent struct {
 
 	// Guards making heartbeat/poll ticks non-reentrant. A slow tick (offline
 	// printers probing at 2s, slow odoo) must never let ticks pile up.
-	hbMu   sync.Mutex
-	pollMu sync.Mutex
+	hbMu        sync.Mutex
+	pollMu      sync.Mutex
+	pollPending atomic.Bool
 	// heartbeatTrigger carries out-of-cycle heartbeat requests (spooler changes
 	// and completed local discovery).
 	// to the Run loop. Buffered 1 and written non-blockingly: a pending
@@ -980,9 +981,6 @@ func (a *Agent) runInitialDiscovery(ctx context.Context, timeout time.Duration, 
 // RegisterManual adds a manually configured printer (for when discovery cannot identify correctly).
 func (a *Agent) RegisterManual(info printer.DeviceInfo) error {
 	if info.ID != "" {
-		if a.isOdooManaged(info.ID) {
-			return fmt.Errorf("printer ID %q is managed by the Gateway", info.ID)
-		}
 		if _, exists := a.getPrinter(info.ID); exists {
 			return fmt.Errorf("printer ID %q already exists", info.ID)
 		}
@@ -1015,9 +1013,6 @@ func (a *Agent) RegisterManual(info printer.DeviceInfo) error {
 	info = *selected
 	if !info.Enabled {
 		return nil
-	}
-	if a.isOdooManaged(info.ID) {
-		return fmt.Errorf("printer ID %q is managed by the Gateway", info.ID)
 	}
 	pc := printerConfigFromDeviceInfo(info)
 	pc, err = a.resolveLocalPrinter(pc)
@@ -2216,13 +2211,24 @@ func (a *Agent) watchSpoolerChanges(ctx context.Context) {
 	}
 }
 
-// pollJobsGuarded is the non-reentrant variant for the poll fallback.
+// pollJobsGuarded is the non-reentrant variant for HTTP polling and WS wakeups.
+// A wakeup arriving while a poll is in flight sets pollPending so it coalesces
+// into one immediate follow-up poll instead of being dropped until the next tick.
 func (a *Agent) pollJobsGuarded(ctx context.Context) {
-	if !a.pollMu.TryLock() {
-		return
+	for {
+		if !a.pollMu.TryLock() {
+			a.pollPending.Store(true)
+			return
+		}
+		func() {
+			defer a.pollMu.Unlock()
+			a.pollPending.Store(false)
+			a.pollJobs(ctx)
+		}()
+		if !a.pollPending.Load() || ctx.Err() != nil || a.fencedForDispatch() || a.lifecycleBackoffActive() {
+			return
+		}
 	}
-	defer a.pollMu.Unlock()
-	a.pollJobs(ctx)
 }
 
 // printerStatusPayload builds the printer-sync block sent on every
@@ -3055,17 +3061,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		return
 	}
 
-	if jobID == "" || printerID == "" {
-		// Never log the job map: it can embed the full print payload
-		// (customer names, amounts). Log only the offending field names.
-		missing := "id"
-		if jobID != "" {
-			missing = "printerId"
-		}
-		log.Printf("Received malformed job (missing %s, job present: %v); ignoring", missing, job != nil)
-		return
-	}
-
 	posJob := isPOSPrintJob(fields)
 	if a.licenseGuard != nil {
 		if degradedReason, licErr := a.licenseGuard.CheckPrintAllowedForJob(time.Now().UTC(), posJob); licErr != nil {
@@ -3185,12 +3180,10 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 	defer lock.Unlock()
 
 	if ctx.Err() != nil {
-		a.queue.AbortPrint(jobID, "dispatch_refused: agent context cancelled while waiting for printer execution; zero bytes transmitted")
 		return
 	}
 
 	if !a.isPrinterExecutionAllowed(localPrinterID) {
-		a.queue.AbortPrint(jobID, "printer_not_at_desired_state")
 		// A successful, exact Gateway hand-back is the sole authority to
 		// clear the local queued claim. Retaining an ACKed token makes the
 		// recovery outbox return an already-refunded attempt again; clearing
@@ -3198,15 +3191,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		if err := a.rejectJob(ctx, jobID, claimToken, "printer_not_at_desired_state"); err == nil {
 			if err := a.queue.ClearPreDispatchClaim(jobID, claimToken); err != nil {
 				log.Printf("Job %s: desired-state pre-dispatch return acknowledged but local token clear failed: %v", jobID, err)
-			}
-		}
-		return
-	}
-	if !a.isPrinterAvailableToOdoo(localPrinterID) {
-		a.queue.AbortPrint(jobID, "printer_not_shared")
-		if err := a.rejectJob(ctx, jobID, claimToken, "printer_not_shared"); err == nil {
-			if err := a.queue.ClearPreDispatchClaim(jobID, claimToken); err != nil {
-				log.Printf("Job %s: private pre-dispatch return acknowledged but local token clear failed: %v", jobID, err)
 			}
 		}
 		return
@@ -3288,9 +3272,6 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		// The durable row is only `queued`, not `printing`: no physical
 		// attempt happened. Its claim token remains available for the
 		// periodic fenced hand-back if the immediate rejection fails.
-		if err := a.queue.AbortPrint(jobID, "dispatch_refused: agent shutting down before physical execution slot; zero bytes transmitted"); err != nil {
-			log.Printf("Job %s: failed to abort local ledger after execution-slot cancellation: %v", jobID, err)
-		}
 		a.rejectJob(ctx, jobID, claimToken, "agent_shutting_down")
 		return
 	}
@@ -3386,7 +3367,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		printCtx = printer.WithDispatchGeometry(printCtx, resolvedImageGeometry)
 	}
 	printCtx = printer.WithDispatchAdmission(printCtx, func(admissionCtx context.Context) error {
-		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) || !a.isPrinterAvailableToOdoo(localPrinterID) {
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) {
 			return fmt.Errorf("dispatch refused: agent or printer configuration changed before this transport submission")
 		}
 		if err := a.verifyPrinterForDispatch(admissionCtx, printerID, p, verifiedConfig, fields.BindingDigest); err != nil {
@@ -3398,7 +3379,7 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 		}
 		// The bounded claim ACK is itself a wait. A local unshare during that
 		// request must still fence native creation/first bytes on its return.
-		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) || !a.isPrinterAvailableToOdoo(localPrinterID) {
+		if a.fencedForDispatch() || !a.isPrinterExecutionAllowed(localPrinterID) {
 			return fmt.Errorf("dispatch refused: local printer admission changed while acknowledging the claim")
 		}
 		return nil
@@ -3539,7 +3520,12 @@ func (a *Agent) processJob(ctx context.Context, job map[string]interface{}) {
 
 	if printErr != nil {
 		log.Printf("Job %s FAILED on printer %s: %v", jobID, printerID, printErr)
-		a.updateJobStatusWithTransport(ctx, jobID, "failed", failureMsg, claimToken, spoolerJobID, statusTransport)
+		if err := a.updateJobStatusWithTransport(ctx, jobID, "failed", failureMsg, claimToken, spoolerJobID, statusTransport); err != nil {
+			if errors.Is(err, ErrStaleClaim) || errors.Is(err, ErrJobCanceled) {
+				log.Printf("Job %s: terminal failure already settled on server (%v); clearing local outbox token", jobID, err)
+				_ = a.queue.ClearClaimToken(jobID, claimToken)
+			}
+		}
 		return
 	}
 
@@ -3711,9 +3697,12 @@ func (a *Agent) updateJobStatusWithSubmissionEvidence(ctx context.Context, jobID
 			strings.Contains(string(respBody), "STALE_CLAIM") || strings.Contains(string(respBody), "FENCE_REJECTED") {
 			return fmt.Errorf("%w: job %s status %q rejected (%d)", ErrStaleClaim, jobID, status, resp.StatusCode)
 		}
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+			return fmt.Errorf("odoo transient status error for %q (%d): %s", status, resp.StatusCode, string(respBody))
+		}
 		return fmt.Errorf("%w to %q (%d): %s", ErrTransitionRejected, status, resp.StatusCode, string(respBody))
 	}
-	if status == "printing" || status == "success" || status == "failed" || status == "unknown" || status == "queued" || status == "expired" {
+	if status == "printing" || status == "success" || status == "failed" || status == "unknown" || status == "queued" {
 		var accepted struct {
 			OK      bool   `json:"ok"`
 			Success bool   `json:"success"`
@@ -3800,6 +3789,9 @@ func (a *Agent) SetLicenseGuard(g *license.RuntimeGuard) {
 }
 
 func (a *Agent) applyOdooLicense(raw json.RawMessage, odooDBUUID, source string) {
+	if a.licenseGuard == nil {
+		return
+	}
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
 		return

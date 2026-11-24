@@ -23,9 +23,6 @@ func (a *Agent) isPrinterExecutionAllowed(printerID string) bool {
 	return a.isPrinterAvailableToOdoo(printerID)
 }
 
-func (a *Agent) isOdooManaged(id string) bool {
-	return false
-}
 
 // jobWireFields is the strict subset of the Odoo job contract that the
 // Agent reads directly. Payload decoding remains owned by payload.Parse, while

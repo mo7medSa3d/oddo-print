@@ -624,7 +624,6 @@ class PrintGatewayRouter(models.AbstractModel):
         persist_start = time.monotonic()
         job_id = self._persist_durable_job({
             "company": company,
-
             "print_config": route["config"],
             "printer_id": route["binding"].printer_id,
             "destination": route["destination"].display_name,
@@ -1110,31 +1109,17 @@ class PrintGatewayRouter(models.AbstractModel):
         if not config:
             return {"gateway_enabled": False, "native": True}
 
-        if binding:
-            # A caller-selected binding remains the routing authority. Validate
-            # that exact record against the real job context; never resolve a
-            # second generic binding and compare identities afterwards.
-            route = self.resolve_binding(
-                record=record,
-                company=current_company,
-                document_type=document_type,
-                # Use the caller/record destination when one exists. If this is
-                # a binding-owned diagnostic with no document/destination,
-                # resolve_binding() derives destination_ref from explicit_binding.
-                explicit_destination=destination,
-                explicit_binding=binding,
-                protocol=protocol,
-                payload_type="raw_cmd",
-            )
-        else:
-            route = self.resolve_binding(
-                record=record,
-                company=current_company,
-                document_type=document_type,
-                explicit_destination=destination,
-                protocol=protocol,
-                payload_type="raw_cmd",
-            )
+        # A caller-selected binding remains the routing authority; when absent,
+        # resolve_binding() finds the matching route for the record/destination.
+        route = self.resolve_binding(
+            record=record,
+            company=current_company,
+            document_type=document_type,
+            explicit_destination=destination,
+            explicit_binding=binding or None,
+            protocol=protocol,
+            payload_type="raw_cmd",
+        )
         if route.get("native"):
             return route
         target_binding = route["binding"]

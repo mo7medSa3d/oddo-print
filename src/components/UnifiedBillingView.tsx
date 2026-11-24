@@ -45,7 +45,6 @@ type UnifiedBillingViewProps = {
   mode: "public" | "workspace";
   plans: UnifiedPlanRecord[];
   usingFallbackCatalog?: boolean;
-  catalogUnavailable?: boolean;
   /** Public mode CTA resolver: receives planId and active term. */
   publicRole?: "anonymous" | "owner" | "member";
   /** Workspace mode props. */
@@ -80,7 +79,6 @@ export function UnifiedBillingView({
   mode,
   plans,
   usingFallbackCatalog = false,
-  catalogUnavailable = false,
   publicRole = "anonymous",
   workspace,
 }: UnifiedBillingViewProps) {
@@ -89,13 +87,17 @@ export function UnifiedBillingView({
   const [term, setTerm] = useState<BillingTerm>(() =>
     workspace?.initialTerm ?? (workspace?.currentTerm === "yearly" ? "yearly" : "monthly"),
   );
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(() => {
-    const initial = workspace?.selectedPlanId ?? workspace?.summary.planId ?? plans[1]?.id ?? plans[0]?.id ?? "";
-    return initial;
-  });
+  const serverRequestKey = workspace?.initialRequest
+    ? `${workspace.initialRequest.id}:${workspace.initialRequest.status}`
+    : "";
+  const [syncedRequestKey, setSyncedRequestKey] = useState(serverRequestKey);
   const [liveRequest, setLiveRequest] = useState<CustomerSubscriptionRequest | null>(
     () => workspace?.initialRequest ?? null,
   );
+  if (syncedRequestKey !== serverRequestKey) {
+    setSyncedRequestKey(serverRequestKey);
+    setLiveRequest(workspace?.initialRequest ?? null);
+  }
   const [submittingPlanId, setSubmittingPlanId] = useState<string | null>(null);
   const [toast, setToast] = useState<BillingToast | null>(null);
   const flightRef = useRef(false);
@@ -111,6 +113,18 @@ export function UnifiedBillingView({
     liveRequest?.status === "pending"
       ? { planId: liveRequest.planId, term: liveRequest.term }
       : null;
+
+  const showRequestSentToast = (planName: string, reqTerm: string, reference: string) => {
+    setToast({
+      tone: "ok",
+      title: t("billing.toast.requestSentTitle"),
+      body: t("billing.toast.requestSentBody", {
+        plan: planName,
+        term: t(reqTerm === "yearly" ? "v4.onboarding.yearly" : "v4.onboarding.monthly"),
+        reference,
+      }),
+    });
+  };
 
   const publicDestination = (plan: UnifiedPlanRecord) => {
     const query = plan.isFallback
@@ -135,7 +149,6 @@ export function UnifiedBillingView({
     if (!eligibility.allowed) return;
 
     flightRef.current = true;
-    setSelectedPlanId(plan.id);
     setSubmittingPlanId(plan.id);
     try {
       const fingerprint = `${plan.id}:${term}`;
@@ -172,15 +185,7 @@ export function UnifiedBillingView({
         return;
       }
       setLiveRequest(body.request as CustomerSubscriptionRequest);
-      setToast({
-        tone: "ok",
-        title: t("billing.toast.requestSentTitle"),
-        body: t("billing.toast.requestSentBody", {
-          plan: plan.name,
-          term: t(term === "yearly" ? "v4.onboarding.yearly" : "v4.onboarding.monthly"),
-          reference: String(body.request.reference),
-        }),
-      });
+      showRequestSentToast(plan.name, term, String(body.request.reference));
       router.refresh();
     } catch {
       setToast({ tone: "bad", title: t("errors.operationFailed"), body: t("v4.onboarding.failed") });
@@ -351,8 +356,7 @@ export function UnifiedBillingView({
       )}
 
       {/* Segmented Monthly / Yearly Toggle */}
-      {!catalogUnavailable && (
-        <section className="space-y-6">
+      <section className="space-y-6">
           <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <div className="text-center sm:text-start">
               <h2 className="text-xl font-semibold tracking-tight text-ink">
@@ -413,6 +417,7 @@ export function UnifiedBillingView({
                       currentTerm: workspace.currentTerm,
                       targetPlanId: plan.id,
                       targetTerm: term,
+                      expiringSoon: workspace.summary.expiringSoon,
                       pendingRequest: activePendingRequest,
                     })
                   : null;
@@ -623,8 +628,7 @@ export function UnifiedBillingView({
               );
             })}
           </div>
-        </section>
-      )}
+      </section>
 
       {/* Workspace Request Status & Manual Billing Controls */}
       {mode === "workspace" && workspace && (
@@ -636,23 +640,13 @@ export function UnifiedBillingView({
               selectedPlanId={workspace.selectedPlanId}
               currentPlanId={workspace.summary.planId}
               currentTerm={workspace.currentTerm}
-              controlledPlanId={selectedPlanId}
               controlledTerm={term}
-              onPlanChange={setSelectedPlanId}
               onTermChange={setTerm}
               externalRequest={liveRequest}
               onRequestCreated={(req) => {
                 setLiveRequest(req);
                 const planName = plans.find(p => p.id === req.planId)?.name ?? req.planId;
-                setToast({
-                  tone: "ok",
-                  title: t("billing.toast.requestSentTitle"),
-                  body: t("billing.toast.requestSentBody", {
-                    plan: planName,
-                    term: t(req.term === "yearly" ? "v4.onboarding.yearly" : "v4.onboarding.monthly"),
-                    reference: req.reference,
-                  }),
-                });
+                showRequestSentToast(planName, req.term, req.reference);
               }}
               isOwner={workspace.isOwner}
               status={workspace.summary.status}

@@ -1,5 +1,3 @@
-//go:build !windows
-
 package config
 
 import "github.com/yaseir-agent/agent/internal/storage"

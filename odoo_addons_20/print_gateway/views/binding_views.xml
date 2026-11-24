@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_print_gateway_binding_list" model="ir.ui.view">
+        <field name="name">print_gateway.binding.list</field>
+        <field name="model">print_gateway.binding</field>
+        <field name="arch" type="xml">
+            <list string="Print Routing" create="1" delete="1" class="o_pg_list">
+                <field name="company_id" string="Company" optional="hide"/>
+                <field name="branch_id" string="Branch" placeholder="All Branches (Company Default)" help="Empty means this binding applies to the whole company as the default route."/>
+                <field name="effective_company_id" column_invisible="1"/>
+                <field name="destination_type" string="Print Area" widget="badge" decoration-info="destination_type == 'pos'" decoration-success="destination_type == 'report'" decoration-warning="destination_type == 'picking_type'"/>
+                <field name="destination_ref" string="Print Source"/>
+                <field name="document_type" string="Document Type"/>
+                <field name="agent_id" string="Print Agent" optional="show"/>
+                <field name="printer_name" string="Printer"/>
+                <field name="printer_capability_summary" string="Capabilities" optional="show"/>
+                <field name="printer_id" string="Printer Identity" optional="hide" class="o_pg_mono"/>
+                <field name="enabled" widget="boolean_toggle"/>
+                <field name="priority" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_binding_form" model="ir.ui.view">
+        <field name="name">print_gateway.binding.form</field>
+        <field name="model">print_gateway.binding</field>
+        <field name="arch" type="xml">
+            <form string="Print Route" class="o_pg_view o_pg_form">
+                <header>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>Print Route</h1>
+                        <p class="text-muted">Route POS receipts, invoices, reports and other print jobs to the right Agent and printer.</p>
+                    </div>
+
+                    <details class="mb-3">
+                        <summary>How does print routing work?</summary>
+                        <p class="text-muted">Choose a company, optional branch, print source, Agent and printer. POS preparation uses the Odoo Preparation Printer to preserve category routing.</p>
+                        <p class="text-muted" invisible="destination_type not in ('pos', 'pos_printer')">POS Receipt does not require an Odoo printer or PDF report. POS Kitchen / Preparation uses the selected Odoo Preparation Printer for category routing; the Direct Odoo printer remains the physical destination.</p>
+                        <p class="text-muted" invisible="destination_type != 'picking_type'">For raw warehouse labels, select the exact ZPL, TSPL or ESC/POS language under Routing Options. For PDF reports, choose a PDF-compatible printer.</p>
+                    </details>
+
+                    <group string="Scope">
+                        <field name="company_id" string="Company" domain="[('parent_id', '=', False)]" options="{'no_create': True}"/>
+                        <field name="branch_id" string="Branch" domain="[('parent_id', '=', company_id)]"
+                               invisible="not company_id" placeholder="All Branches (Company Default)" options="{'no_create': True}" help="Empty means this binding applies to the whole company as the default route."/>
+                    </group>
+
+                    <group string="Print Source">
+                        <field name="destination_type" string="Print Area" widget="radio" options="{'horizontal': true}"/>
+                        <field name="destination_pos_config_id" string="POS Shop"
+                               invisible="destination_type != 'pos'" required="destination_type == 'pos'"
+                               domain="['&amp;', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]"/>
+                        <field name="destination_pos_printer_id" string="Odoo Preparation Printer"
+                               invisible="destination_type != 'pos_printer'" required="destination_type == 'pos_printer'"
+                               domain="['|', ('company_id', '=', False), ('company_id', '=', effective_company_id)]"
+                               help="Odoo Preparation Printer. Its Printed Product Categories determine which kitchen lines reach this Print Agent printer."/>
+                        <field name="destination_picking_type_id" string="Operation Type"
+                               invisible="destination_type != 'picking_type'" required="destination_type == 'picking_type'"
+                               domain="['&amp;', '|', ('company_id', '=', False), ('company_id', '=', effective_company_id), ('active', '=', True)]"/>
+                        <field name="destination_report_id" invisible="1"/>
+                        <field name="report_id" string="Report"
+                               invisible="destination_type in ('pos', 'pos_printer')" required="destination_type == 'report'"
+                               help="Optional for Operation Type: leave empty for language-declared raw labels; select a QWeb report for PDF printing."/>
+                        <field name="document_type" string="Document Type" readonly="1"/>
+                    </group>
+
+                    <group string="Printer Setup">
+                        <field name="agent_id" string="Print Agent" widget="gateway_runtime_agent_binding"/>
+                        <field name="printer_id" string="Printer" widget="gateway_runtime_printer"/>
+                        <field name="printer_name" readonly="1" invisible="not printer_name"/>
+                        <field name="printer_capability_summary" readonly="1" invisible="not printer_capability_summary"/>
+                        <field name="printer_is_virtual" readonly="1" invisible="not printer_is_virtual"/>
+                    </group>
+
+                    <notebook>
+                        <page string="Routing Options">
+                            <group>
+                                <field name="printer_protocol" string="Printer Protocol"/>
+                                <field name="enabled" widget="boolean_toggle"/>
+                                <field name="priority"/>
+                            </group>
+                        </page>
+                        <page string="Printer Options">
+                            <group>
+                                <field name="drawer_kick_mode" string="Cash Drawer"/>
+                                <field name="cutter_mode" string="Paper Cutter"/>
+                                <field name="buzzer_mode" string="Kitchen Chime"/>
+                            </group>
+                        </page>
+                    </notebook>
+
+                    <field name="effective_company_id" invisible="1"/>
+                    <field name="destination_ref" invisible="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_print_gateway_binding" model="ir.actions.act_window">
+        <field name="name">Print Routing</field>
+        <field name="res_model">print_gateway.binding</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

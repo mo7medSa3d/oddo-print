@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 from werkzeug.exceptions import Forbidden
 
-import json
-
 from odoo import http
 from odoo.http import request
 from odoo.exceptions import ValidationError
-from ..models.printer import derive_printer_specs
+from ..models.printer import _parse_json_dict, derive_printer_specs
 from ..runtime_policy import is_exact_agent_uid
 
 
@@ -240,12 +238,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         ], order='name asc, id asc')
         rows = []
         for printer in printers:
-            try:
-                capabilities = json.loads(printer.capabilities_json or '{}')
-                if not isinstance(capabilities, dict):
-                    capabilities = {}
-            except (TypeError, ValueError):
-                capabilities = {}
+            capabilities = _parse_json_dict(printer.capabilities_json)
             specs = derive_printer_specs(
                 name=printer.name,
                 connection_type=printer.connection_type,
@@ -272,6 +265,7 @@ class PrintGatewayRuntimePrinterController(http.Controller):
                 'recommendedProtocol': specs['recommended_protocol'],
                 'capabilitySummary': specs['capability_summary'],
                 'availableToOdoo': bool(printer.available_to_odoo),
+                'sharedWithGateway': bool(printer.available_to_odoo),
                 'freshness': 'fresh' if printer.last_seen_at else 'missing',
                 'lastSeenAt': printer.last_seen_at.isoformat() if printer.last_seen_at else False,
                 'capabilities': capabilities,

@@ -1,0 +1,29 @@
+id,name,model_id,group_id/id,operation,domain
+access_print_gateway_config_user,print_gateway.gateway_config user,print_gateway.gateway_config,base.group_user,r,
+access_print_gateway_config_admin,print_gateway.gateway_config admin,print_gateway.gateway_config,base.group_system,crud,
+access_print_gateway_runtime_assignment_admin,print_gateway.runtime_agent_assignment admin,print_gateway.runtime_agent_assignment,base.group_system,crud,
+access_print_gateway_binding_user,print_gateway.binding user,print_gateway.binding,base.group_user,r,
+access_print_gateway_binding_admin,print_gateway.binding admin,print_gateway.binding,base.group_system,crud,
+access_print_gateway_print_job_user,print_gateway.print_job user,print_gateway.print_job,base.group_user,r,
+access_print_gateway_print_job_admin,print_gateway.print_job admin,print_gateway.print_job,base.group_system,cru,
+access_print_gateway_pair_wizard_admin,print_gateway.pair_agent_wizard admin,print_gateway.pair_agent_wizard,base.group_system,crud,
+access_print_gateway_policy_user,print_gateway.policy user,print_gateway.policy,base.group_user,r,
+access_print_gateway_policy_admin,print_gateway.policy admin,print_gateway.policy,base.group_system,crud,
+access_print_gateway_intent_user,print_gateway.intent user,print_gateway.intent,base.group_user,r,
+access_print_gateway_intent_admin,print_gateway.intent admin,print_gateway.intent,base.group_system,cru,
+access_print_gateway_agent_user,print_gateway.agent user,print_gateway.agent,base.group_user,r,
+access_print_gateway_agent_admin,print_gateway.agent admin,print_gateway.agent,base.group_system,crud,
+access_print_gateway_printer_user,print_gateway.printer user,print_gateway.printer,base.group_user,r,
+access_print_gateway_printer_admin,print_gateway.printer admin,print_gateway.printer,base.group_system,crud,
+rule_gateway_config_company,Print Service configuration company isolation,print_gateway.gateway_config,,r,"['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]"
+rule_gateway_config_company_write,Print Service configuration root company write isolation,print_gateway.gateway_config,,cud,"[('company_id', 'in', company_ids)]"
+rule_runtime_assignment_company,Runtime agent assignment company isolation,print_gateway.runtime_agent_assignment,,crud,"['|', '&', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]"
+rule_binding_company,Print binding company isolation,print_gateway.binding,,r,"['|', ('branch_id', 'in', company_ids), '&', ('branch_id', '=', False), '|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]"
+rule_binding_company_write,Print binding write company isolation,print_gateway.binding,,cud,"['|', '&', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]"
+rule_print_job_company,Print job company isolation,print_gateway.print_job,,crud,"['|', ('company_id', 'in', company_ids), ('company_id.parent_id', 'in', company_ids)]"
+rule_print_policy_company,Print policy company isolation,print_gateway.policy,,crud,"['|', '&', ('branch_id', '=', False), ('company_id', 'in', company_ids), ('branch_id', 'in', company_ids)]"
+rule_print_intent_company,Print intent company isolation,print_gateway.intent,,crud,"['|', ('company_id', 'in', company_ids), ('company_id.parent_id', 'in', company_ids)]"
+rule_agent_company,Print agent company isolation,print_gateway.agent,,r,"['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]"
+rule_agent_company_write,Print agent root company write isolation,print_gateway.agent,,cud,"[('company_id', 'in', company_ids)]"
+rule_printer_company,Print printer company isolation,print_gateway.printer,,r,"['|', ('company_id', 'in', company_ids), ('company_id.child_ids', 'in', company_ids)]"
+rule_printer_company_write,Print printer root company write isolation,print_gateway.printer,,cud,"[('company_id', 'in', company_ids)]"

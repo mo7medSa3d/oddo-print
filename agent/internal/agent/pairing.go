@@ -151,7 +151,10 @@ func Register(serverURL, pairingCode, configPath string) error {
 	trimmedBundle := bytes.TrimSpace(data.LicenseBundle)
 	if len(trimmedBundle) > 0 && string(trimmedBundle) != "null" {
 		dataDir := filepath.Dir(config.QueueDBPath(configPath))
-		if guard, gErr := license.NewRuntimeGuardFromConfig(dataDir); gErr == nil && guard != nil && guard.Enforcing() {
+		guard, gErr := license.NewRuntimeGuardFromConfig(dataDir)
+		if gErr != nil {
+			fmt.Printf("WARNING: License guard initialization failed during registration: %v\n", gErr)
+		} else if guard != nil && guard.Enforcing() {
 			if _, _, licErr := guard.ApplyBundle(trimmedBundle, strings.TrimSpace(data.OdooDBUUID), time.Now().UTC()); licErr != nil {
 				fmt.Printf("WARNING: License bundle from registration rejected: %v\n", licErr)
 			}

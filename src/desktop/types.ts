@@ -73,14 +73,10 @@ export interface DesktopState {
   localPrintersError: string | null;
   localInventoryReady: boolean;
   canManagePrinterVisibility: boolean;
-  canManagePrinterSharing?: boolean;
   availabilityPendingPrinterIds: ReadonlySet<string>;
-  sharingPendingPrinterIds?: ReadonlySet<string>;
   availabilityErrors: Record<string, string>;
-  sharingErrors?: Record<string, string>;
   refreshLocalPrinters: () => Promise<boolean>;
   handlePrinterVisibility: (id: string, shared: boolean) => Promise<void>;
-  handlePrinterSharing?: (id: string, shared: boolean) => Promise<void>;
   printersLoading: boolean;
   printersError: string | null;
   printersFilter: string;

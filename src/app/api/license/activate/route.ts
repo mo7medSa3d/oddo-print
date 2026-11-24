@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../../../../db";
 import { apiKeys, odooInstallations, plans, tenantSubscriptions, tenants } from "../../../../db/schema";
 import {
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   const auth = req.headers.get("authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
 
-  let body: { licenseKey?: unknown; tenantId?: unknown; odooDbUuid?: unknown; dbName?: unknown };
+  let body: { licenseKey?: unknown; tenantId?: unknown; odooDbUuid?: unknown; dbName?: unknown; prevRev?: unknown };
   try {
     const raw = await req.text();
     if (Buffer.byteLength(raw, "utf8") > 16 * 1024) {
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("JSON object required");
     }
-    body = parsed as { licenseKey?: unknown; tenantId?: unknown; odooDbUuid?: unknown; dbName?: unknown };
+    body = parsed as { licenseKey?: unknown; tenantId?: unknown; odooDbUuid?: unknown; dbName?: unknown; prevRev?: unknown };
   } catch {
     return NextResponse.json(
       { error: "Invalid JSON", code: "INVALID_REQUEST" },
@@ -108,6 +108,17 @@ export async function POST(req: Request) {
       { error: "tenantId is invalid", code: "INVALID_TENANT_ID" },
       { status: 400, headers: HEADERS },
     );
+  }
+
+  let prevRev = 0;
+  if (body.prevRev !== undefined) {
+    if (typeof body.prevRev !== "number" || !Number.isSafeInteger(body.prevRev) || body.prevRev < 0) {
+      return NextResponse.json(
+        { error: "prevRev is invalid", code: "INVALID_REQUEST" },
+        { status: 400, headers: HEADERS },
+      );
+    }
+    prevRev = body.prevRev;
   }
 
   const dbName = typeof body.dbName === "string" && body.dbName.trim()
@@ -214,7 +225,7 @@ export async function POST(req: Request) {
 
       if (!tenant || tenant.lifecycle !== "active") {
         const bundle = revokeLicenseBundle(
-          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, nowMs },
+          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, prev_rev: prevRev, nowMs },
           privateKeyPem,
         );
         return { error: "Workspace is not active", code: "TENANT_SUSPENDED", status: 403 as const, bundle, serverTime, authValid: true };
@@ -222,7 +233,7 @@ export async function POST(req: Request) {
 
       if (!sub || sub.status !== "active" || sub.entitlementBlocked) {
         const bundle = revokeLicenseBundle(
-          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, nowMs },
+          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, prev_rev: prevRev, nowMs },
           privateKeyPem,
         );
         const isRevoked = Boolean(sub?.revokedAt);
@@ -244,14 +255,14 @@ export async function POST(req: Request) {
         periodStart.getTime() > nowMs
       ) {
         const bundle = revokeLicenseBundle(
-          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, nowMs },
+          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, prev_rev: prevRev, nowMs },
           privateKeyPem,
         );
         return { error: "No active subscription", code: "NO_ACTIVE_SUBSCRIPTION", status: 403 as const, bundle, serverTime, authValid: true };
       }
       if (periodEnd.getTime() <= nowMs) {
         const bundle = revokeLicenseBundle(
-          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, nowMs },
+          { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: planId, key_id: keyId, prev_rev: prevRev, nowMs },
           privateKeyPem,
         );
         return { error: "Subscription expired", code: "LICENSE_EXPIRED", status: 403 as const, bundle, serverTime, authValid: true };
@@ -287,7 +298,7 @@ export async function POST(req: Request) {
       if (!alreadyBound) {
         if (activeDbBindings.length >= maxOdooDbs) {
           const bundle = revokeLicenseBundle(
-            { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: plan?.id ?? sub.planId, key_id: keyId, nowMs },
+            { license_id: licenseId, tenant_id: tenantId, odoo_db_uuid: odooDbUuid, plan: plan?.id ?? sub.planId, key_id: keyId, prev_rev: prevRev, nowMs },
             privateKeyPem,
           );
           return {
@@ -328,6 +339,7 @@ export async function POST(req: Request) {
           issued_at: serverTime,
           expires_at: periodEnd.toISOString(),
           grace_days: DEFAULT_GRACE_DAYS,
+          prev_rev: prevRev,
           nowMs,
         },
         privateKeyPem,

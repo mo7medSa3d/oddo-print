@@ -413,11 +413,6 @@ fn run_pairing_inner(
         // command lines are visible to other local users, while the CLI
         // already prefers YASEIR_PAIRING_CODE over -pair for that reason.
         .env("YASEIR_PAIRING_CODE", code);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
     let out = agent::run_bounded_command(
         cmd,
         std::time::Duration::from_secs(60),
@@ -883,11 +878,6 @@ pub async fn gateway_agent_request(
             // where other local users can read the process command line.
             request_cmd.env("YASEIR_IDEMPOTENCY_KEY", key);
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            request_cmd.creation_flags(0x0800_0000);
-        }
         // The CLI independently bounds the HTTP body to8MiB. JSON string/HTML
         // escaping can expand one input byte to6 bytes; include bounded header
         // metadata/envelope overhead without changing any API or helper limit.
@@ -1252,11 +1242,6 @@ pub async fn set_printer_visibility(
             .arg("-config")
             .arg(paths::agent_config_path())
             .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
         // Go JSON can escape each byte of the validated256-byte ID sixfold.
         let output =
             agent::run_bounded_command(cmd, std::time::Duration::from_secs(15), 2048, 8192)?;
@@ -1462,11 +1447,6 @@ pub async fn get_printers(app: tauri::AppHandle) -> Result<Vec<PrinterInfo>, Str
             .arg("-config")
             .arg(paths::agent_config_path())
             .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
         let output = agent::run_bounded_command(
             cmd,
             std::time::Duration::from_secs(30),
@@ -1508,11 +1488,6 @@ pub async fn discover_printers(app: tauri::AppHandle) -> Result<DiscoverResult, 
             .arg("-config")
             .arg(&config)
             .env("YASEIR_AGENT_DATA_DIR", &root);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            discover_cmd.creation_flags(0x0800_0000);
-        }
         let out = agent::run_bounded_command(
             discover_cmd,
             std::time::Duration::from_secs(30),
@@ -1597,12 +1572,7 @@ pub async fn test_printer(printer_id: String, app: tauri::AppHandle) -> Result<S
         let cli = agent::cli_path(&app)?;
         let config = paths::agent_config_path();
         let root = paths::agent_data_root();
-        let mut test_cmd = build_local_printer_test_command(&cli, &config, &root, &pid)?;
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            test_cmd.creation_flags(0x0800_0000);
-        }
+        let test_cmd = build_local_printer_test_command(&cli, &config, &root, &pid)?;
         let out = agent::run_bounded_command(
             test_cmd,
             // Allow the Agent's 120s document budget plus startup/cleanup.
@@ -1733,11 +1703,6 @@ pub async fn register_printer(
         }
         cmd.arg("-config").arg(&config);
         cmd.env("YASEIR_AGENT_DATA_DIR", &root);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
         let out = agent::run_bounded_command(
             cmd,
             std::time::Duration::from_secs(30),

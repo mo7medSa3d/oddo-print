@@ -62,7 +62,7 @@ func runBoundedDiscovery(ctx context.Context, max time.Duration, discover discov
 			return printer.DiscoveryResult{}, false, finishedCh
 		}
 		truncated.Truncated = true
-		truncated.Errors = append(truncated.Errors,
+		truncated.Errors = append(append([]string(nil), truncated.Errors...),
 			fmt.Sprintf("discovery exceeded the %s bound; the result is partial and absence was not reconciled as removal", max))
 		// Report as a bounded (not failed) run so the partial inventory is
 		// persisted and published instead of thrown away.

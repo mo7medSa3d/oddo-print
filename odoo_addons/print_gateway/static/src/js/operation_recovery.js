@@ -18,6 +18,26 @@ import { _t } from "@web/core/l10n/translation";
  */
 const PREFIX = 'yaseir.print.unresolved.v1.';
 
+/**
+ * Cryptographic v4 UUID for print operation idempotency keys.
+ * Fails closed without a secure RNG so distinct operations never collapse.
+ */
+export function gatewayOperationUuid(unavailableMessage) {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+        crypto.getRandomValues(bytes);
+    } else {
+        throw new Error(unavailableMessage || "Secure random number generator is unavailable");
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function currentDatabase() {
     if (typeof window === 'undefined') return '';
     const fromOdoo = window.odoo?.__session_info__?.db || window.odoo?.session_info?.db;

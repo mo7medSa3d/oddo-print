@@ -438,12 +438,6 @@ fn run_agent_service_command(
         .args(["-service", action, "-config"])
         .arg(&config)
         .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        service_cmd.creation_flags(CREATE_NO_WINDOW);
-    }
     let out = run_bounded_command(
         service_cmd,
         timeout,
@@ -785,8 +779,6 @@ fn background_record_matches(app: &tauri::AppHandle, record: &BackgroundProcessR
 /// while preserving the original persistence error verbatim.
 #[cfg(windows)]
 fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let pid_arg = pid.to_string();
     let taskkill = system32_exe("taskkill.exe")?;
     let mut cmd = Command::new(taskkill);
@@ -795,7 +787,6 @@ fn taskkill_pid(pid: u32, force: bool) -> Result<std::process::Output, String> {
     } else {
         cmd.args(["/PID", &pid_arg, "/T"]);
     }
-    cmd.creation_flags(CREATE_NO_WINDOW);
     run_bounded_command(
         cmd,
         std::time::Duration::from_secs(30),
@@ -875,19 +866,14 @@ fn ensure_service_installed(_app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn ensure_started(app: &tauri::AppHandle) -> Result<(), String> {
-    let _control = AGENT_CONTROL
-        .lock()
-        .map_err(|_| "Agent control lock poisoned")?;
-    ensure_service_installed(app)?;
-    start_inner(app)
+    start(app)
 }
 
 pub fn start(app: &tauri::AppHandle) -> Result<(), String> {
-    let _control = AGENT_CONTROL
-        .lock()
-        .map_err(|_| "Agent control lock poisoned")?;
-    ensure_service_installed(app)?;
-    start_inner(app)
+    with_control(|| {
+        ensure_service_installed(app)?;
+        start_inner(app)
+    })
 }
 
 fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
@@ -925,10 +911,7 @@ fn start_inner(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn stop(app: &tauri::AppHandle) -> Result<(), String> {
-    let _control = AGENT_CONTROL
-        .lock()
-        .map_err(|_| "Agent control lock poisoned")?;
-    stop_inner(app)
+    with_control(|| stop_inner(app))
 }
 
 fn stop_inner(app: &tauri::AppHandle) -> Result<(), String> {
@@ -1072,10 +1055,7 @@ pub fn status(app: &tauri::AppHandle) -> (bool, bool, String) {
 }
 
 pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, String> {
-    let _control = AGENT_CONTROL
-        .lock()
-        .map_err(|_| "Agent control lock poisoned")?;
-    match action {
+    with_control(|| match action {
         "install" | "uninstall" | "start" | "stop" | "restart" => {
             // Service install/start/restart and destructive uninstall must
             // never overlap the desktop background fallback. In particular,
@@ -1105,7 +1085,7 @@ pub fn control_service(action: &str, app: &tauri::AppHandle) -> Result<String, S
             Ok(message)
         }
         _ => Err(format!("invalid service action {:?}", action)),
-    }
+    })
 }
 
 #[cfg(all(test, windows))]

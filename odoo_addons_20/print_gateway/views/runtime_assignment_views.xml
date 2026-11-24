@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Branch → Runtime Agent assignments. This is the explicit source of
+         truth for which Gateway agents may serve each Odoo scope. Bindings
+         consume these assignments; creating a binding must not create or widen
+         an assignment implicitly. -->
+    <record id="view_print_gateway_runtime_assignment_list" model="ir.ui.view">
+        <field name="name">print_gateway.runtime_agent_assignment.list</field>
+        <field name="model">print_gateway.runtime_agent_assignment</field>
+        <field name="arch" type="xml">
+            <list string="Branch Devices" class="o_pg_list">
+                <field name="company_id" string="Company"/>
+                <field name="branch_id" string="Branch"/>
+                <field name="agent_id" string="Print Agent"/>
+                <field name="enabled" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_print_gateway_runtime_assignment_form" model="ir.ui.view">
+        <field name="name">print_gateway.runtime_agent_assignment.form</field>
+        <field name="model">print_gateway.runtime_agent_assignment</field>
+        <field name="arch" type="xml">
+            <form string="Branch Device" class="o_pg_view o_pg_form">
+                <sheet>
+                    <div class="alert alert-info" role="status" aria-live="polite">Choose which locally registered Print Agent serves this branch.</div>
+                    <group>
+                        <field name="company_id" string="Company" options="{'no_create': True}"/>
+                        <field name="branch_id" string="Branch" options="{'no_create': True}" help="Empty means this assignment applies to the whole company."/>
+                        <field name="agent_id" string="Print Agent"  help="Choose an active Agent registered in this Odoo database."/>
+                        <field name="enabled" widget="boolean_toggle"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_print_gateway_runtime_assignments" model="ir.actions.act_window">
+        <field name="name">Branch Devices</field>
+        <field name="res_model">print_gateway.runtime_agent_assignment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_print_gateway_pair_agent_wizard_form" model="ir.ui.view">
+        <field name="name">print_gateway.pair_agent_wizard.form.direct</field>
+        <field name="model">print_gateway.pair_agent_wizard</field>
+        <field name="arch" type="xml">
+            <form string="Assign Print Agent" class="o_pg_view o_pg_pairing_wizard">
+                <group>
+                    <field name="config_id" invisible="1"/>
+                    <field name="company_id" readonly="1"/>
+                    <field name="branch_id" options="{'no_create': True}"/>
+                    <field name="agent_record_id" options="{'no_create': True}"/>
+                </group>
+                <footer>
+                    <button name="action_confirm_pairing" type="object" string="Assign Agent" class="oe_highlight"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

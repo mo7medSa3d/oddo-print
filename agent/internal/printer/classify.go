@@ -57,8 +57,8 @@ func isValidSpoolerPrinter(portName, driverName, printerName string) bool {
 	if strings.TrimSpace(printerName) == "" {
 		return false
 	}
-	lowerName := spoolerToLowerTrim(printerName)
-	lowerDriver := spoolerToLowerTrim(driverName)
+	lowerName := strings.ToLower(strings.TrimSpace(printerName))
+	lowerDriver := strings.ToLower(strings.TrimSpace(driverName))
 	// Generic PnP / non-printer devices must never be surfaced as spooler printers,
 	// even if EnumPrintersW somehow enumerates them or they were persisted in registry.
 	genericSubstrings := []string{
@@ -158,8 +158,8 @@ func classifySpoolerPrinter(portName, driverName, printerName string) (printerTy
 	// Legacy keyword fallback for queue naming habits the knowledge
 	// base does not model (a bare "POS" or "receipt" in a queue name,
 	// an "escpos" driver string with no vendor).
-	driverLower := spoolerToLowerTrim(driverName)
-	nameLower := spoolerToLowerTrim(printerName)
+	driverLower := strings.ToLower(strings.TrimSpace(driverName))
+	nameLower := strings.ToLower(strings.TrimSpace(printerName))
 
 	switch {
 	case strings.Contains(driverLower, "thermal") || strings.Contains(nameLower, "thermal") || strings.Contains(nameLower, "receipt") || strings.Contains(nameLower, "pos") || strings.Contains(driverLower, "escpos") || strings.Contains(driverLower, "epson tm-") || strings.Contains(driverLower, "bixolon"):
@@ -285,37 +285,6 @@ func mapWindowsStatus(status uint32, attributes uint32) string {
 	return "unknown"
 }
 
-func spoolerToLowerTrim(s string) string {
-	start := 0
-	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	end := len(s)
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	s = s[start:end]
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
-}
-func spoolerHasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
-}
-func spoolerIndexComma(s string) int {
-	for i, c := range s {
-		if c == ',' {
-			return i
-		}
-	}
-	return -1
-}
 func spoolerSplitPort(s string) (string, string, error) {
 	for i := len(s) - 1; i >= 0; i-- {
 		if s[i] == ':' {

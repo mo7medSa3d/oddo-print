@@ -260,7 +260,11 @@ def _handle_client_message(raw_msg, ws, dbname, agent_id, send_lock=None):
         if not still_active:
             _send_json(ws, {"type": "agent_revoked", "reason": "agent_inactive_or_revoked"}, send_lock=send_lock)
             try:
-                ws.close()
+                if send_lock is not None:
+                    with send_lock:
+                        ws.close()
+                else:
+                    ws.close()
             except Exception:
                 pass
             return
@@ -674,7 +678,7 @@ def _run_ws_loop(ws, dbname, agent):
         )
 
 
-if http is not None:
+if http is not None and __package__:
     from .agent_api import _authenticate_agent, _json_response
 
     class AgentWebSocketController(http.Controller):

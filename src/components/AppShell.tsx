@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-import { TopNavbar, type TopNavItem } from "./TopNavbar";
+import type { TopNavItem } from "./TopNavbar";
 import { MobileAppBar } from "./MobileAppBar";
 import { Avatar, Button, Callout, Menu, PageSkeleton, type MenuItemSpec } from "./ui";
 import { CommandPalette, type CommandItem } from "./CommandPalette";
@@ -42,7 +42,7 @@ type ConsoleNavItem = TopNavItem & {
 // SaaS sidebar for the License & Subscription Control Plane:
 // every primary workspace destination lives in the single sidebar rail.
 // Sidebar visibility mirrors server-side authorization and is never itself
-// an authorization boundary. TopNavbar is an unrendered legacy export.
+// an authorization boundary.
 const NAV_ITEMS: ConsoleNavItem[] = [
   {
     href: "/dashboard",
@@ -87,7 +87,6 @@ type WorkspaceInfo = {
   email?: string;
   role?: string;
   plan?: string;
-  platformOwner?: boolean;
 };
 
 const COLLAPSE_KEY = "yaseir:console-nav";
@@ -313,11 +312,11 @@ function ConsoleShell({
       .then(async (response) => {
         if (!response.ok) {
           if (!cancelled && (response.status === 401 || response.status === 403)) {
-            setWorkspace((current) => ({ ...current, name: undefined, email: undefined, role: undefined, platformOwner: undefined }));
+            setWorkspace((current) => ({ ...current, name: undefined, email: undefined, role: undefined }));
           }
           return null;
         }
-        return (await response.json()) as { tenant?: { name?: string }; email?: string; role?: string; platformOwner?: boolean };
+        return (await response.json()) as { tenant?: { name?: string }; email?: string; role?: string };
       })
       .then((data) => {
         if (cancelled || !data) return;
@@ -326,7 +325,6 @@ function ConsoleShell({
           name: data.tenant?.name,
           email: data.email,
           role: data.role,
-          platformOwner: data.platformOwner === true,
         }));
       })
       .catch(() => undefined);
@@ -722,4 +720,3 @@ export function AppShell({ children }: { children: ReactNode }) {
   return <main className="tg-shell-root min-h-screen min-w-0 max-w-full bg-app p-5" aria-busy="true"><PageSkeleton /></main>;
 }
 
-export { TopNavbar };

@@ -235,6 +235,7 @@ export default function ApiKeysPage() {
 
   const active = keys.filter(k => !k.revokedAt).length;
   const enabled = keys.filter(k => !k.revokedAt && k.odooEnabled).length;
+  const errorMessage = error === "apiKeys.loadFailed" ? t("apiKeys.loadFailed") : error;
 
   if (authorityDenied) return null;
 
@@ -243,8 +244,8 @@ export default function ApiKeysPage() {
       <>
         <PageHeader icon={<KeyRound className="h-4 w-4" />} title={t("v4.connection.title")} />
         <PageContainer>
-          {error && !loading
-            ? <ErrorState title={t("apiKeys.loadFailed")} message={error === "apiKeys.loadFailed" ? t("apiKeys.loadFailed") : error} retry={() => setLoadTick(tick => tick + 1)} />
+          {errorMessage && !loading
+            ? <ErrorState title={t("apiKeys.loadFailed")} message={errorMessage} retry={() => setLoadTick(tick => tick + 1)} />
             : <div role="status" aria-label={t("apiKeys.loadingCredentials")} className="space-y-5" aria-busy="true">
                 <Skeleton className="h-20 w-full" />
                 <Skeleton className="h-40 w-full" />
@@ -272,10 +273,10 @@ export default function ApiKeysPage() {
 
       <PageContainer>
         <div className="space-y-6">
-          {error && (
+          {errorMessage && (
             <ErrorState
               title={t("apiKeys.operationFailed")}
-              message={error === "apiKeys.loadFailed" ? t("apiKeys.loadFailed") : error}
+              message={errorMessage}
               retry={() => { setError(null); setLoadTick(tick => tick + 1); }}
             />
           )}
@@ -509,7 +510,7 @@ export default function ApiKeysPage() {
         description={pending?.name}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setPending(null)} disabled={busy || !canManage}>
+            <Button variant="secondary" onClick={() => setPending(null)} disabled={busy}>
               {t("common.cancel")}
             </Button>
             <Button
@@ -523,7 +524,7 @@ export default function ApiKeysPage() {
           </>
         }
       >
-        {error && <ErrorState title={t("errors.operationFailed")} message={error} />}
+        {errorMessage && <ErrorState title={t("errors.operationFailed")} message={errorMessage} />}
         {pending?.kind === "rotate" ? (
           <Callout tone="warn" title={t("v4.connection.rotateTitle")}>{t("v4.connection.rotateBody")}</Callout>
         ) : pending?.kind === "revoke" ? (

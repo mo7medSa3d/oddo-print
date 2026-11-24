@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/yaseir-agent/agent/internal/config"
 )
@@ -36,7 +37,10 @@ type SpoolerPrinter struct {
 
 
 func tryPrintViaCUPS(ctx context.Context, queueName string, data []byte, raw bool) (bool, error) {
-	if strings.TrimSpace(queueName) == "" || strings.HasPrefix(queueName, "-") {
+	if err := ctx.Err(); err != nil {
+		return true, err
+	}
+	if queueName == "" || queueName != strings.TrimSpace(queueName) || strings.HasPrefix(queueName, "-") || strings.ContainsFunc(queueName, unicode.IsControl) {
 		return false, nil
 	}
 	lpPath, err := exec.LookPath("lp")
@@ -52,13 +56,18 @@ func tryPrintViaCUPS(ctx context.Context, queueName string, data []byte, raw boo
 	checkCmd := exec.CommandContext(checkCtx, lpstatPath, "-p", queueName)
 	checkCmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	if err := checkCmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return true, ctx.Err()
+		}
 		return false, nil
+	}
+	if err := runDispatchAdmission(ctx); err != nil {
+		return true, err
 	}
 	args := []string{"-d", queueName}
 	if raw {
 		args = append(args, "-o", "raw")
 	}
-	args = append(args, "--")
 	printCtx, printCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer printCancel()
 	cmd := exec.CommandContext(printCtx, lpPath, args...)
@@ -66,7 +75,10 @@ func tryPrintViaCUPS(ctx context.Context, queueName string, data []byte, raw boo
 	cmd.Stdin = bytes.NewReader(data)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return true, fmt.Errorf("CUPS lp -d %q failed: %w (%s)", queueName, err, strings.TrimSpace(string(out)))
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return true, fmt.Errorf("CUPS lp -d %q failed: %w (%s)", queueName, err, msg)
+		}
+		return true, fmt.Errorf("CUPS lp -d %q failed: %w", queueName, err)
 	}
 	return true, nil
 }
@@ -132,17 +144,17 @@ func (p *SpoolerPrinter) PrintDocument(ctx context.Context, doc Document) error 
 			// A Linux stub has no Windows native printer media. Fail closed.
 			return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: cannot inspect Windows test-page media on this OS; no bytes submitted")
 		}
+		if err := ValidatePDF(doc.Data); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !simulatedTransportAllowed() {
-			if err := ValidatePDF(doc.Data); err != nil {
-				return err
-			}
 			if handled, err := tryPrintViaCUPS(ctx, p.SpoolerName, doc.Data, false); handled {
 				return err
 			}
 			return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: the Windows spooler backend cannot run on this OS; nothing was printed to %q", p.SpoolerName)
-		}
-		if err := ValidatePDF(doc.Data); err != nil {
-			return err
 		}
 		if err := runDispatchAdmission(ctx); err != nil {
 			return err
@@ -224,12 +236,6 @@ func (p *SpoolerPrinter) StatusDetail() string {
 func (p *SpoolerPrinter) StatusRawHex() string { return "" }
 
 func (p *SpoolerPrinter) Test(ctx context.Context) error {
-	// Non-Windows stand-in: never pretend to have printed. A simulated write
-	// happens only under the explicit development opt-in; otherwise fail
-	// closed so CI/dev never masks a missing Windows path.
-	if !simulatedTransportAllowed() {
-		return fmt.Errorf("ERR_UNSUPPORTED_TRANSPORT: the Windows spooler backend cannot run on this OS; nothing was printed to %q", p.SpoolerName)
-	}
 	return p.Print(ctx, []byte("Spooler Test Print"))
 }
 

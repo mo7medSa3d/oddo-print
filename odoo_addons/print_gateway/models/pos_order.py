@@ -34,6 +34,10 @@ class PosOrderGatewayPrinting(models.Model):
             raise ValidationError(_("Gateway printing must use the active Odoo company."))
         return company
 
+    def _preparation_printers(self):
+        printers = getattr(self.config_id, "preparation_printer_ids", None)
+        return self.config_id.printer_ids if printers is None else printers
+
     def action_print_gateway_receipt(self, image, operation_id=None, geometry_fingerprint=None):
         self.ensure_one()
         self.check_access("read")
@@ -70,10 +74,7 @@ class PosOrderGatewayPrinting(models.Model):
             destination = self.env["pos.printer"].browse(selected_printer_id).exists()
             if not destination:
                 return False
-            preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
-            if preparation_printers is None:
-                preparation_printers = self.config_id.printer_ids
-            if destination not in preparation_printers:
+            if destination not in self._preparation_printers():
                 return False
         route = self.env["print_gateway.print_router"].resolve_binding(
             record=self,
@@ -98,10 +99,7 @@ class PosOrderGatewayPrinting(models.Model):
         self.check_access("read")
         company = self._gateway_active_company()
         router = self.env["print_gateway.print_router"]
-        preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
-        if preparation_printers is None:
-            preparation_printers = self.config_id.printer_ids
-        preparation_printers = preparation_printers.filtered(lambda p: p.product_categories_ids)
+        preparation_printers = self._preparation_printers().filtered(lambda p: p.product_categories_ids)
         routes = []
         missing = []
         for pos_printer in preparation_printers:
@@ -158,10 +156,7 @@ class PosOrderGatewayPrinting(models.Model):
             pos_printer = self.env["pos.printer"].browse(selected_printer_id).exists()
             if not pos_printer:
                 raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
-            preparation_printers = getattr(self.config_id, "preparation_printer_ids", None)
-            if preparation_printers is None:
-                preparation_printers = self.config_id.printer_ids
-            if pos_printer not in preparation_printers:
+            if pos_printer not in self._preparation_printers():
                 raise ValidationError(_("The selected Odoo Preparation Printer does not belong to this POS."))
         return self.env["print_gateway.print_router"].route_kitchen_print(
             self, image, reprint=reprint, idempotency_key=operation_id,

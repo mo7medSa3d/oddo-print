@@ -37,7 +37,7 @@ import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { JobTimeline } from "./components/JobTimeline";
 import { Sidebar, type NavItem } from "./components/Sidebar";
 import { AddPrinterDialog } from "./components/AddPrinterDialog";
-import { PrinterVisibilityControl } from "./components/PrinterVisibilityControl";
+import { PrinterAvailabilityControl } from "./components/PrinterAvailabilityControl";
 import { OverviewPage } from "./pages/Overview";
 import { PrintersPage } from "./pages/Printers";
 import { JobsPage } from "./pages/Jobs";
@@ -206,10 +206,7 @@ export default function App() {
   const [adminRelaunching, setAdminRelaunching] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const [agentStartupGraceElapsed, setAgentStartupGraceElapsed] = useState(false);
-  const setBusyBoth = useCallback((v: boolean) => {
-    setBusy(v);
-  }, []);
-  const [printers, setPrinters] = useState<PrinterInfo[]>([]);
+
   const [discoveredPrinters, setDiscoveredPrinters] = useState<PrinterInfo[]>([]);
   const [localPrinters, setLocalPrinters] = useState<PrinterInfo[]>([]);
   const [localPrintersLoading, setLocalPrintersLoading] = useState(false);
@@ -251,7 +248,7 @@ export default function App() {
     ++printersGeneration.current; ++jobsGeneration.current; ++healthGeneration.current;
     setPrintersLoading(false); setJobsLoading(false);
     setPrintersError(null); setJobsError(null);
-    setPrinters([]); setJobs([]);
+    setJobs([]);
     setSelectedPrinter(null); setSelectedJob(null);
     setPairedOrigin(null); setJobPrinterFilter(null);
     setShowAdd(false);
@@ -338,8 +335,10 @@ export default function App() {
     if (localPrinterReadFlight.current && !force) return false;
     const generation = ++localPrintersGeneration.current;
     localPrinterReadFlight.current = true;
-    localInventoryReadyRef.current = false;
-    setLocalInventoryReady(false);
+    // Keep confirmed inventory ready during routine background refreshes so
+    // sharing buttons do not flash disabled every 60s or on window focus.
+    // Mutations still clear readiness explicitly before forcing a re-read.
+    if (!localInventoryReadyRef.current) setLocalInventoryReady(false);
     setLocalPrintersLoading(true);
     try {
       const list = await getPrinters();
@@ -400,7 +399,6 @@ export default function App() {
   // through authenticated Agent heartbeats; the Desktop never reads or writes
   // a Cloud printer fleet.
   const refreshPrinters = useCallback(async () => {
-    setPrinters([]);
     setPrintersError(null);
     return refreshLocalPrinters(true);
   }, [refreshLocalPrinters]);
@@ -598,43 +596,43 @@ export default function App() {
 
   const startAgent = useCallback(async () => {
     try {
-      setBusyBoth(true);
+      setBusy(true);
       await ipcStartAgent();
       setMsg({ text: t("desktop.app.agentStarted"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
-      setBusyBoth(false);
+      setBusy(false);
     }
-  }, [refreshStatus, setBusyBoth, t, locale]);
+  }, [refreshStatus, t, locale]);
 
   const stopAgent = useCallback(async () => {
     setConfirmStop(false);
     try {
-      setBusyBoth(true);
+      setBusy(true);
       await ipcStopAgent();
       setMsg({ text: t("desktop.app.agentStopped"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
-      setBusyBoth(false);
+      setBusy(false);
     }
-  }, [refreshStatus, setBusyBoth, t, locale]);
+  }, [refreshStatus, t, locale]);
 
   const restartAgent = useCallback(async () => {
     try {
-      setBusyBoth(true);
+      setBusy(true);
       await ipcRestartAgent();
       setMsg({ text: t("desktop.app.agentRestarted"), type: "success" });
       refreshStatus();
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
-      setBusyBoth(false);
+      setBusy(false);
     }
-  }, [refreshStatus, setBusyBoth, t, locale]);
+  }, [refreshStatus, t, locale]);
 
   const pair = useCallback(async () => {
     if (!pairCode.trim()) {
@@ -646,7 +644,7 @@ export default function App() {
       return;
     }
     try {
-      setBusyBoth(true);
+      setBusy(true);
       await pairAgent(pairCode.trim(), savedGatewayUrl);
       if (savedOriginRef.current !== savedGatewayUrl) return;
       setPairedOrigin(savedGatewayUrl);
@@ -657,9 +655,9 @@ export default function App() {
     } catch (e) {
       setMsg({ text: friendlyAgentError(errMsg(e), locale), type: "error" });
     } finally {
-      setBusyBoth(false);
+      setBusy(false);
     }
-  }, [pairCode, savedGatewayUrl, refreshPrinters, refreshStatus, setBusyBoth, t, locale]);
+  }, [pairCode, savedGatewayUrl, refreshPrinters, refreshStatus, t, locale]);
 
   useEffect(() => () => {
     ++agentStatusGeneration.current;
@@ -742,7 +740,12 @@ export default function App() {
     const refresh = () => { if (document.visibilityState === "visible") void refreshLocalPrinters(); };
     const timer = setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
-    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [isAdmin, refreshLocalPrinters]);
 
   useEffect(() => {
@@ -792,10 +795,6 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [isAdmin, savedGatewayUrl, probeGateway]);
-
-  useEffect(() => {
-    if (savedGatewayUrl) refreshPrinters();
-  }, [savedGatewayUrl, refreshPrinters]);
 
 
   useEffect(() => {
@@ -910,17 +909,17 @@ export default function App() {
     if (tab === "unassigned") {
       const dest = String(j.destination ?? "");
       const pid = jobPrinterId(j);
-      return dest === "unassigned" || pid === "unassigned" || !printers.some((p) => p.id === pid);
+      return dest === "unassigned" || pid === "unassigned" || !physicalPrinters.some((p) => p.id === pid);
     }
     if (tab === "delivered") return st === "success";
-    // Only terminal ambiguous failures need duplicate-print review. Claimed,
-    // printing and success have unverified paper output but belong in
-    // their progress/delivered tabs rather than Unknown.
-    if (tab === "unknown") return (st === "failed" || st === "expired") && outcome === "unknown";
+    // Only explicit unknown jobs and terminal ambiguous failures need
+    // duplicate-print review. Claimed, printing and success belong in their
+    // own progress/delivered tabs rather than Unknown.
+    if (tab === "unknown") return st === "unknown" || ((st === "failed" || st === "expired") && outcome === "unknown");
     if (tab === "failed") return st === "failed" && outcome === "not_printed";
     if (tab === "expired") return st === "expired" && outcome !== "unknown";
     return true;
-  }, [printers]);
+  }, [physicalPrinters]);
 
   const pendingJobs = jobs.filter((j) => ["queued", "claimed"].includes(jobStatus(j))).length;
   // Attention-worthy failures mirror the Failed + Expired tabs exactly, so
@@ -931,7 +930,7 @@ export default function App() {
   // to operators; absent data renders as an explicit dash instead.
   const fleetTotal: number | null = fleetAgents ? Number(fleetAgents.total ?? 0) : null;
   const fleetOnline: number | null = fleetAgents ? Number(fleetAgents.online ?? 0) : null;
-  const queuePrinter = printers.find((pp) => pp.id === jobPrinterFilter);
+  const queuePrinter = physicalPrinters.find((pp) => pp.id === jobPrinterFilter);
   const printerFilterName = queuePrinter ? printerDisplayName(queuePrinter, locale) : jobPrinterFilter ? t("printer.presentation.unnamed") : "";
 
   const filteredPrinters = useMemo(() => {
@@ -956,7 +955,7 @@ export default function App() {
   const jobsFiltered = useMemo(() => {
     let list = jobs;
     if (jobPrinterFilter) {
-      const target = (printers.find((pp) => pp.id === jobPrinterFilter)?.name || "").toLowerCase();
+      const target = (physicalPrinters.find((pp) => pp.id === jobPrinterFilter)?.name || "").toLowerCase();
       list = list.filter((j) => {
         const pid = jobPrinterId(j);
         return (
@@ -978,7 +977,7 @@ export default function App() {
       );
     }
     return list;
-  }, [jobs, jobTab, jobSearch, jobPrinterFilter, printers]);
+  }, [jobs, jobTab, jobSearch, jobPrinterFilter, physicalPrinters]);
 
   const jobCounts = useMemo(
     () => ({
@@ -1386,7 +1385,7 @@ export default function App() {
               </span>
             </div>
             <p className="text-sm text-ink-3">{t(selectedPrinterView.reasonKey)}</p>
-            <PrinterVisibilityControl s={state} printer={selectedPrinter} />
+            <PrinterAvailabilityControl s={state} printer={selectedPrinter} />
             <PrinterVerificationDetails printer={selectedPrinter} />
             <PrinterGeometryDetails printer={selectedPrinter} managerHint />
             <details className="rounded-md border border-edge px-4 py-3">
@@ -1487,7 +1486,7 @@ export default function App() {
               <MetaRow label={t("desktop.drawer.printer")}>
                 <span className="block truncate">
                   {String(
-                    printers.find((p) => p.id === jobPrinterId(selectedJob))?.name ||
+                    physicalPrinters.find((p) => p.id === jobPrinterId(selectedJob))?.name ||
                       jobPrinterId(selectedJob) ||
                       "—"
                   )}
@@ -1505,30 +1504,32 @@ export default function App() {
               </MetaRow>
             </div>
             {selectedJob.outputMedium !== "file" && (selectedJob.error ? (
-              <div className={`rounded-md border p-4 ${jobStatus(selectedJob) === "success" ? "border-info-edge bg-info-bg" : "border-bad-edge bg-bad-bg"}`}>
+              <div className={`rounded-md border p-4 ${jobStatus(selectedJob).toLowerCase() === "success" ? "border-info-edge bg-info-bg" : "border-bad-edge bg-bad-bg"}`}>
                 {(() => {
-                  const outcome = deriveOutcome(jobStatus(selectedJob), String(selectedJob.error));
-                  const succeeded = jobStatus(selectedJob) === "success";
+                  const selectedJobStatus = jobStatus(selectedJob).toLowerCase();
+                  const outcome = deriveOutcome(selectedJobStatus, String(selectedJob.error));
+                  const succeeded = selectedJobStatus === "success";
+                  const canceled = selectedJobStatus === "canceled";
                   const reconciledSuccess = succeeded && /^LATE_SUCCESS(?:_POST_EXPIRATION)?:/.test(String(selectedJob.error));
                   // A success row can still carry a residual error (for example
                   // the Gateway's "LATE_SUCCESS: ..." note). Its physical outcome
                   // is still unverified, but it is NOT an ambiguous failure, so
                   // it must not render the "outcome unknown" banner — nor the
                   // "Print failed" verdict (C039).
-                  const unknown = !succeeded && outcome === "unknown";
+                  const unknown = !succeeded && !canceled && (selectedJobStatus === "unknown" || outcome === "unknown");
                   const classified = jobFailurePresentation(String(selectedJob.error), locale);
                   return (
                     <>
-                      <div className={`flex items-center gap-2 text-md font-semibold ${succeeded ? "text-info" : unknown ? "text-warn" : "text-bad"}`}>
+                      <div className={`flex items-center gap-2 text-md font-semibold ${succeeded ? "text-info" : unknown ? "text-warn" : canceled ? "text-ink-2" : "text-bad"}`}>
                         <AlertTriangle className="h-5 w-5" aria-hidden />
-                        {reconciledSuccess ? labelJob(jobStatus(selectedJob), selectedJob.error, locale, selectedJob) : succeeded
+                        {reconciledSuccess || canceled ? labelJob(selectedJobStatus, selectedJob.error, locale, selectedJob) : succeeded
                           ? (classified?.title ?? t("desktop.drawer.printSucceeded"))
                           : (classified?.title ?? (unknown ? t("desktop.drawer.outcomeUnknown") : t("desktop.drawer.printFailed")))}
                       </div>
                       <p className="mt-2 text-base leading-relaxed text-ink-2">
-                        {reconciledSuccess ? jobGuidance(jobStatus(selectedJob), outcome, locale) : classified?.guidance ?? friendlyPrinterError(String(selectedJob.error), locale)}
+                        {reconciledSuccess ? jobGuidance(selectedJobStatus, outcome, locale) : classified?.guidance ?? friendlyPrinterError(String(selectedJob.error), locale)}
                       </p>
-                      {!unknown && !succeeded && (
+                      {!unknown && !succeeded && !canceled && (
                         <p className="mt-3 text-sm text-ink-3">
                           {t("desktop.drawer.failedBeforePrinting")}
                         </p>

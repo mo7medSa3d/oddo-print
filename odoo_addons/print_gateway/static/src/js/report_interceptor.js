@@ -4,7 +4,9 @@ import { withGatewayDeadline } from "./async_control";
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 import { showGatewayBillingLimitDialog, gatewayServerMessage } from "./gateway_limit_dialog";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+
+function reportOperationUuid() { return gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key")); }
 
 /**
  * Odoo 19 silent report interceptor.
@@ -47,25 +49,6 @@ function firstNonEmptyIds(...sources) {
         }
     }
     return [];
-}
-
-// One operation identity per click: uncertain retries retain it in the
-// ORM-scoped cache below; a confirmed outcome ends the reuse window. Fail
-// closed without a secure RNG so distinct operations never collapse to one key.
-function reportOperationUuid() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-        return crypto.randomUUID();
-    }
-    const bytes = new Uint8Array(16);
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-        crypto.getRandomValues(bytes);
-    } else {
-        throw new Error(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
-    }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 // The ORM-WeakMap owns live exact-report requests; only opaque unresolved

@@ -245,9 +245,19 @@ class PrintGatewayAgent(models.Model):
                    write_date = clock_timestamp()
               FROM target
              WHERE j.id = target.id
+         RETURNING j.company_id
             """,
             (int(lease_minutes), limit),
         )
+        requeued_companies = sorted({r[0] for r in cr.fetchall() if r and r[0]})
+        if requeued_companies:
+            cr.execute(
+                "SELECT DISTINCT COALESCE(parent_id, id) FROM res_company WHERE id = ANY(%s)",
+                (requeued_companies,),
+            )
+            for (root_cid,) in cr.fetchall():
+                if root_cid:
+                    cr.execute("SELECT pg_notify('print_gateway_job_ready', %s)", (str(root_cid),))
         # Once `printing` has been acknowledged, output may already have
         # reached the physical device. Reclaiming this row would risk a
         # duplicate page after an Agent/network failure. Preserve the payload

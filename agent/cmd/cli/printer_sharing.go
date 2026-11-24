@@ -52,7 +52,11 @@ func runPrinterVisibility(args []string, defaultPath string, output io.Writer) e
 	if err != nil {
 		return err
 	}
-	selected, err := printer.SelectSharingPrinterWithOptions(*id, devices, *allowVirtual, cfg)
+	shared := *sharedValue == "true"
+	// Always allow unsharing (--shared false) a printable virtual printer in
+	// inventory so operators are never trapped unable to hide one; sharing a
+	// virtual queue (--shared true) still requires explicit --allow-virtual.
+	selected, err := printer.SelectSharingPrinterWithOptions(*id, devices, *allowVirtual || !shared, cfg)
 	if err != nil {
 		// The reason (candidate, virtual, redirected, not-runtime) is
 		// part of the error now: a greyed-out Desktop Share button used
@@ -79,7 +83,6 @@ func runPrinterVisibility(args []string, defaultPath string, output io.Writer) e
 		}
 		known = append(known, bindings...)
 	}
-	shared := *sharedValue == "true"
 	if err := config.SetPrinterVisibility(*path, selected, known, shared); err != nil {
 		return err
 	}

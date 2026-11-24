@@ -21,9 +21,9 @@ func New(cfg config.PrinterConfig) (Printer, error) {
 		return nil, fmt.Errorf("printer config is missing an id")
 	}
 
-	if strings.EqualFold(cfg.PrinterType, "virtual") || strings.EqualFold(cfg.PrinterType, "redirected") ||
+	if strings.EqualFold(cfg.PrinterType, "redirected") ||
 		cfg.Capabilities["virtual_test_sink"] == true || cfg.Capabilities["virtual_spooler_test"] == true {
-		return nil, fmt.Errorf("printer %s: virtual and redirected printers are not supported", cfg.ID)
+		return nil, fmt.Errorf("printer %s: redirected and test-sink printers are not supported", cfg.ID)
 	}
 	// Recheck here as well as at discovery/manual admission. Persisted rows
 	// from an older Agent and direct registration paths must not construct a

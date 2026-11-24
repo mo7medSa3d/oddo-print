@@ -7,8 +7,7 @@ import {
   constantTimeSecretMatch,
   hashLicenseKey,
   issueLicenseBundle,
-  nextLicenseRev,
-  signLicenseBundle,
+  revokeLicenseBundle,
   type LicenseClaimsV2,
   type SignedLicenseBundle,
 } from "../../../../lib/license-signer";
@@ -29,11 +28,7 @@ const DEFAULT_FEATURES = ["direct_print", "ws_push"];
 const HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 let validatedSigningKeyPem: string | null = null;
 
-function constantTimeMatch(a: string, b: string): boolean {
-  // Delegates to shared createHash("sha256") + timingSafeEqual helper in license-signer.ts.
-  return constantTimeSecretMatch(a, b);
-}
-
+/** Delegates to shared revokeLicenseBundle (signs a v2 status: "revoked" tombstone). */
 function buildRevocationTombstone(params: {
   licenseId: string;
   tenantId: string;
@@ -44,24 +39,18 @@ function buildRevocationTombstone(params: {
   prevRev?: number;
   privateKeyPem: string;
 }): SignedLicenseBundle<LicenseClaimsV2> {
-  const nowIso = params.now.toISOString();
-  const claims: LicenseClaimsV2 = {
-    version: 2,
-    license_id: params.licenseId,
-    tenant_id: params.tenantId,
-    odoo_db_uuid: params.odooDbUuid,
-    plan: params.plan,
-    status: "revoked",
-    rev: nextLicenseRev(params.now.getTime(), params.prevRev ?? 0),
-    key_id: params.keyId,
-    max_agents: 0,
-    max_printers: 0,
-    features: [],
-    issued_at: nowIso,
-    expires_at: nowIso,
-    grace_until: nowIso,
-  };
-  return signLicenseBundle(claims, params.privateKeyPem);
+  return revokeLicenseBundle(
+    {
+      license_id: params.licenseId,
+      tenant_id: params.tenantId,
+      odoo_db_uuid: params.odooDbUuid,
+      plan: params.plan,
+      key_id: params.keyId,
+      prev_rev: params.prevRev,
+      nowMs: params.now.getTime(),
+    },
+    params.privateKeyPem,
+  );
 }
 
 export async function POST(req: Request) {
@@ -154,7 +143,7 @@ export async function POST(req: Request) {
   }
 
   const refreshSecret = runtimeSecret("LICENSE_REFRESH_SECRET")?.trim() ?? "";
-  const isMasterSecret = refreshSecret.length >= 32 && constantTimeMatch(bearer, refreshSecret);
+  const isMasterSecret = refreshSecret.length >= 32 && constantTimeSecretMatch(bearer, refreshSecret);
   if (isMasterSecret && !requestedTenantId) {
     return NextResponse.json(
       { error: "tenantId is required", code: "INVALID_TENANT_ID" },
@@ -197,7 +186,7 @@ export async function POST(req: Request) {
       await tx.execute(sql`SET LOCAL lock_timeout = '3000ms'`);
       let tenantId = requestedTenantId;
       if (!isMasterSecret) {
-        const tokenHash = crypto.createHash("sha256").update(bearer, "utf8").digest("hex");
+        const tokenHash = hashLicenseKey(bearer);
         const [key] = await tx
           .select({ tenantId: apiKeys.tenantId })
           .from(apiKeys)

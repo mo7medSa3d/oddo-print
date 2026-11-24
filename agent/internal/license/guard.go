@@ -408,31 +408,26 @@ func (g *RuntimeGuard) persistStateLocked() error {
 		return err
 	}
 	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
 	if err := tmpFile.Chmod(0600); err != nil {
 		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if _, err := tmpFile.Write(data); err != nil {
 		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmpFile.Sync(); err != nil {
 		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := config.EnsureSecureFileACL(tmpPath); err != nil {
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := config.ReplaceFile(tmpPath, g.statePath); err != nil {
-		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := config.EnsureSecureFileACL(g.statePath); err != nil {

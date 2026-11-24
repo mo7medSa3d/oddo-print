@@ -10,7 +10,9 @@ import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+
+const gatewayUuid = () => gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
 
 
 const POS_RPC_TIMEOUT_MS = 20000;
@@ -242,28 +244,6 @@ function gatewayRender(factory) {
     );
 }
 
-// crypto.randomUUID() is undefined in non-secure contexts (plain-HTTP LAN,
-// which this integration otherwise tolerates). Fall back to a v4 UUID so
-// kitchen/reprint operation identities never throw and abort printChanges.
-// getRandomValues is available even in non-secure contexts; if neither source
-// exists the UUID would be predictable (Math.random) and could collapse
-// distinct reprint idempotency keys, so fail closed instead.
-function gatewayUuid() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-        return crypto.randomUUID();
-    }
-    const bytes = new Uint8Array(16);
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-        crypto.getRandomValues(bytes);
-    } else {
-        throw new Error(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
-    }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
 async function elementToJpeg(element, renderer, geometry) {
     return renderGatewayReceiptJpeg(element, { renderer, geometry });
 }
@@ -449,23 +429,17 @@ patch(PosStore.prototype, {
                 image = await gatewayRender(() => renderReceiptImage(this, currentOrder, basic, geometry));
                 geometryFingerprint = geometry.config_fingerprint;
             }
-            rememberReceiptOperation(receiptOps, orderId, { id: operationId, image, geometryFingerprint, terminal: false, at: Date.now(), counted: lastOp?.id === operationId && lastOp.counted });
-            let result;
-            try {
-                submissionAttempted = true;
-                result = await gatewayDataCall(
-                    this,
-                    "pos.order",
-                    "action_print_gateway_receipt",
-                    [[orderId]],
-                    { image, operation_id: operationId, geometry_fingerprint: geometryFingerprint },
-                    true,
-                    { ambiguous: true },
-                );
-            } catch (rpcError) {
-                rememberReceiptOperation(receiptOps, orderId, { id: operationId, image, geometryFingerprint, at: Date.now(), terminal: false, counted: Boolean(lastOp?.id === operationId && lastOp.counted) });
-                throw rpcError;
-            }
+            rememberReceiptOperation(receiptOps, orderId, { id: operationId, image, geometryFingerprint, terminal: false, at: Date.now(), counted: Boolean(lastOp?.id === operationId && lastOp.counted) });
+            submissionAttempted = true;
+            const result = await gatewayDataCall(
+                this,
+                "pos.order",
+                "action_print_gateway_receipt",
+                [[orderId]],
+                { image, operation_id: operationId, geometry_fingerprint: geometryFingerprint },
+                true,
+                { ambiguous: true },
+            );
             // Resolve the operation: definitive outcomes (accepted for
             // printing, or definitively rejected) close the reuse window;
             // uncertain statuses keep it for a retry. Transport failures are
@@ -914,7 +888,7 @@ patch(PosStore.prototype, {
                 for (const route of routes) {
                     const routeCategories = Array.isArray(route.category_ids) && route.category_ids.length
                         ? route.category_ids
-                        : (route.mode === "pos_fallback" && Array.isArray(this.config?.printerCategories) ? this.config.printerCategories : []);
+                        : (kitchenRoutes.mode === "pos_fallback" && Array.isArray(this.config?.printerCategories) ? this.config.printerCategories : []);
 
                     for (let changeIndex = 0; changeIndex < orderChange.length; changeIndex++) {
                         const change = orderChange[changeIndex];

@@ -1,0 +1,171 @@
+# -*- coding: utf-8 -*-
+"""Odoo-local assignment between a company/branch and a registered Agent."""
+
+from odoo import api, fields, models, _
+from odoo.exceptions import AccessError, ValidationError
+from ..runtime_policy import is_exact_agent_uid
+
+
+class PrintGatewayRuntimeAgentAssignment(models.Model):
+    _name = "print_gateway.runtime_agent_assignment"
+    _description = "Direct Odoo Print Agent Assignment"
+    _order = "company_id, branch_id, id"
+
+    company_id = fields.Many2one(
+        "res.company", string="Odoo Company", required=True,
+        default=lambda self: self.env.company.parent_id or self.env.company, ondelete="restrict", index=True,
+        domain="[('parent_id', '=', False)]",
+    )
+    branch_id = fields.Many2one(
+        "res.company", string="Odoo Branch", required=False,
+        default=lambda self: self.env.company if self.env.company.parent_id else False,
+        ondelete="restrict", index=True,
+        domain="[('parent_id', '=', company_id)]",
+    )
+    agent_id = fields.Many2one(
+        "print_gateway.agent", string="Print Agent", required=True,
+        ondelete="restrict", index=True,
+        domain="[('company_id', '=', company_id), ('active', '=', True)]",
+    )
+    enabled = fields.Boolean(default=True)
+    name = fields.Char(compute="_compute_name", store=True)
+
+    _agent_unique = models.Constraint(
+        "UNIQUE(company_id, branch_id, agent_id)",
+        "The same Print Agent cannot be assigned more than once to the same Odoo branch.",
+    )
+    _company_wide_agent_unique = models.UniqueIndex(
+        "(company_id, agent_id) WHERE branch_id IS NULL",
+        "The same Print Agent cannot be assigned more than once to the company-wide Odoo scope.",
+    )
+
+    @api.depends("company_id", "branch_id", "agent_id")
+    def _compute_name(self):
+        for record in self:
+            record.name = "%s / %s → %s" % (
+                record.company_id.display_name if record.company_id else _("Company"),
+                record.branch_id.display_name if record.branch_id else _("Branch"),
+                record.agent_id.display_name if record.agent_id else _("Agent"),
+            )
+
+    @api.model
+    @api.private
+    def assigned_agent_ids(self, company, branch=False):
+        """Return enabled Odoo Agent IDs assigned to an Odoo scope.
+
+        A Branch scope contains only Agents assigned to that exact Branch. A
+        root/company-wide scope includes every enabled Agent assigned to the
+        company itself or to one of its direct child Branches. This lets a
+        binding created without a Branch use any Agent that belongs to the
+        selected Odoo Company, while a Branch-scoped binding never inherits
+        another scope. This is the single source of truth consumed by the
+        controller, binding validation, and print router.
+        """
+        company = company.exists() if company else company
+        if not company or len(company) != 1:
+            return set()
+        domain = [
+            ("company_id", "=", company.id),
+            ("enabled", "=", True),
+        ]
+        if branch:
+            branch = branch.exists()
+            if not branch or len(branch) != 1:
+                return set()
+            # Branch-scoped bindings are exact: do not inherit company-wide
+            # or other-branch assignments. This rule stays inside the source
+            # of truth so UI and server-side authorization have identical scope
+            # semantics.
+            if branch.parent_id != company:
+                return set()
+            domain.append(("branch_id", "=", branch.id))
+        else:
+            # A Company-only binding is explicitly a company-wide rule. It may
+            # therefore use any enabled Agent assigned to the root Company or
+            # to one of its direct child Branches. The assignment row still
+            # remains owned by the same root Company, so this does not cross a
+            # tenant boundary.
+            domain = [
+                "|",
+                ("branch_id", "=", False),
+                ("branch_id.parent_id", "=", company.id),
+                *domain,
+            ]
+        # An assignment is an opaque physical execution identity: never
+        # strip a legacy malformed record into a different Agent's authority.
+        return {
+            record.agent_id.agent_uid
+            for record in self.sudo().search(domain)
+            if record.agent_id and record.agent_id.active and is_exact_agent_uid(record.agent_id.agent_uid)
+        }
+
+    @api.model
+    @api.private
+    def is_agent_assigned(self, company, branch, agent_uid):
+        if not is_exact_agent_uid(agent_uid):
+            return False
+        return agent_uid in self.assigned_agent_ids(company, branch)
+
+    def _check_admin(self):
+        if not (self.env.is_superuser() or self.env.user.has_group("base.group_system")):
+            raise AccessError(_("Only Odoo system administrators can change runtime agent assignments."))
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        self._check_admin()
+        records = super().create(vals_list)
+        records._check_assignment()
+        return records
+
+    def write(self, vals):
+        if set(vals).intersection({"company_id", "branch_id", "agent_id", "enabled"}):
+            self._check_admin()
+        self._check_assignment()
+        result = super().write(vals)
+        self._check_assignment()
+        return result
+
+    def unlink(self):
+        self._check_admin()
+        self._check_assignment()
+        return super().unlink()
+
+    @api.constrains("company_id", "branch_id", "agent_id")
+    def _check_assignment(self):
+        is_su = getattr(self.env, "is_superuser", lambda: False)()
+        allowed_companies = getattr(self.env, "companies", None)
+        user_companies = getattr(getattr(self.env, "user", None), "company_ids", None)
+        for record in self:
+            if not is_su and not record.branch_id and (
+                (user_companies is not None and record.company_id not in user_companies)
+                or (allowed_companies is not None and record.company_id not in allowed_companies)
+            ):
+                raise ValidationError(_("The selected Odoo Company is not available to the current user."))
+            if record.company_id.parent_id:
+                raise ValidationError(_("Odoo Company must be a parent Company, not a Branch."))
+            # A root company is a company-wide scope, not a branch scope.
+            # Reject it explicitly because form domains are not an API security boundary.
+            if record.branch_id and record.branch_id == record.company_id:
+                raise ValidationError(_("Odoo Branch must be a child Branch, not the selected root Company."))
+            # Standalone organizations without child branches leave branch
+            # empty (company-wide assignment). Only a DISTINCT, set branch
+            # must belong to the selected company.
+            if record.branch_id:
+                branch_allowed = allowed_companies is None or (
+                    record.branch_id in allowed_companies
+                    or (
+                        record.company_id in allowed_companies
+                        and (user_companies is None or record.company_id in user_companies)
+                    )
+                )
+                if not is_su and (
+                    (user_companies is not None and record.branch_id not in user_companies)
+                    or not branch_allowed
+                ):
+                    raise ValidationError(_("The selected Odoo Branch is not available to the current user."))
+                if not record.branch_id.parent_id or record.branch_id.parent_id != record.company_id:
+                    raise ValidationError(_("Odoo Branch must belong directly to the selected Odoo Company."))
+            if not record.agent_id or not record.agent_id.active:
+                raise ValidationError(_("Select an active Print Agent registered in this Odoo database."))
+            if record.agent_id.company_id != record.company_id:
+                raise ValidationError(_("The Print Agent must belong to the selected Odoo Company."))

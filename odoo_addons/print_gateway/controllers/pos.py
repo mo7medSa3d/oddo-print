@@ -27,19 +27,21 @@ class PrintGatewayPosController(PosController):
         # Odoo's authenticated POST request carries the standard CSRF token.
         if request.httprequest.method != 'POST':
             return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
+        result = None
         try:
-            gateway = request.env['print_gateway.print_router']._print_config(request.env.company)
-            if not gateway:
-                return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
-
-            render_target = request.env['report.point_of_sale.report_saledetails']
-            result = request.env['print_gateway.print_router'].route_render_target(
-                'point_of_sale.sale_details_report',
-                render_target,
-                company=request.env.company,
-                document_type='report:point_of_sale.sale_details_report',
-                context_values={'date_start': date_start, 'date_stop': date_stop},
-            )
+            # Isolate Gateway lookup/dispatch in a savepoint so a DB error cannot
+            # abort the transaction before the native PDF fallback runs.
+            with request.env.cr.savepoint():
+                router = request.env['print_gateway.print_router']
+                if router._print_config(request.env.company):
+                    render_target = request.env['report.point_of_sale.report_saledetails']
+                    result = router.route_render_target(
+                        'point_of_sale.sale_details_report',
+                        render_target,
+                        company=request.env.company,
+                        document_type='report:point_of_sale.sale_details_report',
+                        context_values={'date_start': date_start, 'date_stop': date_stop},
+                    )
         except Exception:
             # POS fault tolerance: license, verification, or sync failures must
             # never block or break Sale Details printing. Log clearly and degrade
@@ -48,6 +50,8 @@ class PrintGatewayPosController(PosController):
                 "Direct POS Sale Details routing degraded to native PDF fallback",
                 exc_info=True,
             )
+            return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
+        if not result:
             return super().print_sale_details(date_start=date_start, date_stop=date_stop, **kw)
         if result.get('native'):
             # No Sale Details binding: preserve Odoo's native PDF download
@@ -64,5 +68,5 @@ class PrintGatewayPosController(PosController):
         )
         # Gateway acceptance is asynchronous (including 'submitted'); a
         # 200 response must not falsely signal synchronous completion.
-        response.status_code = 202 if result.get('status') in ('queued', 'claimed', 'printing') else 200
+        response.status_code = 202 if result.get('status') in ('queued', 'submitted', 'claimed', 'printing') else 200
         return response

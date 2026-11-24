@@ -12,7 +12,7 @@ import { manualApiError } from "../../../lib/manual-api-error";
 import { writeAuditEvent } from "../../../lib/audit";
 import { nanoid } from "../../../lib/nanoid";
 import { activationWhatsAppUrl } from "../../../lib/activation-contact";
-import { databaseNowMs } from "../../../lib/database-clock";
+import { parseDbTimeMs } from "../../../lib/database-timestamp";
 import { computePlanTermPricing, evaluatePlanChangeEligibility } from "../../../lib/plan-price";
 const safeRequest=(r:typeof subscriptionRequests.$inferSelect)=>({
   id:r.id,reference:r.id,status:r.status,createdAt:r.createdAt,
@@ -21,6 +21,12 @@ const safeRequest=(r:typeof subscriptionRequests.$inferSelect)=>({
   approvedMonthlyQuota:r.approvedMonthlyQuota,approvalModified:r.approvalModified,
   whatsappUrl:activationWhatsAppUrl(r.id),
 });
+async function txNowMs(tx: { execute: typeof db.execute }): Promise<number> {
+  const clock = await tx.execute(sql`SELECT EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS now_ms`);
+  const value = Number((clock.rows[0] as { now_ms?: number | string } | undefined)?.now_ms);
+  if (!Number.isFinite(value)) throw new Error("Database clock is unavailable");
+  return value;
+}
 export async function GET(req:Request) {
   try {
     const actor=await validateWorkspaceManager(req);
@@ -30,7 +36,7 @@ export async function GET(req:Request) {
     // authorize an unfenced read after an owner downgrade, logout or suspension.
     // Recheck the durable member/session and tenant lifecycle in the same
     // transaction that reads contract dates and pending/approved requests.
-    const [subscription,tenant,requests]=await db.transaction(async tx=>{
+    const [subscription,tenant,requests,nowMs]=await db.transaction(async tx=>{
       await requireActiveTenantInTransaction(tx,actor.tenantId);
       await requireManagerActorInTransaction(tx,actor,"billing.read");
       const subscription=await tx.query.tenantSubscriptions.findFirst({where:eq(tenantSubscriptions.tenantId,actor.tenantId)});
@@ -39,9 +45,9 @@ export async function GET(req:Request) {
         where:eq(subscriptionRequests.tenantId,actor.tenantId),
         orderBy:desc(subscriptionRequests.createdAt),limit:50,
       });
-      return [subscription,tenant,requests] as const;
+      return [subscription,tenant,requests,await txNowMs(tx)] as const;
     });
-    const status=customerSubscriptionState(subscription,tenant?.lifecycle,await databaseNowMs());
+    const status=customerSubscriptionState(subscription,tenant?.lifecycle,nowMs);
     return NextResponse.json({requests:requests.map(safeRequest),status,hasSubscription:status==='active',planId:subscription?.planId??null,currentPeriodStart:subscription?.currentPeriodStart??null,currentPeriodEnd:subscription?.currentPeriodEnd??null},{headers:{"Cache-Control":"no-store"}});
   } catch(error) {return manualApiError(error);}
 }
@@ -81,13 +87,14 @@ export async function POST(req:Request) {
       const plan=await tx.query.plans.findFirst({where:and(eq(plans.id,input.planId),eq(plans.isActive,true),eq(plans.isPublic,true))});
       if (!plan) throw new ManualSubscriptionError("PLAN_NOT_FOUND",404);
       if (input.term==='monthly'||input.term==='yearly') {
-        const [currentSub,currentTenant]=await Promise.all([
+        const [currentSub,currentTenant,nowMs]=await Promise.all([
           tx.query.tenantSubscriptions.findFirst({where:eq(tenantSubscriptions.tenantId,actor.tenantId)}),
           tx.query.tenants.findFirst({where:eq(tenants.id,actor.tenantId),columns:{lifecycle:true}}),
+          txNowMs(tx),
         ]);
-        const nowMs=await databaseNowMs();
         const currentStatus=customerSubscriptionState(currentSub,currentTenant?.lifecycle,nowMs);
-        const expiringSoon=currentStatus==="active" && !!currentSub?.currentPeriodEnd && currentSub.currentPeriodEnd.getTime()>nowMs && currentSub.currentPeriodEnd.getTime()-nowMs<=7*86_400_000;
+        const periodEndMs=parseDbTimeMs(currentSub?.currentPeriodEnd);
+        const expiringSoon=currentStatus==="active" && periodEndMs!==null && periodEndMs>nowMs && periodEndMs-nowMs<=7*86_400_000;
         const eligibility=evaluatePlanChangeEligibility({
           status:currentStatus,
           currentPlanId:currentSub?.planId??null,

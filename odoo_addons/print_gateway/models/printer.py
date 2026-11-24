@@ -112,12 +112,15 @@ def derive_printer_specs(name="", connection_type="", protocol="", capabilities=
         recommended_protocol = "spooler"
     elif norm_conn in ("ipp", "ipps"):
         recommended_protocol = norm_conn
-    elif norm_conn in ("network", "usb") and norm_proto in ("escpos", "zpl", "tspl", "raw"):
-        recommended_protocol = norm_proto
-    elif norm_conn == "network" and norm_proto in ("ipp", "ipps"):
-        recommended_protocol = norm_proto
-    elif norm_conn == "usb" and norm_proto in ("spooler", "windows_spooler"):
-        recommended_protocol = "spooler"
+    elif norm_conn in ("network", "usb"):
+        if norm_proto in ("escpos", "zpl", "tspl", "raw"):
+            recommended_protocol = norm_proto
+        elif norm_conn == "network" and norm_proto in ("ipp", "ipps"):
+            recommended_protocol = norm_proto
+        elif norm_conn == "usb" and norm_proto in ("spooler", "windows_spooler"):
+            recommended_protocol = "spooler"
+        else:
+            recommended_protocol = "unknown"
     elif is_virtual:
         recommended_protocol = "spooler"
     else:

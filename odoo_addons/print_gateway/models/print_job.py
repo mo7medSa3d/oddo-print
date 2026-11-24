@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 
-from psycopg2 import IntegrityError, sql as psycopg2_sql
+from psycopg2 import IntegrityError
 
 from odoo import api, fields, models, _
 
@@ -21,11 +21,6 @@ from ..runtime_policy import is_exact_printer_key
 _logger = logging.getLogger(__name__)
 MAX_PRINT_CONTENT_BYTES = 5 * 1024 * 1024
 MAX_PRINT_BASE64_CHARS = 4 * ((MAX_PRINT_CONTENT_BYTES + 2) // 3)
-# Operator-recoverable Agent refusals (billing limits, suspended tenant,
-# rotation grace, revoked key) requeue instead of terminalizing. Attempts are
-# capped so a permanently blocked configuration parks with a 24h backoff
-# instead of inflating `attempts` and cron load forever; parked jobs stay
-# recoverable and resume automatically once the operator fixes billing/auth.
 
 
 class PrintAgentJob(models.Model):
@@ -90,8 +85,6 @@ class PrintAgentJob(models.Model):
     attempts = fields.Integer(default=0, readonly=True)
     reprint_attempt_count = fields.Integer(string="Reprint Attempts", default=0, readonly=True)
     next_retry_at = fields.Datetime(index=True, readonly=True)
-    # Round-robin status polling fence. NULL first guarantees fresh/legacy
-    # eligible rows a turn before already-inspected unresolved rows.
     last_error = fields.Text(readonly=True)
     customer_issue = fields.Text(string="What to do next", compute="_compute_customer_presentation", compute_sudo=False)
     customer_status = fields.Selection([
@@ -141,16 +134,15 @@ class PrintAgentJob(models.Model):
             WHERE status IN ('claimed', 'printing')
             """
         )
-        # Terminal states: no further transitions are accepted once a job reaches one
-    # of these. "unknown" is terminal because it represents a reconcilable but
-    # ambiguous physical outcome that must be resolved by an operator, not by
-    # automated transitions.
+    # Terminal states: no further transitions are accepted once a job reaches one
+    # of these. "unknown" is terminal because it represents an ambiguous physical
+    # outcome that must be resolved by an operator, never by automated retries.
     _TERMINAL = frozenset(("success", "failed", "unknown", "canceled"))
     _TERMINAL_RETENTION_HOURS = 48
-    
+
     # Valid status transitions for the print job state machine.
-    # Forward progress follows the direct Agent lifecycle. Failure and
-    # unknown are terminal exits; terminal jobs never transition back.
+    # Forward progress follows the direct Agent lifecycle. Failure, unknown,
+    # and canceled are terminal exits; terminal jobs never transition back.
     _VALID_TRANSITIONS = {
         "queued": {"claimed", "failed", "unknown", "canceled"},
         "claimed": {"printing", "failed", "unknown", "canceled"},
@@ -160,107 +152,6 @@ class PrintAgentJob(models.Model):
         "unknown": {"unknown"},
         "canceled": {"canceled"},
     }
-    
-    # Forward-progress chain for _advance_status. Failure/unknown are NOT
-    # chain hops: they are written directly (they are valid exits from any
-    # non-terminal state per the matrix above).
-    _FORWARD_CHAIN = ("queued", "claimed", "printing", "success")
-
-    def _lock_status_row(self, job):
-        """Refresh the authoritative status under a row lock before mutation.
-
-        Remote status reconciliation happens after an HTTP round trip. The ORM
-        record can therefore contain an older status than a concurrent submit,
-        agent report, or recovery transaction. Lock and re-read the row before
-        consulting the transition matrix so a stale remote response cannot
-        downgrade or resurrect a newer state.
-        """
-        self.env.cr.execute(
-            psycopg2_sql.SQL("SELECT status FROM {} WHERE id = %s FOR UPDATE").format(
-                psycopg2_sql.Identifier(self._table)
-            ),
-            [job.id],
-        )
-        if not self.env.cr.fetchone():
-            raise ValidationError(_("Print job no longer exists."))
-        job.invalidate_recordset(["status", "last_error", "completed_at", "output_medium"])
-
-
-    def _stable_terminal_values(self, job, target, values):
-        """Preserve the FIRST terminal timestamp as the 48-hour retention clock.
-
-        Reconciliation may refresh errors or convert an ambiguous terminal
-        outcome to late success, but those writes must never restart retention.
-        Legacy terminal rows without completed_at inherit their existing
-        write_date once, then keep that timestamp permanently.
-        """
-        stable = dict(values)
-        if target not in self._TERMINAL:
-            return stable
-        if job.completed_at:
-            stable.pop("completed_at", None)
-        elif job.status in self._TERMINAL and job.write_date:
-            stable["completed_at"] = job.write_date
-        else:
-            stable.setdefault("completed_at", db_now_utc(job.env.cr))
-        return stable
-
-    def _advance_status(self, job, target, values):
-        """Write a status advance honoring the canonical chain.
-
-        `values` carries the final row content (attempts, last_error,
-        completed_at...); its "status" key is ignored in favor
-        of `target`. Forward hops (e.g. queued -> claimed on an idempotent
-        replay) are written stage-by-stage so the transition matrix never
-        needs a shortcut; failure/unknown targets are written directly.
-        Raises ValidationError for any regression or unknown target.
-        """
-        job.ensure_one()
-        self._lock_status_row(job)
-        values = self._stable_terminal_values(job, target, values)
-        if target not in self._FORWARD_CHAIN and target not in ("failed", "unknown", "canceled"):
-            raise ValidationError(
-                _("Invalid print job state transition from '%s' to '%s'.")
-                % (job.status, target)
-            )
-        # Terminal states are immutable. An operator uses the explicit
-        # reprint action to create a new logical operation.
-        if job.status in self._TERMINAL and target != job.status:
-            raise ValidationError(
-                _("Invalid terminal print job transition from '%s' to '%s'.")
-                % (job.status, target)
-            )
-        if target == job.status:
-            # Refresh-only write (e.g. a sync updating last_error while the
-            # state is unchanged): write() skips the matrix on no-op
-            # transitions, so this is always legal.
-            refresh_values = dict(values)
-            refresh_values["status"] = target
-            job.write(refresh_values)
-            return
-        if target in ("failed", "unknown", "canceled"):
-            terminal_values = dict(values)
-            terminal_values["status"] = target
-            job.write(terminal_values)
-            return
-        try:
-            position = self._FORWARD_CHAIN.index(job.status)
-            destination = self._FORWARD_CHAIN.index(target)
-        except ValueError:
-            raise ValidationError(
-                _("Invalid print job state transition from '%s' to '%s'.")
-                % (job.status, target)
-            )
-        if destination < position:
-            raise ValidationError(
-                _("Invalid print job state transition from '%s' to '%s'.")
-                % (job.status, target)
-            )
-        for hop in self._FORWARD_CHAIN[position + 1:destination + 1]:
-            hop_values = {"status": hop}
-            if hop == target:
-                hop_values.update({key: value for key, value in values.items() if key != "status"})
-            job.write(hop_values)
 
     # Payload kinds recognized in the canonical contract. A payload whose
     # type is not one of these is malformed input and must fail - it is
@@ -422,6 +313,11 @@ class PrintAgentJob(models.Model):
             target_status = vals["status"]
             for job in self:
                 if job.status and target_status != job.status:
+                    if job.status in ("success", "failed", "unknown", "canceled"):
+                        raise ValidationError(
+                            _("Invalid terminal print job transition from '%s' to '%s'.")
+                            % (job.status, target_status)
+                        )
                     allowed = self._VALID_TRANSITIONS.get(job.status, set())
                     if target_status not in allowed:
                         raise ValidationError(
@@ -559,10 +455,7 @@ class PrintAgentJob(models.Model):
         # decoded bytes the Agent enforces; without a data field fall back to
         # the serialized size against the same 5 MiB number (such rows are
         # invalid regardless — the data check below rejects them).
-        if isinstance(data_field, str) and data_field:
-            if decoded_size is not None and decoded_size > MAX_PRINT_CONTENT_BYTES:
-                raise ValidationError(_("Print payload exceeds the 5 MiB Agent safety limit."))
-        elif len(payload_json.encode("utf-8")) > MAX_PRINT_CONTENT_BYTES:
+        if not (isinstance(data_field, str) and data_field) and len(payload_json.encode("utf-8")) > MAX_PRINT_CONTENT_BYTES:
             raise ValidationError(_("Print payload exceeds the 5 MiB Agent safety limit."))
 
         # Strict kind resolution with NO defaults: a malformed payload fails
@@ -655,11 +548,6 @@ class PrintAgentJob(models.Model):
                     raise ValidationError(_("The idempotency key is already used for a different print operation."))
                 return existing
             raise
-
-
-
-
-
 
     def _validate_persisted_payload(self, payload):
         self.ensure_one()
@@ -768,33 +656,6 @@ class PrintAgentJob(models.Model):
                     raise ValidationError(_("Peripherals are only supported for ESC/POS protocol."))
                 payload["peripherals"] = active_periph
 
-
-
-
-    def _post_source_audit(self, message):
-        """Post optional chatter without poisoning the print-job transaction.
-
-        An ORM write can raise a PostgreSQL error, which aborts the current
-        transaction until rolled back. Chatter is best-effort: isolate every
-        message in a savepoint before catching a failure so print delivery,
-        retry bookkeeping and claim finalization remain valid.
-        """
-        for job in self:
-            if not job.source_model or not job.source_record_id:
-                continue
-            try:
-                with job.env.cr.savepoint():
-                    record = job.env[job.source_model].browse(job.source_record_id).exists()
-                    if record and hasattr(record, "message_post"):
-                        record.message_post(body=message, subtype_xmlid="mail.mt_note")
-            except Exception as exc:
-                _logger.debug("Chatter audit logging skipped: %s", exc)
-
-
-
-
-
-
     def _require_outbox_write(self):
         # The durable outbox is read-only for normal users; status-changing
         # operator actions are privileged. Server-side flows (router submit,
@@ -804,9 +665,6 @@ class PrintAgentJob(models.Model):
         # rights and record rules (check_access_rights/check_access_rule are
         # deprecated since 18.0).
         self.check_access("write")
-
-
-
 
     def action_submit(self, raise_on_failure=False):
         self._require_outbox_write()
@@ -836,21 +694,15 @@ class PrintAgentJob(models.Model):
             # after this transaction commits; no intermediary queue exists.
         return True
 
-
-
-
-
-
-
     def action_retry(self):
-        self._require_outbox_write()
-        self._assert_valid_license()
         """Create a new logical print operation only from a definitely failed job.
 
         Unknown physical outcomes are never retried from the UI. A failed job that
         is definitely not printed gets a fresh idempotency key so the new operation
         is not collapsed into the old Agent job.
         """
+        self._require_outbox_write()
+        self._assert_valid_license()
         failed_jobs = self.filtered(lambda row: row.status == "failed" and row.physical_outcome == "not_printed")
         if not failed_jobs:
             return {
@@ -865,6 +717,8 @@ class PrintAgentJob(models.Model):
             }
         retried_jobs = self.env["print_gateway.print_job"]
         for job in failed_jobs:
+            if not job.exists():
+                raise ValidationError(_("Print job no longer exists."))
             if not job.payload:
                 raise ValidationError(_("A print job requires a payload."))
             try:
@@ -883,7 +737,7 @@ class PrintAgentJob(models.Model):
                 protocol=job.protocol,
                 raw_payload=job.raw_payload,
                 printer_profile=job.printer_profile,
-                    source_model=job.source_model,
+                source_model=job.source_model,
                 source_record_id=job.source_record_id,
                 report=job.report_id,
                 idempotency_key=uuid.uuid4().hex,
@@ -902,13 +756,13 @@ class PrintAgentJob(models.Model):
         }
 
     def action_force_reprint(self):
-        self._require_outbox_write()
-        self._assert_valid_license()
         """Explicitly re-issue a job whose physical outcome is unknown.
 
         This requires conscious operator action, preventing automated double printing of receipts/invoices.
         Generates a deterministic derived idempotency key: ${original_key}-reprint-${reprint_attempt_count}.
         """
+        self._require_outbox_write()
+        self._assert_valid_license()
         reprint_candidates = self.filtered(lambda row: row.status == "unknown" or (row.status in ("failed", "canceled") and row.physical_outcome == "unknown"))
         if not reprint_candidates:
             return {
@@ -954,7 +808,7 @@ class PrintAgentJob(models.Model):
                 protocol=job.protocol,
                 raw_payload=job.raw_payload,
                 printer_profile=job.printer_profile,
-                    source_model=job.source_model,
+                source_model=job.source_model,
                 source_record_id=job.source_record_id,
                 report=job.report_id,
                 idempotency_key=derived_key,
@@ -996,8 +850,6 @@ class PrintAgentJob(models.Model):
         # are authenticated HTTP calls initiated by the Agent, not cron jobs.
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only scheduled actions (administrator) may run this maintenance method."))
-
-
 
     @api.model
     @api.private

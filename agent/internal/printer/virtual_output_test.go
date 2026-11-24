@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yaseir-agent/agent/internal/config"
 )
 
 func TestIsPromptingVirtualPort(t *testing.T) {
@@ -48,5 +50,44 @@ func TestBuildVirtualOutputPath(t *testing.T) {
 
 	if phys := buildVirtualOutputPath("/tmp/out", "USB001", "EPSON TM-T88V", "POS Printer", "job-1", fixedNow); phys != "" {
 		t.Fatalf("physical printer must not receive a virtual output path, got %q", phys)
+	}
+}
+
+func TestFactoryAllowsPrintableVirtualAndRejectsRedirectedOrTestSinks(t *testing.T) {
+	redirected := config.PrinterConfig{
+		ID:          "redir-1",
+		Name:        "HP LaserJet (redirected 2)",
+		Type:        "spooler",
+		Protocol:    "spooler",
+		SpoolerName: "HP LaserJet (redirected 2)",
+		PrinterType: "redirected",
+	}
+	if _, err := New(redirected); err == nil {
+		t.Fatal("factory accepted redirected printer")
+	}
+
+	testSink := config.PrinterConfig{
+		ID:           "sink-1",
+		Name:         "Test Sink",
+		Type:         "spooler",
+		Protocol:     "spooler",
+		SpoolerName:  "Test Sink",
+		Capabilities: map[string]interface{}{"virtual_test_sink": true},
+	}
+	if _, err := New(testSink); err == nil {
+		t.Fatal("factory accepted virtual_test_sink")
+	}
+
+	pdf := config.PrinterConfig{
+		ID:          "virt-pdf",
+		Name:        "Microsoft Print to PDF",
+		Type:        "spooler",
+		Protocol:    "spooler",
+		SpoolerName: "Microsoft Print to PDF",
+		PrinterType: "virtual",
+	}
+	_, err := New(pdf)
+	if err != nil && strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("factory rejected printable virtual printer as unsupported: %v", err)
 	}
 }

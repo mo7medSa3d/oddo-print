@@ -1,0 +1,217 @@
+/* PRINT GATEWAY — Yaseir Design Guide v2.1 Odoo tokens (Worker B, v8-style)
+   Mirrors Gateway SaaS + Desktop Manager design system.
+   Namespaced --pg-* to avoid Odoo leaks. Scoped to the module's own views
+   only (.o_pg_*): the rest of the Odoo backend is deliberately untouched.
+
+   Values reconciled to work/.yaseir-review/STYLE.md (Worker A token table)
+   after it landed mid-run, so Gateway, Desktop and Odoo share one palette:
+   brand #0953DE, STRONG semantic palette (saturated bg + strong border),
+   teal info distinct from primary azure. Every body-text pair below
+   measures >= 4.5:1 (see RESULTS-B.tsv). Odoo has no dark mode (light-only
+   by design), so only the light table applies here. */
+
+:root {
+    /* Guide primary ramp, built around #0953DE (STYLE.md values). */
+    --pg-brand-50: #eef4ff;
+    --pg-brand-100: #dce8ff;
+    --pg-brand-200: #b9d0ff;
+    --pg-brand-300: #8ab0ff;
+    --pg-brand-400: #5a8dff;
+    --pg-brand-500: #2e6be6;
+    --pg-brand-600: #0953de;
+    --pg-brand-700: #0744b5;
+    --pg-brand-800: #06348e;
+    --pg-brand-900: #0a2540;
+
+    --pg-brand: #0953de;
+    --pg-brand-hover: #0744b5;
+    --pg-brand-active: #06348e;
+    --pg-brand-contrast: #FFFFFF;
+    --pg-brand-subtle: #eaf1fe;
+    --pg-brand-subtle-hover: #dce8ff;
+    --pg-brand-subtle-text: #0743b8;
+    --pg-brand-ring: rgba(9,83,222,.22);
+
+    /* Guide secondary accents: dark ink text on top, never white. */
+    --pg-secondary-cyan: #00c7fc;
+    --pg-secondary-yellow: #ffe451;
+    --pg-secondary-pink: #f48cc0;
+    --pg-text-on-secondary: #101219;
+
+    --pg-bg: #f6f7fb;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f2f4f8;
+    --pg-surface-3: #e6eaf2;
+    --pg-surface-accent: #eaf1fe;
+    --pg-surface-accent-2: #dce8ff;
+    --pg-border: rgba(16, 18, 25, 0.09);
+    --pg-border-strong: rgba(16, 18, 25, 0.16);
+    --pg-border-accent: #b9d0ff;
+
+    --pg-text: #101219;
+    --pg-text-2: #3d4457;
+    --pg-text-3: #5a6376;
+    --pg-text-4: #6b7280;
+
+    --pg-ok: #145a32;
+    --pg-ok-solid: #1b7a43;
+    --pg-ok-bg: #cdeed6;
+    --pg-ok-border: #2e7d4f;
+    --pg-warn: #7a4a00;
+    --pg-warn-solid: #96630a;
+    --pg-warn-bg: #ffe9a8;
+    --pg-warn-border: #b77900;
+    --pg-bad: #b42318;
+    --pg-bad-solid: #c7351f;
+    --pg-bad-bg: #fde3e0;
+    --pg-bad-border: #d6453a;
+    --pg-info: #0f6b7e;
+    --pg-info-solid: #0e7c8e;
+    --pg-info-bg: #ddf3f7;
+    --pg-info-border: #2aa5b8;
+    --pg-neutral: #5a6376;
+    --pg-neutral-solid: #6C757D;
+    --pg-neutral-bg: #f1f4f9;
+    --pg-neutral-border: #c7cedd;
+
+    --pg-cred-ok-bg: #cdeed6;
+    --pg-cred-ok-border: #2e7d4f;
+    --pg-cred-ok-text: #145a32;
+    --pg-cred-missing-bg: #fde3e0;
+    --pg-cred-missing-border: #d6453a;
+    --pg-cred-missing-text: #b42318;
+
+    --pg-activation-enabled-bg: #eaf1fe;
+    --pg-activation-enabled-border: #b9d0ff;
+    --pg-activation-enabled-text: #0743b8;
+    --pg-activation-disabled-bg: #f1f4f9;
+    --pg-activation-disabled-border: #c7cedd;
+    --pg-activation-disabled-text: #5a6376;
+
+    --pg-conn-active-bg: #cdeed6;
+    --pg-conn-active-border: #2e7d4f;
+    --pg-conn-active-text: #145a32;
+    --pg-conn-syncing-bg: #ddf3f7;
+    --pg-conn-syncing-border: #2aa5b8;
+    --pg-conn-syncing-text: #0f6b7e;
+    --pg-conn-attention-bg: #ffe9a8;
+    --pg-conn-attention-border: #b77900;
+    --pg-conn-attention-text: #7a4a00;
+    --pg-conn-disabled-bg: #f1f4f9;
+    --pg-conn-disabled-border: #c7cedd;
+    --pg-conn-disabled-text: #5a6376;
+
+    /* Guide radii: fields 12px, cards 16–24px, buttons pill (see backend scss). */
+    --pg-r-sm: 12px;
+    --pg-r-md: 12px;
+    --pg-r-lg: 18px;
+    --pg-r-xl: 22px;
+    --pg-r-2xl: 26px;
+    --pg-r-pill: 9999px;
+
+    --pg-shadow-xs: 0 1px 2px rgba(33,37,41,.05);
+    --pg-shadow-sm: 0 1px 3px rgba(33,37,41,.06), 0 1px 2px rgba(33,37,41,.04);
+    --pg-shadow-md: 0 4px 12px -2px rgba(33,37,41,.07), 0 2px 4px -2px rgba(33,37,41,.04);
+    --pg-shadow-card: 0 1px 2px rgba(16, 18, 25, 0.04), 0 8px 24px -4px rgba(16, 18, 25, 0.06);
+
+    --pg-space-1: 4px;
+    --pg-space-2: 8px;
+    --pg-space-3: 12px;
+    --pg-space-4: 16px;
+    --pg-space-5: 20px;
+    --pg-space-6: 24px;
+
+    /* Guide type scale at Odoo 19's 1rem root (16px): help 12px, fields and
+       tables 14px, body 16px, section 24px, page title 32px. Rem units keep
+       respecting browser text preferences without resizing the host backend
+       or POS receipt assets. */
+    --pg-fs-caption: 0.75rem;
+    --pg-fs-small: 0.875rem;
+    --pg-fs-body: 1rem;
+    --pg-fs-section: 1.5rem;
+    --pg-fs-title: 2rem;
+    --pg-tracking-label: normal;
+    --pg-dur: 180ms;
+    --pg-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Module-local font-stack redirect. This file loads AFTER
+   typography_tokens.css in web.assets_backend, so these overrides win for
+   the module's own surfaces without touching the shared tokens file (the
+   byte-identical copy + scripts/check-typography-tokens.py keep passing).
+
+   FONT FILES — the module ships no font files: the shared stack
+   (typography_tokens.css, byte-identical to typography/tokens.css)
+   leads with "Thmanyah Sans" and falls back to the served IBM Plex
+   faces (typography_fonts.css, untouched), which is also what the
+   Odoo server's PDF engine uses. Thmanyah therefore renders wherever
+   it is installed, and IBM Plex everywhere else. Odoo serves static/
+   files over plain HTTP URLs, so no font files are added to static/
+   here. The POS receipt raster is deliberately excluded: it renders
+   with font embedding disabled (skipFonts) and its geometry is pinned
+   by the v7 fixture, so it keeps its Arial/system stack untouched
+   (see DECISIONS-B). */
+:root {
+    --typo-font-latin: "Thmanyah Sans", var(--font-ibm-plex-sans, "IBM Plex Sans");
+    --typo-font-arabic: "Thmanyah Sans", var(--font-ibm-plex-sans-arabic, "IBM Plex Sans Arabic");
+    --typo-weight-light: 300;
+    --typo-weight-black: 900;
+    --typo-lh-latin: 1.6;
+    --typo-lh-mixed: 1.6;
+    --typo-color-primary: #101219;
+    --typo-color-secondary: #565d6b;
+}
+
+/* Keep the module on Odoo's light backend surface instead of importing a Gateway dark palette. */
+.o_dark_mode .o_pg_view, .o_dark_mode .o_pg_list, .o_dark_mode .o_pg_dashboard {
+    color-scheme: light;
+    --pg-bg: #f6f7fb;
+    --pg-surface: #ffffff;
+    --pg-surface-2: #f2f4f8;
+    --pg-surface-3: #e6eaf2;
+    --pg-surface-accent: #eaf1fe;
+    --pg-surface-accent-2: #dce8ff;
+    --pg-border: rgba(16, 18, 25, 0.09);
+    --pg-border-strong: rgba(16, 18, 25, 0.16);
+    --pg-border-accent: #b9d0ff;
+    --pg-text: #101219;
+    --pg-text-2: #3d4457;
+    --pg-text-3: #5a6376;
+    --pg-text-4: #6b7280;
+    --pg-brand: #0953de;
+    --pg-brand-hover: #0744b5;
+    --pg-brand-active: #06348e;
+    --pg-brand-contrast: #FFFFFF;
+    --pg-brand-subtle: #eaf1fe;
+    --pg-brand-subtle-hover: #dce8ff;
+    --pg-brand-subtle-text: #0743b8;
+    --pg-brand-ring: rgba(9,83,222,.22);
+    --pg-info: #0f6b7e;
+    --pg-info-solid: #0e7c8e;
+    --pg-info-bg: #ddf3f7;
+    --pg-info-border: #2aa5b8;
+}
+
+@keyframes pg-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(1.1); }
+}
+.pg-pulse { animation: pg-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+@keyframes pg-shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pg-pulse,
+    [class*="o_pg_"],
+    [class*="o_pg_"]::before,
+    [class*="o_pg_"]::after,
+    [class*="o_pg_"] *,
+    [class*="o_pg_"] *::before,
+    [class*="o_pg_"] *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}

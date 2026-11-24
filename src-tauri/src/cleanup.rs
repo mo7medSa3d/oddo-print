@@ -21,13 +21,6 @@ pub async fn cleanup_local_jobs(app: tauri::AppHandle) -> Result<u64, String> {
             .arg(&config)
             .arg("--json")
             .env("YASEIR_AGENT_DATA_DIR", paths::agent_data_root());
-        // Suppress the console window that would otherwise flash for each
-        // cleanup invocation from the GUI app (Windows only).
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
         let output = agent::run_bounded_command(
             cmd,
             std::time::Duration::from_secs(30),

@@ -13,7 +13,9 @@ const { DateTime } = luxon;
 import { SaleDetailsButton } from "@point_of_sale/app/components/navbar/sale_details_button/sale_details_button";
 import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+
+const nextOperationId = () => gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
 
 function gatewayDataCall(pos, model, method, args, kwargs = {}, silent = true, { ambiguous = false } = {}) {
     return withGatewayDeadline(
@@ -27,26 +29,6 @@ function gatewayDataCall(pos, model, method, args, kwargs = {}, silent = true, {
         }
         return result;
     });
-}
-
-// Secure per-click operation identity (mirrors gatewayUuid in
-// pos_print_router.js): lost-response retries reuse the id, deliberate
-// later prints mint a fresh one. Fail closed when no secure RNG exists so
-// distinct operations can never collapse into one idempotency key.
-function gatewayOperationUuid() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-        return crypto.randomUUID();
-    }
-    const bytes = new Uint8Array(16);
-    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-        crypto.getRandomValues(bytes);
-    } else {
-        throw new Error(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
-    }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 patch(SaleDetailsButton.prototype, {
@@ -95,7 +77,7 @@ patch(SaleDetailsButton.prototype, {
                 sessionId, this.pos.config?.id || 0,
             ]);
             const claim = await claimPrintOperation(recoveryKey, memoryRetry ? lastOp.id : null,
-                memoryRetry, gatewayOperationUuid);
+                memoryRetry, nextOperationId);
             if (claim.blocked) {
                 this.env.services.notification.add(
                     _t("An earlier Sales Details print is unresolved after this page changed. Check Print Activity and the printer. Use the explicit reprint action in Print Activity if another paper copy is needed."),
@@ -134,22 +116,16 @@ patch(SaleDetailsButton.prototype, {
                 geometryFingerprint = geometry.config_fingerprint;
             }
             saleDetailsOps.set(sessionId, { id: operationId, image, geometryFingerprint, terminal: false, at: Date.now() });
-            let result;
-            try {
-                submissionAttempted = true;
-                result = await gatewayDataCall(
-                    this.pos,
-                    "pos.session",
-                    "action_print_gateway_sale_details",
-                    [[sessionId]],
-                    { image, operation_id: operationId, geometry_fingerprint: geometryFingerprint },
-                    true,
-                    { ambiguous: true },
-                );
-            } catch (rpcError) {
-                saleDetailsOps.set(sessionId, { id: operationId, image, geometryFingerprint, at: Date.now(), terminal: false });
-                throw rpcError;
-            }
+            submissionAttempted = true;
+            const result = await gatewayDataCall(
+                this.pos,
+                "pos.session",
+                "action_print_gateway_sale_details",
+                [[sessionId]],
+                { image, operation_id: operationId, geometry_fingerprint: geometryFingerprint },
+                true,
+                { ambiguous: true },
+            );
             // Queued jobs retain the operation ID and raster: a second click
             // must not silently mint a duplicate while the outbox is pending.
             // The Odoo producer's positive route marker is part of the
@@ -164,8 +140,10 @@ patch(SaleDetailsButton.prototype, {
             const status = result?.status === "failed" &&
                 (result?.can_retry === false || explicitlyUnknownCode)
                 ? "unknown" : result?.status;
+            // Only positive can_retry === true proves a failed response sent no paper.
             const terminal = result?.gateway_enabled === true &&
-                ["submitted", "claimed", "printing", "success", "failed"].includes(status);
+                (["submitted", "claimed", "printing", "success"].includes(status) ||
+                    (status === "failed" && result?.can_retry === true));
             if (terminal) finishPrintOperation(recoveryKey, operationId);
             saleDetailsOps.set(sessionId, {
                 id: operationId,
@@ -225,14 +203,10 @@ patch(SaleDetailsButton.prototype, {
             // Fail-safe parity with the receipt router: notify once and
             // return false instead of re-throwing, so a Gateway failure
             // cannot freeze the Sale Details button with a double dialog.
-            if (submissionAttempted) {
-                this.env.services.notification.add(
-                    _t("Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s", gatewayServerMessage(error) || ""),
-                    { type: "warning", sticky: true }
-                );
-            } else {
-                this.env.services.notification.add(gatewayServerMessage(error) || _t("Sales Details could not be printed."), { type: "danger", sticky: true });
-            }
+            this.env.services.notification.add(
+                _t("Sales Details print outcome is unconfirmed. Check Print Activity and printer before retrying. %s", gatewayServerMessage(error) || ""),
+                { type: "warning", sticky: true }
+            );
             return false;
         } finally {
             this.pos.gatewaySaleDetailsPending = false;

@@ -145,11 +145,17 @@ func startGDIPrint(hdc uintptr, jobID, printerName string) (uint32, error) {
 		return 0, fmt.Errorf("encode print document name: %w", err)
 	}
 	var outputFilePtr *uint16
-	if outPath := resolveVirtualOutputPath(printerName, jobID); outPath != "" {
-		if ptr, ptrErr := windows.UTF16PtrFromString(outPath); ptrErr == nil {
-			outputFilePtr = ptr
-			defer runtime.KeepAlive(outputFilePtr)
+	outPath, outErr := resolveVirtualOutputPath(printerName, jobID)
+	if outErr != nil {
+		return 0, outErr
+	}
+	if outPath != "" {
+		ptr, ptrErr := windows.UTF16PtrFromString(outPath)
+		if ptrErr != nil {
+			return 0, fmt.Errorf("encode virtual output path %q: %w", outPath, ptrErr)
 		}
+		outputFilePtr = ptr
+		defer runtime.KeepAlive(outputFilePtr)
 	}
 	info := winDOCINFOW{
 		CbSize:         int32(unsafe.Sizeof(winDOCINFOW{})),

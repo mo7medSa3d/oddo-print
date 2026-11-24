@@ -171,7 +171,7 @@ export async function POST(req: Request) {
       await tx.execute(sql`SET LOCAL lock_timeout = '3000ms'`);
       let callerTenantId: string | null = null;
       if (!isMasterSecret) {
-        const tokenHash = crypto.createHash("sha256").update(bearer, "utf8").digest("hex");
+        const tokenHash = hashLicenseKey(bearer);
         const [key] = await tx
           .select({ tenantId: apiKeys.tenantId })
           .from(apiKeys)

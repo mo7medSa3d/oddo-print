@@ -143,23 +143,19 @@ func Load(path string) (*Config, error) {
 		cfg.Agent.ReprintAfterCrash = boolPtr(false)
 	}
 
+	onDiskSecret := cfg.Agent.Secret
 	store := storage.NewStore(dir)
 	sealed, secretErr := store.GetSecret(secretStoreKey)
 	if secretErr == nil && sealed != "" {
 		cfg.Agent.Secret = sealed
 		// A previous migration may have sealed the secret but failed to strip
-		// the YAML plaintext (Save succeeded, stripped.Save failed). The next
-		// Load took this fast path and never retried, leaving the secret in
-		// both places forever. Retry the strip best-effort: Load must not fail
-		// when the secret is already usable, but the plaintext must not linger.
-		if raw, ferr := os.ReadFile(path); ferr == nil && len(raw) > 0 {
-			var onDisk Config
-			if yerr := yaml.Unmarshal(raw, &onDisk); yerr == nil && onDisk.Agent.Secret != "" {
-				stripped := onDisk
-				stripped.Agent.Secret = ""
-				if serr := stripped.Save(path); serr != nil {
-					fmt.Fprintf(os.Stderr, "warning: retry stripping plaintext agent secret: %v\n", serr)
-				}
+		// the YAML plaintext (Save succeeded, stripped.Save failed). Retry the
+		// strip best-effort only when plaintext was actually present on disk.
+		if onDiskSecret != "" {
+			stripped := *cfg
+			stripped.Agent.Secret = ""
+			if serr := stripped.Save(path); serr != nil {
+				fmt.Fprintf(os.Stderr, "warning: retry stripping plaintext agent secret: %v\n", serr)
 			}
 		}
 	} else {
@@ -282,29 +278,25 @@ func (c *Config) Save(path string) error {
 	// (sealed) agent secret material alongside the config body.
 	if err := tmpFile.Chmod(0600); err != nil {
 		tmpFile.Close()
-		_ = os.Remove(tmp)
 		return fmt.Errorf("secure temp config %s: %w", tmp, err)
 	}
-	f := tmpFile
-	if _, err := f.Write(data); err != nil {
-		f.Close()
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
 		return fmt.Errorf("write temp config %s: %w", tmp, err)
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
 		return fmt.Errorf("sync temp config %s: %w", tmp, err)
 	}
-	if err := f.Close(); err != nil {
+	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("close temp config %s: %w", tmp, err)
 	}
 	// Protect the transient file itself before the atomic replace. On Windows,
 	// a restrictive parent directory does not rewrite an existing child DACL.
 	if err := EnsureSecureFileACL(tmp); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("secure temp config %s: %w", tmp, err)
 	}
 	if err := replaceFile(tmp, path); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("commit config %s: %w", tmp, err)
 	}
 	if err := EnsureSecureFileACL(path); err != nil {
@@ -583,69 +575,67 @@ func ValidatePrinterEndpoint(p PrinterConfig) error {
 	if err != nil {
 		return err
 	}
-	if nt == "network" || nt == "ipp" || nt == "ipps" {
-		ep := strings.TrimSpace(p.Endpoint)
-		if ep == "" {
-			return fmt.Errorf("printer %s: network endpoint required", p.ID)
+	ep := strings.TrimSpace(p.Endpoint)
+	if ep == "" {
+		return fmt.Errorf("printer %s: network endpoint required", p.ID)
+	}
+	if nt == "ipp" || nt == "ipps" || strings.HasPrefix(proto, "ipp") || strings.HasPrefix(strings.ToLower(ep), "ipp://") || strings.HasPrefix(strings.ToLower(ep), "ipps://") || strings.HasPrefix(strings.ToLower(ep), "http://") || strings.HasPrefix(strings.ToLower(ep), "https://") {
+		normalizedEndpoint := ep
+		if proto == "ipp" && !strings.Contains(ep, "://") {
+			if host, port, splitErr := net.SplitHostPort(ep); splitErr == nil && host != "" && port != "" {
+				normalizedEndpoint = "http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/ipp/print"
+			}
 		}
-		if nt == "ipp" || nt == "ipps" || strings.HasPrefix(proto, "ipp") || strings.HasPrefix(strings.ToLower(ep), "ipp://") || strings.HasPrefix(strings.ToLower(ep), "ipps://") || strings.HasPrefix(strings.ToLower(ep), "http://") || strings.HasPrefix(strings.ToLower(ep), "https://") {
-			normalizedEndpoint := ep
-			if proto == "ipp" && !strings.Contains(ep, "://") {
-				if host, port, splitErr := net.SplitHostPort(ep); splitErr == nil && host != "" && port != "" {
-					normalizedEndpoint = "http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/ipp/print"
-				}
+		u, err := url.Parse(normalizedEndpoint)
+		if err != nil || u == nil || u.Hostname() == "" {
+			// A malformed endpoint may contain userinfo. Do not echo the raw URL
+			// in validation errors, which are forwarded to logs and desktop UI.
+			return fmt.Errorf("printer %s: invalid IPP endpoint syntax or host", p.ID)
+		}
+		if u.User != nil {
+			return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)
+		}
+		if u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "ipp" && scheme != "ipps" && scheme != "http" && scheme != "https" {
+			return fmt.Errorf("printer %s: IPP endpoint must use ipp://, ipps://, http://, or https://", p.ID)
+		}
+		if nt == "ipps" && scheme != "https" && scheme != "ipps" {
+			return fmt.Errorf("printer %s: IPPS endpoint must use https:// or ipps://", p.ID)
+		}
+		ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
+		if ip == nil || !IsAllowedPrinterIP(ip) {
+			return fmt.Errorf("printer %s: IPP endpoint host must be a private or link-local IP", p.ID)
+		}
+		port := 631
+		if u.Port() != "" {
+			parsed, err := strconv.Atoi(u.Port())
+			if err != nil || parsed < 1 || parsed > 65535 {
+				return fmt.Errorf("printer %s: invalid IPP endpoint port", p.ID)
 			}
-			u, err := url.Parse(normalizedEndpoint)
-			if err != nil || u == nil || u.Hostname() == "" {
-				// A malformed endpoint may contain userinfo. Do not echo the raw URL
-				// in validation errors, which are forwarded to logs and desktop UI.
-				return fmt.Errorf("printer %s: invalid IPP endpoint syntax or host", p.ID)
-			}
-			if u.User != nil {
-				return fmt.Errorf("printer %s: IPP endpoint must not contain embedded credentials", p.ID)
-			}
-			if u.RawQuery != "" || u.Fragment != "" {
-				return fmt.Errorf("printer %s: IPP endpoint must not contain query strings or fragments", p.ID)
-			}
-			scheme := strings.ToLower(u.Scheme)
-			if scheme != "ipp" && scheme != "ipps" && scheme != "http" && scheme != "https" {
-				return fmt.Errorf("printer %s: IPP endpoint must use ipp://, ipps://, http://, or https://", p.ID)
-			}
-			if nt == "ipps" && scheme != "https" && scheme != "ipps" {
-				return fmt.Errorf("printer %s: IPPS endpoint must use https:// or ipps://", p.ID)
-			}
-			ip := net.ParseIP(strings.Trim(u.Hostname(), "[]"))
-			if ip == nil || !IsAllowedPrinterIP(ip) {
-				return fmt.Errorf("printer %s: IPP endpoint host must be a private or link-local IP", p.ID)
-			}
-			port := 631
-			if u.Port() != "" {
-				parsed, err := strconv.Atoi(u.Port())
-				if err != nil || parsed < 1 || parsed > 65535 {
-					return fmt.Errorf("printer %s: invalid IPP endpoint port", p.ID)
-				}
-				port = parsed
-			}
-			if port != 80 && port != 443 && port != 631 {
-				return fmt.Errorf("printer %s: IPP endpoint port must be 80, 443, or 631", p.ID)
-			}
-		} else {
-			host, port, err := net.SplitHostPort(ep)
-			if err != nil {
-				return fmt.Errorf("printer %s: network endpoint must be host:port", p.ID)
-			}
-			ip := net.ParseIP(strings.Trim(host, "[]"))
-			if ip == nil || !IsAllowedPrinterIP(ip) {
-				return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
-			}
-			parsed, err := strconv.Atoi(port)
-			// Gateway-managed network printers use the single canonical RAW TCP
-			// destination port 9100. Keeping the Agent boundary identical prevents
-			// a printer from being accepted into local config only to be rejected
-			// later by heartbeat inventory validation.
-			if err != nil || parsed != 9100 {
-				return fmt.Errorf("printer %s: network endpoint port must be 9100", p.ID)
-			}
+			port = parsed
+		}
+		if port != 80 && port != 443 && port != 631 {
+			return fmt.Errorf("printer %s: IPP endpoint port must be 80, 443, or 631", p.ID)
+		}
+	} else {
+		host, port, err := net.SplitHostPort(ep)
+		if err != nil {
+			return fmt.Errorf("printer %s: network endpoint must be host:port", p.ID)
+		}
+		ip := net.ParseIP(strings.Trim(host, "[]"))
+		if ip == nil || !IsAllowedPrinterIP(ip) {
+			return fmt.Errorf("printer %s: network endpoint host must be a private or link-local IP", p.ID)
+		}
+		parsed, err := strconv.Atoi(port)
+		// Gateway-managed network printers use the single canonical RAW TCP
+		// destination port 9100. Keeping the Agent boundary identical prevents
+		// a printer from being accepted into local config only to be rejected
+		// later by heartbeat inventory validation.
+		if err != nil || parsed != 9100 {
+			return fmt.Errorf("printer %s: network endpoint port must be 9100", p.ID)
 		}
 	}
 	return nil

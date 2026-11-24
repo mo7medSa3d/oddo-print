@@ -27,14 +27,17 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
   const outcome = deriveOutcome(s, error);
   const done = s === "success";
   const failed = s === "failed" || s === "expired";
-  // Physical output is unverified during active work as well. Only a
-  // terminal unknown result needs attention; active stages remain progress.
-  const unknown = (done || failed) && outcome === "unknown";
+  const canceled = s === "canceled";
+  // Physical output is unverified during active work as well. Only an explicit
+  // unknown status or terminal unknown outcome needs attention; active stages
+  // remain progress, and canceled stays neutral.
+  const unknown = s === "unknown" || ((done || failed) && outcome === "unknown");
+  const terminal = done || failed || unknown || canceled;
   const delivered = Boolean(deliveredAt ?? ackedAt);
 
   const reachedQueued = true;
-  const reachedClaimed = Boolean(claimedAt) || ["claimed", "printing", "success"].includes(s) || (failed && unknown && delivered);
-  const reachedPrinting = ["printing", "success"].includes(s) || (failed && unknown && delivered);
+  const reachedClaimed = Boolean(claimedAt) || ["claimed", "printing", "success"].includes(s) || (unknown && delivered);
+  const reachedPrinting = ["printing", "success"].includes(s) || (unknown && delivered);
 
   // `id` is the stable identity the logic compares against; `label` is what
   // the operator reads, so it follows the active language.
@@ -44,25 +47,26 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
     { id: "printing", label: t("desktop.timeline.printing"), reached: reachedPrinting },
   ].map((step, i) => {
     const current =
+      (step.id === "queued" && s === "queued") ||
       (step.id === "claimed" && s === "claimed") ||
       (step.id === "printing" && s === "printing");
     return {
       ...step,
       current,
-      state: current && !done && !(failed || unknown) ? "current" : step.reached ? "done" : "todo",
+      state: current && !terminal ? "current" : step.reached ? "done" : "todo",
       n: i + 1,
     } as const;
   });
 
-  const terminalLabel = done || failed || unknown ? jobLabel(s, outcome, locale) : t("desktop.timeline.outcome");
-  const terminalTone = done ? jobTone(s, outcome) : unknown ? "warn" : failed ? "bad" : "todo";
+  const terminalLabel = terminal ? jobLabel(s, outcome, locale) : t("desktop.timeline.outcome");
+  const terminalTone = done ? jobTone(s, outcome) : unknown ? "warn" : failed ? "bad" : canceled ? "neutral" : "todo";
 
   const fullSteps = [
     ...steps.map((step) => ({
       label: step.label,
       state: step.state as string,
     })),
-    { label: terminalLabel, state: terminalTone === "todo" ? "todo" : done ? "done" : "attention" },
+    { label: terminalLabel, state: terminalTone === "todo" ? "todo" : done || canceled ? "done" : "attention" },
   ];
   const srSummary = fullSteps
     .map((step, i) =>
@@ -126,7 +130,7 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
         <li className="flex flex-1 items-start">
           <span
             aria-hidden
-            className={`mt-[13px] h-0.5 flex-1 ${done || failed || unknown ? "bg-ok-solid/50" : "bg-edge-strong"}`}
+            className={`mt-[13px] h-0.5 flex-1 ${terminal && !canceled ? "bg-ok-solid/50" : "bg-edge-strong"}`}
           />
           <span className="flex flex-col items-center gap-2 px-1" aria-hidden>
             <span
@@ -139,14 +143,16 @@ export function JobTimeline({ status, error = null, claimedAt = null, deliveredA
                   ? "border-warn-edge bg-warn-solid text-on-solid"
                   : terminalTone === "bad"
                   ? "border-bad-edge bg-bad-solid text-on-solid"
+                  : terminalTone === "neutral"
+                  ? "border-edge-strong bg-surface-3 text-ink-2"
                   : "border-edge-strong bg-surface text-ink-4"
               }`}
             >
-              {done ? (unknown ? "i" : <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />) : failed || unknown ? (unknown ? "?" : <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />) : ""}
+              {done ? (unknown ? "i" : <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />) : unknown ? "?" : failed || canceled ? <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden /> : ""}
             </span>
             <span
               className={`min-w-max text-center text-xs font-semibold ${
-                terminalTone === "ok" ? "text-ok" : terminalTone === "info" ? "text-info" : terminalTone === "bad" ? "text-bad" : terminalTone === "warn" ? "text-warn" : "text-ink-3"
+                terminalTone === "ok" ? "text-ok" : terminalTone === "info" ? "text-info" : terminalTone === "bad" ? "text-bad" : terminalTone === "warn" ? "text-warn" : terminalTone === "neutral" ? "text-ink-2" : "text-ink-3"
               }`}
             >
               {terminalLabel}

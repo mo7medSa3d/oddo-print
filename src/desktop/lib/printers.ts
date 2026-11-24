@@ -498,7 +498,8 @@ export function friendlyAgentError(raw: string, locale: Locale = DEFAULT_LOCALE)
     lower.includes("config.yaml") ||
     lower.includes("access is denied") ||
     lower.includes("permission denied") ||
-    lower.includes("administrator privilege")
+    lower.includes("administrator privilege") ||
+    lower.includes("administrator permission")
   ) {
     return tr(locale, "desktop.agent.adminRequired");
   }

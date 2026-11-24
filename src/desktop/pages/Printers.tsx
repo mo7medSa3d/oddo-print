@@ -1,7 +1,7 @@
 import { Eye, Plus, Printer as PrinterIcon, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, Input, LoadingState, Select, StatusBadge, StatusDot } from "../../components/ui";
 import { Toolbar, PrinterAvatar, VirtualBadge } from "../ui";
-import { PrinterVisibilityControl } from "../components/PrinterVisibilityControl";
+import { PrinterAvailabilityControl } from "../components/PrinterAvailabilityControl";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { humanConnection, isProductionPrinter, isMainInventoryPrinter, isVirtualPrinter, printerDisplayName, printerPresentation, printerHealthCounts, printerStatusDetail, printerStatusDetailCode } from "../lib/printers";
@@ -87,7 +87,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                 </div>
                 <div className="break-words text-xs text-ink-3">{humanConnection(p, locale)}</div>
                 <StatusDetailLine p={p} locale={locale} />
-                <PrinterVisibilityControl s={s} printer={p} candidate />
+                <PrinterAvailabilityControl s={s} printer={p} candidate />
               </li>
             ))}
           </ul>
@@ -98,7 +98,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                 <tr key={`local-${p.id}`} className="border-b border-edge last:border-0">
                   <td className="px-5 py-3"><div className="flex flex-wrap items-center gap-2 font-semibold text-ink"><span>{printerDisplayName(p, locale)}</span>{isVirtualPrinter(p) && <VirtualBadge locale={locale} />}</div></td>
                   <td className="px-4 py-3 text-ink-2">{humanConnection(p, locale)}</td>
-                  <td className="px-5 py-3"><div className="space-y-2"><StatusBadge tone="warn" label={t("desktop.printers.waitingForSync")} /><StatusDetailLine p={p} locale={locale} /><PrinterVisibilityControl s={s} printer={p} candidate /></div></td>
+                  <td className="px-5 py-3"><div className="space-y-2"><StatusBadge tone="warn" label={t("desktop.printers.waitingForSync")} /><StatusDetailLine p={p} locale={locale} /><PrinterAvailabilityControl s={s} printer={p} candidate /></div></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -137,7 +137,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                 <div className="mt-3 flex min-w-0 flex-wrap gap-2 border-t border-edge-subtle pt-3">
                   <Button size="sm" variant="secondary" onClick={() => s.setSelectedPrinter(p)} aria-label={`${t("desktop.printers.details")} — ${name}`} icon={<Eye className="h-5 w-5" />}>{t("desktop.printers.details")}</Button>
                 </div>
-                <div className="mt-3"><PrinterVisibilityControl s={s} printer={p} /></div>
+                <div className="mt-3"><PrinterAvailabilityControl s={s} printer={p} /></div>
               </li>
               );
             })}
@@ -155,7 +155,7 @@ export function PrintersPage({ s }: { s: DesktopState }) {
                   <td className="px-4 py-3.5"><StatusBadge tone={view.tone} label={t(view.labelKey)} /><StatusDetailLine p={p} locale={locale} /></td>
                   <td className="px-5 py-3.5"><div className="flex flex-wrap items-center justify-end gap-1.5">
                      <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)} aria-label={`${t("desktop.printers.details")} — ${name}`} icon={<Eye className="h-5 w-5" />}>{t("desktop.printers.details")}</Button>
-                   </div><div className="mt-2 max-w-md ms-auto space-y-2"><PrinterVisibilityControl s={s} printer={p} /></div></td>
+                   </div><div className="mt-2 max-w-md ms-auto space-y-2"><PrinterAvailabilityControl s={s} printer={p} /></div></td>
                 </tr>
                 );
               })}</tbody>

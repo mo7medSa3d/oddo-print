@@ -219,6 +219,9 @@ func SelectSharingPrinterWithOptions(id string, devices []DeviceInfo, allowVirtu
 			continue
 		}
 		if reason := SharingCandidateReasonWithOptions(device, allowVirtual); reason != "" {
+			if allowVirtual {
+				return selected, fmt.Errorf("printer is not a locally admitted execution destination: %s", reason)
+			}
 			return selected, fmt.Errorf("printer is not a locally admitted physical execution destination: %s", reason)
 		}
 		pc := SharingConfigForDevice(device)

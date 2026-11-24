@@ -273,7 +273,7 @@ func IsExplicitlyRegistered(d DeviceInfo) bool {
 		return true
 	}
 	if v, ok := d.Capabilities["registration_source"].(string); ok {
-		switch spoolerToLowerTrim(v) {
+		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "manual", "config", "registry":
 			return true
 		}
@@ -428,7 +428,7 @@ func redirectedEvidence(f DeviceFacts) (string, bool) {
 	// Windows names RDP-redirected queues "HP LaserJet (redirected 3)";
 	// Citrix uses "… (from WKS12) in session 4".
 	for _, label := range []string{f.Name, f.DisplayName, f.SpoolerName} {
-		name := spoolerToLowerTrim(label)
+		name := strings.ToLower(strings.TrimSpace(label))
 		inSession := strings.Contains(name, "in session")
 		if strings.Contains(name, "(redirected") ||
 			strings.HasSuffix(name, "redirected)") ||
@@ -477,12 +477,12 @@ func unusableVirtualEvidence(f DeviceFacts) bool {
 	}
 	p := portHead(f.PortName)
 	for _, m := range unusablePortMonitors {
-		if p == m || spoolerHasPrefix(p, m) {
+		if p == m || strings.HasPrefix(p, m) {
 			return true
 		}
 	}
 	hay := identityHaystack(f)
-	names := [3]string{spoolerToLowerTrim(f.Name), spoolerToLowerTrim(f.DisplayName), spoolerToLowerTrim(f.SpoolerName)}
+	names := [3]string{strings.ToLower(strings.TrimSpace(f.Name)), strings.ToLower(strings.TrimSpace(f.DisplayName)), strings.ToLower(strings.TrimSpace(f.SpoolerName))}
 	for _, t := range unusableWriterTokens {
 		if strings.Contains(hay, t) {
 			return true
@@ -512,7 +512,7 @@ func virtualEvidence(f DeviceFacts) []string {
 	}
 	// A custom friendly label cannot erase known software evidence in the
 	// actual Windows queue name, including manual/configured registrations.
-	names := [3]string{spoolerToLowerTrim(f.Name), spoolerToLowerTrim(f.DisplayName), spoolerToLowerTrim(f.SpoolerName)}
+	names := [3]string{strings.ToLower(strings.TrimSpace(f.Name)), strings.ToLower(strings.TrimSpace(f.DisplayName)), strings.ToLower(strings.TrimSpace(f.SpoolerName))}
 	for _, t := range softwareWriterTokens {
 		for _, name := range names {
 			if strings.Contains(name, t) {
@@ -535,14 +535,14 @@ func physicalEvidence(f DeviceFacts) (bool, string, string) {
 	// A USB device path is proof that Plug and Play enumerated real hardware,
 	// even when the vendor's ids do not advertise the print class and no
 	// VID/PID/serial could be parsed from the instance id.
-	conn := spoolerToLowerTrim(f.ConnectionType)
+	conn := strings.ToLower(strings.TrimSpace(f.ConnectionType))
 	if conn == "usb" && strings.TrimSpace(f.Endpoint) != "" {
 		return true, "usb-device-path", "high"
 	}
 	if strings.TrimSpace(f.NetworkAddress) != "" && f.Port != 0 {
 		return true, "network-endpoint", "high"
 	}
-	proto := spoolerToLowerTrim(f.Protocol)
+	proto := strings.ToLower(strings.TrimSpace(f.Protocol))
 	if (conn == "ipp" || conn == "ipps" || proto == "ipp" || proto == "ipps") &&
 		strings.TrimSpace(f.Endpoint) != "" {
 		return true, "ipp-endpoint", "high"
@@ -573,8 +573,6 @@ func physicalEvidence(f DeviceFacts) (bool, string, string) {
 	// details before execution, so an unreadable-details queue cannot
 	// reach the print pipeline unchecked. Confidence stays low: the
 	// queue name alone proves addressability, not the backend hardware.
-	conn = spoolerToLowerTrim(f.ConnectionType)
-	proto = spoolerToLowerTrim(f.Protocol)
 	if (conn == "spooler" || conn == "windows_spooler" || proto == "spooler" || proto == "windows_spooler") &&
 		strings.TrimSpace(f.SpoolerName) != "" {
 		return true, "spooler-queue-name", "low"
@@ -594,16 +592,16 @@ func identityHaystack(f DeviceFacts) string {
 	parts = append(parts, f.DriverName, f.DeviceID, f.Comment)
 	parts = append(parts, f.HardwareIDs...)
 	parts = append(parts, f.CompatibleIDs...)
-	return spoolerToLowerTrim(strings.Join(parts, " "))
+	return strings.ToLower(strings.TrimSpace(strings.Join(parts, " ")))
 }
 
 // portHead returns the significant part of a Windows port name: lowercased,
 // trimmed and cut at the first comma ("IP_192.168.1.50,SNMP" → "ip_192.168.1.50").
 func portHead(port string) string {
-	if i := spoolerIndexComma(port); i >= 0 {
+	if i := strings.IndexByte(port, ','); i >= 0 {
 		port = port[:i]
 	}
-	return spoolerToLowerTrim(port)
+	return strings.ToLower(strings.TrimSpace(port))
 }
 
 // portKind classifies a Windows port monitor.
@@ -613,18 +611,18 @@ func portKind(port string) (kind string, isVirtual bool) {
 		return "none", false
 	}
 	for _, v := range virtualPortMonitors {
-		if p == v || spoolerHasPrefix(p, v) {
+		if p == v || strings.HasPrefix(p, v) {
 			return "virtual", true
 		}
 	}
 	switch {
-	case spoolerHasPrefix(p, "usb"), spoolerHasPrefix(p, "dot4"):
+	case strings.HasPrefix(p, "usb"), strings.HasPrefix(p, "dot4"):
 		return "usb", false
-	case spoolerHasPrefix(p, "wsd"):
+	case strings.HasPrefix(p, "wsd"):
 		return "wsd", false
-	case spoolerHasPrefix(p, "lpt"), spoolerHasPrefix(p, "com"):
+	case strings.HasPrefix(p, "lpt"), strings.HasPrefix(p, "com"):
 		return "local", false
-	case spoolerHasPrefix(p, "ip_"):
+	case strings.HasPrefix(p, "ip_"):
 		return "network", false
 	}
 	if _, _, err := spoolerSplitPort(p); err == nil {

@@ -7,7 +7,7 @@ import logging
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
-from .printer import derive_printer_specs
+from .printer import _parse_json_dict, derive_printer_specs
 from ..printer_geometry import validated_printer_geometry
 from ..runtime_policy import is_exact_printer_key
 
@@ -394,16 +394,17 @@ class PrintGatewayBinding(models.Model):
 
     @api.depends("agent_id", "printer_id")
     def _compute_printer_specs(self):
-        printer_model = self.env["print_gateway.printer"].sudo()
+        agent_ids = {r.agent_id.id for r in self if r.agent_id and r.printer_id}
+        printer_keys = {r.printer_id for r in self if r.agent_id and r.printer_id}
+        by_pair = {}
+        if agent_ids and printer_keys:
+            printers = self.env["print_gateway.printer"].sudo().search([
+                ("agent_id", "in", list(agent_ids)),
+                ("printer_key", "in", list(printer_keys)),
+            ])
+            by_pair = {(p.agent_id.id, p.printer_key): p for p in printers}
         for record in self:
-            if not record.agent_id or not record.printer_id:
-                record.printer_is_virtual = False
-                record.printer_capability_summary = False
-                continue
-            printer = printer_model.search([
-                ("agent_id", "=", record.agent_id.id),
-                ("printer_key", "=", record.printer_id),
-            ], limit=1)
+            printer = by_pair.get((record.agent_id.id, record.printer_id)) if (record.agent_id and record.printer_id) else None
             if not printer:
                 record.printer_is_virtual = False
                 record.printer_capability_summary = False
@@ -492,6 +493,9 @@ class PrintGatewayBinding(models.Model):
         if connection_type in ("ipp", "ipps"):
             return connection_type
         if connection_type not in ("network", "usb"):
+            caps = printer.get("capabilities")
+            if isinstance(caps, dict) and (caps.get("is_virtual") or caps.get("isVirtual")):
+                return "spooler"
             return "unknown"
         if protocol in ("escpos", "zpl", "tspl", "raw"):
             return protocol
@@ -605,12 +609,7 @@ class PrintGatewayBinding(models.Model):
         if not printer:
             raise ValidationError(_('The selected printer is not available from this Print Agent. Refresh the Agent inventory and try again.'))
 
-        try:
-            capabilities = json.loads(printer.capabilities_json or '{}')
-            if not isinstance(capabilities, dict):
-                capabilities = {}
-        except (TypeError, ValueError):
-            capabilities = {}
+        capabilities = _parse_json_dict(printer.capabilities_json)
         selected_printer = {
             'id': printer.printer_key,
             'name': printer.name,
@@ -755,8 +754,7 @@ class PrintGatewayBinding(models.Model):
         # internal users, which would otherwise never fire here).
         if not self.env.user.has_group("base.group_system"):
             raise AccessError(_("Only Odoo system administrators can dispatch test pages."))
-        runtime_printer = self._validate_runtime_target(enforce_destination_compatibility=False)
-        self._validate_binding_protocol_against_runtime(runtime_printer)
+        self._validate_runtime_target(enforce_destination_compatibility=False)
         router = self.env["print_gateway.print_router"]
         res = router.route_test_page(self)
         status = res.get("status")

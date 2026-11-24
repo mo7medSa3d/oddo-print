@@ -35,7 +35,7 @@ class TestV15Hardening(unittest.TestCase):
             ws_src,
             r'if not still_active:\s*'
             r'_send_json\(ws,\s*\{"type":\s*"agent_revoked",\s*"reason":\s*"agent_inactive_or_revoked"\},\s*send_lock=send_lock\)\s*'
-            r'try:\s*ws\.close\(\)',
+            r'try:\s*(?:if send_lock is not None:\s*with send_lock:\s*)?ws\.close\(\)',
         )
         # All 3 lifecycle checkpoints (heartbeat, welcome, license_update listener) must emit agent_revoked
         revoked_hits = re.findall(r'"type":\s*"agent_revoked"', ws_src)

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 )
 
 func enumSpoolerPrintersPlatform() ([]DeviceInfo, error) {
@@ -41,7 +42,7 @@ func enumSpoolerPrintersPlatform() ([]DeviceInfo, error) {
 		}
 		name := strings.TrimSpace(rest[:colonIdx])
 		uri := strings.TrimSpace(rest[colonIdx+1:])
-		if name == "" {
+		if name == "" || strings.HasPrefix(name, "-") || strings.ContainsFunc(name, unicode.IsControl) {
 			continue
 		}
 		cls := ClassifyDevice(DeviceFacts{

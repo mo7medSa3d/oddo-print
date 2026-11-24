@@ -2,7 +2,7 @@ import { SetupGuide } from "../components/SetupGuide";
 import { Activity, AlertTriangle, CheckCircle2, Info, Loader2, Play, Printer as PrinterIcon, RefreshCw, Server, Settings } from "lucide-react";
 import { Button, Card, CardHeader, EmptyState, ErrorState, LoadingState, StatusBadge } from "../../components/ui";
 import { StatItem, StatStrip, StatusNotice, ViewAllButton, PrinterAvatar, VirtualBadge } from "../ui";
-import { PrinterVisibilityControl } from "../components/PrinterVisibilityControl";
+import { PrinterAvailabilityControl } from "../components/PrinterAvailabilityControl";
 import type { DesktopState } from "../types";
 import { useI18n } from "../../i18n/react";
 import { agentServiceState, agentStatusNoteKey, isProductionPrinter, isMainInventoryPrinter, isVirtualPrinter, printerDisplayName, printerPresentation, printerHealthCounts } from "../lib/printers";
@@ -12,7 +12,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
   const serviceState = agentServiceState(s.agentStatus);
   const shownPrinters = s.printers.filter(isMainInventoryPrinter);
   const registeredLocalIds = new Set(s.localPrinters.map((p) => p.id));
-  const pendingLocalPrinters = s.discoveredPrinters.filter(isProductionPrinter).filter((p) => !registeredLocalIds.has(p.id));
+  const pendingLocalPrinters = [...new Map(s.discoveredPrinters.map((p) => [p.id, p])).values()].filter(isProductionPrinter).filter((p) => !registeredLocalIds.has(p.id));
   const { online, offline, unknown: unknownPrinters } = printerHealthCounts(shownPrinters, s.nowMs);
   const banner = (() => {
     if (!s.gatewayUrl) {
@@ -92,7 +92,7 @@ export function OverviewPage({ s }: { s: DesktopState }) {
                         <StatusBadge tone={view.tone} label={t(view.labelKey)} />
                         <Button size="sm" variant="ghost" onClick={() => s.setSelectedPrinter(p)}>{t("desktop.printers.details")}</Button>
                       </div>
-                      <div className="w-full min-w-0 space-y-2"><PrinterVisibilityControl s={s} printer={p} /></div>
+                      <div className="w-full min-w-0 space-y-2"><PrinterAvailabilityControl s={s} printer={p} /></div>
                     </div>
                   );
                 })}
