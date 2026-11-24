@@ -24,8 +24,6 @@ import { roleLabel } from "../../lib/roles";
 import { Button, PageContainer, PageHeader, StatusBadge, type Tone } from "../../components/ui";
 import {
   DirectPrintHeroSvg,
-  DirectTopologySvg,
-  VisualArchitectureCard,
 } from "../../components/DashboardVisuals";
 import { getServerLocale, makeT } from "../../i18n/server";
 
@@ -306,15 +304,6 @@ export default async function DashboardPage() {
           </ul>
         </section>
 
-        {/* One clear explanation instead of repeating the same promise three times */}
-        <section aria-label={t("dashboard.architecture.heading")} className="grid gap-4">
-          <VisualArchitectureCard
-            illustration={<DirectTopologySvg />}
-            badge={t("dashboard.architecture.directBadge")}
-            title={t("dashboard.architecture.directTitle")}
-            description={t("dashboard.architecture.directBody")}
-          />
-        </section>
       </div>
     </PageContainer>
   );

@@ -19,7 +19,6 @@ describe("License-Only Gateway dashboard & license authority contract", () => {
     expect(dashboard).toContain("requireManagerActorInTransaction");
     expect(dashboard).toContain('redirect("/login")');
     expect(dashboard).toContain("DirectPrintHeroSvg");
-    expect(dashboard).toContain("VisualArchitectureCard");
     expect(dashboard).not.toContain("../actions");
     expect(dashboard).not.toContain("getDashboardState");
     expect(dashboard).not.toContain("getDashboardJobs");

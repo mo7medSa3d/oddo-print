@@ -45,7 +45,8 @@ describe("public marketing and operational UI experience contracts", () => {
     const css = load("src/app/globals.css");
     const home = load("src/app/page.tsx");
     const desktop = load("src/desktop/pages/Overview.tsx");
-    expect(home).toContain("SpotlightSurface");
+    // Landing is intentionally flat and decoration-free (no spotlight cards).
+    expect(home).not.toContain("SpotlightSurface");
     expect(css).toContain(".yw-spotlight-card:focus-within");
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain(".yw-gateway-dashboard");

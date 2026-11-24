@@ -17,7 +17,6 @@ import {
   CreditCard,
   KeyRound,
   LayoutDashboard,
-  PlayCircle,
   PlugZap,
   Settings,
   ShieldCheck,
@@ -117,22 +116,22 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
       icon: <ShieldCheck className="h-5 w-5 text-brand" aria-hidden="true" />,
       title: isAr ? "تحكم كامل بالتراخيص" : "License Control",
       lead: isAr
-        ? "تراخيص Ed25519 موقّعة تُتحقق محلياً دون انقطاع حتى عند توقف الإنترنت."
-        : "Signed Ed25519 entitlements verified offline across every workstation.",
+        ? "طباعة لا تتوقف. عملك يستمر حتى لو انقطع الإنترنت."
+        : "Printing that keeps up with your day — interruption free.",
     },
     {
       icon: <Zap className="h-5 w-5 text-brand" aria-hidden="true" />,
       title: isAr ? "سرعة محلية فائقة" : "Native Speed",
       lead: isAr
-        ? "اتصال مباشر بين أودو والطابعات المحلية دون أي وسيط أو طابور سحابي."
-        : "Direct Odoo-to-printer execution on your network with zero cloud relay.",
+        ? "من أودو إلى طابعتك في لحظة. بلا انتظار وبلا وسيط."
+        : "From Odoo to your printer in an instant. No waiting, no middle step.",
     },
     {
       icon: <PlugZap className="h-5 w-5 text-brand" aria-hidden="true" />,
       title: isAr ? "تكامل فوري مع أودو" : "Zero-Friction Odoo",
       lead: isAr
-        ? "اربط قاعدة بيانات أودو بمفتاح ترخيص واحد وابدأ الطباعة خلال دقائق."
-        : "Bind your Odoo database with one API key and start printing immediately.",
+        ? "خطوة واحدة وتبدأ الطباعة. بدون إعدادات معقدة."
+        : "One step and you are printing. No complicated setup.",
     },
   ];
 
@@ -192,59 +191,60 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
           </div>
         </section>
 
-        {/* Dedicated video section — large, clear, easy to scan */}
-        <section id="see-it" aria-labelledby="see-it-title" className="scroll-mt-20 py-16 sm:py-24">
-          <div className="mx-auto w-full max-w-[1280px] px-5 sm:px-8 lg:px-10">
-            <div className="mx-auto max-w-2xl text-center">
-              <p className="text-eyebrow">{isAr ? "شاهدها تعمل" : "See it in action"}</p>
-              <h2 id="see-it-title" className="mt-3 text-[clamp(1.75rem,4vw,2.5rem)] font-[500] leading-tight tracking-tight text-ink">
-                {isAr ? "من أودو إلى الطابعة، مباشرة" : "From Odoo to paper, directly"}
+        {/* One film, one message */}
+        <section className="py-16 sm:py-24">
+          <div className="mx-auto grid w-full max-w-[1280px] items-center gap-10 px-5 sm:px-8 lg:grid-cols-2 lg:px-10">
+            <figure data-yw-reveal className="overflow-hidden rounded-2xl border border-edge-subtle bg-surface/40 p-1.5 sm:p-2">
+              <video
+                src="/videos/yaseir-pos-scrub-1080p.mp4"
+                poster="/videos/yaseir-pos-poster.webp"
+                aria-label={isAr ? "إيصال نقطة البيع" : "POS receipt"}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                className="aspect-video w-full rounded-xl bg-surface-2 object-cover"
+              />
+            </figure>
+            <div className="max-w-md">
+              <h2 className="text-[clamp(1.75rem,3.6vw,2.5rem)] font-[500] leading-tight tracking-tight text-ink">
+                {isAr ? "كل طلب، إيصال بين يديك." : "Every order, receipt in hand."}
               </h2>
-              <p className="mt-3 text-sm leading-relaxed text-ink-2 sm:text-base">
+              <p className="mt-4 text-base leading-relaxed text-ink-2">
                 {isAr
-                  ? "فيديوهان قصيران يوضّحان إيصال نقطة البيع والفاتورة أثناء طباعتهما على طابعة محلية."
-                  : "Two short demos showing a POS receipt and an A4 invoice printing on a local printer."}
+                  ? "يخرج إيصال المبيعات في لحظة تأكيد الطلب. جاهز للتسليم، بدون خطوات إضافية."
+                  : "The receipt prints the moment an order is confirmed. Ready to hand over, with nothing else to do."}
               </p>
             </div>
+          </div>
+        </section>
 
-            <div className="mt-10 grid gap-6 lg:grid-cols-2">
-              {[
-                {
-                  src: "/videos/yaseir-pos-scrub-1080p.mp4",
-                  poster: "/videos/yaseir-pos-poster.webp",
-                  label: isAr ? "إيصالات نقاط البيع" : "POS Receipts",
-                  hint: isAr ? "اطبع إيصال المبيعات فور تأكيد الطلب" : "Print a receipt the moment an order is confirmed",
-                },
-                {
-                  src: "/videos/yaseir-a4-scrub-1080p.mp4",
-                  poster: "/videos/yaseir-a4-poster.webp",
-                  label: isAr ? "الفواتير ومستندات A4" : "A4 & Invoices",
-                  hint: isAr ? "اطبع الفواتير والتقارير بحجم A4 الكامل" : "Print full-size invoices and reports on A4",
-                },
-              ].map((clip) => (
-                <figure key={clip.src} data-yw-reveal className="overflow-hidden rounded-2xl border border-edge-subtle bg-surface/40 p-1.5 sm:p-2">
-                  <video
-                    src={clip.src}
-                    poster={clip.poster}
-                    aria-label={clip.label}
-                    controls
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="metadata"
-                    className="aspect-video w-full rounded-xl bg-surface-2 object-cover"
-                  />
-                  <figcaption className="flex items-start gap-2.5 px-3 py-3 sm:px-4 sm:py-4">
-                    <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-brand" aria-hidden />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-ink sm:text-base">{clip.label}</span>
-                      <span className="mt-0.5 block text-xs leading-relaxed text-ink-2 sm:text-sm">{clip.hint}</span>
-                    </span>
-                  </figcaption>
-                </figure>
-              ))}
+        <section className="py-16 sm:py-24">
+          <div className="mx-auto grid w-full max-w-[1280px] items-center gap-10 px-5 sm:px-8 lg:grid-cols-2 lg:px-10">
+            <div className="max-w-md lg:order-1">
+              <h2 className="text-[clamp(1.75rem,3.6vw,2.5rem)] font-[500] leading-tight tracking-tight text-ink">
+                {isAr ? "فواتيرك، كما أعددتها." : "Invoices, exactly as prepared."}
+              </h2>
+              <p className="mt-4 text-base leading-relaxed text-ink-2">
+                {isAr
+                  ? "وثائق كاملة تخرج من طابعتك بصياغتها النهائية، جاهزة للتوقيع والتسليم."
+                  : "Full documents print with every detail intact — ready to sign and hand over."}
+              </p>
             </div>
+            <figure data-yw-reveal className="overflow-hidden rounded-2xl border border-edge-subtle bg-surface/40 p-1.5 sm:p-2 lg:order-2">
+              <video
+                src="/videos/yaseir-a4-scrub-1080p.mp4"
+                poster="/videos/yaseir-a4-poster.webp"
+                aria-label={isAr ? "فاتورة A4" : "A4 invoice"}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                className="aspect-video w-full rounded-xl bg-surface-2 object-cover"
+              />
+            </figure>
           </div>
         </section>
 
@@ -275,11 +275,6 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
                 <h2 className="text-2xl font-[500] leading-[1.18] text-ink">
                   {t("home.ctaTitle")}
                 </h2>
-                <p className="mt-2 text-sm text-ink-2">
-                  {isAr
-                    ? "أنشئ مساحة عملك، فعّل خطتك، واربط أودو خلال دقائق."
-                    : "Create your workspace, activate a plan, and bind Odoo in minutes."}
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <Button
