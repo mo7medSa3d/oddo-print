@@ -3884,7 +3884,7 @@ func (a *Agent) runOdooWebSocket(ctx context.Context) {
 				}
 			}()
 
-		a.wsConnected.Store(true)
+			a.wsConnected.Store(true)
 		readLoop:
 			for {
 				op, msg, readErr := ws.ReadMessage()
