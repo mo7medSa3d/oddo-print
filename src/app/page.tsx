@@ -18,6 +18,7 @@ import {
   CreditCard,
   KeyRound,
   LayoutDashboard,
+  PlayCircle,
   PlugZap,
   Settings,
   ShieldCheck,
@@ -193,36 +194,55 @@ function PublicHome({ t, locale }: { t: Translator; locale: Locale }) {
           </div>
         </section>
 
-        {/* Minimal Video Showcase — iOS 27 glass frames */}
-        <section aria-label={isAr ? "معاينة الطباعة" : "Print preview"} className="pb-14 sm:pb-20">
-          <div className="mx-auto w-full max-w-[1120px] px-5 sm:px-8 lg:px-10">
-            <div className="grid gap-5 md:grid-cols-2">
+        {/* Dedicated video section — large, clear, easy to scan */}
+        <section id="see-it" aria-labelledby="see-it-title" className="scroll-mt-20 py-16 sm:py-24">
+          <div className="mx-auto w-full max-w-[1280px] px-5 sm:px-8 lg:px-10">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-eyebrow">{isAr ? "شاهدها تعمل" : "See it in action"}</p>
+              <h2 id="see-it-title" className="mt-3 text-[clamp(1.75rem,4vw,2.5rem)] font-[500] leading-tight tracking-tight text-ink">
+                {isAr ? "من أودو إلى الطابعة، مباشرة" : "From Odoo to paper, directly"}
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-ink-2 sm:text-base">
+                {isAr
+                  ? "فيديوهان قصيران يوضّحان إيصال نقطة البيع والفاتورة أثناء طباعتهما على طابعة محلية."
+                  : "Two short demos showing a POS receipt and an A4 invoice printing on a local printer."}
+              </p>
+            </div>
+
+            <div className="mt-10 grid gap-6 lg:grid-cols-2">
               {[
                 {
                   src: "/videos/yaseir-pos-scrub-1080p.mp4",
                   poster: "/videos/yaseir-pos-poster.webp",
                   label: isAr ? "إيصالات نقاط البيع" : "POS Receipts",
+                  hint: isAr ? "اطبع إيصال المبيعات فور تأكيد الطلب" : "Print a receipt the moment an order is confirmed",
                 },
                 {
                   src: "/videos/yaseir-a4-scrub-1080p.mp4",
                   poster: "/videos/yaseir-a4-poster.webp",
                   label: isAr ? "الفواتير ومستندات A4" : "A4 & Invoices",
+                  hint: isAr ? "اطبع الفواتير والتقارير بحجم A4 الكامل" : "Print full-size invoices and reports on A4",
                 },
               ].map((clip) => (
-                <figure key={clip.src} data-yw-reveal className="glass-card overflow-hidden p-3 sm:p-4">
+                <figure key={clip.src} data-yw-reveal className="glass-card overflow-hidden p-2 sm:p-3">
                   <video
                     src={clip.src}
                     poster={clip.poster}
                     aria-label={clip.label}
+                    controls
                     autoPlay
                     muted
                     loop
                     playsInline
                     preload="metadata"
-                    className="aspect-video w-full rounded-2xl bg-surface-2 object-cover"
+                    className="aspect-video w-full rounded-xl bg-surface-2 object-cover"
                   />
-                  <figcaption className="px-2 pt-3 pb-1 text-center text-xs font-medium tracking-wide text-ink-2">
-                    {clip.label}
+                  <figcaption className="flex items-start gap-2.5 px-3 py-3 sm:px-4 sm:py-4">
+                    <PlayCircle className="mt-0.5 h-5 w-5 shrink-0 text-brand" aria-hidden />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-ink sm:text-base">{clip.label}</span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-ink-2 sm:text-sm">{clip.hint}</span>
+                    </span>
                   </figcaption>
                 </figure>
               ))}
@@ -412,7 +432,7 @@ function AuthenticatedHome({
   return (
     <div className="mx-auto w-full max-w-[1040px] px-5 py-12 sm:px-8 sm:py-16">
       <section className="glass-card overflow-hidden">
-        <div className="flex flex-col gap-6 p-7 sm:flex-row sm:items-start sm:justify-between sm:p-9">
+        <div className="flex flex-col gap-5 p-6 sm:p-8">
           <div className="min-w-0">
             <p className="text-eyebrow">{t("home.authWorkspace")}</p>
             <h1 className="mt-2 text-[2rem] font-[500] text-ink">{tenantName}</h1>
@@ -432,21 +452,21 @@ function AuthenticatedHome({
           </div>
         </div>
 
-        <dl className={`grid grid-cols-1 divide-y divide-edge-subtle border-t border-edge-subtle bg-surface/40 ${canBilling ? "sm:grid-cols-3 sm:divide-x sm:divide-y-0" : ""}`}>
+        <dl className={`grid gap-3 border-t border-edge-subtle bg-surface/30 p-4 sm:p-6 ${canBilling ? "sm:grid-cols-3" : ""}`}>
           {canBilling && (
-            <div className="px-7 py-5">
+            <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
               <dt className="label-caps">{t("home.planLabel")}</dt>
               <dd className="mt-1.5 text-sm font-semibold text-ink">{hasPlan ? planName : t("billing.noPlanSelected")}</dd>
             </div>
           )}
-          <div className="px-7 py-5">
+          <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
             <dt className="label-caps">{t("home.subscriptionLabel")}</dt>
             <dd className="mt-1.5">
               <StatusBadge tone={statusTone} label={t(statusKey[subscriptionStatus])} />
             </dd>
           </div>
           {canBilling && (
-            <div className="px-7 py-5">
+            <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
               <dt className="label-caps">{t("v4.subscription.end")}</dt>
               <dd className="mt-1.5 text-sm font-semibold tabular-nums text-ink">
                 {formatManualCalendarDate(periodEnd, locale) ?? t("common.notAvailable")}

@@ -215,7 +215,7 @@ export default async function DashboardPage() {
       <div className="space-y-6">
         {/* Primary Licensing Status Card */}
         <section className="glass-card overflow-hidden">
-          <div className="grid items-center gap-6 p-6 sm:p-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid items-center gap-6 p-6 sm:p-8 lg:grid-cols-[1.5fr_0.5fr]">
             <div className="min-w-0 space-y-4">
               <div className="flex flex-wrap items-center gap-2.5">
                 <StatusBadge tone={statusTone} label={t(statusKey[subscriptionStatus])} />
@@ -249,14 +249,16 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-center lg:justify-end">
-              <DirectPrintHeroSvg active={isActive} />
+            <div className="hidden items-center justify-center lg:flex">
+              <div className="w-full max-w-[190px] opacity-90">
+                <DirectPrintHeroSvg active={isActive} />
+              </div>
             </div>
           </div>
 
           {/* Unified Licensing & Odoo Connection Strip */}
-          <dl className="grid grid-cols-1 divide-y divide-edge-subtle border-t border-edge-subtle bg-surface/40 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            <div className="px-6 py-4 sm:px-7">
+          <dl className="grid gap-3 border-t border-edge-subtle bg-surface/30 p-4 sm:grid-cols-3 sm:p-6">
+            <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
               <dt className="label-caps">{t("home.subscriptionLabel")}</dt>
               <dd className="mt-1 text-base font-semibold text-ink">
                 {canBilling
@@ -268,7 +270,7 @@ export default async function DashboardPage() {
               </p>
             </div>
 
-            <div className="px-6 py-4 sm:px-7">
+            <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
               <dt className="label-caps">{t("dashboard.metric.entitlementsTitle")}</dt>
               <dd className="mt-1 text-base font-semibold tabular-nums text-ink">
                 {canBilling && isActive
@@ -288,7 +290,7 @@ export default async function DashboardPage() {
               </p>
             </div>
 
-            <div className="px-6 py-4 sm:px-7">
+            <div className="rounded-xl border border-edge-subtle bg-surface/60 px-5 py-4">
               <dt className="label-caps">{t("dashboard.metric.odooKeysTitle")}</dt>
               <dd className="mt-1 text-base font-semibold tabular-nums text-ink">
                 {t("dashboard.metric.odooKeysValue", {
@@ -338,11 +340,11 @@ export default async function DashboardPage() {
               })}
             />
           </div>
-          <ul className="mt-4 grid gap-2.5 sm:grid-cols-2">
+          <ul className="mt-4 grid gap-2">
             {checklist.map((step) => (
               <li
                 key={step.key}
-                className="flex items-center justify-between gap-3 rounded-xl border border-edge-subtle bg-surface/60 px-4 py-3 text-sm"
+                className="flex items-center justify-between gap-3 rounded-xl border border-edge-subtle bg-surface/50 px-4 py-2.5 text-sm"
               >
                 <span className="flex min-w-0 items-center gap-2.5">
                   {step.done ? (
@@ -367,7 +369,7 @@ export default async function DashboardPage() {
         </section>
 
         {/* Compact Direct-Print Architecture Reference */}
-        <section aria-label={t("dashboard.architecture.heading")} className="grid gap-4 lg:grid-cols-3">
+        <section aria-label={t("dashboard.architecture.heading")} className="hidden gap-4 lg:grid lg:grid-cols-3">
           <VisualArchitectureCard
             illustration={<LicenseShieldSvg />}
             badge={t("dashboard.architecture.offlineBadge")}
