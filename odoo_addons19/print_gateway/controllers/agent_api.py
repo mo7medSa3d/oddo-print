@@ -109,7 +109,7 @@ class DirectAgentController(http.Controller):
               FROM print_gateway_agent
              WHERE active = TRUE
                AND pairing_code_hash = %s
-               AND pairing_expires_at >= clock_timestamp()
+               AND pairing_expires_at >= (clock_timestamp() AT TIME ZONE 'UTC')
              LIMIT 1
              FOR UPDATE
             """,
@@ -148,8 +148,8 @@ class DirectAgentController(http.Controller):
                    pairing_expires_at = NULL,
                    status = 'online',
                    agent_version = %s,
-                   last_seen_at = clock_timestamp(),
-                   write_date = clock_timestamp()
+                   last_seen_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
              WHERE id = %s
             """,
             (_hash_token(raw_token), str(data.get("agentVersion") or "")[:64], agent_id),
@@ -181,8 +181,8 @@ class DirectAgentController(http.Controller):
             """
             UPDATE print_gateway_agent
                SET status = 'online',
-                   last_seen_at = clock_timestamp(),
-                   write_date = clock_timestamp()
+                   last_seen_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
              WHERE id = %s
             """,
             (agent["id"],),
@@ -207,9 +207,9 @@ class DirectAgentController(http.Controller):
                 cr.execute(
                     """
                     UPDATE print_gateway_print_job j
-                       SET write_date = clock_timestamp(),
+                       SET write_date = (clock_timestamp() AT TIME ZONE 'UTC'),
                            claimed_at = CASE
-                               WHEN j.status = 'claimed' THEN clock_timestamp()
+                               WHEN j.status = 'claimed' THEN (clock_timestamp() AT TIME ZONE 'UTC')
                                ELSE j.claimed_at
                            END
                       FROM unnest(%s::bigint[], %s::text[]) AS t(job_id, claim_token)
@@ -327,7 +327,7 @@ class DirectAgentController(http.Controller):
                          create_date, write_date)
                     SELECT %s, %s, t.printer_key, t.name, t.connection_type, t.protocol,
                            t.status, t.available_to_odoo, t.capabilities_json, t.geometry_json,
-                           clock_timestamp(), clock_timestamp(), clock_timestamp()
+                           (clock_timestamp() AT TIME ZONE 'UTC'), (clock_timestamp() AT TIME ZONE 'UTC'), (clock_timestamp() AT TIME ZONE 'UTC')
                       FROM unnest(
                                %s::text[], %s::text[], %s::text[], %s::text[],
                                %s::text[], %s::boolean[], %s::text[], %s::text[]
@@ -344,8 +344,8 @@ class DirectAgentController(http.Controller):
                         END,
                         capabilities_json = EXCLUDED.capabilities_json,
                         geometry_json = EXCLUDED.geometry_json,
-                        last_seen_at = clock_timestamp(),
-                        write_date = clock_timestamp()
+                        last_seen_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                        write_date = (clock_timestamp() AT TIME ZONE 'UTC')
                     """,
                     (
                         agent["id"],
@@ -366,7 +366,7 @@ class DirectAgentController(http.Controller):
                 """
                 UPDATE print_gateway_printer
                    SET available_to_odoo = FALSE,
-                       write_date = clock_timestamp()
+                       write_date = (clock_timestamp() AT TIME ZONE 'UTC')
                  WHERE agent_id = %s
                    AND printer_key = ANY(%s)
                 """,
@@ -479,7 +479,7 @@ class DirectAgentController(http.Controller):
                   FROM print_gateway_print_job
                  WHERE (company_id = %s OR company_id IN (SELECT id FROM res_company WHERE parent_id = %s))
                    AND status = 'claimed'
-                   AND COALESCE(claimed_at, write_date) < clock_timestamp() - INTERVAL '90 seconds'
+                   AND COALESCE(claimed_at, write_date) < (clock_timestamp() AT TIME ZONE 'UTC') - INTERVAL '90 seconds'
                    AND COALESCE(attempts, 0) >= 5
                  ORDER BY id ASC
                  LIMIT 100
@@ -490,8 +490,8 @@ class DirectAgentController(http.Controller):
                    last_error = 'AGENT_CLAIM_EXHAUSTED: Agent did not acknowledge printing before the claim lease expired; inspect the printer and explicitly reprint if needed.',
                    claim_token = NULL,
                    claimed_at = NULL,
-                   completed_at = clock_timestamp(),
-                   write_date = clock_timestamp()
+                   completed_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM stale
              WHERE j.id = stale.id
             """,
@@ -511,7 +511,7 @@ class DirectAgentController(http.Controller):
                    AND (
                        j.status = 'queued'
                        OR (j.status = 'claimed'
-                           AND COALESCE(j.claimed_at, j.write_date) < clock_timestamp() - INTERVAL '90 seconds'
+                           AND COALESCE(j.claimed_at, j.write_date) < (clock_timestamp() AT TIME ZONE 'UTC') - INTERVAL '90 seconds'
                            AND COALESCE(j.attempts, 0) < 5)
                    )
                  ORDER BY j.id ASC
@@ -521,10 +521,10 @@ class DirectAgentController(http.Controller):
             UPDATE print_gateway_print_job j
                SET status = 'claimed',
                    claim_token = %s,
-                   claimed_at = clock_timestamp(),
+                   claimed_at = (clock_timestamp() AT TIME ZONE 'UTC'),
                    attempts = COALESCE(j.attempts, 0) + 1,
                    last_error = NULL,
-                   write_date = clock_timestamp()
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM candidates
              WHERE j.id = candidates.id
             RETURNING j.id, j.printer_id, j.document_type, j.payload, j.payload_type, j.protocol, j.destination
@@ -601,7 +601,7 @@ class DirectAgentController(http.Controller):
                        last_error = COALESCE(%s, last_error),
                        claim_token = NULL,
                        claimed_at = NULL,
-                       write_date = clock_timestamp()
+                       write_date = (clock_timestamp() AT TIME ZONE 'UTC')
                  WHERE id = %s
                    AND (company_id = %s OR company_id IN (SELECT id FROM res_company WHERE parent_id = %s))
                    AND claim_token = %s
@@ -624,8 +624,8 @@ class DirectAgentController(http.Controller):
                    last_error = CASE WHEN %s = 'success' THEN NULL ELSE COALESCE(%s, last_error) END,
                    payload = CASE WHEN %s = 'success' THEN '' ELSE payload END,
                    claim_token = CASE WHEN %s IN ('success', 'failed', 'unknown') THEN NULL ELSE claim_token END,
-                   completed_at = CASE WHEN %s IN ('success', 'failed', 'unknown') THEN clock_timestamp() ELSE completed_at END,
-                   write_date = clock_timestamp()
+                   completed_at = CASE WHEN %s IN ('success', 'failed', 'unknown') THEN (clock_timestamp() AT TIME ZONE 'UTC') ELSE completed_at END,
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
              WHERE id = %s
                AND (company_id = %s OR company_id IN (SELECT id FROM res_company WHERE parent_id = %s))
                AND claim_token = %s

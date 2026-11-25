@@ -183,14 +183,14 @@ class PrintGatewayAgent(models.Model):
                   FROM print_gateway_agent
                  WHERE status = 'online'
                    AND last_seen_at IS NOT NULL
-                   AND last_seen_at < clock_timestamp() - (%s * interval '1 minute')
+                   AND last_seen_at < (clock_timestamp() AT TIME ZONE 'UTC') - (%s * interval '1 minute')
                  ORDER BY id ASC
                  LIMIT %s
                  FOR UPDATE SKIP LOCKED
             )
             UPDATE print_gateway_agent a
                SET status = 'offline',
-                   write_date = clock_timestamp()
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM target
              WHERE a.id = target.id
             """,
@@ -206,7 +206,7 @@ class PrintGatewayAgent(models.Model):
                 SELECT id
                   FROM print_gateway_print_job
                  WHERE status = 'claimed'
-                   AND write_date < clock_timestamp() - (%s * interval '1 minute')
+                   AND write_date < (clock_timestamp() AT TIME ZONE 'UTC') - (%s * interval '1 minute')
                    AND COALESCE(attempts, 0) >= 5
                  ORDER BY id ASC
                  LIMIT %s
@@ -217,8 +217,8 @@ class PrintGatewayAgent(models.Model):
                    last_error = 'AGENT_CLAIM_EXHAUSTED: Agent did not acknowledge printing before the claim lease expired; inspect the printer and explicitly reprint if needed.',
                    claim_token = NULL,
                    claimed_at = NULL,
-                   completed_at = clock_timestamp(),
-                   write_date = clock_timestamp()
+                   completed_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM target
              WHERE j.id = target.id
             """,
@@ -230,7 +230,7 @@ class PrintGatewayAgent(models.Model):
                 SELECT id
                   FROM print_gateway_print_job
                  WHERE status = 'claimed'
-                   AND write_date < clock_timestamp() - (%s * interval '1 minute')
+                   AND write_date < (clock_timestamp() AT TIME ZONE 'UTC') - (%s * interval '1 minute')
                    AND COALESCE(attempts, 0) < 5
                    AND COALESCE(payload, '') <> ''
                  ORDER BY id ASC
@@ -242,7 +242,7 @@ class PrintGatewayAgent(models.Model):
                    last_error = NULL,
                    claim_token = NULL,
                    claimed_at = NULL,
-                   write_date = clock_timestamp()
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM target
              WHERE j.id = target.id
          RETURNING j.company_id
@@ -268,7 +268,7 @@ class PrintGatewayAgent(models.Model):
                 SELECT id
                   FROM print_gateway_print_job
                  WHERE status = 'printing'
-                   AND write_date < clock_timestamp() - (%s * interval '1 minute')
+                   AND write_date < (clock_timestamp() AT TIME ZONE 'UTC') - (%s * interval '1 minute')
                    AND COALESCE(payload, '') <> ''
                  ORDER BY id ASC
                  LIMIT %s
@@ -279,8 +279,8 @@ class PrintGatewayAgent(models.Model):
                    last_error = 'UNKNOWN_PARTIAL_DELIVERY: Agent lease expired after the printing transition; physical output is unverified and automatic retry is unsafe.',
                    claim_token = NULL,
                    claimed_at = NULL,
-                   completed_at = clock_timestamp(),
-                   write_date = clock_timestamp()
+                   completed_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+                   write_date = (clock_timestamp() AT TIME ZONE 'UTC')
               FROM target
              WHERE j.id = target.id
             """,

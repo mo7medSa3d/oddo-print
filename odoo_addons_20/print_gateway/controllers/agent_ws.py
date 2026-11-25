@@ -219,8 +219,8 @@ def _touch_agent_online(cr, agent_id):
         """
         UPDATE print_gateway_agent
            SET status = 'online',
-               last_seen_at = clock_timestamp(),
-               write_date = clock_timestamp()
+               last_seen_at = (clock_timestamp() AT TIME ZONE 'UTC'),
+               write_date = (clock_timestamp() AT TIME ZONE 'UTC')
          WHERE id = %s
            AND active = TRUE
            AND token_hash IS NOT NULL
