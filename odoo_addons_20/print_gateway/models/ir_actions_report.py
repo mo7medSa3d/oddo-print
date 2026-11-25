@@ -31,6 +31,9 @@ class IrActionsReportGateway(models.Model):
         if self.report_type != "qweb-pdf":
             return super().report_action(docids, data=data, config=config)
 
+        if self.env.context.get("print_gateway_client_dispatch"):
+            return super().report_action(docids, data=data, config=config)
+
         # Preserve Odoo 19's native report-layout configuration gate. The core
         # implementation returns the external-layout configurator for an
         # administrator whose company has no report layout yet. Gateway

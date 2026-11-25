@@ -983,6 +983,7 @@ class PrintGatewayBinding(models.Model):
                 "success": status in ("claimed", "printing", "success"),
                 "has_binding": True,
                 "status": status,
+                "job_id": route.get("job_id"),
                 "printer_name": route.get("printer_id") or binding.printer_id,
                 "message": route.get("message") or _("Print result is pending or uncertain; check Print Activity."),
             }

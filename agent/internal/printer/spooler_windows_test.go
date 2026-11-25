@@ -132,6 +132,34 @@ func TestBoundedPreflightSingleFlightRefusesOverlap(t *testing.T) {
 	}
 }
 
+func TestDispatchPreflightWaitsForHealthyDiscoveryProbe(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	discoveryErr := make(chan error, 1)
+	go func() {
+		discoveryErr <- runPreflightBoundedWithMode("discovery-overlap-queue", time.Second, context.Background(), true, func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	time.AfterFunc(40*time.Millisecond, func() { close(release) })
+	ran := false
+	if err := runPreflightBounded("discovery-overlap-queue", time.Second, context.Background(), func() error {
+		ran = true
+		return nil
+	}); err != nil {
+		t.Fatalf("dispatch preflight should wait for healthy discovery probe instead of failing: %v", err)
+	}
+	if !ran {
+		t.Fatal("dispatch preflight check did not execute after discovery finished")
+	}
+	if err := <-discoveryErr; err != nil {
+		t.Fatalf("discovery probe failed: %v", err)
+	}
+}
+
 func TestSpoolerSessionWaitHonorsContext(t *testing.T) {
 	p := &SpoolerPrinter{Name: "T", SpoolerName: "session_mutex_test"}
 	p.sessionMu.Lock()

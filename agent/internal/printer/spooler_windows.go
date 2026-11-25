@@ -223,38 +223,89 @@ func (p *SpoolerPrinter) boundedPreflight(ctx context.Context, timeout time.Dura
 // probes, so repeated timeouts cannot leave unbounded native worker threads.
 const maxOutstandingSpoolerPreflights = 32
 
+type spoolerPreflightEntry struct {
+	done      chan struct{}
+	timedOut  bool
+	discovery bool
+}
+
 var spoolerPreflightOwnership = struct {
 	sync.Mutex
-	active map[string]struct{}
-}{active: make(map[string]struct{})}
+	active map[string]*spoolerPreflightEntry
+}{active: make(map[string]*spoolerPreflightEntry)}
 
-func reserveSpoolerPreflight(displayName string) (func(), error) {
+func reserveSpoolerPreflightWithMode(displayName string, discovery bool) (*spoolerPreflightEntry, func(), error) {
 	key := strings.ToLower(strings.TrimSpace(displayName))
 	spoolerPreflightOwnership.Lock()
 	defer spoolerPreflightOwnership.Unlock()
-	if _, inProgress := spoolerPreflightOwnership.active[key]; inProgress {
-		return nil, fmt.Errorf("%w: %w: readiness probe already in progress for %q", ErrPrinterNotReady, ErrSpoolerUnresponsive, displayName)
+	if existing, inProgress := spoolerPreflightOwnership.active[key]; inProgress {
+		return existing, nil, fmt.Errorf("%w: %w: readiness probe already in progress for %q", ErrPrinterNotReady, ErrSpoolerUnresponsive, displayName)
 	}
 	if len(spoolerPreflightOwnership.active) >= maxOutstandingSpoolerPreflights {
-		return nil, fmt.Errorf("%w: %w: too many outstanding Windows readiness probes (%d)", ErrPrinterNotReady, ErrSpoolerUnresponsive, maxOutstandingSpoolerPreflights)
+		return nil, nil, fmt.Errorf("%w: %w: too many outstanding Windows readiness probes (%d)", ErrPrinterNotReady, ErrSpoolerUnresponsive, maxOutstandingSpoolerPreflights)
 	}
-	spoolerPreflightOwnership.active[key] = struct{}{}
-	return func() {
+	entry := &spoolerPreflightEntry{
+		done:      make(chan struct{}),
+		discovery: discovery,
+	}
+	spoolerPreflightOwnership.active[key] = entry
+	return entry, func() {
 		spoolerPreflightOwnership.Lock()
 		delete(spoolerPreflightOwnership.active, key)
+		close(entry.done)
 		spoolerPreflightOwnership.Unlock()
 	}, nil
+}
+
+func reserveSpoolerPreflight(displayName string) (func(), error) {
+	// Mark manual reservations as non-waitable so caller-owned holds still
+	// reject overlapping boundedPreflight immediately without delay.
+	entry, release, err := reserveSpoolerPreflightWithMode(displayName, false)
+	if err == nil {
+		entry.timedOut = true
+	}
+	return release, err
 }
 
 // runPreflightBounded bounds its caller, but continues to own the Win32
 // helper until the actual RPC returns. The ownership slot is never released
 // on timeout or cancellation, preventing repeated abandoned driver calls.
 func runPreflightBounded(displayName string, timeout time.Duration, ctx context.Context, check func() error) error {
+	return runPreflightBoundedWithMode(displayName, timeout, ctx, false, check)
+}
+
+func runPreflightBoundedWithMode(displayName string, timeout time.Duration, ctx context.Context, discovery bool, check func() error) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("readiness probe for %q cancelled before dispatch (no bytes sent): %w", displayName, err)
 	}
-	release, err := reserveSpoolerPreflight(displayName)
-	if err != nil {
+	var entry *spoolerPreflightEntry
+	var release func()
+	for {
+		existing, r, err := reserveSpoolerPreflightWithMode(displayName, discovery)
+		if err == nil {
+			entry, release = existing, r
+			break
+		}
+		// Background discovery probes must never fail a real print job just
+		// because both touched the same Windows queue concurrently. Wait
+		// briefly ONLY when an active healthy discovery probe owns the slot.
+		if !discovery && existing != nil && existing.discovery && !existing.timedOut {
+			waitBudget := timeout
+			if waitBudget > 2*time.Second {
+				waitBudget = 2 * time.Second
+			}
+			waitTimer := time.NewTimer(waitBudget)
+			select {
+			case <-existing.done:
+				waitTimer.Stop()
+				continue
+			case <-ctx.Done():
+				waitTimer.Stop()
+				return fmt.Errorf("readiness probe for %q cancelled before dispatch (no bytes sent): %w", displayName, ctx.Err())
+			case <-waitTimer.C:
+				return err
+			}
+		}
 		return err
 	}
 	type outcome struct{ err error }
@@ -272,8 +323,14 @@ func runPreflightBounded(displayName string, timeout time.Duration, ctx context.
 	case r := <-done:
 		return r.err
 	case <-ctx.Done():
+		spoolerPreflightOwnership.Lock()
+		entry.timedOut = true
+		spoolerPreflightOwnership.Unlock()
 		return fmt.Errorf("readiness probe for %q cancelled before dispatch (no bytes sent): %w", displayName, ctx.Err())
 	case <-timer.C:
+		spoolerPreflightOwnership.Lock()
+		entry.timedOut = true
+		spoolerPreflightOwnership.Unlock()
 		return fmt.Errorf("%w: %w: readiness probe for %q timed out after %v (fail-closed, no bytes sent)", ErrPrinterNotReady, ErrSpoolerUnresponsive, displayName, timeout)
 	}
 }
@@ -2031,7 +2088,7 @@ func queueDetail(name string) (queueDetails, error) {
 
 func queueDetailContext(ctx context.Context, name string) (queueDetails, error) {
 	var detail queueDetails
-	err := runPreflightBounded(name, queueDetailTimeout, ctx, func() error {
+	err := runPreflightBoundedWithMode(name, queueDetailTimeout, ctx, true, func() error {
 		namePtr, err := syscall.UTF16PtrFromString(name)
 		if err != nil {
 			return fmt.Errorf("encode queue name %q: %w", name, err)

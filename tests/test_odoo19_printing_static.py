@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -533,3 +534,27 @@ def test_stale_agent_sweep_never_requeues_after_physical_dispatch_started():
     assert "WHERE status = 'printing'" in sweep
     assert "UNKNOWN_PARTIAL_DELIVERY:" in sweep
     assert "status IN ('claimed', 'printing')" not in sweep
+
+
+def test_pos_invoice_and_picking_report_dispatch_invariants():
+    manifest = ast.literal_eval((ADDON / "__manifest__.py").read_text(encoding="utf-8"))
+    pos_assets = manifest["assets"]["point_of_sale._assets_pos"]
+    assert "print_gateway/static/src/js/report_interceptor.js" in pos_assets
+
+    account_move = read("models/account_move.py")
+    assert "def action_invoice_download_pdf" in account_move
+    assert "def action_print_pdf" in account_move
+    assert "print_gateway_client_dispatch=True" in account_move
+
+    stock_picking = read("models/stock_picking.py")
+    assert "def do_print_picking" in stock_picking
+    assert "def _get_autoprint_report_actions" in stock_picking
+    assert "print_gateway_client_dispatch=True" in stock_picking
+
+    report = read("models/ir_actions_report.py")
+    assert 'self.env.context.get("print_gateway_client_dispatch")' in report
+
+    recovery = read("static/src/js/operation_recovery.js")
+    assert "export async function pollQueuedPrintJob" in recovery
+    for js_name in ("report_interceptor.js", "pos_print_router.js", "pos_sale_details_router.js"):
+        assert "pollQueuedPrintJob(" in read(f"static/src/js/{js_name}")

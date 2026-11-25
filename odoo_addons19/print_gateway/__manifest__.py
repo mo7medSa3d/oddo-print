@@ -37,6 +37,7 @@ create an agent assignment or send a print job.
             'print_gateway/static/src/js/async_control.js',
             'print_gateway/static/src/js/operation_recovery.js',
             'print_gateway/static/src/js/gateway_limit_dialog.js',
+            'print_gateway/static/src/js/report_interceptor.js',
             'print_gateway/static/src/css/receipt_raster.css',
             'print_gateway/static/src/js/printer_geometry.js',
             'print_gateway/static/src/js/receipt_raster.js',

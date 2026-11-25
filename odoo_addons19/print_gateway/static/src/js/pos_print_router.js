@@ -10,7 +10,7 @@ import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid, pollQueuedPrintJob } from "./operation_recovery";
 
 const gatewayUuid = () => gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
 
@@ -452,9 +452,19 @@ patch(PosStore.prototype, {
             // physical bytes. Only the durable Outbox's explicit safe-retry
             // verdict may close the original operation and permit a new key.
             const explicitlyUnknownCode = EXPLICITLY_UNKNOWN_CODES.has(result?.code);
-            const status = observedStatus === "failed" &&
+            let status = observedStatus === "failed" &&
                 (result?.can_retry !== true || explicitlyUnknownCode)
                 ? "unknown" : observedStatus;
+            let liveError = null;
+            if (status === "queued") {
+                const live = await pollQueuedPrintJob(this.env?.services?.orm, result?.job_id);
+                if (live) {
+                    liveError = live.error;
+                    status = live.status === "failed" &&
+                        (result?.can_retry === false || explicitlyUnknownCode)
+                        ? "unknown" : live.status;
+                }
+            }
             const terminal = TERMINAL_RECEIPT_STATUSES.has(status);
             if (terminal) finishPrintOperation(recoveryKey, operationId);
             rememberReceiptOperation(receiptOps, orderId, {
@@ -476,7 +486,7 @@ patch(PosStore.prototype, {
             // success or a file path; the machine code is the only presenter
             // input and the physical result must remain explicit.
             const safeFailure = gatewayServerMessage({
-                data: { code: result?.code, message: result?.message },
+                data: { code: result?.code, message: result?.message || liveError },
             }) || _t("Couldn't print the receipt. See Print Activity.");
             const recordPrintAttempt = ACCEPTED_PRINT_STATUSES.has(status);
             if (status === "unknown" || status === "partial") {

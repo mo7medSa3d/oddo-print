@@ -70,69 +70,162 @@ export async function renderGatewayReceiptJpeg(element, { renderer, geometry } =
     if (!measured) {
         throw geometryError(_t("The selected printer has no validated receipt geometry. Sync its driver measurements or configure a validated profile with printable width and horizontal and vertical DPI; driver printing also requires the actual paper width."));
     }
-    const rasterWidth = measured.printable_width_dots;
-    // CSS uses 96 pixels per inch. Device dots belong only to the output
-    // canvas: enlarging CSS to 1702px at 600 DPI would make physical text tiny.
-    const cssWidth = rasterWidth * 96 / measured.dpi_x;
+    // CSS uses 96 pixels per inch. On thermal receipt rolls, render at exact
+    // printable_width_dots. On full-page office/PDF printers (e.g. Letter/A4
+    // >= 140mm at 600 DPI where full page width is 5100+ dots), frame the POS
+    // ticket at Odoo 20's native 512px receipt column width (3200 dots @ 600 DPI,
+    // centered on the page by the Agent) so nothing clips/overflows horizontally
+    // while keeping total raster pixels comfortably under the 40 MP safety cap.
+    const fullRasterWidth = measured.printable_width_dots;
+    const fullCssWidth = fullRasterWidth * 96 / measured.dpi_x;
+    const isFullPageMedia = typeof measured.paper_width_mm === "number" && measured.paper_width_mm >= 140 && fullCssWidth > 512;
+    const cssWidth = isFullPageMedia ? 512 : fullCssWidth;
+    const rasterWidth = isFullPageMedia ? Math.min(fullRasterWidth, Math.round(cssWidth * measured.dpi_x / 96)) : fullRasterWidth;
 
-    const captureMounted = async (node) => {
+    const captureMounted = async (node, iframe = null) => {
+        const doc = node.ownerDocument || document;
+        const inIframe = Boolean(iframe || doc !== document);
+        const isNarrow = rasterWidth * 25.4 / measured.dpi_x < 60;
+        let injectedStyle = null;
+        if (inIframe) {
+            if (iframe) {
+                iframe.style.width = `${Math.ceil(cssWidth)}px`;
+                iframe.style.height = "auto";
+            }
+            const head = node.querySelector?.("head") || doc.head;
+            if (head) {
+                const fontScale = isFullPageMedia ? 0.85 : (cssWidth < 512 ? Math.max(0.45, cssWidth / 512) : 1);
+                const fontOverride = fontScale < 1 ? `
+                    #pos-receipt .text-small { font-size: ${(18 * fontScale).toFixed(2)}px !important; line-height: ${(24 * fontScale).toFixed(2)}px !important; }
+                    #pos-receipt .text-normal { font-size: ${(22 * fontScale).toFixed(2)}px !important; line-height: ${(28 * fontScale).toFixed(2)}px !important; }
+                    #pos-receipt .text-large { font-size: ${(30 * fontScale).toFixed(2)}px !important; line-height: ${(36 * fontScale).toFixed(2)}px !important; }
+                    #pos-receipt .text-huge { font-size: ${(45 * fontScale).toFixed(2)}px !important; line-height: ${(52 * fontScale).toFixed(2)}px !important; }
+                    #pos-receipt .text-insane { font-size: ${(50 * fontScale).toFixed(2)}px !important; line-height: ${(58 * fontScale).toFixed(2)}px !important; }
+                ` : "";
+                const mediaConstrain = isFullPageMedia ? `
+                    #pos-receipt [name="logo"] img { max-height: 75px !important; width: auto !important; }
+                    #pos-receipt img { max-height: 150px !important; width: auto !important; object-fit: contain !important; }
+                ` : "";
+                injectedStyle = doc.createElement("style");
+                injectedStyle.id = "yaseir-gateway-receipt-style";
+                injectedStyle.textContent = `
+                    #pos-receipt {
+                        box-sizing: border-box !important;
+                        width: ${cssWidth}px !important;
+                        max-width: ${cssWidth}px !important;
+                        min-width: 0 !important;
+                        height: auto !important;
+                        min-height: 0 !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        background: #ffffff !important;
+                        color: #000000 !important;
+                        overflow: visible !important;
+                        overflow-wrap: anywhere !important;
+                        word-break: break-word !important;
+                        font-size: ${(22 * fontScale).toFixed(2)}px !important;
+                        line-height: 1.35 !important;
+                    }
+                    #pos-receipt > body {
+                        box-sizing: border-box !important;
+                        margin: 0 !important;
+                        padding: 4px 12px !important;
+                        height: auto !important;
+                        min-height: 0 !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        overflow-wrap: anywhere !important;
+                    }
+                    #pos-receipt *, #pos-receipt *::before, #pos-receipt *::after {
+                        box-sizing: border-box !important;
+                        max-width: 100% !important;
+                        overflow-wrap: anywhere !important;
+                    }
+                    #pos-receipt table {
+                        table-layout: fixed !important;
+                        border-collapse: collapse !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                    }
+                    #pos-receipt td, #pos-receipt th {
+                        word-break: break-word !important;
+                        overflow-wrap: anywhere !important;
+                    }
+                    ${fontOverride}
+                    ${mediaConstrain}
+                `;
+                head.appendChild(injectedStyle);
+            }
+        }
         node.classList.add("pos-receipt-print", "yaseir-gateway-receipt");
-        node.classList.toggle("yaseir-gateway-receipt-narrow", rasterWidth * 25.4 / measured.dpi_x < 60);
+        node.classList.toggle("yaseir-gateway-receipt-narrow", isNarrow);
         node.style.setProperty("--yaseir-print-width", cssWidth + "px");
-        node.style.width = cssWidth + "px";
+        node.style.setProperty("width", cssWidth + "px", "important");
+        node.style.setProperty("max-width", cssWidth + "px", "important");
+        node.style.setProperty("padding", "0", "important");
+        node.style.setProperty("margin", "0", "important");
 
-        // All images, including QR and logos, must finish loading before
-        // measuring the *new* CSS layout and snapshotting SVG foreignObject.
-        const imageState = await waitImages(node);
-        if (imageState?.timedOut || hasUnloadedImage(node)) {
-            throw geometryError(_t("A receipt image or code did not load. Wait for all images to load before printing; no print was sent."));
-        }
-        // Capture after the mounted element's used fonts have settled. The
-        // canvas exporter intentionally skips font embedding, so measuring
-        // before FontFaceSet.ready can freeze fallback-font line heights and
-        // misplaced Arabic/Latin columns into the printed JPEG.
-        if (document.fonts?.ready) {
-            await document.fonts.ready;
-        }
-        const measuredWidth = node.getBoundingClientRect().width;
-        const measuredHeight = Math.ceil(node.scrollHeight);
-        const rasterHeight = Math.ceil(measuredHeight * measured.dpi_y / 96);
-        if (!Number.isFinite(measuredWidth) || measuredWidth <= 0 || Math.abs(measuredWidth - cssWidth) > 0.5 || measuredHeight < 1 ||
-            !Number.isSafeInteger(rasterHeight) || rasterHeight > 16384 || rasterWidth * rasterHeight > 40000000) {
-            throw geometryError(_t("POS receipt dimensions exceed the safe raster limits or do not match the selected printer. Split an oversized receipt or review its receipt CSS; no print was sent."));
-        }
-        // Avoid silent right-edge clipping (which can hide prices/QRs).
-        if (node.scrollWidth > measuredWidth + 2) {
-            throw geometryError(_t("POS receipt has content wider than the paper; review its receipt template."));
-        }
-        const canvas = await toCanvas(node, {
-            backgroundColor: "#ffffff",
-            width: cssWidth,
-            height: measuredHeight,
-            canvasWidth: rasterWidth,
-            canvasHeight: rasterHeight,
-            pixelRatio: 1,
-            skipAutoScale: true,
-            includeQueryParams: true,
-            skipFonts: true,
-        });
         try {
-            if (canvas.width !== rasterWidth || canvas.height !== rasterHeight) {
-                throw geometryError(_t("The receipt renderer changed the printer's measured dimensions. No print was sent."));
+            // All images, including QR and logos, must finish loading before
+            // measuring the *new* CSS layout and snapshotting SVG foreignObject.
+            const imageState = await waitImages(node);
+            if (imageState?.timedOut || hasUnloadedImage(node)) {
+                throw geometryError(_t("A receipt image or code did not load. Wait for all images to load before printing; no print was sent."));
             }
-            const jpeg = captureJpeg(canvas);
-            if (!jpeg || jpeg.length > MAX_RECEIPT_JPEG_B64_LENGTH) {
-                throw geometryError(_t("The receipt image exceeds the 5 MiB safety limit. Split the receipt before printing."));
+            // Capture after the mounted element's used fonts have settled. The
+            // canvas exporter intentionally skips font embedding, so measuring
+            // before FontFaceSet.ready can freeze fallback-font line heights and
+            // misplaced Arabic/Latin columns into the printed JPEG.
+            if (doc.fonts?.ready) {
+                await doc.fonts.ready;
             }
-            return jpeg;
+            const rect = node.getBoundingClientRect();
+            const measuredWidth = rect.width;
+            const measuredHeight = Math.ceil(inIframe ? Math.max(rect.height || 0, node.scrollHeight || 0) : node.scrollHeight);
+            const rasterHeight = Math.ceil(measuredHeight * measured.dpi_y / 96);
+            if (!Number.isFinite(measuredWidth) || measuredWidth <= 0 || Math.abs(measuredWidth - cssWidth) > 0.5 || measuredHeight < 1 ||
+                !Number.isSafeInteger(rasterHeight) || rasterHeight > 16384 || rasterWidth * rasterHeight > 40000000) {
+                throw geometryError(_t("POS receipt dimensions exceed the safe raster limits or do not match the selected printer. Split an oversized receipt or review its receipt CSS; no print was sent."));
+            }
+            // Avoid silent right-edge clipping (which can hide prices/QRs).
+            if (node.scrollWidth > measuredWidth + 2) {
+                throw geometryError(_t("POS receipt has content wider than the paper; review its receipt template."));
+            }
+            const canvas = await toCanvas(node, {
+                backgroundColor: "#ffffff",
+                width: cssWidth,
+                height: measuredHeight,
+                canvasWidth: rasterWidth,
+                canvasHeight: rasterHeight,
+                pixelRatio: 1,
+                skipAutoScale: true,
+                includeQueryParams: true,
+                skipFonts: true,
+            });
+            try {
+                if (canvas.width !== rasterWidth || canvas.height !== rasterHeight) {
+                    throw geometryError(_t("The receipt renderer changed the printer's measured dimensions. No print was sent."));
+                }
+                const jpeg = captureJpeg(canvas);
+                if (!jpeg || jpeg.length > MAX_RECEIPT_JPEG_B64_LENGTH) {
+                    throw geometryError(_t("The receipt image exceeds the 5 MiB safety limit. Split the receipt before printing."));
+                }
+                return jpeg;
+            } finally {
+                canvas.width = 0;
+                canvas.height = 0;
+            }
         } finally {
-            canvas.width = 0;
-            canvas.height = 0;
+            injectedStyle?.remove();
         }
     };
 
+    if (element.isConnected && element.ownerDocument !== document) {
+        const frame = element.ownerDocument?.defaultView?.frameElement || null;
+        return captureMounted(element, frame);
+    }
     if (renderer && typeof renderer.whenMounted === "function") {
-        return renderer.whenMounted({ el: element, callback: captureMounted });
+        return renderer.whenMounted({ el: element, callback: (mounted) => captureMounted(mounted) });
     }
     const host = document.createElement("div");
     host.setAttribute("aria-hidden", "true");

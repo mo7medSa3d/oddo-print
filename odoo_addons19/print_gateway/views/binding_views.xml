@@ -69,7 +69,7 @@
                     <group string="Printer Setup">
                         <field name="agent_id" string="Print Agent" widget="gateway_runtime_agent_binding"/>
                         <field name="printer_id" string="Printer" widget="gateway_runtime_printer"/>
-                        <field name="printer_name" readonly="1" invisible="not printer_name"/>
+                        <field name="printer_name" readonly="1" force_save="1" invisible="not printer_name"/>
                         <field name="printer_capability_summary" readonly="1" invisible="not printer_capability_summary"/>
                         <field name="printer_is_virtual" readonly="1" invisible="not printer_is_virtual"/>
                     </group>

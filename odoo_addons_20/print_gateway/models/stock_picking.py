@@ -37,3 +37,17 @@ class StockPickingPrintGateway(models.Model):
                 _logger.error("Failed to schedule automated print intents for picking %s: %s", picking.id, exc)
 
         return res
+
+    def do_print_picking(self):
+        if self.env.context.get("print_gateway_force_server_report"):
+            return super().do_print_picking()
+        return super(
+            StockPickingPrintGateway,
+            self.with_context(print_gateway_client_dispatch=True),
+        ).do_print_picking()
+
+    def _get_autoprint_report_actions(self):
+        return super(
+            StockPickingPrintGateway,
+            self.with_context(print_gateway_client_dispatch=True),
+        )._get_autoprint_report_actions()

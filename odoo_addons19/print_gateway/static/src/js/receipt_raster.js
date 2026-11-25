@@ -70,10 +70,15 @@ export async function renderGatewayReceiptJpeg(element, { renderer, geometry } =
     if (!measured) {
         throw geometryError(_t("The selected printer has no validated receipt geometry. Sync its driver measurements or configure a validated profile with printable width and horizontal and vertical DPI; driver printing also requires the actual paper width."));
     }
-    const rasterWidth = measured.printable_width_dots;
+    const fullRasterWidth = measured.printable_width_dots;
     // CSS uses 96 pixels per inch. Device dots belong only to the output
     // canvas: enlarging CSS to 1702px at 600 DPI would make physical text tiny.
-    const cssWidth = rasterWidth * 96 / measured.dpi_x;
+    // On full-page office/PDF media (>= 140mm at 600 DPI), frame at 4.5in so a
+    // tall receipt stays within the 40 MP canvas cap.
+    const fullCssWidth = fullRasterWidth * 96 / measured.dpi_x;
+    const isFullPageMedia = typeof measured.paper_width_mm === "number" && measured.paper_width_mm >= 140 && fullCssWidth > 512;
+    const cssWidth = isFullPageMedia ? 512 : fullCssWidth;
+    const rasterWidth = isFullPageMedia ? Math.min(fullRasterWidth, Math.round(cssWidth * measured.dpi_x / 96)) : fullRasterWidth;
 
     const captureMounted = async (node) => {
         node.classList.add("pos-receipt-print", "yaseir-gateway-receipt");

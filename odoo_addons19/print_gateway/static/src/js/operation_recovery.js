@@ -159,3 +159,27 @@ export function finishPrintOperation(key, operationId) {
         store.removeItem(key);
     }
 }
+
+/**
+ * Poll a freshly queued durable print job briefly so fast local-agent claims
+ * resolve before the UI locks the operation across reloads or shows a stale
+ * queued warning. Only runs when an integer jobId and ORM reader exist.
+ */
+export async function pollQueuedPrintJob(orm, jobId, { attempts = 10, intervalMs = 350 } = {}) {
+    if (!Number.isInteger(jobId) || jobId <= 0 || typeof orm?.read !== "function") {
+        return null;
+    }
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        try {
+            const rows = await orm.read("print_gateway.print_job", [jobId], ["status", "last_error"]);
+            const row = rows?.[0];
+            if (row?.status && row.status !== "queued") {
+                return { status: row.status, error: row.last_error || null };
+            }
+        } catch {
+            return null;
+        }
+    }
+    return null;
+}

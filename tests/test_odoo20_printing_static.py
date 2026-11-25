@@ -74,6 +74,43 @@ class TestOdoo20PrintingStatic(unittest.TestCase):
         for xml_file in xml_files:
             ET.parse(str(xml_file))
 
+    def test_pos_routers_use_odoo20_ticket_printer_plugin(self):
+        pos_router = (ADDON / "static" / "src" / "js" / "pos_print_router.js").read_text(encoding="utf-8")
+        sale_details = (ADDON / "static" / "src" / "js" / "pos_sale_details_router.js").read_text(encoding="utf-8")
+        self.assertNotIn("screens/receipt_screen/receipt/order_receipt", pos_router)
+        self.assertNotIn("SaleDetailsReport", sale_details)
+        self.assertIn("PosTicketPrinterPlugin", pos_router)
+        self.assertIn("printOrderReceipt", pos_router)
+        self.assertIn("printOrderChanges", pos_router)
+        self.assertIn("point_of_sale.pos_order_receipt", pos_router)
+        self.assertIn("PosTicketPrinterPlugin", sale_details)
+        self.assertIn("printSaleDetailsReceipt", sale_details)
+        self.assertIn("point_of_sale.pos_sale_details_receipt", sale_details)
+
+    def test_pos_invoice_and_picking_report_dispatch_invariants(self):
+        manifest = ast.literal_eval((ADDON / "__manifest__.py").read_text(encoding="utf-8"))
+        pos_assets = manifest["assets"]["point_of_sale._assets_pos"]
+        self.assertIn("print_gateway/static/src/js/report_interceptor.js", pos_assets)
+
+        account_move = (ADDON / "models" / "account_move.py").read_text(encoding="utf-8")
+        self.assertIn("def action_invoice_download_pdf", account_move)
+        self.assertIn("def action_print_pdf", account_move)
+        self.assertIn("print_gateway_client_dispatch=True", account_move)
+
+        stock_picking = (ADDON / "models" / "stock_picking.py").read_text(encoding="utf-8")
+        self.assertIn("def do_print_picking", stock_picking)
+        self.assertIn("def _get_autoprint_report_actions", stock_picking)
+        self.assertIn("print_gateway_client_dispatch=True", stock_picking)
+
+        report = (ADDON / "models" / "ir_actions_report.py").read_text(encoding="utf-8")
+        self.assertIn('self.env.context.get("print_gateway_client_dispatch")', report)
+
+        recovery = (ADDON / "static" / "src" / "js" / "operation_recovery.js").read_text(encoding="utf-8")
+        self.assertIn("export async function pollQueuedPrintJob", recovery)
+        for js_name in ("report_interceptor.js", "pos_print_router.js", "pos_sale_details_router.js"):
+            js_src = (ADDON / "static" / "src" / "js" / js_name).read_text(encoding="utf-8")
+            self.assertIn("pollQueuedPrintJob(", js_src)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,7 +13,7 @@ const { DateTime } = luxon;
 import { SaleDetailsButton } from "@point_of_sale/app/components/navbar/sale_details_button/sale_details_button";
 import { renderToElement } from "@web/core/utils/render";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid, pollQueuedPrintJob } from "./operation_recovery";
 
 const nextOperationId = () => gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));
 
@@ -137,9 +137,17 @@ patch(SaleDetailsButton.prototype, {
                 "AGENT_EXECUTION_TIMEOUT", "AGENT_RESTART_DURING_PRINT",
                 "JOB_EXPIRED_DURING_PRINT",
             ].includes(result?.code);
-            const status = result?.status === "failed" &&
+            let status = result?.status === "failed" &&
                 (result?.can_retry === false || explicitlyUnknownCode)
                 ? "unknown" : result?.status;
+            if (result?.gateway_enabled === true && status === "queued") {
+                const live = await pollQueuedPrintJob(this.env?.services?.orm, result?.job_id);
+                if (live) {
+                    status = live.status === "failed" &&
+                        (result?.can_retry === false || explicitlyUnknownCode)
+                        ? "unknown" : live.status;
+                }
+            }
             // Only positive can_retry === true proves a failed response sent no paper.
             const terminal = result?.gateway_enabled === true &&
                 (["submitted", "claimed", "printing", "success"].includes(status) ||

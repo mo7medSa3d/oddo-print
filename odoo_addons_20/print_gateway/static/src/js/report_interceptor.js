@@ -4,7 +4,7 @@ import { withGatewayDeadline } from "./async_control";
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 import { showGatewayBillingLimitDialog, gatewayServerMessage } from "./gateway_limit_dialog";
-import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid } from "./operation_recovery";
+import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid, pollQueuedPrintJob } from "./operation_recovery";
 
 function reportOperationUuid() { return gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key")); }
 
@@ -179,6 +179,16 @@ async function silentPrintReportHandler(action, options, env) {
         if (res.has_binding) {
             if (res.billing_limit && showGatewayBillingLimitDialog(env, res.billing_limit)) {
                 return true;
+            }
+            if (res.status === "queued" && res.dispatched) {
+                const live = await pollQueuedPrintJob(orm, res.job_id);
+                if (live) {
+                    res.status = live.status;
+                    res.success = ["claimed", "printing", "success"].includes(live.status);
+                    if (live.status === "failed" && live.error) {
+                        res.error = live.error;
+                    }
+                }
             }
             const openJobs = openJobsButton(env);
             const admitted = ["submitted", "claimed", "printing", "success"].includes(res.status);
