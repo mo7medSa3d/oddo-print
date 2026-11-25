@@ -7,7 +7,6 @@ import { isGatewayTimeoutError, withGatewayDeadline } from "./async_control";
 import { PosStore } from "@point_of_sale/app/services/pos_store";
 import { PosTicketPrinterPlugin } from "@point_of_sale/app/plugins/pos_ticket_printer_plugin";
 import { renderGatewayReceiptJpeg } from "./receipt_raster";
-import { RetryPrintPopup } from "@point_of_sale/app/components/popups/retry_print_popup/retry_print_popup";
 import { printRecoveryKey, claimPrintOperation, finishPrintOperation, gatewayOperationUuid, pollQueuedPrintJob } from "./operation_recovery";
 
 const gatewayUuid = () => gatewayOperationUuid(_t("Secure random number generator is unavailable; cannot generate print operation idempotency key"));

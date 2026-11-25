@@ -102,6 +102,18 @@ def test_caddy_go_jose_review_is_exact_and_short_lived():
         ('CVE-2026-128085', 'go.opentelemetry.io/otel/sdk', 'MEDIUM'),
         ('CVE-2026-128085', 'go.opentelemetry.io/otel/sdk/log', 'MEDIUM'),
         ('CVE-2026-128085', 'go.opentelemetry.io/otel/trace', 'MEDIUM'),
+        # The 2026-11-25 rescan added inherited openssl findings from the
+        # unchanged pinned Alpine parent (already reviewed for the other images).
+        ('CVE-2026-88822', 'libcrypto3', 'LOW'),
+        ('CVE-2026-88822', 'libssl3', 'LOW'),
+        ('CVE-2026-88823', 'libcrypto3', 'LOW'),
+        ('CVE-2026-88823', 'libssl3', 'LOW'),
+        ('CVE-2026-95691', 'libcrypto3', 'MEDIUM'),
+        ('CVE-2026-95691', 'libssl3', 'MEDIUM'),
+        ('CVE-2026-95692', 'libcrypto3', 'MEDIUM'),
+        ('CVE-2026-95692', 'libssl3', 'MEDIUM'),
+        ('CVE-2026-107496', 'libcrypto3', 'MEDIUM'),
+        ('CVE-2026-107496', 'libssl3', 'MEDIUM'),
     }
     note = data['reviewNotes'][image]
     assert 'does not enable TLS internal' in note
