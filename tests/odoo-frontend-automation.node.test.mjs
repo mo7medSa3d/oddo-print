@@ -297,13 +297,6 @@ test("native runtime printer picker is tied to the selected Agent and Odoo branc
   assert.equal(view.destinationType, "report");
   assert.equal(view.reportId, 60);
   assert.equal(view.scopeKey(10, 21, "agent-123"), "10|21|agent-123|report|60|invoice");
-
-  const fallbackView = Object.create(RuntimePrinterField.prototype);
-  fallbackView.props = { name: "printer_id", record: { data: {
-    company_id: [10, "Company"], branch_id: false, agent_id: [42, "Agent 42"],
-    runtime_agent_id: false, destination_type: "pos", printer_id: false,
-  } } };
-  assert.equal(fallbackView.agentId, 42);
 });
 
 test("Odoo 19 binding-only Agent field loads printer_id while generic Branch Devices remains valid", async () => {

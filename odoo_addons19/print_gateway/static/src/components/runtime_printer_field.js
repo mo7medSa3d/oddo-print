@@ -105,7 +105,7 @@ export class RuntimePrinterField extends Component {
     }
 
     get agentId() {
-        return this.props.record?.data?.runtime_agent_id || relationalId(this.props.record?.data?.agent_id) || false;
+        return this.props.record?.data?.runtime_agent_id || false;
     }
 
     get reportId() {
