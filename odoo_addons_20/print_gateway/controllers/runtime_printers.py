@@ -132,11 +132,15 @@ class PrintGatewayRuntimePrinterController(http.Controller):
             if not company or company not in env.companies:
                 raise Forbidden(env._("Access Denied: The active Odoo Company is not available to the current user."))
 
+        user_companies = getattr(getattr(env, "user", None), "company_ids", None)
         branch = False
         if branch_id is not None and branch_id is not False:
             record_id = exact_record_id(branch_id, env._("Access Denied: Invalid Odoo Branch."))
             branch = env["res.company"].browse(record_id).exists()
-            if not branch or branch not in env.companies:
+            allowed_by_user = user_companies is None or branch in user_companies
+            if not branch or not allowed_by_user or (
+                branch not in env.companies and branch.parent_id not in env.companies
+            ):
                 raise Forbidden(env._("Access Denied: The selected Odoo Branch is not available to the current user."))
 
         # A branch's parent is metadata; authority comes from the exact allowed branch.
