@@ -1,10 +1,13 @@
 package license
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -457,5 +460,37 @@ func TestVerifyBundleRejectsNonPositiveV2RevAndGraceBeforeExpiry(t *testing.T) {
 	graceBeforeExp.GraceUntil = "2026-11-30T00:00:00Z"
 	if _, _, err := VerifyBundle(signTestBundle(t, priv, graceBeforeExp), pub, "db-uuid-123", now); !errors.Is(err, ErrInvalidBundle) {
 		t.Fatalf("expected ErrInvalidBundle when grace_until < expires_at, got %v", err)
+	}
+}
+
+func TestDecodePublicKeyB64AcceptsRawSPKIAndPEM(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	spkiDER, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey: %v", err)
+	}
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: spkiDER})
+
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "raw32", raw: base64.StdEncoding.EncodeToString(pub)},
+		{name: "spkiDER", raw: base64.StdEncoding.EncodeToString(spkiDER)},
+		{name: "pem", raw: string(pemBlock)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, decErr := DecodePublicKeyB64(tc.raw)
+			if decErr != nil {
+				t.Fatalf("DecodePublicKeyB64(%s) unexpected error: %v", tc.name, decErr)
+			}
+			if !bytes.Equal(got, pub) {
+				t.Fatalf("DecodePublicKeyB64(%s) mismatch", tc.name)
+			}
+		})
 	}
 }

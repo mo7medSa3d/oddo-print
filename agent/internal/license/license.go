@@ -3,8 +3,10 @@ package license
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -179,11 +181,27 @@ func canonicalPayloadBytes(c Claims) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
-// DecodePublicKeyB64 decodes an Ed25519 public key from standard or URL-safe base64.
+// DecodePublicKeyB64 decodes an Ed25519 public key from raw 32-byte base64,
+// X.509 SPKI DER base64 (44 bytes), or PEM PUBLIC KEY.
 func DecodePublicKeyB64(raw string) (ed25519.PublicKey, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return nil, fmt.Errorf("%w: empty public key", ErrInvalidBundle)
+	}
+	if strings.HasPrefix(s, "-----BEGIN") {
+		block, _ := pem.Decode([]byte(s))
+		if block == nil {
+			return nil, fmt.Errorf("%w: invalid PEM public key", ErrInvalidBundle)
+		}
+		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid PEM public key: %v", ErrInvalidBundle, err)
+		}
+		pub, ok := parsed.(ed25519.PublicKey)
+		if !ok || len(pub) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("%w: PEM public key is not Ed25519", ErrInvalidBundle)
+		}
+		return pub, nil
 	}
 	var pubBytes []byte
 	var err error
@@ -201,10 +219,15 @@ func DecodePublicKeyB64(raw string) (ed25519.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid public key encoding", ErrInvalidBundle)
 	}
-	if len(pubBytes) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("%w: invalid public key length (%d)", ErrInvalidBundle, len(pubBytes))
+	if len(pubBytes) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(pubBytes), nil
 	}
-	return ed25519.PublicKey(pubBytes), nil
+	if parsed, parseErr := x509.ParsePKIXPublicKey(pubBytes); parseErr == nil {
+		if pub, ok := parsed.(ed25519.PublicKey); ok && len(pub) == ed25519.PublicKeySize {
+			return pub, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: invalid public key length (%d)", ErrInvalidBundle, len(pubBytes))
 }
 
 // ResolvePublicKey returns the pinned build-time Ed25519 public key, falling back to
