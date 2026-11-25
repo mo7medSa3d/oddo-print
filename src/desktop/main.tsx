@@ -69,6 +69,12 @@ import {
   type PrinterInfo,
 } from "./lib/ipc";
 import {
+  forgetPairedOrigin,
+  pairingConfirmedFor,
+  readPersistedPairedOrigin,
+  rememberPairedOrigin,
+} from "./lib/pairing-origin";
+import {
   agentServiceState,
   deriveOutcome,
   printerAgentView,
@@ -187,7 +193,9 @@ export default function App() {
   const gatewayConnectivityRef = useRef<GatewayConnectivityEvidence>(emptyGatewayConnectivityEvidence());
   const configurationFlight = useRef(false);
   const [pairCode, setPairCode] = useState("");
-  const [pairedOrigin, setPairedOrigin] = useState<string | null>(null);
+  // Pairing is rehydrated from the origin recorded after the last successful
+  // authenticated pairing, so a restart does not re-open the pairing step.
+  const [pairedOrigin, setPairedOrigin] = useState<string | null>(() => readPersistedPairedOrigin());
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   // Errors from checking the editable Settings draft are separate from the
@@ -250,7 +258,7 @@ export default function App() {
     setPrintersError(null); setJobsError(null);
     setJobs([]);
     setSelectedPrinter(null); setSelectedJob(null);
-    setPairedOrigin(null); setJobPrinterFilter(null);
+    forgetPairedOrigin(); setPairedOrigin(null); setJobPrinterFilter(null);
     setShowAdd(false);
   }, []);
   const savedOriginMatches = useCallback((targetUrl: string): boolean => {
@@ -647,7 +655,9 @@ export default function App() {
       setBusy(true);
       await pairAgent(pairCode.trim(), savedGatewayUrl);
       if (savedOriginRef.current !== savedGatewayUrl) return;
-      setPairedOrigin(savedGatewayUrl);
+      const pairedGatewayOrigin = normalizeGatewayUrl(savedGatewayUrl);
+      rememberPairedOrigin(pairedGatewayOrigin);
+      setPairedOrigin(pairedGatewayOrigin);
       setMsg({ text: t("desktop.app.agentPaired"), type: "success" });
       setPairCode("");
       refreshStatus();
@@ -1055,7 +1065,7 @@ export default function App() {
     gatewayChecking,
     checkHealth,
     retrySavedGateway,
-    pairingConfirmed: pairedOrigin === savedGatewayUrl && !!savedGatewayUrl,
+    pairingConfirmed: pairingConfirmedFor(pairedOrigin, savedGatewayUrl),
     pairCode,
     setPairCode,
     pair,
