@@ -6,6 +6,7 @@ import { tenants, tenantSubscriptions, users, apiKeys, odooInstallations } from 
 import { sql, eq } from "drizzle-orm";
 import { effectiveSubscriptionStatusSql } from "../../../../lib/effective-subscription-status";
 import { getCachedPlatformStats, setCachedPlatformStats } from "../../../../lib/platform-stats-cache";
+import { logicalUsageReport } from "../../../../lib/manual-usage-report";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
 
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    return await db.transaction(async (tx) => {
+    return await db.transaction(async tx => {
       // Hold verified owner, family and password-version shared locks throughout
       // the cached or fresh snapshot. A preflight token is never enough.
       await requirePlatformReadAuthorityInTransaction(tx, actor);
@@ -120,9 +121,17 @@ export async function GET(req: Request) {
         },
       };
 
-      setCachedPlatformStats(responseBody);
+      const logicalUsage = await logicalUsageReport(null, tx);
 
-      return NextResponse.json(responseBody, {
+      const fullResponseBody = {
+        ...responseBody,
+        jobs24h: logicalUsage.jobs24h,
+        logicalUsage,
+      };
+
+      setCachedPlatformStats(fullResponseBody);
+
+      return NextResponse.json(fullResponseBody, {
         headers: { "X-Cache": "MISS", "Cache-Control": "private, no-store" },
       });
     });
