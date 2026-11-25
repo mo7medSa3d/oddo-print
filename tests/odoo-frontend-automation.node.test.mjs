@@ -271,6 +271,17 @@ test("native print route switches Agent without retaining a printer from another
   assert.equal(view.scopeKey(10, 21, true), "10|21|1");
   view.onChange({ target: { value: "agent-new" } });
   assert.deepEqual({ ...updates[0] }, { runtime_agent_id: "agent-new", printer_id: false });
+
+  const m2oUpdates = [];
+  const m2oView = Object.create(RuntimeAgentField.prototype);
+  m2oView.props = { name: "agent_id", record: {
+    data: { company_id: [10, "Company"], branch_id: false, agent_id: false, printer_id: "printer-old" },
+    fields: { agent_id: { type: "many2one" }, printer_id: { type: "char" } },
+    update: value => m2oUpdates.push(value),
+  } };
+  m2oView.state = { agents: [{ id: "agt_1", recordId: 7, name: "POS PC" }] };
+  m2oView.onChange({ target: { value: "agt_1" } });
+  assert.deepEqual(JSON.parse(JSON.stringify(m2oUpdates[0])), { agent_id: { id: 7, display_name: "POS PC" }, printer_id: false });
 });
 
 test("native runtime printer picker is tied to the selected Agent and Odoo branch", async () => {
@@ -286,6 +297,13 @@ test("native runtime printer picker is tied to the selected Agent and Odoo branc
   assert.equal(view.destinationType, "report");
   assert.equal(view.reportId, 60);
   assert.equal(view.scopeKey(10, 21, "agent-123"), "10|21|agent-123|report|60|invoice");
+
+  const fallbackView = Object.create(RuntimePrinterField.prototype);
+  fallbackView.props = { name: "printer_id", record: { data: {
+    company_id: [10, "Company"], branch_id: false, agent_id: [42, "Agent 42"],
+    runtime_agent_id: false, destination_type: "pos", printer_id: false,
+  } } };
+  assert.equal(fallbackView.agentId, 42);
 });
 
 test("Odoo 19 binding-only Agent field loads printer_id while generic Branch Devices remains valid", async () => {

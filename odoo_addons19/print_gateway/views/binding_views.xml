@@ -92,6 +92,7 @@
                     </notebook>
 
                     <field name="effective_company_id" invisible="1"/>
+                    <field name="runtime_agent_id" invisible="1"/>
                     <field name="destination_ref" invisible="1"/>
                 </sheet>
             </form>

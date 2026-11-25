@@ -422,6 +422,7 @@ class PrintGatewayBinding(models.Model):
     @api.onchange("agent_id")
     def _onchange_agent_id(self):
         for record in self:
+            record.runtime_agent_id = record.agent_id.agent_uid if record.agent_id else False
             record.printer_id = False
             record.printer_name = False
 

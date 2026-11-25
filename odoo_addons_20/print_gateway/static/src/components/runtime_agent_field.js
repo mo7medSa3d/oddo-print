@@ -203,7 +203,7 @@ export class RuntimeAgentField extends Component {
             if (result?.selectedAgentId && !props.readonly && !props.record?.data?.[props.name]) {
                 const match = this.state.agents.find((a) => a.id === result.selectedAgentId);
                 if (match) {
-                    const value = this.isMany2one ? (match.recordId ? [match.recordId, match.name] : false) : match.id;
+                    const value = this.isMany2one ? (match.recordId ? { id: match.recordId, display_name: match.name } : false) : match.id;
                     if (value) {
                         props.record?.update?.({ [props.name]: value });
                     }
@@ -225,7 +225,7 @@ export class RuntimeAgentField extends Component {
         let nextValue = nextAgentUid;
         if (this.isMany2one) {
             const match = nextAgentUid ? this.state.agents.find((a) => a.id === nextAgentUid) : null;
-            nextValue = match && match.recordId ? [match.recordId, match.name] : false;
+            nextValue = match && match.recordId ? { id: match.recordId, display_name: match.name } : false;
         }
         const updateData = { [this.props.name]: nextValue };
         // Agent and printer are a coupled runtime target. Clear the printer

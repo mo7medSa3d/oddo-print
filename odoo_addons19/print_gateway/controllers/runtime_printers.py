@@ -224,9 +224,14 @@ class PrintGatewayRuntimePrinterController(http.Controller):
         self._apply_security_headers()
         self._require_runtime_admin()
         company, branch = self._scope(company_id, branch_id)
-        if not isinstance(agent_id, str) or not is_exact_agent_uid(agent_id):
-            return {'enabled': True, 'selectedAgentId': False, 'printers': []}
         config, root_company = self._get_config(company)
+        if isinstance(agent_id, int) and not isinstance(agent_id, bool) and agent_id > 0:
+            rec = request.env['print_gateway.agent'].sudo().search([
+                ('company_id', '=', root_company.id), ('id', '=', agent_id), ('active', '=', True),
+            ], limit=1)
+            agent_id = rec.agent_uid if rec else ''
+        if not isinstance(agent_id, str) or not is_exact_agent_uid(agent_id):
+            return {'enabled': bool(config.enabled) if config else True, 'selectedAgentId': False, 'printers': []}
         if not config:
             return {'enabled': False, 'selectedAgentId': False, 'printers': []}
         allowed_agent_ids = self._assigned_runtime_agent_ids(root_company, branch)

@@ -301,7 +301,7 @@ def test_agent_registration_pairing_uses_database_clock():
     assert "pairing_expires_at = fields.Datetime" in agent_model
     assert "pairing_code_hash = fields.Char" in agent_model
     assert '@http.route(["/print_gateway/agent/register", "/api/agent/register"]' in register
-    assert "pairing_expires_at >= clock_timestamp()" in register
+    assert "pairing_expires_at >= (clock_timestamp() AT TIME ZONE 'UTC')" in register
     assert "FOR UPDATE" in register
     assert "pairing_code_hash = NULL" in register
     assert "datetime.now(" not in register

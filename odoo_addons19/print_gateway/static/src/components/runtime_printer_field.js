@@ -105,7 +105,7 @@ export class RuntimePrinterField extends Component {
     }
 
     get agentId() {
-        return this.props.record?.data?.runtime_agent_id || false;
+        return this.props.record?.data?.runtime_agent_id || relationalId(this.props.record?.data?.agent_id) || false;
     }
 
     get reportId() {
@@ -334,6 +334,7 @@ if (!registry.category("fields").contains("gateway_runtime_printer")) {
         fieldDependencies: [
             { name: "company_id", type: "many2one" },
             { name: "branch_id", type: "many2one" },
+            { name: "agent_id", type: "many2one" },
             { name: "runtime_agent_id", type: "char" },
             { name: "destination_type", type: "selection" },
             // The picker reads these record values to filter destination
